@@ -1,0 +1,17 @@
+gmsjourney
+Copyright 2026 the gmsjourney authors.
+
+This package depends on, but does not include or redistribute:
+  * knowlytix (knowlytix-core under the Knowlytix GMS EULA; knowlytix-knowledge, -harness,
+    -benchmark, -kal under Apache-2.0), installed from PyPI by the user with their own
+    runtime licence. It is used only through its public APIs.
+  * proofloop and forgeloop (Apache-2.0), from PyPI.
+
+It includes material from beyond-ship-and-pray (https://github.com/knowlytix/beyond-ship-and-pray),
+Copyright 2026 Knowlytix, Apache License 2.0:
+  * gmsjourney/catalogs/official/{base_catalog,factor_catalog,profiles}.yaml — verbatim copies
+    (fallback when proofloop is not installed; sha256 recorded in PROVENANCE.md);
+  * gmsjourney/design/doe.py: balanced_design / coverage_report — adapted from
+    proofloop/evaluation/doe.py;
+  * gmsjourney/governance/gates.py: INJECTION_PATTERNS — from forgeloop/governance/policies.py;
+  * the catalog validation rules in gmsjourney/catalog.py — from code/scripts/validate_catalogs.py.

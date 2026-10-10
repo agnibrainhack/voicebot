@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gmsjourney"
+version = "0.2.0"
+description = "GMS-grounded journey testing for a charge-review voice bot (method of 'Beyond Ship and Pray'), on knowlytix + proofloop + forgeloop"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "scipy>=1.10", "pandas>=1.5", "pyyaml>=6.0"]
+
+[project.optional-dependencies]
+# The GMS backend. knowlytix-core ships CPython 3.12 wheels only and needs a runtime licence
+# (KNOWLYTIX_LICENSE_KEY); proofloop / forgeloop are Apache-2.0.
+knowlytix = ["knowlytix==1.5.0", "proofloop>=0.1.5", "forgeloop>=0.1.4"]
+test = ["pytest"]
+
+[tool.setuptools.packages.find]
+include = ["gmsjourney*"]
+
+[tool.setuptools.package-data]
+gmsjourney = ["policy/*.md", "catalogs/*.yaml", "catalogs/official/*.yaml", "catalogs/official/*.md"]

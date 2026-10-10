@@ -1,0 +1,5 @@
+# Python 3.12 only (knowlytix-core is a cp312 wheel). Runtime licence: KNOWLYTIX_LICENSE_KEY.
+-r requirements.txt
+knowlytix==1.5.0
+proofloop>=0.1.5
+forgeloop>=0.1.4
