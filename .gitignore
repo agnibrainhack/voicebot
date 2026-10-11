@@ -15,6 +15,21 @@ campaign_out/
 # Licence material — never committed
 .knowlytix/
 
+# Old-version backup dump inside bases/ (byte-identical to git history) — keep on disk, out of repo.
+# The real bases package (__init__.py, journey.py, kb.py) stays tracked.
+gmsjourney/bases/backend.py
+gmsjourney/bases/enrich/
+gmsjourney/bases/export_dataset.py
+gmsjourney/bases/governance/
+gmsjourney/bases/inspect_cases.py
+gmsjourney/bases/knowledge/
+gmsjourney/bases/ontology.py
+gmsjourney/bases/pipeline.py
+gmsjourney/bases/policy/
+gmsjourney/bases/report.py
+gmsjourney/bases/reuse/
+gmsjourney/bases/sut/
+
 # OS / editor
 .DS_Store
 Thumbs.db
