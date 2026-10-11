@@ -10,7 +10,7 @@ journey oracle, covering-array bases, the realiser/reader and invariance proof, 
 reference bot and its mutants. Without knowlytix, the same pipeline runs on a built-in open baseline.
 
 ```
-policy (PDF -> structured markdown)
+policy PDF -> policy graph JSON (head/relation/tail + dialog states + per-state policy; policy/charge_review_kg.json)
    -> GMS [knowlytix]: GEODE loop -> embed loop (v SFT) -> contradiction SFT (u) -> cap-trained store -> GMSJudge calibration
    -> base cases: 27 policy questions (knowlytix's two-way generator gate, else a stated symbolic check) + 54 journeys (covering array + closure)
    -> enrichment: official catalogs [proofloop] + application layer, 16 voice factors, phi_p design, 486 scenarios
@@ -19,7 +19,33 @@ policy (PDF -> structured markdown)
    -> run the bot under the runtime monitor; KB answers also judged by GMSJudge [knowlytix via proofloop]
    -> diagnosis: DOEAnalyzer [knowlytix] + per component / weak link, resilience, mutation analysis
    -> training corpora [proofloop emitters]
+   -> exports: gms_canonicals.json (canonicals as the trained GMS holds them) + dataset/*.csv (every test case)
 ```
+
+## The policy graph (the source every step reads)
+
+`gmsjourney/policy/charge_review_kg.json` is the operating procedure as 720 head / relation / tail triples. Each one
+names its PDF section (`pdf.2C`, ...) and carries an evidence quote that is a verbatim substring of that section;
+`program` marks the two limits from the business brief and `lexicon` the curated customer synonyms (not in the PDF).
+
+| kind | what it holds | example |
+|---|---|---|
+| trajectory | the tool workflow and the dialog-state machine | `ASK_AUTH leads_to PRESENT_TXN` (on PROVIDE_CREDENTIAL, when AUTHENTICATED and transactions returned, R3/R6, W3) |
+| state | what holds in each of the 19 dialog states | `PRESENT_TXN accepts_act INFORM_DISPOSITION`, `PRESENT_TXN applies_rule R30`, `PRESENT_TXN limited_by lookback_days`, `PRESENT_TXN interprets_yes_as RECOGNIZED` |
+| policy | rules, limits, delivery options, tools, escalation triggers, knowledge base, required opening | `R27 has_stance must_not`, `max_turns has_value 20` |
+| vocabulary | value sets, aliases, dialog acts and their slots | `UNRECOGNIZED has_alias "not me"`, `INFORM_DISPOSITION has_slot delivery` (values from `delivery`) |
+| domain | the domain model | `customer has_session review_session` |
+
+Rebuild it after changing the transcription or the state layer:
+`python -m gmsjourney.knowledge.policy_kg build --pdf fictional_poc_operating_procedure_gpt_readable.pdf`
+(`check` validates a file). `PolicyKG.load()` is the read API; the GMS is trained on the graph, state layer
+included, and the campaign checks that the trained store carries every fact (`report.json: policy_kg.consistency`).
+
+**State-aware meaning cards.** Every customer turn is read in the dialog state it answers. The ontology resolves
+slot values inside the slot's value set, reads a bare "yes"/"no" the way the state reads it (RECOGNIZED /
+UNRECOGNIZED after "do you recognise this charge?", CONFIRM / DENY after "shall I go ahead?", END after "anything
+else?"), treats a 4-digit number as a credential only where the state asks for one, and rejects a card the state
+does not accept. The invariance proof compares (state, card) sequences.
 
 ## Quick start
 
@@ -29,7 +55,7 @@ python3.12 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-knowlytix.txt
 export KNOWLYTIX_LICENSE_KEY=...            # or put it in ~/.knowlytix/license.key; never committed, never logged
 python run_campaign.py --out campaign_out   # first run builds the GMS (CPU: ~10-45 min), later runs reload it (~2.5 min)
-python tests/test_selfchecks.py             # 16 self-checks (the knowlytix one runs when GMSJOURNEY_KX_STORE is set)
+python tests/test_selfchecks.py             # 19 self-checks (the knowlytix one runs when GMSJOURNEY_KX_STORE is set)
 
 # open baseline, any Python >= 3.10, no licence
 pip install -r requirements.txt && python run_campaign.py --backend builtin --out campaign_builtin
@@ -127,13 +153,21 @@ runtime monitor wraps the same tool client, so the gates watch your bot exactly 
 | `failures.jsonl`, `scenarios.jsonl` | failed runs with transcripts; every scenario with its proof |
 | `sft_classifier.jsonl`, `sft_draft.jsonl` | proofloop-schema training corpora |
 | `ontology.ttl`, `store_graph.dot` | journey ontology + invariance evidence; store subgraph (Graphviz) |
+| `policy_kg.json` | the policy graph the run was built from |
+| `gms_canonicals.json` | canonical values, aliases and how the trained GMS binds them, exact numbers, states, acts, every trained fact with its score and cut |
+| `dataset/test_cases.csv` | one row per test case (81 base + 486 enriched): category, policy question, canonicals, meaning cards, base case, enrichment, enriched output, expected outcome, complete trajectory, proof verdict |
+| `dataset/test_turns.csv` | one row per customer turn: state, stage, the state's rules/limits/accepted cards, meaning card and its H/R/T, base and enriched text, read-back card, equivalence |
+| `dataset/policy_questions.csv`, `dataset/test_cases.jsonl` | the 27 policy questions; the cases with nested structure |
 
 ## Layout
 
 ```
 gmsjourney/
   backend.py         knowlytix availability, licence from env, encoder resolution (HF or offline stand-in)
-  knowledge/         kx_store (knowlytix build/load + facade), kx_view (GEODE input), ingest/geode/store/training (open baseline)
+  knowledge/         policy_kg (the policy graph: build, load, validate), kx_store (knowlytix build/load + facade),
+                     kx_view (GEODE input), canonicals (export), ingest/geode/store/training (open baseline)
+  export_dataset.py  dataset/*.csv
+  policy/            charge_review_kg.json (source), charge_review_policy.md (structured transcription of the PDF)
   reuse/             adapters: DOEAnalyzer, GMSJudge, forgeloop gates/audit, proofloop emitters/taxonomy
   catalogs/          application.yaml (+ level_aliases), custom_factors.yaml, official/ (fallback copy)
   governance/        gates (policy, speech, GMS), monitor, audit, calibrate (Appendix C)

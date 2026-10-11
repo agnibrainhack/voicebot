@@ -113,10 +113,12 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, epochs: in
     timings: dict[str, float] = {}
 
     # 0. compile the policy (symbolic facts + the GMS view GEODE ingests)
+    from .policy_kg import resolve_policy
     compiled = build_store(policy_path, train=False)
     view = store_dir / "policy.gms.md"
     view.write_text(render_gms_markdown(compiled.store))
-    corpus = Path(policy_path).read_text().splitlines() + view.read_text().splitlines()
+    md_path, _ = resolve_policy(policy_path)
+    corpus = Path(md_path).read_text().splitlines() + view.read_text().splitlines()
     for rel, ph in _attribute_phrasings().items():
         corpus += ph
     enc = backend.resolve_encoders(corpus, encoder_mode)

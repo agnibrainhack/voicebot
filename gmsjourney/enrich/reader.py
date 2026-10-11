@@ -113,6 +113,7 @@ class FrameReader:
             dollars costs less which where option thats whats lookback tries wrong cost total
             business quickly sooner money verify doesnt compared extra number versus going through""".split())
         self.domain_vocab = {w for w in vocab if len(w) >= 4}
+        self.kg = getattr(store, "kg", None)                 # policy graph: dialog states
         vocab.update(COMMON_WORDS)
         vocab.update(w for w in NUMBER_WORDS.values() if len(w) >= 4)
         self.vocab = {w for w in vocab if len(w) >= 4}
@@ -230,14 +231,26 @@ class FrameReader:
         return {"disposition": n_disp, "delivery": n_deliv}
 
     # ------------------------------------------------------------ read
-    def read(self, text: str) -> F:
+    def read(self, text: str, state: str | None = None) -> F:
+        """Text -> meaning card. With the dialog state (policy graph attached), a 4-digit
+        number is read as a credential first only where the state asks for one; elsewhere
+        the other cues win and the number is a credential only if nothing else is said.
+        (How a bare yes/no is read in the state is the ontology's job: Ontology.canonicalize.)"""
         cl = self.clauses(text)
         joined = " | ".join(c for c, _ in cl)
         if re.search(HUMAN, joined):
             return F.make("REQUEST_HUMAN")
         codes = re.findall(r"(?<![\d.$])\b(\d{4})\b(?!\.\d)", joined)
-        if codes:
+        credential_state = (self.kg is None or state is None or state not in self.kg.prompt_states
+                            or self.kg.accepts(state, "PROVIDE_CREDENTIAL"))
+        if codes and credential_state:
             return F.make("PROVIDE_CREDENTIAL", credential=codes[-1])
+        f = self._read_rest(cl, joined)
+        if codes and f.act == "UNCLEAR":
+            return F.make("PROVIDE_CREDENTIAL", credential=codes[-1])
+        return f
+
+    def _read_rest(self, cl, joined: str) -> F:
         for c, q in cl:
             if q or QWORD.search(c):
                 kb = self._kb(c)

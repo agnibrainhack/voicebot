@@ -37,8 +37,15 @@ def pick(bases, scenarios, base: str | int = 0, variant: int = 0):
 
 
 # ----------------------------------------------------------------------------- canonical
-def _canon(ont, frame) -> str:
-    return ont.canonicalize(frame).canonical() if frame is not None else "(unreadable)"
+def _canon(ont, frame, state=None) -> str:
+    """The state-aware canonical meaning card, as compact JSON."""
+    if frame is None:
+        return "(unreadable)"
+    c = ont.card(frame, state)
+    out = {"act": c["act"], "slots": c["slots"]}
+    if not c.get("admissible", True):
+        out["not_admissible"] = c.get("why_not")
+    return json.dumps(out, sort_keys=True)
 
 
 def compare_case(validator, scenario, turn: int | None = None, proof=None) -> pd.DataFrame:
@@ -51,8 +58,8 @@ def compare_case(validator, scenario, turn: int | None = None, proof=None) -> pd
             continue
         rows.append({"turn": t["turn"], "state": t.get("state"),
                      "seed_text": t["base_text"], "enriched_text": t["enriched_text"],
-                     "seed_canonical": _canon(ont, t["frame_obj"]),
-                     "enriched_canonical": _canon(ont, t.get("read_obj")),
+                     "seed_canonical": _canon(ont, t["frame_obj"], t.get("state")),
+                     "enriched_canonical": _canon(ont, t.get("read_obj"), t.get("state")),
                      "same_meaning": t["equivalent"], "surface_cosine": round(t["surface_cosine"], 3)})
     return pd.DataFrame(rows)
 
@@ -68,10 +75,11 @@ def _values(v) -> list:
 
 
 def frame_hrt(frame, ont, head: str, state: str | None = None) -> list[tuple[str, str, Any]]:
-    """A customer turn as triples: (turn, in_state, state), (turn, has_act, act), (turn, has_<slot>, value)."""
+    """A customer turn as triples: (turn, in_state, state), (turn, has_act, act), (turn, has_<slot>, value).
+    The card is canonicalised in its dialog state (a bare yes/no read the way the state reads it)."""
     if frame is None:
         return [(head, "has_act", "(unreadable)")]
-    f = ont.canonicalize(frame)
+    f = ont.canonicalize(frame, state)
     out = [(head, "in_state", state)] if state else []
     out.append((head, "has_act", f.act))
     for k, v in f.slots:
@@ -116,6 +124,15 @@ def case_hrt(validator, scenario, turn: int | None = None, grounding: bool = Fal
             wide_rows.append({"turn": i, "state": st, "seed_head": f"{seed_id}/t{i}", "relation": r,
                               "seed_tail": ", ".join(a) or "-", "enriched_head": f"{enr_id}/t{i}",
                               "enriched_tail": ", ".join(b) or "-", "match": a == b})
+        if grounding and st and getattr(ont, "kg", None) is not None:
+            kg = ont.kg                                   # the policy that holds in this state
+            for rel, vals in (("in_stage", [kg.stage(st)]), ("applies_rule", kg.rules_for(st)),
+                              ("limited_by", [f"{k}={kg.limit(k)}" for k in kg.limits_for(st)]),
+                              ("accepts_act", kg.accepted_acts(st))):
+                row = {"turn": i, "state": st, "head": st, "relation": rel, "tail": ", ".join(map(str, vals))}
+                long_rows.append({"case": "state policy", **row})
+                wide_rows.append({"turn": i, "state": st, "seed_head": st, "relation": rel, "seed_tail": row["tail"],
+                                  "enriched_head": st, "enriched_tail": row["tail"], "match": "state policy"})
         if grounding:
             for _, r, x in seed:
                 if r in ("in_state", "has_act"):

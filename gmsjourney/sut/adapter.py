@@ -136,16 +136,17 @@ class JourneyRunner:
             att = overrides.get(i, 0) if pinned else 0
             seed = f"{scn.sid}|{i}" + (f"#{att}" if att else "")
             text = self.realizer.realize(frame, scn.factor_levels, seed, ctx)
-            read = self.reader.read(text)
-            if not self.ont.equivalent(frame, read):
-                violations.append({"turn": i, "frame": str(frame), "text": text, "read": str(read)})
+            st = act.get("act")                      # the dialog state this turn answers
+            read = self.reader.read(text, st)
+            if not self.ont.equivalent(frame, read, st):
+                violations.append({"turn": i, "state": st, "frame": str(frame), "text": text, "read": str(read)})
             tr.turns += 1
             tr.user_frames.append(frame)
             tr.events.append({"role": "user", "frame": frame, "text": text})
-            transcript.append({"role": "user", "text": text, "frame": str(frame)})
+            transcript.append({"role": "user", "text": text, "frame": str(frame), "state": st})
             last_kb = frame if frame.act == "ASK_KB" else None
             if monitor is not None:
-                monitor.on_user(text)
+                monitor.on_user(text, st)
             n0 = len(env.log)
             turn = bot.respond(text)
             for c in env.log[n0:]:          # tool calls caused by this user turn, in order

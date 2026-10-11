@@ -13,7 +13,7 @@ from gmsjourney.pipeline import CampaignConfig, run_campaign
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--policy", default=None, help="policy markdown (default: the bundled charge-review policy)")
+    ap.add_argument("--policy", default=None, help="policy graph JSON or structured policy markdown (default: gmsjourney/policy/charge_review_kg.json)")
     ap.add_argument("--out", default="campaign_out")
     ap.add_argument("--profile", default="voice_full")
     ap.add_argument("--runs-per-base", type=int, default=6)

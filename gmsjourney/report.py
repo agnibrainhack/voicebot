@@ -129,6 +129,16 @@ def render_html(R: dict[str, Any]) -> str:
 
     # 1 store
     parts.append("<h2>1. Knowledge store (oracle)</h2>")
+    pk = R.get("policy_kg")
+    if pk:
+        cons = pk.get("consistency", {})
+        parts.append(f"<p>Source: the policy graph <code>policy_kg.json</code> — {pk['triples']} head/relation/tail "
+                     f"triples from <i>{esc(pk['document'])}</i> ({esc(pk['by_kind'])}), {pk['states']} dialog states "
+                     f"({pk['prompt_states']} answered by the customer), {pk['transitions']} state transitions, "
+                     f"{pk['rules']} rules; every triple quotes its source section verbatim. The GMS is trained on "
+                     f"{pk['gms_triples']} of them, state layer included. Trained store carries every fact of the graph: "
+                     f"<span class='{'ok' if cons.get('all_agree') else 'bad'}'>{'yes' if cons.get('all_agree') else 'no'}"
+                     f"</span>.</p>")
     ex = st["primitive_examples"]
     bk = R.get("backend", {})
     if bk.get("selected") == "knowlytix":
@@ -247,6 +257,14 @@ def render_html(R: dict[str, Any]) -> str:
                  f"<b>{s['signatures_equal']}/{s['scenarios']}</b>. Maximum ontological distance among accepted "
                  f"scenarios: <b>{s['max_frame_distance_accepted']:.2f}</b>. Mean surface cosine to the base wording "
                  f"{s['surface_cosine_mean']:.2f} (min {s['surface_cosine_min']:.2f}): the wording moved, the meaning did not.</p>")
+    sm = R.get("state_mapping", {})
+    if sm.get("policy_graph"):
+        parts.append("<p>Each turn is read in the dialog state it answers (state-aware ontology mapping: a bare yes/no "
+                     "is read the way the state reads it; a card must be admissible in its state).</p><div class='card'>"
+                     + table(["state", "accepts", "turns", "same meaning", "admissible"],
+                             [[esc(k), esc(", ".join(sm["accepted_acts"].get(k, []))), v["turns"],
+                               pct(v["equivalent"] / max(1, v["turns"])), pct(v["admissible"] / max(1, v["turns"]))]
+                              for k, v in sm["states"].items()], {2, 3, 4}) + "</div>")
     parts.append("<h3>Negative controls: meaning-changing edits must be rejected</h3><div class='card'>" + table(
         ["edit", "n", "rejected", "mean ontological distance", "changes the expected bot behaviour"],
         [[esc(k), v["n"], f"<span class='{'ok' if v['detection_rate'] == 1 else 'warn'}'>{pct(v['detection_rate'])}</span>",
@@ -405,7 +423,21 @@ def render_html(R: dict[str, Any]) -> str:
               esc(", ".join(r["mutants_killed"]) or "–"), esc(", ".join(r["mutants_flagged_at_runtime"]) or "–")] for r in fm]) + "</div>")
 
     # 8 failures
-    parts.append("<h2>11. Reading the failures</h2><p>Every failed run is written to <code>failures.jsonl</code> "
+    ds, cn = R.get("dataset"), R.get("canonicals")
+    if ds or cn:
+        parts.append("<h2>11. Exports</h2><div class='card'>" + table(["file", "content"], [
+            ["<code>policy_kg.json</code>", "the policy graph this run was built from"],
+            ["<code>gms_canonicals.json</code>", esc(f"{cn['entities']} entities, {cn['value_sets']} value sets, "
+                                                    f"{cn['numbers']} exact numbers, {cn['states']} states, {cn['facts']} "
+                                                    f"trained facts ({pct(cn['facts_inside_cut'])} inside their cut); "
+                                                    f"alias bindings agreeing with the graph {pct(cn['alias_agreement'])}")
+             if cn else "–"],
+            ["<code>dataset/test_cases.csv</code>", esc(f"{ds['test_cases']} cases ({ds['base_cases']} base, "
+                                                       f"{ds['enriched_cases']} enriched)") if ds else "–"],
+            ["<code>dataset/test_turns.csv</code>", esc(f"{ds['turn_rows']} customer turns") if ds else "–"],
+            ["<code>dataset/policy_questions.csv</code>", esc(f"{ds['policy_questions']} policy questions") if ds else "–"],
+        ]) + "</div>")
+    parts.append("<h2>12. Reading the failures</h2><p>Every failed run is written to <code>failures.jsonl</code> "
                  "with its transcript; <code>results_enriched.csv</code> holds one row per scenario.</p>")
     parts.append("</main></body></html>")
     return "".join(parts)

@@ -133,6 +133,7 @@ class GMSStore:
         self.entity_types = entity_types
         self.kb_sentences = kb_sentences
         self.required_language = required_language
+        self.kg = None                                     # the policy graph (knowledge/policy_kg.py)
         self.v = v_encoder or HashingEncoder(salt="v")
         self.u = u_encoder or HashingEncoder(salt="u")
         self.R: dict[str, np.ndarray] = {}

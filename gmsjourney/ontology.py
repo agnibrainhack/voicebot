@@ -111,10 +111,15 @@ def _thaw(v: Any) -> Any:
     return v
 
 
-def sequence_signature(frames: Iterable[SemanticFrame]) -> str:
-    """Ontological signature of a whole conversation (order-sensitive)."""
+def sequence_signature(frames: Iterable[SemanticFrame], states: Iterable[str | None] | None = None) -> str:
+    """Ontological signature of a whole conversation (order-sensitive). With `states`, each
+    meaning card is hashed together with the dialog state it answers."""
     h = hashlib.sha256()
-    for f in frames:
+    frames = list(frames)
+    states = list(states) if states is not None else [None] * len(frames)
+    for f, st in zip(frames, states):
+        if st is not None:
+            h.update(st.encode() + b"\x1f")
         h.update(f.canonical().encode())
         h.update(b"\x1e")
     return h.hexdigest()[:20]
@@ -123,9 +128,26 @@ def sequence_signature(frames: Iterable[SemanticFrame]) -> str:
 # ---------------------------------------------------------------- ontology
 @dataclass
 class Ontology:
+    """Maps meaning cards to canonical form, taking the dialog state into account.
+
+    With the policy graph attached to the store (``store.kg``, knowledge/policy_kg.py):
+
+    * slot values are canonicalised within the value set *that slot* draws from
+      (``INFORM_DISPOSITION.delivery`` resolves "regular" in ``delivery`` only);
+    * a bare yes / no is read the way the state reads it (``interprets_yes_as`` /
+      ``interprets_no_as``): "yes" answers "do you recognise this charge?" with
+      RECOGNIZED in PRESENT_TXN, but confirms the action in CONFIRM_ACTION, and "no"
+      ends the call in ASK_MORE_HELP;
+    * a card is admissible in a state only if the state accepts its act, every slot is
+      declared for the act and every value belongs to the slot's value set;
+    * equivalence = same canonical card in the same state, and admissible there.
+
+    Without a state (or without the graph) the mapping is the state-free one."""
     store: Any
     individuals: dict[str, str] = field(default_factory=dict)   # name -> class
     alias_to_canon: dict[str, str] = field(default_factory=dict)
+    kg: Any = None
+    set_alias: dict[str, dict[str, str]] = field(default_factory=dict)   # value set -> alias -> canonical
 
     @classmethod
     def from_store(cls, store) -> "Ontology":
@@ -135,7 +157,9 @@ class Ontology:
                    "tool": "Tool", "rule": "PolicyRule", "limit": "Limit",
                    "escalation_trigger": "EscalationTrigger", "delivery_option": "DeliveryOption",
                    "stage": "WorkflowStage", "policy": "Policy", "state": "WorkflowState",
-                   "concept": "DomainConcept"}
+                   "concept": "DomainConcept", "dialog_state": "DialogState", "dialog_act": "DialogAct",
+                   "slot": "Slot"}
+        ont.kg = getattr(store, "kg", None)
         for name, ty in store.entity_types.items():
             ont.individuals[name] = cls_map.get(ty, "Thing")
         for canon, als in store.aliases.items():
@@ -143,10 +167,67 @@ class Ontology:
                 ont.alias_to_canon[a.lower()] = canon
             ont.alias_to_canon[canon.lower()] = canon
             ont.alias_to_canon[canon.replace("_", " ").lower()] = canon
+        for vs, vals in store.value_sets.items():
+            m = ont.set_alias.setdefault(vs, {})
+            for canon in vals:
+                for a in store.aliases.get(canon, []) + [canon, canon.replace("_", " ")]:
+                    m[a.lower()] = canon
         return ont
 
-    def canon(self, value: str) -> str:
+    def canon(self, value: str, value_set: str | None = None) -> str:
+        if value_set and value_set in self.set_alias:
+            return self.set_alias[value_set].get(str(value).lower(), value)
         return self.alias_to_canon.get(str(value).lower(), value)
+
+    # ------------------------------------------------------------- state awareness
+    def slot_value_set(self, act: str, slot: str) -> str | None:
+        if self.kg is None:
+            return None
+        return self.kg.slot_schema(act).get(slot, {}).get("values_from")
+
+    def _read_in_state(self, frame: SemanticFrame, state: str | None) -> SemanticFrame:
+        """A bare yes / no means what the state asked for."""
+        if self.kg is None or not state or frame.act not in ("CONFIRM", "DENY") or frame.slots:
+            return frame
+        yes, no = self.kg.interprets(state)
+        target = yes if frame.act == "CONFIRM" else no
+        if not target or target == frame.act:
+            return frame
+        if target in self.store.value_sets.get("disposition", []):
+            return SemanticFrame.make("INFORM_DISPOSITION", disposition=target)
+        return SemanticFrame.make(target)
+
+    def admissible(self, frame: SemanticFrame, state: str | None = None) -> tuple[bool, str]:
+        """Is this meaning card a legitimate reply in this dialog state?"""
+        if self.kg is None or not state or state not in self.kg.prompt_states:
+            return True, ""
+        f = self.canonicalize(frame, state)
+        if not self.kg.accepts(state, f.act):
+            return False, f"{f.act} is not accepted in {state}"
+        schema = self.kg.slot_schema(f.act)
+        slots = dict(f.slots)
+        for k, v in slots.items():
+            if k not in schema:
+                return False, f"slot {k} is not declared for {f.act}"
+            vs = schema[k].get("values_from")
+            if isinstance(v, str) and vs in self.store.value_sets and v not in self.store.value_sets[vs]:
+                return False, f"{v} is not a member of {vs}"
+        for k, q in schema.items():
+            if q.get("required") and k not in slots:
+                return False, f"{f.act} needs slot {k}"
+        return True, ""
+
+    def card(self, frame: SemanticFrame | None, state: str | None = None) -> dict[str, Any]:
+        """The canonical meaning card: state, stage, act, canonical slots, admissibility."""
+        if frame is None:
+            return {"state": state, "act": None, "slots": {}, "admissible": False}
+        f = self.canonicalize(frame, state)
+        ok, why = self.admissible(f, state)
+        out = {"state": state, "stage": self.kg.stage(state) if (self.kg and state) else None,
+               "act": f.act, "slots": {k: _thaw(v) for k, v in f.slots}, "admissible": ok}
+        if why:
+            out["why_not"] = why
+        return out
 
     def disjoint(self, a: str, b: str) -> bool:
         for vals in self.store.value_sets.values():
@@ -154,18 +235,22 @@ class Ontology:
                 return True
         return False
 
-    def canonicalize(self, frame: SemanticFrame) -> SemanticFrame:
+    def canonicalize(self, frame: SemanticFrame, state: str | None = None) -> SemanticFrame:
+        frame = self._read_in_state(frame, state)
         slots = {}
         for k, v in frame.slots:
-            slots[k] = self.canon(v) if isinstance(v, str) else v
+            slots[k] = self.canon(v, self.slot_value_set(frame.act, k)) if isinstance(v, str) else v
         return SemanticFrame.make(frame.act, **{k: _thaw(v) for k, v in slots.items()})
 
-    def equivalent(self, a: SemanticFrame, b: SemanticFrame) -> bool:
-        return self.canonicalize(a) == self.canonicalize(b)
+    def equivalent(self, a: SemanticFrame, b: SemanticFrame, state: str | None = None) -> bool:
+        if a is None or b is None:
+            return False
+        ca, cb = self.canonicalize(a, state), self.canonicalize(b, state)
+        return ca == cb and self.admissible(cb, state)[0]
 
-    def frame_distance(self, a: SemanticFrame, b: SemanticFrame) -> float:
+    def frame_distance(self, a: SemanticFrame, b: SemanticFrame, state: str | None = None) -> float:
         """0 = same meaning; 0.5 = slot missing/extra; ~0.9-1.0 = contradiction or act change."""
-        a, b = self.canonicalize(a), self.canonicalize(b)
+        a, b = self.canonicalize(a, state), self.canonicalize(b, state)
         if a == b:
             return 0.0
         if a.act != b.act:

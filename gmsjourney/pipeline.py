@@ -48,7 +48,8 @@ from .ontology import Ontology
 from .oracle import PolicyOracle
 from .sut.adapter import JourneyRunner, make_reference_factory
 
-POLICY = Path(__file__).resolve().parent / "policy" / "charge_review_policy.md"
+POLICY = Path(__file__).resolve().parent / "policy" / "charge_review_kg.json"          # the policy graph (source)
+POLICY_MD = Path(__file__).resolve().parent / "policy" / "charge_review_policy.md"   # its structured transcription
 
 
 @dataclass
@@ -86,8 +87,10 @@ def build_gms(policy_path: str | Path = POLICY, *, backend_choice: str = "auto",
         b = build_store(policy_path)
         return b.store, b.report(), info
     from .knowledge.kx_store import build_kx_store, load_kx_store
+    # the store is keyed by everything that changes it: the policy source, the training settings,
+    # the package versions and which encoders it is warm-started from
     key = hashlib.sha256(json.dumps([Path(policy_path).read_text(), epochs, geode_epochs, seed,
-                                     info.get("versions")]).encode()).hexdigest()[:16]
+                                     info.get("versions"), backend.encoder_kind()]).encode()).hexdigest()[:16]
     sdir = Path(kx_store_dir) if kx_store_dir else backend.CACHE / "stores" / key
     if (sdir / "gms_build_report.json").exists() and (sdir / "kx" / "model.pt").exists() and not rebuild:
         log(f"[1/12] loading the knowlytix GMS store ({sdir})")
@@ -159,6 +162,11 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         },
         "calibration": {"tension": store.calibration["tension"], "holonomy_tau": store.calibration["holonomy"]["tau_path"],
                         "per_relation": store.calibration["score_triple"]}})
+    kg = getattr(store, "kg", None)
+    if kg is not None:
+        R["policy_kg"] = {**kg.summary(), "consistency": {k: v for k, v in kg.consistency(store).items()
+                                                          if k != "enm"}}
+        kg.save(out / "policy_kg.json")
     ont = Ontology.from_store(store)
     oracle = PolicyOracle(store)
 
@@ -310,6 +318,15 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     # 12 ------------------------------------------------------------- outputs
     R["failure_modes"] = _failure_modes(R)
     log("[12/12] writing outputs")
+    R["state_mapping"] = _state_mapping_summary(proofs, kg)
+    if kg is not None:
+        from .export_dataset import write_dataset
+        from .knowledge.canonicals import export_canonicals
+        canon = export_canonicals(store, kg, R.get("backend"))
+        (out / "gms_canonicals.json").write_text(json.dumps(canon, indent=1, ensure_ascii=False, default=str))
+        R["canonicals"] = canon["summary"]
+        R["dataset"] = write_dataset(out / "dataset", store=store, kg=kg, oracle=oracle, validator=validator,
+                                     bases=bases, scenarios=scenarios, proofs=proofs, kb_items=admitted)
     _write_rows(out / "results_enriched.csv", rows)
     _write_rows(out / "results_base_level.csv", base_rows)
     with open(out / "scenarios.jsonl", "w") as f:
@@ -327,6 +344,20 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     (out / "report.html").write_text(render_html(R))
     log(f"done in {R['elapsed_seconds']} s -> {out}")
     return R
+
+
+def _state_mapping_summary(proofs, kg) -> dict[str, Any]:
+    """How the state-aware mapper read every customer turn of the proof."""
+    by_state: dict[str, dict[str, int]] = {}
+    for p in proofs:
+        for t in p.turns:
+            st = t.get("state") or "-"
+            d = by_state.setdefault(st, {"turns": 0, "equivalent": 0, "admissible": 0})
+            d["turns"] += 1
+            d["equivalent"] += int(t["equivalent"])
+            d["admissible"] += int(t.get("read_card", {}).get("admissible", True))
+    return {"states": by_state, "policy_graph": kg is not None,
+            "accepted_acts": {s: kg.accepted_acts(s) for s in kg.prompt_states} if kg is not None else {}}
 
 
 def _kx_design_quality(level_specs, n_runs: int, seed: int) -> dict[str, Any]:

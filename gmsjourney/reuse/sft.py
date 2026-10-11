@@ -47,12 +47,15 @@ def classifier_corpus(proofs, reader, ontology) -> dict[str, Any]:
             label = t.get("frame")
             item = _Item(qid=f"{p.qid}#t{i}", query=label, answer=label, base="journey_turn",
                          components={"expected_classification": label})
-            scns.append(_Scn(f"{p.sid}#t{i}", item, dict(p.levels), metadata={"text": t.get("enriched_text"), "frame": t.get("frame_obj")}))
+            scns.append(_Scn(f"{p.sid}#t{i}", item, dict(p.levels),
+                             metadata={"text": t.get("enriched_text"), "frame": t.get("frame_obj"),
+                                       "state": t.get("state")}))
     recs = emit_classifier_sft(scns, materialize_fn=lambda s: s.metadata["text"])
     kept, dropped = [], []
     for r, s in zip(recs, scns):
         fr = s.metadata.get("frame")
-        ok = fr is None or ontology.equivalent(fr, reader.read(r["message"]))
+        st = s.metadata.get("state")
+        ok = fr is None or ontology.equivalent(fr, reader.read(r["message"], st), st)
         (kept if ok else dropped).append(r)
     by_seed: dict[str, set] = {}
     for r in kept:

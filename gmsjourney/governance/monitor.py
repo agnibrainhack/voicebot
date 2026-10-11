@@ -66,8 +66,13 @@ class RuntimeMonitor:
                                     "rule": r.rule, "reason": r.reason, "proposed": proposed,
                                     "turn": self.state.user_turns})
 
-    def on_user(self, text: str) -> None:
-        frame = self.reader.read(text)
+    def on_user(self, text: str, state: str | None = None) -> None:
+        frame = self.reader.read(text, state)
+        if getattr(self.store, "kg", None) is not None:
+            if not hasattr(self, "_ont"):
+                from ..ontology import Ontology
+                self._ont = Ontology.from_store(self.store)
+            frame = self._ont.canonicalize(frame, state)          # read in the state it answers
         self.state.user_frames.append(frame)
         self.state.user_turns += 1
         if getattr(frame, "act", None) == "REQUEST_HUMAN":

@@ -147,6 +147,16 @@ def build_offline_encoder(path: Path, corpus: list[str], salt: str, dim: int = 3
     return path
 
 
+def encoder_kind(mode: str | None = None) -> str:
+    """'huggingface' or 'offline-stand-in': what resolve_encoders would pick, without building anything."""
+    mode = mode or os.environ.get("GMSJOURNEY_ENCODER", "auto")
+    if mode == "offline":
+        return "offline-stand-in"
+    if (_hf_cached(HF_V) and _hf_cached(HF_U)) or _hub_reachable():
+        return "huggingface"
+    return "offline-stand-in"
+
+
 def resolve_encoders(corpus: list[str], mode: str | None = None) -> dict[str, Any]:
     """{'v': name_or_path, 'u': name_or_path, 'kind': 'huggingface' | 'offline-stand-in', 'reason': ...}"""
     mode = mode or os.environ.get("GMSJOURNEY_ENCODER", "auto")

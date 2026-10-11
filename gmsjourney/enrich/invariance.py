@@ -5,12 +5,15 @@ For each enriched scenario we check four layers, all of which must hold:
 L1  Ground-truth identity. The scenario carries its base's ground truth by
     construction; we verify it by content hash and by recomputing the oracle's
     answer for the base spec from scratch.
-L2  Ontological frame equivalence, turn by turn. Every customer turn on the
-    oracle's path is realised under the scenario's factor levels and read back by
-    the ontology-grounded FrameReader. The read frame must equal the base frame
-    after canonicalisation (alias -> canonical individual). The ontological
-    signature of the whole conversation (hash of the canonical frame sequence)
-    must therefore equal the base signature.
+L2  Ontological frame equivalence, turn by turn, in the dialog state the turn
+    answers. Every customer turn on the oracle's path is realised under the
+    scenario's factor levels and read back by the ontology-grounded FrameReader in
+    that state. The read card must equal the base card after state-aware
+    canonicalisation (alias -> canonical individual within the slot's value set; a
+    bare yes/no read the way the state reads it) and must be admissible in that state
+    (the state accepts its act; its slots and values are declared - policy graph).
+    The ontological signature of the whole conversation (hash of the state + canonical
+    card sequence) must therefore equal the base signature.
 L3  Oracle re-derivation (the functionality check of Ch. 8.1.1, applied to the
     enriched transcript). The oracle replays the *read-back* frames of the
     enriched conversation; the outcome signature and every per-stage component
@@ -104,26 +107,29 @@ class InvarianceValidator:
     def prove(self, scn: Scenario) -> ProofResult:
         item = scn.base
         path = self.base_path(item)
+        states = self._states.get(item.qid, [None] * len(path))
         turns, read_frames, overrides, retries = [], [], {}, 0
         for i, (frame, ctx) in enumerate(path):
+            st = states[i]
             base_text = self.realizer.realize(frame, {}, f"{item.qid}|{i}|base", ctx)
             ok, g, text = False, None, ""
             for attempt in range(MAX_RETRIES + 1):
                 seed = f"{scn.sid}|{i}" + (f"#{attempt}" if attempt else "")
                 text = self.realizer.realize(frame, scn.factor_levels, seed, ctx)
-                g = self.reader.read(text)
-                if self.ont.equivalent(frame, g):
+                g = self.reader.read(text, st)
+                if self.ont.equivalent(frame, g, st):
                     ok = True
                     break
             if attempt:
                 overrides[i] = attempt
                 retries += attempt
-            read_frames.append(g)
-            turns.append({"turn": i, "state": self._states.get(item.qid, [None] * (i + 1))[i],
+            read_frames.append(self.ont.canonicalize(g, st))       # the card as read in its state
+            turns.append({"turn": i, "state": st,
                           "frame": str(frame), "frame_obj": frame, "read_obj": g, "base_text": base_text,
                           "enriched_text": text,
+                          "card": self.ont.card(frame, st), "read_card": self.ont.card(g, st),
                           "read_back": str(g), "equivalent": ok,
-                          "frame_distance": self.ont.frame_distance(frame, g),
+                          "frame_distance": self.ont.frame_distance(frame, g, st),
                           "surface_cosine": cosine(self.store.v.encode(base_text), self.store.v.encode(text))})
         scn.metadata["seed_overrides"] = overrides
         # L1: carried truth == recomputed truth
@@ -135,8 +141,8 @@ class InvarianceValidator:
         rp = {f"expected_{k}": v for k, v in replay.components().items()}
         oracle_ok = replay.signature() == item.answer and rp == item.components
         frames_ok = all(t["equivalent"] for t in turns)
-        base_sig = sequence_signature(f for f, _ in path)
-        enr_sig = sequence_signature(read_frames)
+        base_sig = sequence_signature([self.ont.canonicalize(f, st) for (f, _), st in zip(path, states)], states)
+        enr_sig = sequence_signature(read_frames, states)
         cos = [t["surface_cosine"] for t in turns] or [1.0]
         res = ProofResult(scn.sid, item.qid, dict(scn.factor_levels), frames_ok and oracle_ok and gt_ok,
                           gt_ok, frames_ok, oracle_ok, base_sig, enr_sig, len(turns), retries,
@@ -232,29 +238,43 @@ class InvarianceValidator:
 
         order = list(scenarios)
         rng.shuffle(order)
+        kg = self.ont.kg
+        prompt_states = list(kg.prompt_states) if kg is not None else []
         for scn in order:
             item = scn.base
             path = self.base_path(item)
+            states = self._states.get(item.qid, [None] * len(path))
             frames = [f for f, _ in path]
             spec, fx = item.metadata["spec"], item.metadata["fixture"]
             base_beh = self._behaviour(self.oracle.run(spec, fx, frames_override=frames))
             replay = lambda fr: self._behaviour(self.oracle.run(spec, fx, frames_override=fr)) != base_beh
             for i, (frame, ctx) in enumerate(path):
+                st = states[i]
                 for kind, mf in self._mutations(frame):
                     text = self.realizer.realize(mf, scn.factor_levels, f"neg|{scn.sid}|{i}|{kind}", ctx)
-                    g = self.reader.read(text)
-                    detected = not self.ont.equivalent(frame, g)
-                    rec(kind, detected, self.ont.frame_distance(frame, g), replay(frames[:i] + [g] + frames[i + 1:]))
+                    g = self.ont.canonicalize(self.reader.read(text, st), st)
+                    detected = not self.ont.equivalent(frame, g, st)
+                    rec(kind, detected, self.ont.frame_distance(frame, g, st),
+                        replay(frames[:i] + [g] + frames[i + 1:]))
                 base_text = self.realizer.realize(frame, scn.factor_levels, f"{scn.sid}|{i}", ctx)
                 for kind, mt in self._text_mutations(base_text, frame):
-                    g = self.reader.read(mt)
-                    rec(kind, not self.ont.equivalent(frame, g), self.ont.frame_distance(frame, g),
+                    g = self.ont.canonicalize(self.reader.read(mt, st), st)
+                    rec(kind, not self.ont.equivalent(frame, g, st), self.ont.frame_distance(frame, g, st),
                         replay(frames[:i] + [g] + frames[i + 1:]))
+                # state-level: the same words answered in a state that does not accept this meaning
+                wrong = [w for w in prompt_states
+                         if w != st and not kg.accepts(w, self.ont.canonicalize(frame, w).act)]
+                if wrong:
+                    w = wrong[rng.randrange(len(wrong))]
+                    g = self.reader.read(base_text, w)
+                    rec("wrong_state", not self.ont.equivalent(frame, g, w), None, None)
             # sequence-level: an inserted off-task turn changes the ontological signature
             if frames:
                 k = rng.randrange(len(frames) + 1)
                 ins = frames[:k] + [F.make("CHITCHAT")] + frames[k:]
-                rec("insert_turn", sequence_signature(ins) != sequence_signature(frames), None, replay(ins))
+                ins_states = list(states[:k]) + ["PRESENT_TXN"] + list(states[k:])
+                rec("insert_turn", sequence_signature(ins, ins_states) != sequence_signature(frames, states), None,
+                    replay(ins))
         out = {}
         for k, s in sorted(stats.items()):
             out[k] = {"n": s["n"], "detection_rate": s["detected"] / max(1, s["n"]),

@@ -334,3 +334,94 @@ None fired.
 
 The regex injection guard from forgeloop flags none of the paraphrased authority-override turns. It is
 reported as a baseline, not relied on.
+
+## 12. The policy graph and state-aware meaning cards
+
+**One machine-readable source.** `policy/charge_review_kg.json` holds the operating procedure as head / relation /
+tail triples, and every later step reads it through `PolicyKG`:
+
+- GMS training (both backends);
+- the oracle's limits;
+- the ontology mapper;
+- the exports.
+
+It is built by `knowledge/policy_kg.py` from two inputs:
+
+- the PDF, which supplies the evidence: section split, tools table read by column, a verbatim quote per triple;
+- the structured transcription, which supplies the facts.
+
+The dialog-state layer is written in the same module from PDF sections 2, 3 and 7.
+
+Every triple carries:
+
+- `kind`: trajectory, state, policy, vocabulary or domain;
+- `source`: a PDF section, `program` or `lexicon`;
+- `evidence`;
+- optional `qualifiers`, such as a transition's customer act, condition, rules and workflow edges;
+- `gms`: whether the store is trained on it.
+
+`validate()` checks the following:
+
+- every evidence quote is a verbatim substring of its source;
+- every state is reachable from OPENING;
+- every rule applies in some state;
+- every transition and accepted act refers to a declared state and act;
+- the content hash matches.
+
+The compiler still ingests the structured form. `PolicyKG.to_markdown()` renders it from the JSON, and a self-check
+proves that the JSON and the original transcription compile to identical facts, value sets, aliases and entity types.
+
+**The state layer.** The layer has 19 dialog states; each is the bot act a customer turn answers. 7 of them prompt
+the customer. The other 12 are bot-only acts such as CONFIRM_RECORDED, SUMMARIZE or TRANSFER.
+
+For each state the graph records:
+
+- its stage;
+- the meaning cards it accepts (REQUEST_HUMAN, ASK_KB and UNCLEAR everywhere, by R20, R25 and R22);
+- how it reads a bare yes or no;
+- the rules and limits that apply there;
+- the tools the bot may call next;
+- the escalation triggers that can fire there.
+
+The 64 `leads_to` transitions each name the customer act or `auto`, the condition, the rules and the workflow
+edges. A self-check runs the covering-array journeys through the oracle and requires two things:
+
+- every customer turn is admissible in its state;
+- every consecutive pair of bot acts is a declared transition.
+
+So the graph and the executable oracle cannot drift apart silently.
+
+The GMS is trained on 10 state relations as well as the compiled policy:
+
+- `in_stage`, `accepts_act`, `leads_to`, `applies_rule`, `limited_by`, `calls_tool`;
+- `interprets_yes_as`, `interprets_no_as`;
+- `fires_in_state`, `has_slot`.
+
+The geometry therefore also scores state plausibility, for example whether PRESENT_TXN accepts PROVIDE_CREDENTIAL;
+it does not.
+
+**State-aware mapping.** A meaning card is canonicalised in its state (`Ontology.canonicalize(frame, state)`):
+
+- slot values resolve inside the value set of their slot;
+- a bare CONFIRM or DENY becomes what the state's `interprets_yes_as` / `interprets_no_as` says;
+- `FrameReader.read(text, state)` reads a 4-digit number as a credential first only where the state accepts
+  PROVIDE_CREDENTIAL.
+
+A card is admissible when three things hold:
+
+- the state accepts its act;
+- its slots are declared for the act;
+- its values belong to their slots' value sets.
+
+Equivalence, as used by the proof, the runtime check, the classifier-corpus filter and the inspector, means the same
+canonical card in the same state, admissible there. The proof's signature hashes (state, card) pairs.
+
+The negative controls gain a `wrong_state` edit: the same words answered in a state that does not accept that
+meaning. It must be rejected, and it is.
+
+**Exports.**
+- `knowledge/canonicals.py` writes `gms_canonicals.json` from the trained store: every canonical value with its
+  aliases and the trained GMS's binding of each alias (agreement reported), membership score against the cut, tension
+  to its disjoint siblings, exact numbers with digests, states, acts, and every trained fact with its score and cut.
+- `export_dataset.py` writes the test suite as CSV: one row per case and one row per customer turn, with the state
+  policy, cards, texts, the expected outcome and the complete expected trajectory.

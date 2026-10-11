@@ -28,9 +28,13 @@ from gmsjourney.evaluation.runner import run  # noqa: E402
 from gmsjourney.evaluation.stats import deviance_test  # noqa: E402
 
 
+POLICY_KG = Path(__file__).resolve().parents[1] / "gmsjourney" / "policy" / "charge_review_kg.json"
+POLICY_MD = Path(__file__).resolve().parents[1] / "gmsjourney" / "policy" / "charge_review_policy.md"
+
+
 @lru_cache(maxsize=1)
 def env():
-    store = build_store(Path(__file__).resolve().parents[1] / "gmsjourney" / "policy" / "charge_review_policy.md").store
+    store = build_store(POLICY_KG).store                       # the policy graph JSON is the source
     return store, PolicyOracle(store), Realizer(), FrameReader(store)
 
 
@@ -53,7 +57,7 @@ def test_tension_and_holonomy():
 
 
 def test_self_correction_drops_misread():
-    res = build_store(Path(__file__).resolve().parents[1] / "gmsjourney" / "policy" / "charge_review_policy.md",
+    res = build_store(POLICY_KG,
                       inject_misread=True)
     assert ("expedited_delivery", "has_fee_usd", "150") not in res.store.triples
     assert any(c.action == "drop_conflict" for c in res.corrections)
@@ -212,6 +216,71 @@ def test_gms_view_is_table_shaped_for_geode():
     assert kx_triple("expedited_delivery", "requires_fee_confirmation", "yes")[2] == "required"
 
 
+# policy graph JSON + state-aware ontology mapping ---------------------------------------
+def test_policy_graph_is_valid_and_is_the_source():
+    from gmsjourney.knowledge.ingest import ingest_markdown
+    from gmsjourney.knowledge.policy_kg import PolicyKG, resolve_policy
+    kg = PolicyKG.load(POLICY_KG)
+    assert kg.validate() == []
+    sm = kg.summary()
+    assert sm["states"] >= 15 and sm["prompt_states"] == 7 and sm["rules"] == 33
+    # every triple quotes its source verbatim; every rule applies in some state
+    assert all(t["evidence"] for t in kg.triples)
+    # the JSON compiles to exactly the facts of the structured transcription ...
+    md, _ = resolve_policy(POLICY_KG)
+    a, b = ingest_markdown(POLICY_MD), ingest_markdown(md)
+    assert {(t.head, t.relation, t.tail) for t in a.triples} == {(t.head, t.relation, t.tail) for t in b.triples}
+    assert a.value_sets == b.value_sets and a.aliases == b.aliases and a.entity_types == b.entity_types
+    # ... and the trained store carries everything the graph states, state layer included
+    store, *_ = env()
+    assert store.kg is not None and store.kg.consistency(store)["all_agree"]
+    assert ("PRESENT_TXN", "accepts_act", "INFORM_DISPOSITION") in store.triples
+
+
+def test_state_aware_ontology_mapping():
+    store, _oracle, _R, rd = env()
+    ont = Ontology.from_store(store)
+    card = lambda text, st: ont.card(rd.read(text, st), st)
+    assert card("Yes.", "PRESENT_TXN")["slots"] == {"disposition": "RECOGNIZED"}      # "do you recognise it?"
+    assert card("No.", "PRESENT_TXN")["slots"] == {"disposition": "UNRECOGNIZED"}
+    assert card("Yes.", "CONFIRM_ACTION")["act"] == "CONFIRM"                         # "shall I go ahead?"
+    assert card("No.", "CONFIRM_ACTION")["act"] == "DENY"
+    assert card("No.", "ASK_MORE_HELP")["act"] == "END"                               # "anything else?"
+    # a 4-digit number is a credential only where the state asks for one
+    assert card("My card ends 4821 and that one is not mine.", "PRESENT_TXN")["slots"]["disposition"] == "UNRECOGNIZED"
+    assert card("My card ends 4821 and that one is not mine.", "ASK_AUTH")["act"] == "PROVIDE_CREDENTIAL"
+    c = card("The last four digits of my card are 4821.", "PRESENT_TXN")
+    assert c["act"] == "PROVIDE_CREDENTIAL" and not c["admissible"]                  # out of state -> rejected
+    f = F.make("PROVIDE_CREDENTIAL", credential="4821")
+    assert ont.equivalent(f, f, "ASK_AUTH") and not ont.equivalent(f, f, "PRESENT_TXN")
+    # slot values resolve inside the slot's value set
+    g = ont.canonicalize(F.make("REQUEST_CARD_ACTION", card_action="new card", delivery="regular"), "CONFIRM_ACTION")
+    assert dict(g.slots) == {"card_action": "REPLACE_CARD", "delivery": "standard_delivery"}
+
+
+def test_oracle_conforms_to_the_state_graph():
+    """Every customer turn the oracle produces is admissible in its state, and every state
+    transition it makes is declared in the policy graph."""
+    store, oracle, _R, _rd = env()
+    kg, ont = store.kg, Ontology.from_store(store)
+    declared = {(t["head"], t["tail"]) for t in kg.where("leads_to")}
+    gen = JourneyBaseGenerator(oracle, kb_pool=[], seed=42)
+    cover, _ = gen.covering()
+    for sp in cover:
+        tr = oracle.run(sp)
+        last, bad = None, []
+        for ev in tr.events:
+            if ev["role"] == "bot":
+                for a in ev["acts"]:
+                    if last is not None and (last, a["act"]) not in declared:
+                        bad.append((last, a["act"]))
+                    last = a["act"]
+            elif ev["role"] == "user":
+                ok, why = ont.admissible(ev["frame"], last)
+                assert ok, (last, str(ev["frame"]), why)
+        assert not bad, bad
+
+
 # knowlytix backend (runs only where knowlytix is installed, licensed and a store is built) --
 def test_knowlytix_store_if_available():
     import os
@@ -223,7 +292,7 @@ def test_knowlytix_store_if_available():
     from gmsjourney.governance.calibrate import calibrate_plausibility
     from gmsjourney.knowledge.geode import oracle_property
     from gmsjourney.knowledge.kx_store import load_kx_store
-    b = load_kx_store(Path(__file__).resolve().parents[1] / "gmsjourney" / "policy" / "charge_review_policy.md", sdir)
+    b = load_kx_store(POLICY_KG, sdir)
     st = b.store
     assert st.enm_agreement()["all_agree"]
     assert st.lookup_enm("delivery_fee_usd", "expedited_delivery") == 15

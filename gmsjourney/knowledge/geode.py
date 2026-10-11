@@ -30,6 +30,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .policy_kg import GMS_STATE_RELATIONS
 from .ingest import CandidateTriple, IngestResult, Source, ingest_markdown
 from .store import ENMEntry, GMSStore
 
@@ -138,8 +139,20 @@ def build_store(policy_path: str | Path, *, inject_misread: bool = False,
     train runs GMS training (knowledge/training.py): knowledge-graph training of the
     v-space, the GEODE embed loop (v-space rotation SFT) and the u-space contradiction
     SFT. train=False gives the warm-start store (encoder embeddings, Procrustes only).
+
+    policy_path may be the policy graph JSON (policy/charge_review_kg.json, the default
+    source) or a structured policy markdown. From the JSON, the compiled policy is
+    rendered by PolicyKG.to_markdown() and the dialog-state layer (states, accepted
+    meaning cards, transitions, per-state rules/limits/tools) is added to the graph the
+    store is trained on; the store keeps the graph as ``store.kg``.
     """
+    from .policy_kg import resolve_policy
+    source_path = policy_path
+    policy_path, kg = resolve_policy(policy_path)
     ing = ingest_markdown(policy_path)
+    if kg is not None:
+        for name, ty in kg.entity_types().items():
+            ing.entity_types.setdefault(name, ty)
     candidates = list(ing.triples)
     if inject_misread:
         candidates.append(CandidateTriple(
@@ -243,10 +256,17 @@ def build_store(policy_path: str | Path, *, inject_misread: bool = False,
             else:
                 accepted.setdefault(c.key, []).append(asdict(c.source))
 
+    if kg is not None:                     # the dialog-state layer of the policy graph
+        for t in kg.triples:
+            tr = (t["head"], t["relation"], str(t["tail"]))
+            if t.get("gms") and tr[1] in GMS_STATE_RELATIONS and tr not in accepted:
+                accepted[tr] = [{"section": t["source"], "ref": t["id"], "span": t.get("evidence", ""),
+                                 "path": "policy_kg"}]
     store = make_store(accepted).train()
     store.calibrate()
+    store.kg = kg
     res = BuildResult(store=store, corrections=corrections, iterations=it, n_candidates=n_candidates,
-                      converged=converged, max_iterations=max_iterations, doc=Path(policy_path).name)
+                      converged=converged, max_iterations=max_iterations, doc=Path(source_path).name)
     if train:
         from .training import GeodeEmbedLoop, train_store, train_u_channel
         rep = train_store(store)
