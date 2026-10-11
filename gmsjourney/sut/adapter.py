@@ -13,14 +13,16 @@ from what the bot actually did, not from what it says it did.
 
 Per user turn the runner:
   1. asks the simulator for the next semantic frame given the bot's act,
-  2. realises it under the scenario's factor levels (pinned seed from the proof),
+  2. realises it under the scenario's factor levels with the scenario's enrichment arm
+     (template or LLM; pinned seed / pinned proved text from the proof),
   3. re-reads it with the FrameReader (runtime invariance monitor),
-  4. sends the text to the bot.
+  4. sends the text to the bot and times the reply (per-turn latency / length budgets).
 """
 from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -79,6 +81,8 @@ class JourneyRunner:
     use_structured_acts: bool = True
     classifier: BotActClassifier = field(default_factory=BotActClassifier)
     governance: Any = None            # governance.monitor.GovernanceConfig -> runtime gates on every run
+    arm_realizers: dict[str, Any] | None = None   # enrichment arm -> realizer (scenario.metadata['arm'])
+    budgets: Any = None               # evaluation.constraints.ConstraintBudget -> per-turn budgets in every row
 
     def __post_init__(self) -> None:
         self.ont = Ontology.from_store(self.store)
@@ -104,12 +108,16 @@ class JourneyRunner:
         merchants = {t["transaction_id"]: t["merchant"] for t in fx["transactions"]}
         by_id = {t["transaction_id"]: t for t in fx["transactions"]}
         overrides = scn.metadata.get("seed_overrides", {})
+        realizer = (self.arm_realizers or {}).get(scn.metadata.get("arm", "template"), self.realizer)
+        bot_stats: list[dict[str, Any]] = []
         tr = Trace()
         transcript: list[dict[str, Any]] = []
         violations: list[dict[str, Any]] = []
         current_txn = None
         last_kb = None
+        t0 = time.perf_counter()
         turn: BotTurn = bot.start()
+        bot_stats.append(_turn_stats(turn.text, t0))
         for i in range(MAX_USER_TURNS + 1):
             acts = turn.acts if (self.use_structured_acts and turn.acts) else \
                 [self.classifier.classify(turn.text, merchants)]
@@ -131,12 +139,12 @@ class JourneyRunner:
             if frame is None:
                 break
             t = by_id.get(act.get("txn") or current_txn, {})
-            ctx = {"merchant": t.get("merchant"), "amount": t.get("amount")}
+            st = act.get("act")                      # the dialog state this turn answers
+            ctx = {"merchant": t.get("merchant"), "amount": t.get("amount"), "state": st}
             pinned = oracle_path is not None and i < len(oracle_path) and oracle_path[i][0] == frame
             att = overrides.get(i, 0) if pinned else 0
             seed = f"{scn.sid}|{i}" + (f"#{att}" if att else "")
-            text = self.realizer.realize(frame, scn.factor_levels, seed, ctx)
-            st = act.get("act")                      # the dialog state this turn answers
+            text = realizer.realize(frame, scn.factor_levels, seed, ctx)
             read = self.reader.read(text, st)
             if not self.ont.equivalent(frame, read, st):
                 violations.append({"turn": i, "state": st, "frame": str(frame), "text": text, "read": str(read)})
@@ -148,7 +156,9 @@ class JourneyRunner:
             if monitor is not None:
                 monitor.on_user(text, st)
             n0 = len(env.log)
+            t0 = time.perf_counter()
             turn = bot.respond(text)
+            bot_stats.append(_turn_stats(turn.text, t0))
             for c in env.log[n0:]:          # tool calls caused by this user turn, in order
                 tr.events.append({"role": "tool", "tool": c["tool"], "args": c["args"], "result": c.get("result")})
         tr.tool_log = list(env.log)
@@ -160,6 +170,7 @@ class JourneyRunner:
             trajectory=[{"tool": c["tool"], "ok": c.get("ok", True)} for c in tr.tool_log],
             status=status, escalation_trigger=tr.transfer_reason,
             extras={"trace": tr, "transcript": transcript, "invariance_violations": violations,
+                    "bot_turn_stats": bot_stats, "arm": scn.metadata.get("arm", "template"),
                     "injected": list(getattr(tools, "injected", [])),
                     "governance": monitor.finish() if monitor is not None else None})
 
@@ -187,6 +198,11 @@ class JourneyRunner:
                     verdict.update(self._geo.judge(ans, kb_answer(self.store, last_kb), verdict["correct"],
                                                    verdict["detail"]))
                 tr.kb.append({"frame": str(last_kb), "answer": ans, **verdict})
+
+
+def _turn_stats(text: str, t0: float) -> dict[str, Any]:
+    return {"latency_ms": (time.perf_counter() - t0) * 1000.0, "words": len((text or "").split()),
+            "chars": len(text or "")}
 
 
 def make_reference_factory(store, mutations: frozenset = frozenset(), config: dict | None = None):

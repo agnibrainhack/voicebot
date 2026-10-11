@@ -5,9 +5,19 @@
 injected (``backend.resolve_encoders``), because the packaged call hard-codes
 HuggingFace encoder names for the u channel:
 
-  1  self-correct      GeodeLoop(make_default_trainer)            propose -> train -> diagnose -> repair
+  1  self-correct      GeodeLoop(make_default_trainer)            propose -> train -> diagnose -> repair;
+                                                                  dedup_mode: off (default: GeodeLoop(dedup=False),
+                                                                  so every retrain and the anchor check see the
+                                                                  full fact set; duplicate resolution then runs
+                                                                  audit-only on the production store) | audit
+                                                                  (loop removes, removals of verbatim facts are
+                                                                  reinstated afterwards - the 0.3 behaviour) |
+                                                                  accept (stock gmsh: removals stand)
   2  tune v            GeodeEmbedLoop + EmbeddingSFTConfig        has_alias supervision + manifold links;
-                                                                  name-keyed vectors -> Mode-B warm start
+                                                                  name-keyed vectors -> Mode-B warm start;
+                                                                  v_sft_mode: rotation (book) | full (gmsh
+                                                                  default) | ab (train both, keep the one with
+                                                                  the better held-out noisy-alias binding)
   3  tune u            contradiction_sft (full mode)              per-relation phrasings
   4  relevance cal.    calibrate_relevance_thresholds
   5  train store       store_from_triples (cap admissibility)     GMSExpertStore, saved
@@ -88,7 +98,11 @@ def _attribute_phrasings() -> dict[str, list[str]]:
 def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, epochs: int = 200, geode_epochs: int = 150,
                    max_iters: int = 6, embed_max_iters: int = 2, sft_epochs: int = 60,
                    contradiction_epochs: int = 300, encoder_mode: str | None = None, seed: int = 42,
-                   log=print) -> KXBuild:
+                   dedup_mode: str = "off", v_sft_mode: str = "ab", log=print) -> KXBuild:
+    if dedup_mode not in ("off", "audit", "accept"):
+        raise ValueError(f"dedup_mode must be off | audit | accept, not {dedup_mode!r}")
+    if v_sft_mode not in ("rotation", "full", "ab"):
+        raise ValueError(f"v_sft_mode must be rotation | full | ab, not {v_sft_mode!r}")
     backend.require()
     import torch
     with _quiet():
@@ -135,42 +149,60 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, epochs: in
     # 1. GEODE self-correction
     t = time.time()
     with _quiet():
-        loop = GeodeLoop(trainer, device=dev, ingest_mode="regex", max_iters=max_iters)
+        loop = GeodeLoop(trainer, device=dev, ingest_mode="regex", max_iters=max_iters,
+                         dedup=(dedup_mode != "off"))
         res = loop.run(str(view))
     kept = fact_only_triples(res.triples)
-    # GEODE's duplicate resolution assumes one tail per (head, relation) is likely and drops
-    # "cap outliers". The view is generated from compiled table rows (no extraction noise),
-    # so a removal of a row the source states is a proposal we audit and reject: the triple
-    # is reinstated and the rejection recorded with its source location.
     rejected = []
-    for d in res.duplicates_removed:
-        tr = tuple(d["triple"])
-        if tr not in kept:
-            kept.append(tr)
-            rejected.append({**d, "decision": "rejected: stated verbatim in the source table"})
+    if dedup_mode == "audit":
+        # 0.3 behaviour: GEODE's duplicate resolution assumes one tail per (head, relation) is likely
+        # and drops "cap outliers"; a removal of a row the source states verbatim is reinstated after
+        # the loop (the loop's later retrains and its anchor check ran on the reduced set).
+        for d in res.duplicates_removed:
+            tr = tuple(d["triple"])
+            if tr not in kept:
+                kept.append(tr)
+                rejected.append({**d, "decision": "rejected: stated verbatim in the source table"})
     timings["geode_loop"] = time.time() - t
-    log(f"      GEODE loop: converged={res.converged} iterations={res.iterations} "
-        f"corrections={len(res.corrections)}, dedup proposals rejected={len(rejected)} ({timings['geode_loop']:.0f}s)")
+    log(f"      GEODE loop (dedup={dedup_mode}): converged={res.converged} iterations={res.iterations} "
+        f"corrections={len(res.corrections)}, anchor violations={len(res.anchor_violations)}, "
+        f"dedup removals={len(res.duplicates_removed)}, reinstated={len(rejected)} ({timings['geode_loop']:.0f}s)")
 
     # 2. tune v: GEODE embed loop (document alias structure + manifold links)
     t = time.time()
     names_and_aliases = [(c, a) for c, als in compiled.store.aliases.items() for a in als]
     probes = _noisy_probes(names_and_aliases)
-    sft = EmbeddingSFTConfig(rank=8, mode="rotation", encoder=enc["v"], out_dim=cfg.geometry.d_v,
-                             epochs=sft_epochs, device="cpu", seed=seed)
-    with _quiet():
-        eloop = GeodeEmbedLoop(make_default_trainer(dev, epochs=max(60, geode_epochs // 2)),
-                               EmbedLoopConfig(sft=sft, max_iters=embed_max_iters, use_geometry=True))
-        eres = eloop.run(str(view), triples=kept, eval_pairs=[(s, c.lower()) for s, c in probes])
+
+    def embed(mode: str):
+        sft = EmbeddingSFTConfig(rank=8, mode=mode, encoder=enc["v"], out_dim=cfg.geometry.d_v,
+                                 epochs=sft_epochs, device="cpu", seed=seed)
+        with _quiet():
+            eloop = GeodeEmbedLoop(make_default_trainer(dev, epochs=max(60, geode_epochs // 2)),
+                                   EmbedLoopConfig(sft=sft, max_iters=embed_max_iters, use_geometry=True))
+            er = eloop.run(str(view), triples=kept, eval_pairs=[(s, c.lower()) for s, c in probes])
+        return er, _binding_eval(er.ft, probes, enc["v"])
+
+    modes = ["rotation", "full"] if v_sft_mode == "ab" else [v_sft_mode]
+    trials = {}
+    for m in modes:
+        t_m = time.time()
+        trials[m] = embed(m)
+        log(f"      GEODE embed loop ({m}): iterations={trials[m][0].iterations} converged={trials[m][0].converged} "
+            f"noisy-alias binding {trials[m][1]['before']:.2f} -> {trials[m][1]['after']:.2f} ({time.time() - t_m:.0f}s)")
+    # A/B rule: higher held-out noisy-alias binding wins; a tie keeps rotation (the book's choice)
+    chosen = max(modes, key=lambda m: (round(trials[m][1]["after"], 6), m == "rotation"))
+    eres, v_eval = trials[chosen]
+    v_ab = {"modes": {m: {"before": tr[1]["before"], "after": tr[1]["after"], "iterations": tr[0].iterations,
+                          "converged": tr[0].converged} for m, tr in trials.items()},
+            "chosen": chosen, "rule": "higher held-out noisy-alias binding; tie -> rotation (book)",
+            "gmsh_default": "full"}
     ent_names = sorted({e for h, _r, t2 in kept for e in (h, t2)})
     v_emb = eres.ft.export_vectors(ent_names)
     torch.save(v_emb, store_dir / "v_emb.pt")
     cfg.embedding.v_vectors_path = str(store_dir / "v_emb.pt")
     eres.ft.save(store_dir / "tuned_encoder")
     timings["embed_loop"] = time.time() - t
-    v_eval = _binding_eval(eres.ft, probes, enc["v"])
-    log(f"      GEODE embed loop: iterations={eres.iterations} converged={eres.converged} "
-        f"noisy-alias binding {v_eval['before']:.2f} -> {v_eval['after']:.2f} ({timings['embed_loop']:.0f}s)")
+    log(f"      v-space SFT: kept {chosen} ({timings['embed_loop']:.0f}s)")
 
     # 3. tune u: contradiction SFT over per-relation phrasings (full mode)
     t = time.time()
@@ -198,6 +230,7 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, epochs: in
     timings["store_training"] = time.time() - t
     log(f"      production store trained ({timings['store_training']:.0f}s): "
         f"{kx.adapter.num_entities} entities, {len(kx.doc_graph.triples)} triples, {len(kx.doc_graph.enm)} ENM")
+    dedup_audit = _dedup_audit(kx, kept) if dedup_mode == "off" else None
 
     # 6. coverage
     with _quiet():
@@ -223,13 +256,16 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, epochs: in
         "geode": {"converged": res.converged, "iterations": res.iterations, "max_iters": max_iters,
                   "n_proposed": len(res.triples), "n_kept_fact_triples": len(kept),
                   "corrections": res.corrections, "anchor_violations": res.anchor_violations,
+                  "n_anchor_violations": len(res.anchor_violations),
+                  "dedup_mode": dedup_mode,
                   "duplicates_proposed": res.duplicates_removed, "duplicates_rejected": rejected,
-                  "duplicates_flagged": res.duplicates_flagged},
+                  "duplicates_flagged": res.duplicates_flagged,
+                  "dedup_audit_only": dedup_audit},
         "store": {"n_entities": kx.adapter.num_entities, "n_triples": len(kx.doc_graph.triples),
                   "n_enm": len(kx.doc_graph.enm), "loss_mode": "cap", "epochs": epochs,
                   "geometry": {"d_v": cfg.geometry.d_v, "d_u": cfg.geometry.d_u, "m": cfg.geometry.m}},
-        "embed_loop": {"iterations": eres.iterations, "converged": eres.converged,
-                       "history": eres.history, "n_canonicals": len(eres.canonicals), **v_eval},
+        "embed_loop": {"iterations": eres.iterations, "converged": eres.converged, "mode": chosen,
+                       "history": eres.history, "n_canonicals": len(eres.canonicals), **v_eval, "ab": v_ab},
         "contradiction_sft": {"relations": sorted(phrasings), **u_eval},
         "judge_thresholds": {k: v for k, v in thresholds.items() if not hasattr(v, "predict")},
         "enm_agreement": agree,
@@ -265,6 +301,19 @@ def load_kx_store(policy_path: str | Path, store_dir: str | Path) -> KXBuild:
         v_ft = FineTunedEmbedding.load(store_dir / "tuned_encoder")
         u_ft = FineTunedEmbedding.load(store_dir / "contradiction_encoder")
     return KXBuild(KXPolicyStore.from_compiled(compiled.store, kx, judge, v_ft, u_ft, report.get("encoders")), report)
+
+
+def _dedup_audit(kx, triples) -> dict[str, Any]:
+    """GEODE's duplicate resolution run audit-only on the trained production store: what it would
+    remove or flag, without removing anything (dedup_mode='off')."""
+    try:
+        with _quiet():
+            from knowlytix.knowledge.geode.dedup import resolve_duplicates
+            model = getattr(kx, "model", None) or getattr(kx, "gkg", None)
+            _kept, removed, flagged = resolve_duplicates(model, kx.adapter, list(triples))
+        return {"would_remove": removed, "would_flag": flagged, "applied": False}
+    except Exception as e:                     # noqa: BLE001 - audit only; never fails the build
+        return {"error": f"{type(e).__name__}: {str(e)[:200]}", "applied": False}
 
 
 def _noisy_probes(pairs: list[tuple[str, str]], seeds=(101, 102, 103)) -> list[tuple[str, str]]:

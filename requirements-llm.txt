@@ -1,0 +1,6 @@
+# LLM enrichment arm (gmsjourney/enrich/llm): DeepSeek through LangChain.
+# Key: export DEEPSEEK_API_KEY=...   (read from the environment only; never written to outputs)
+langchain-core>=0.3
+langchain-deepseek>=0.1
+# alternative transport if langchain-deepseek is unavailable (OpenAI-compatible endpoint):
+# langchain-openai>=0.2

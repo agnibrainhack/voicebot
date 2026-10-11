@@ -221,8 +221,10 @@ def export_turn_by_turn(out_dir: str | Path, runner, oracle, scenarios, validato
         df, s = turn_by_turn(runner, oracle, scn, validator=validator)
         for r in df.to_dict(orient="records"):
             trows.append({"case_id": scn.sid, "base_id": scn.base.qid,
-                          "case_type": "base" if not scn.factor_levels else "enriched", **r})
-        srows.append({**s, "case_type": "base" if not scn.factor_levels else "enriched"})
+                          "case_type": "base" if not scn.factor_levels else "enriched",
+                          "arm": scn.metadata.get("arm", "base" if not scn.factor_levels else "template"), **r})
+        srows.append({**s, "case_type": "base" if not scn.factor_levels else "enriched",
+                      "arm": scn.metadata.get("arm", "base" if not scn.factor_levels else "template")})
 
     def write(path, rows):
         if not rows:

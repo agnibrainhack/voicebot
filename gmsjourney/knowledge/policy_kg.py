@@ -62,7 +62,7 @@ ACT_SCHEMA: dict[str, dict[str, tuple[str, bool]]] = {
     "CONFIRM": {}, "DENY": {}, "END": {}, "UNCLEAR": {}, "REQUEST_HUMAN": {},
     "ASK_KB": {"intent": ("kb_intent", True), "attr": ("kb_attribute", False), "entity": ("delivery", False),
                "key": ("limit", False), "value": ("number", False), "options": ("number", False),
-               "days": ("number", False)},
+               "days": ("number", False), "name": ("option_name", False), "subject": ("card_action", False)},
 }
 ACT_SOURCE = {"PROVIDE_CREDENTIAL": "pdf.2A", "INFORM_DISPOSITION": "pdf.2C", "REQUEST_CARD_ACTION": "pdf.2E",
               "CONFIRM": "pdf.2E", "DENY": "pdf.2E", "END": "pdf.2F", "UNCLEAR": "pdf.3",
@@ -70,7 +70,7 @@ ACT_SOURCE = {"PROVIDE_CREDENTIAL": "pdf.2A", "INFORM_DISPOSITION": "pdf.2C", "R
 EXTRA_VALUE_SETS = {
     "kb_intent": ["value", "limit", "plausibility", "mcq", "cheaper", "faster", "faster_option_fee",
                   "fee_difference", "count_options", "expedited_total", "needs_confirmation", "window_check",
-                  "procedure", "refund", "fraud", "skip_auth"],
+                  "procedure", "refund", "fraud", "skip_auth", "unknown_option", "unstated_fact"],
     "kb_attribute": ["fee", "days"],
 }
 ACT_EVIDENCE = {

@@ -37,7 +37,14 @@ MUTATIONS = {
     "guess_on_ambiguity": "Assumes RECOGNIZED when an answer is unclear.",
     "fraud_claim": "Tells the customer an unrecognized charge means fraud.",
     "kb_first_amount": "Answers fee questions with the first dollar amount in the knowledge base.",
+    "kb_fabricate_unknown": "Answers fee/time questions about options or facts the policy does not state with the expedited figures.",
 }
+
+# words that can precede "delivery"/"shipping" in a question without naming an option
+_NON_NAMES = set("""the a an does do is for of your my this that which whichever any pick choose use get with by via
+what whats how much long if i about on go want take cost costs fee price many business days option options would
+should and or to it its please tell me know wondering was were be have has can could will standard regular normal
+expedited express rush overnight fast faster fastest quick quicker quickest cheap cheaper cheapest free""".split())
 
 DEFAULT_CONFIG = {"max_transactions": 4, "lookback_days": 30, "max_auth_attempts": 2,
                   "max_clarifications": 1, "max_unsure": 1, "max_turns": 20, "expedited_fee": 15,
@@ -162,6 +169,23 @@ class KBAnswerer:
             return f"You have {self.cfg['max_auth_attempts']} verification attempts."
         if re.search(r"(how many|most).{0,30}(transactions|charges)", t):
             return f"I can review up to {self.cfg['max_transactions']} transactions in one session."
+        fee_q = re.search(r"\b(how much|cost|fee|price|pay)\b", t)
+        days_q = re.search(r"\b(how long|days|arrive|take)\b", t)
+        if (fee_q or days_q) and not ent:
+            unknown = None
+            if fee_q and re.search(r"\b(secure|lock|freeze|block)\b.{0,12}\bcard\b", t):
+                unknown = "a fee for securing your card"
+            m = re.search(r"\b([a-z]+(?:[ -][a-z]+)?) (?:delivery|shipping|courier)\b", t)
+            if unknown is None and m:
+                import difflib
+                rest = [w for w in re.split(r"[ -]", m.group(1))
+                        if w not in _NON_NAMES and not difflib.get_close_matches(w, _NON_NAMES, n=1, cutoff=0.8)]
+                if rest:
+                    unknown = f"{' '.join(rest)} delivery"
+            if unknown is not None:
+                if "kb_fabricate_unknown" in self.mut:
+                    return "That costs $15." if fee_q else "That takes 1 to 2 business days."
+                return f"I don't have information on {unknown}; a representative can help with that."
         claimed = re.findall(r"\$(\d+)", t)
         if ent and claimed and re.match(r"^(is|does|am i|is it true)", t.strip()) and len(claimed) == 1:
             fee = 15 if ent == "expedited" else 0

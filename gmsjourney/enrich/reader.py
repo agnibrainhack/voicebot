@@ -54,6 +54,14 @@ HUMAN = r"\b(human|real person|actual agent|an agent|representative|a person|liv
 END = r"\b(thats all|nothing else|no thanks|nothing more|all set|thats everything|im done|that will be all)\b"
 CONFIRM = r"\b(yes|yeah|yep|sure|go ahead|please do|proceed|that works|sounds good|do it|okay|ok|correct)\b"
 DENY = r"\b(no|nope|dont|cancel|stop|rather you didnt)\b"
+# hallucination probes: a fee/time question about an option the policy does not name
+OPTION_NAME = re.compile(r"\b([a-z]+(?:[ -][a-z]+)?) (?:delivery|shipping|courier)\b")
+NAME_STOP = set("""the a an does do is for of your my this that which whichever any pick choose use get with by via
+what whats how much long if i about on go want take cost costs fee price many business days option options would
+should and or to it its please tell me know wondering was were be have has can could will""".split())
+# qualifier words a caller may put in front of "delivery" that name no option of this policy; listed so
+# the typo repair can restore them (the reader must read a near-miss name back exactly)
+NEAR_MISS_WORDS = {"priority", "premium", "economy", "same", "day", "next", "platinum", "saver", "courier"}
 QWORD = re.compile(r"^(how|hows|what|whats|which|when|where|why|is|does|do|can|will|am|are|could|would|if|for)\b|"
                    r"\b(i want to know|tell me|i was wondering|walk me through|is it true|am i right|can we|can you|"
                    r"could you|do you|do i|will i|is there|is it|is a|does an|does a|how|what|whats|which|"
@@ -114,6 +122,7 @@ class FrameReader:
             business quickly sooner money verify doesnt compared extra number versus going through""".split())
         self.domain_vocab = {w for w in vocab if len(w) >= 4}
         self.kg = getattr(store, "kg", None)                 # policy graph: dialog states
+        vocab.update(NEAR_MISS_WORDS)
         vocab.update(COMMON_WORDS)
         vocab.update(w for w in NUMBER_WORDS.values() if len(w) >= 4)
         self.vocab = {w for w in vocab if len(w) >= 4}
@@ -366,6 +375,15 @@ class FrameReader:
             return K("faster")
         if has(r"\b(cheaper|cheapest|costs less|save money|less expensive)\b"):
             return K("cheaper")
+        if not ents and (fee_cue or days_cue):
+            # hallucination probes: the bot must abstain, so the meaning card must say what was asked
+            if fee_cue and re.search(SECURE, c):
+                return K("unstated_fact", attr="fee", subject="SECURE_CARD")
+            m = OPTION_NAME.search(c)
+            if m:
+                words = [w for w in re.split(r"[ -]", m.group(1)) if w and w not in NAME_STOP]
+                if words:
+                    return K("unknown_option", attr="fee" if fee_cue else "days", name="_".join(words + ["delivery"]))
         if ent and len(money) >= 3:
             return K("mcq", attr="fee", entity=ent, options=tuple(money))
         if ent and len(set(money)) == 1 and not has(r"\bhow much\b"):

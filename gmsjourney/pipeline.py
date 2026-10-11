@@ -18,6 +18,13 @@ implementation is the open-core fallback:
 10  mutation analysis (+ runtime-monitor catch rate)                              (beyond the book)
 11  training corpora with proofloop's emitters                                    Ch. 8
 12  failure-mode coverage (proofloop taxonomy), report                            Ch. 11
+
+gmsh parity additions (0.4): GEODE dedup mode and v-SFT A/B (step 1); hallucination probes
+(step 2); an optional LLM enrichment arm (DeepSeek via LangChain) proved separately from the
+template arm (step 5b); gmsh-style P=0.5 operating points, held-out accuracy and bootstrap
+intervals next to the regulated ones (step 6); quorum REVIEW and the numeric range attestor in
+the runtime monitor; per-turn latency/length budgets, severity with risk tiers and a tiered
+release gate on every run (steps 7-8).
 """
 from __future__ import annotations
 
@@ -41,7 +48,9 @@ from .enrich.invariance import InvarianceValidator
 from .enrich.reader import FrameReader
 from .enrich.realizers import Realizer
 from .evaluation import attribution, mutation, resilience
+from .evaluation.constraints import ConstraintBudget
 from .evaluation.runner import run, summary
+from .evaluation.severity import release_gate
 from .journey import NA, JourneySpec, relevant_dims
 from .knowledge.geode import build_store, oracle_property, to_dot
 from .ontology import Ontology
@@ -71,11 +80,27 @@ class CampaignConfig:
     kx_geode_epochs: int = 80                    # GEODE correction-loop trainer epochs
     kx_store_dir: str | None = None              # default: ~/.cache/gmsjourney/stores/<hash>
     rebuild_store: bool = False
+    kx_dedup_mode: str = "off"                   # off | audit | accept   (knowledge/kx_store.py)
+    kx_v_sft_mode: str = "ab"                    # rotation | full | ab
+    # runtime checks
+    budgets: dict | None = None                  # ConstraintBudget fields (None = defaults)
+    decision_rule: str = "strict"                # strict | quorum   (runtime gates)
+    calibration_bootstrap: int = 200             # bootstrap resamples for theta / tau intervals
+    # LLM enrichment arm (enrich/llm): DeepSeek through LangChain, proved separately
+    llm_arm: bool = False
+    llm_mode: str = "live"                       # live (call on cache miss) | replay (cache only)
+    llm_model: str = "deepseek-chat"
+    llm_temperature: float = 0.7
+    llm_share: float = 1.0                       # share of design rows also realised by the LLM (paired)
+    llm_dual_read: str = "gate"                  # gate | report | off   (independent LLM reader)
+    llm_max_attempts: int = 3
+    llm_adversarial_controls: int = 20
+    llm_cache_dir: str | None = None
 
 
 def build_gms(policy_path: str | Path = POLICY, *, backend_choice: str = "auto", kx_store_dir: str | None = None,
               rebuild: bool = False, epochs: int = 150, geode_epochs: int = 80, seed: int = 42,
-              log: Callable[[str], None] = print):
+              dedup_mode: str = "off", v_sft_mode: str = "ab", log: Callable[[str], None] = print):
     """The GMS for a policy: knowlytix (built once, then reloaded from its directory) when the
     package is installed and licensed, else the built-in store. Returns (store, report, backend)."""
     use_kx = backend_choice != "builtin" and backend.available()
@@ -90,7 +115,8 @@ def build_gms(policy_path: str | Path = POLICY, *, backend_choice: str = "auto",
     # the store is keyed by everything that changes it: the policy source, the training settings,
     # the package versions and which encoders it is warm-started from
     key = hashlib.sha256(json.dumps([Path(policy_path).read_text(), epochs, geode_epochs, seed,
-                                     info.get("versions"), backend.encoder_kind()]).encode()).hexdigest()[:16]
+                                     info.get("versions"), backend.encoder_kind(), dedup_mode,
+                                     v_sft_mode]).encode()).hexdigest()[:16]
     sdir = Path(kx_store_dir) if kx_store_dir else backend.CACHE / "stores" / key
     if (sdir / "gms_build_report.json").exists() and (sdir / "kx" / "model.pt").exists() and not rebuild:
         log(f"[1/12] loading the knowlytix GMS store ({sdir})")
@@ -98,7 +124,8 @@ def build_gms(policy_path: str | Path = POLICY, *, backend_choice: str = "auto",
     else:
         log(f"[1/12] building the knowlytix GMS store: GEODE loop -> embed loop -> contradiction SFT -> "
             f"cap-trained store -> GMSJudge calibration ({sdir})")
-        kb = build_kx_store(policy_path, sdir, epochs=epochs, geode_epochs=geode_epochs, seed=seed, log=log)
+        kb = build_kx_store(policy_path, sdir, epochs=epochs, geode_epochs=geode_epochs, seed=seed,
+                            dedup_mode=dedup_mode, v_sft_mode=v_sft_mode, log=log)
     return kb.store, {**kb.report, "store_dir": str(sdir)}, info
 
 
@@ -131,7 +158,8 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     store, build_report, R["backend"] = build_gms(cfg.policy_path, backend_choice=cfg.backend,
                                                   kx_store_dir=cfg.kx_store_dir, rebuild=cfg.rebuild_store,
                                                   epochs=cfg.kx_epochs, geode_epochs=cfg.kx_geode_epochs,
-                                                  seed=cfg.seed, log=log)
+                                                  seed=cfg.seed, dedup_mode=cfg.kx_dedup_mode,
+                                                  v_sft_mode=cfg.kx_v_sft_mode, log=log)
     use_kx = R["backend"]["selected"] == "knowlytix"
     demo = build_store(cfg.policy_path, inject_misread=True, train=False)
     caught = any(c.fact == ("expedited_delivery", "has_fee_usd", "150") and c.action.startswith("drop")
@@ -162,6 +190,8 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         },
         "calibration": {"tension": store.calibration["tension"], "holonomy_tau": store.calibration["holonomy"]["tau_path"],
                         "per_relation": store.calibration["score_triple"]}})
+    from .governance.calibrate import tau_bootstrap
+    R["store"]["tau_bootstrap"] = tau_bootstrap(store, B=cfg.calibration_bootstrap)
     kg = getattr(store, "kg", None)
     if kg is not None:
         R["policy_kg"] = {**kg.summary(), "consistency": {k: v for k, v in kg.consistency(store).items()
@@ -237,6 +267,41 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     items = {b.qid: b for b in bases}
     (out / "ontology.ttl").write_text(ont.to_turtle(validator.evidence_triples(proofs, items)))
 
+    # 5b ------------------------------------------------------------- LLM enrichment arm
+    llm_scns, llm_proofs, llm_realizer, llm_validator, llm_controls = [], [], None, None, None
+    if cfg.llm_arm:
+        log("[5b/12] LLM enrichment arm (DeepSeek via LangChain): generate blind, gate every turn, prove "
+            "separately, controls on LLM text")
+        from .enrich.llm import LLMSettings, build_llm_arm
+        settings = LLMSettings(model=cfg.llm_model, temperature=cfg.llm_temperature, mode=cfg.llm_mode,
+                               cache_dir=cfg.llm_cache_dir)
+        llm_realizer, llm_validator, clients = build_llm_arm(
+            store, oracle, reader, validator, settings, dual_read=cfg.llm_dual_read,
+            adversarial=cfg.llm_adversarial_controls > 0, max_attempts=cfg.llm_max_attempts)
+        why = clients["rephrase"].unavailable_reason()
+        if why:
+            log(f"      LLM not callable ({why}); only cached generations can be used")
+        pick = random.Random(cfg.seed + 7)
+        chosen = [s for s in scenarios if pick.random() < cfg.llm_share]
+        llm_scns = [Scenario(f"{s.sid}~llm", s.base, dict(s.factor_levels), s.mode,
+                             {"arm": "llm", "paired_with": s.sid}) for s in chosen]
+        llm_proofs = [llm_validator.prove(s) for s in llm_scns]
+        llm_controls = llm_validator.negative_controls(llm_proofs, llm_scns, per_type=cfg.negative_controls_per_type,
+                                                       adversarial=cfg.llm_adversarial_controls)
+        R["invariance_llm"] = {
+            "summary": llm_validator.summarize_llm(llm_proofs, suite.factor_names),
+            "negative_controls": {k: v for k, v in llm_controls.items() if k != "_audit"},
+            "controls_audit_n": len(llm_controls.get("_audit", [])),
+            "rejected": [p.sid for p in llm_proofs if not p.accepted],
+            "examples": [{"sid": p.sid, "levels": p.levels, "accepted": p.accepted,
+                          "turns": [{k: v for k, v in t.items() if k not in ("frame_obj", "read_obj", "attempts")}
+                                    for t in p.turns]} for p in llm_proofs[:8]],
+            "settings": settings.public(), "unavailable_reason": why,
+            "clients": {k: c.report() for k, c in clients.items() if c is not None}}
+        a = R["invariance_llm"]["summary"]
+        log(f"      LLM arm: {a['accepted']}/{a['scenarios']} scenarios proved; controls rejected "
+            f"{llm_controls['_overall']['detection_rate']:.1%} of {llm_controls['_overall']['n']}")
+
     # 6 -------------------------------------------------------------- runtime gates (Appendix C)
     gcfg = None
     if cfg.run_governance:
@@ -247,7 +312,8 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         cal = calibrate_plausibility(store)
         journeys = [[c["tool"] for c in oracle.run(sp).tool_log] for sp in specs]
         pc = calibrate_plan(store, journeys)
-        gcfg = GovernanceConfig(theta=cal["theta"], drift_budget=pc["drift_budget"], plan_criterion=pc["criterion"])
+        gcfg = GovernanceConfig(theta=cal["theta"], drift_budget=pc["drift_budget"], plan_criterion=pc["criterion"],
+                                decision_rule=cfg.decision_rule)
         R["governance"] = {"plausibility_calibration": cal, "plan_calibration": pc,
                            "probe_sweep": gate_probe_sweep(store, cal["theta"]),
                            "multi_threshold_design": multi_threshold_design(store, cal["theta"]),
@@ -262,11 +328,23 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     log("[7/12] running the system under test (runtime monitor on)")
     factory = cfg.bot_factory or make_reference_factory(store)
     rk = {"store": store, "realizer": realizer, "reader": reader}
-    runner = JourneyRunner(bot_factory=factory, governance=gcfg, **rk)
+    budget = ConstraintBudget(**(cfg.budgets or {}))
+    arms = {"llm": llm_realizer} if llm_realizer is not None else None
+    runner = JourneyRunner(bot_factory=factory, governance=gcfg, arm_realizers=arms, budgets=budget, **rk)
     base_scns = [Scenario(f"{b.qid}~base", b, {}, "base") for b in bases]
     base_rows = run(base_scns, runner, oracle.limits, store.workflow, None)
     rows = run(scenarios, runner, oracle.limits, store.workflow, validator)
-    R["results"] = {"bot": cfg.bot_name, "base_level": summary(base_rows), "enriched": summary(rows)}
+    llm_rows = run(llm_scns, runner, oracle.limits, store.workflow, llm_validator) if llm_scns else []
+    R["results"] = {"bot": cfg.bot_name, "base_level": summary(base_rows), "enriched": summary(rows),
+                    "budgets": budget.as_dict()}
+    if llm_scns:
+        R["results"]["enriched_llm"] = summary(llm_rows)
+        R["arms"] = _arm_comparison(rows, llm_rows)
+        if llm_realizer is not None:
+            R["invariance_llm"]["runtime_realizer"] = dict(llm_realizer.stats)
+    R["release_gate"] = {"base_level": release_gate(base_rows), "enriched_template": release_gate(rows)}
+    if llm_rows:
+        R["release_gate"]["enriched_llm"] = release_gate(llm_rows)
     if gcfg is not None:
         # drift reference: the gate scores of the bot's own base-level traffic (calibration time);
         # the enriched runs play the role of production traffic
@@ -281,6 +359,9 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     if use_kx:
         from .reuse.attribution import kx_attribution
         R["diagnosis"]["knowlytix"] = kx_attribution(rows, suite.factor_names)
+    if llm_rows:
+        # the LLM arm is attributed on the factor levels that actually reached the bot (realised levels)
+        R["diagnosis_llm"] = attribution.diagnose(llm_rows, suite.factor_names)
 
     # 9 -------------------------------------------------------------- resilience
     probe_scns = [s for s in base_scns if s.base.metadata["relevant"].get("n_txn") not in (NA, 0)
@@ -291,7 +372,8 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
 
     # 10 ------------------------------------------------------------- mutation analysis
     if cfg.run_mutation and cfg.bot_factory is None:
-        log("[10/12] mutation analysis (16 seeded defects; runtime monitor watching)")
+        from .sut.reference_bot import MUTATIONS
+        log(f"[10/12] mutation analysis ({len(MUTATIONS)} seeded defects; runtime monitor watching)")
         rgen = JourneyBaseGenerator(oracle, kb_pool=[k.frame for k in admitted], seed=cfg.seed + 1)
         rand_specs = []
         while len(rand_specs) < len(specs):
@@ -323,9 +405,14 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     # the bot did (diagnostic view of the same runs; grading above is outcome + stages + admissibility)
     from .turn_compare import export_turn_by_turn
     diag_runner = runner if (gcfg is not None and getattr(gcfg, "mode", "observe") == "enforce") else \
-        JourneyRunner(bot_factory=factory, governance=None, **rk)
-    R["turn_by_turn"] = export_turn_by_turn(out / "dataset", diag_runner, oracle, base_scns + scenarios,
+        JourneyRunner(bot_factory=factory, governance=None, arm_realizers=arms, budgets=budget, **rk)
+    llm_ok = [s for s in llm_scns if (s.metadata.get("proof") or {}).get("accepted")]
+    R["turn_by_turn"] = export_turn_by_turn(out / "dataset", diag_runner, oracle, base_scns + scenarios + llm_ok,
                                             validator=validator)
+    if llm_scns:
+        from .enrich.llm.export import write_llm_exports
+        R["llm_exports"] = write_llm_exports(out / "dataset", llm_proofs, llm_controls,
+                                             R.get("arms", {}).get("pairs"))
     if kg is not None:
         from .export_dataset import write_dataset
         from .knowledge.canonicals import export_canonicals
@@ -336,13 +423,21 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
                                      bases=bases, scenarios=scenarios, proofs=proofs, kb_items=admitted)
     _write_rows(out / "results_enriched.csv", rows)
     _write_rows(out / "results_base_level.csv", base_rows)
+    if llm_rows:
+        _write_rows(out / "results_enriched_llm.csv", llm_rows)
+        with open(out / "scenarios_llm.jsonl", "w") as f:
+            for p in llm_proofs:
+                turns = [{k: v for k, v in t.items() if k not in ("frame_obj", "read_obj")} for t in p.turns]
+                f.write(json.dumps({"sid": p.sid, "base": p.qid, "levels": p.levels, "accepted": p.accepted,
+                                    "signature": p.enriched_signature, "extra": p.extra, "turns": turns},
+                                   default=str) + "\n")
     with open(out / "scenarios.jsonl", "w") as f:
         for p in proofs:
             turns = [{k: v for k, v in t.items() if k not in ("frame_obj", "read_obj")} for t in p.turns]
             f.write(json.dumps({"sid": p.sid, "base": p.qid, "levels": p.levels, "accepted": p.accepted,
                                 "signature": p.enriched_signature, "turns": turns}, default=str) + "\n")
     with open(out / "failures.jsonl", "w") as f:
-        for r in rows:
+        for r in rows + llm_rows:
             if not r["correct"] or not r["workflow_adherent"]:
                 f.write(json.dumps(r, default=str) + "\n")
     R["elapsed_seconds"] = round(time.time() - t0, 1)
@@ -351,6 +446,33 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     (out / "report.html").write_text(render_html(R))
     log(f"done in {R['elapsed_seconds']} s -> {out}")
     return R
+
+
+def _arm_comparison(rows: list[dict], llm_rows: list[dict]) -> dict[str, Any]:
+    """Paired template-vs-LLM comparison on the same design rows (same base, same assigned levels)."""
+    from math import comb
+    t = {r["sid"]: r for r in rows}
+    pairs = []
+    for r in llm_rows:
+        sid_t = r["sid"].removesuffix("~llm")
+        if sid_t in t:
+            a, b = t[sid_t], r
+            pairs.append({"base": a["seed"], "template_sid": sid_t, "llm_sid": b["sid"],
+                          "template_correct": a["correct"], "llm_correct": b["correct"],
+                          "template_adherent": a["workflow_adherent"], "llm_adherent": b["workflow_adherent"],
+                          "unrealised_factors": b.get("unrealised_factors", [])})
+    both = sum(p["template_correct"] and p["llm_correct"] for p in pairs)
+    t_only = sum(p["template_correct"] and not p["llm_correct"] for p in pairs)
+    l_only = sum(p["llm_correct"] and not p["template_correct"] for p in pairs)
+    none = len(pairs) - both - t_only - l_only
+    n = t_only + l_only
+    k = min(t_only, l_only)
+    p_mcnemar = min(1.0, 2 * sum(comb(n, i) for i in range(k + 1)) / 2 ** n) if n else 1.0
+    return {"pairs_n": len(pairs), "both_correct": both, "template_only_correct": t_only,
+            "llm_only_correct": l_only, "both_wrong": none,
+            "template_accuracy_on_pairs": (both + t_only) / max(1, len(pairs)),
+            "llm_accuracy_on_pairs": (both + l_only) / max(1, len(pairs)),
+            "mcnemar_exact_p": p_mcnemar, "pairs": pairs}
 
 
 def _state_mapping_summary(proofs, kg) -> dict[str, Any]:
@@ -397,7 +519,12 @@ def _runtime_summary(rows: list[dict], record: dict, store) -> dict[str, Any]:
         ic[lv] = {"runs": len(sel), "flagged_by_regex_guard": sum(1 for r in sel if r.get("input_flags"))}
     scores = [s for r in ok for s in r.get("_plaus_scores", [])]
     fr_rate = sum(1 for r in ok if any(g.startswith("gms_plausibility") for g in r.get("gate_rules", []))) / max(1, len(ok))
-    return {"runs": len(rows), "correct_runs": len(ok), "false_alarm_runs": len(fa),
+    quorum = {"calls_routed_to_review": sum(r.get("gate_quorum_review", 0) for r in rows),
+              "calls_where_strict_and_quorum_disagree": sum(r.get("gate_strict_vs_quorum", 0) for r in rows),
+              "runs_with_numeric_review": sum(1 for r in rows if r.get("numeric_review")),
+              "runs_with_numeric_fail": sum(1 for r in rows if r.get("numeric_fail")),
+              "correct_runs_with_numeric_alarm": sum(1 for r in ok if r.get("numeric_review") or r.get("numeric_fail"))}
+    return {"runs": len(rows), "correct_runs": len(ok), "false_alarm_runs": len(fa), "quorum_and_attestor": quorum,
             "false_alarm_rate": len(fa) / max(1, len(ok)),
             "false_alarm_rules": sorted({g for r in fa for g in r.get("gate_rules", [])}),
             "failed_runs": len(bad), "failed_runs_flagged": sum(1 for r in bad if r.get("gate_alarms")),

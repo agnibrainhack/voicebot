@@ -425,3 +425,87 @@ meaning. It must be rejected, and it is.
   to its disjoint siblings, exact numbers with digests, states, acts, and every trained fact with its score and cut.
 - `export_dataset.py` writes the test suite as CSV: one row per case and one row per customer turn, with the state
   policy, cards, texts, the expected outcome and the complete expected trajectory.
+
+## 13. The LLM enrichment arm and its separate proof
+
+**Why it exists.** gmsh can rephrase test questions with an LLM; the template realiser cannot produce the open-ended
+variety of real callers. The arm adds that variety without weakening the guarantee that an enriched case is the same
+test as its base.
+
+**Why it is proved separately.** The template realiser constructs text *from* a meaning card, so its proof checks a
+construction. The LLM is an untrusted writer: it can drop a value, add a figure, answer its own question, hedge a
+decision into ambiguity, or leak internal names. So every LLM utterance passes per-turn gates before the shared
+scenario-level test (`InvarianceValidator._conclude`: L1 truth identity, L3 oracle replay, signatures):
+
+| gate | on | rejects |
+|---|---|---|
+| G0 form | raw LLM text | empty, too long, speaker labels, stage directions, several lines, tool / act names, rule ids, tool statuses |
+| G1 facts | raw LLM text | a figure or merchant not licensed by the base wording, the template wording at the same levels, or the card; a dropped decision value |
+| G3 one clear decision | final text | more disposition or delivery cues than the requested presentation allows (only a self-correction may carry two) |
+| G2 meaning | final text | the rule reader's card in the dialog state differs from the base card or is not admissible there |
+| G2' dual read | final text | (`dual_read=gate`) an independent LLM reader, blind to the base, recovers a different card |
+
+**Blind generation.** The prompt holds only:
+
+- the generic question for the state;
+- the meaning in plain words;
+- the base wording;
+- the factor instructions (wrapper factors as content to paraphrase);
+- the words the rule reader understands.
+
+The expected outcome, the oracle and the policy figures are never in it. The independent reader sees only the
+utterance and the question.
+
+**Reader coverage is the limiting factor, never a weakness.** An LLM turn the rule reader cannot read is rejected (a
+false reject) and regenerated with feedback. The acceptance rate therefore measures how well the reader covers what
+the LLM writes; it can never let a meaning change through.
+
+**Instrument power on LLM text.**
+
+- *Text edits.* The deterministic meaning-changing edits (negation, digit, figure, delivery, card action, merchant,
+  bare yes/no) and the wrong-state control are applied to the accepted LLM utterances. They go through the same
+  `_accept_turn` the proof uses.
+- *Adversarial rewrites.* The LLM is asked to change exactly one meaning element. An accepted rewrite is either a gate
+  miss or a rewrite that kept the meaning. The audit list lets a person decide, and the rejection rate is reported both
+  over all rewrites and over those the reader reads as the target meaning.
+
+**Attribution on realised levels.** A factor counts as realised when the check detects it on at least half of the
+turns it applies to. Unrealised factors are attributed at the base level, so a failure is never credited to a factor
+the bot never received (the defect in gmsh's suite path, `UPSTREAM_GMSH_ISSUES.md` G8-G10).
+
+**Reproducibility.** Completions are cached under the hash of (prompt version, model, temperature, messages, salt).
+The salt is the scenario seed, so a re-run with `--llm-mode replay` uses no network. Proved utterances are pinned for
+the run. A turn the proof never saw is generated live under the same gates, or falls back to the template arm and is
+counted.
+
+## 14. gmsh parity (0.4)
+
+- **GEODE dedup (`kx_dedup_mode`).** 0.3 let the loop remove duplicate tails and reinstated those stated verbatim
+  afterwards, so the loop's last retrains and its anchor check ran on a reduced set. `off` (the default) runs
+  `GeodeLoop(dedup=False)`, then runs `resolve_duplicates` audit-only on the trained production store. `audit` keeps
+  0.3; `accept` is stock gmsh. Anchor violations are now counted in the report.
+- **v-space SFT (`kx_v_sft_mode`).** The book uses rotation and gmsh defaults to full. `ab` trains both and keeps the
+  better held-out noisy-alias binding (a tie keeps rotation). Both scores and the choice are in the build report. The
+  u vectors are still not loaded into the GMS, as in gmsh.
+- **Operating points.** Each gate cohort also gets:
+  - gmsh's P=0.5 logistic point (L2, like sklearn's default), next to the regulated zero-false-admit point;
+  - stratified k-fold held-out accuracy for each rule;
+  - a 200-resample bootstrap interval for each threshold.
+
+  Every relation's cut gets a bootstrap interval for a re-fitted cut and for the realised TAR/FAR at the deployed cut.
+- **Quorum.** gmsh's `check_with_quorum` is computed for every call next to the strict rule:
+  - a syntax error, or two or more blocking layers, denies;
+  - exactly one blocking layer is routed to review, which here means an escalation and the call proceeds.
+
+  `decision_rule` picks which one enforces.
+- **Numeric range attestor.** Every figure the bot speaks gets a three-way verdict against the ENM register, after
+  `policy_numeric.py`. The attestor never re-flags a figure another speech check already flagged.
+- **Constraint budgets.** Per-turn latency (max and p95), words per bot turn, and tool calls over the oracle's count.
+  They are reported, not folded into `correct`.
+- **Severity, tiers, release gate.** Failure codes get base severities. Action-taking journeys promote moderate and
+  high by one level, as in gmsh's tier escalation. Each tier has an accuracy floor and failure budgets.
+- **Hallucination probes.** Near-miss option names ("priority delivery", "same day delivery", "economy delivery") and
+  a low-coverage fact (a fee to secure the card). The truth is absence, and the bot must abstain. The GMS binding of
+  each fake name is reported, because a strong binding to a real option is where an embedding-driven bot would
+  fabricate. The policy graph gains two ASK_KB slots (`name`, `subject`) and two intents. That is four triples; the
+  rest of the graph is unchanged.

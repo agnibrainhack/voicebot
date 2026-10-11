@@ -22,7 +22,9 @@ Open baseline vs GMS, as in the book's runtime-monitoring demo:
                           (R13/R17), the fraud stance (R27, u-space tension),
                           numeric grounding of policy figures against the ENM and
                           of account figures against the tool results (the book's
-                          draft verifier), and PII.
+                          draft verifier), and PII; the numeric range attestor
+                          (attestor.py, gmsh policy_numeric) gives every other figure
+                          the bot speaks a PASS / REVIEW / FAIL verdict.
 """
 from __future__ import annotations
 
@@ -371,6 +373,9 @@ class SpeechMonitor:
                      for o in self.fees}
         self.limits = {k: store.lookup_enm("limit", k) for k in
                        ("max_transactions_per_session", "lookback_days", "max_auth_attempts", "max_turns")}
+        from .attestor import NumericRangeAttestor
+        self.attestor = NumericRangeAttestor(store)
+        self.attestations: list[dict[str, Any]] = []
 
     def check(self, text: str, acts: list[dict] | None, st: GateState) -> list[GateResult]:
         out: list[GateResult] = []
@@ -404,6 +409,24 @@ class SpeechMonitor:
         if _CARD_NUMBER.search(t):
             out.append(GateResult(GateDecision.ESCALATE, "speech", "utterance contains a full card number", rule="PII"))
         out += self._numbers(t, st)
+        out += self._attest(t, st, out)
+        return out
+
+    def _attest(self, t: str, st: GateState, already: list[GateResult]) -> list[GateResult]:
+        """gmsh-style three-way verdict on the figures no other speech check has flagged."""
+        c = st.last("get_review_transactions")
+        txns = ((c or {}).get("result") or {}).get("transactions", []) if c else []
+        flagged = " ".join(r.reason for r in already)
+        out = []
+        for a in self.attestor.attest(t, {float(x["amount"]) for x in txns}):
+            self.attestations.append(a.as_dict())
+            v = f"{a.value:g}"
+            if a.verdict == "PASS" or re.search(rf"(?<![\d.]){re.escape(v)}(?![\d])", flagged):
+                continue
+            dec = GateDecision.DENY if a.verdict == "FAIL" else GateDecision.ESCALATE
+            out.append(GateResult(dec, "numeric_attestor", f"{a.family} figure {v} is "
+                                  f"{'in no register' if a.verdict == 'FAIL' else 'a register value of another quantity'}"
+                                  f" (register {list(a.expected)})", rule=f"NUM-{a.verdict}"))
         return out
 
     def _numbers(self, t: str, st: GateState) -> list[GateResult]:

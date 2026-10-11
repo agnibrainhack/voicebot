@@ -23,6 +23,15 @@ is (head, value, tails). Two categories that are not customer facing
 question shows the geometry rejecting what the symbolic check admits, and the
 precondition of Ch. 4.3 - the store answers its own questions perfectly - is
 checked by grading the graph's own answers.
+
+Hallucination probes (gmsh testing/hallucination.py probe generators, for this policy):
+``near_miss`` asks for the fee or delivery time of an option the policy does not name
+but a caller plausibly could ("priority delivery", "same day delivery"); ``low_coverage``
+asks for an attribute that a sparsely described entity does not have (a fee to secure
+the card). The truth is absence, admitted symbolically with its reason; the correct bot
+abstains. Each near-miss records how strongly the trained GMS binds the fake name to a
+real option (``fuzzy_match_entity``): a strong binding is exactly where an
+embedding-driven bot would hallucinate a figure.
 """
 from __future__ import annotations
 
@@ -51,6 +60,7 @@ class KBItem:
     recovery: str = "pending"           # two_way | symbolic:<reason> | rejected   (metadata['_recovery'])
     recovery_detail: list[dict] = field(default_factory=list)
     ground_truth: Any = None            # (head, value, tails) for multi_hop
+    probe: str | None = None            # near_miss | low_coverage for hallucination probes
 
 
 def _kx_two_way(store, truth: KBTruth) -> tuple[str, list[dict]]:
@@ -145,6 +155,38 @@ def _generators(store, seed: int = 42) -> dict[str, list[F]]:
     }
 
 
+# near-miss option names a caller might use; none is an option or an alias in the policy
+NEAR_MISS_OPTIONS = [("priority_delivery", "fee"), ("same_day_delivery", "days"), ("economy_delivery", "fee")]
+# card actions whose 'fee' question the reader can phrase and read back (enrich/reader.py)
+READABLE_UNSTATED = {"SECURE_CARD"}
+
+
+def _probes(store) -> list[tuple[str, F, dict]]:
+    """Hallucination probes: (kind, frame, diagnostic) - only probes whose truth is absence."""
+    out = []
+    options = set(store.value_sets.get("delivery", []))
+    for name, attr in NEAR_MISS_OPTIONS:
+        fr = K("unknown_option", attr=attr, name=name)
+        if kb_answer(store, fr).answer != "absent":
+            continue
+        diag = {"name": name}
+        try:
+            bound, conf = store.fuzzy_match_entity(name.replace("_", " "), mode="frame")
+            diag.update({"gms_binds_to": bound, "confidence": None if conf is None else round(float(conf), 4),
+                         "binds_to_real_option": bound in options})
+        except Exception as e:                      # noqa: BLE001 - diagnostic only
+            diag["gms_binding_error"] = str(e)[:120]
+        out.append(("near_miss", fr, diag))
+    deg = Counter(e for h, _r, t in store.triples for e in (h, t))
+    for ca in sorted(store.value_sets.get("card_action", []), key=lambda e: (deg[e], e)):
+        if ca not in READABLE_UNSTATED:
+            continue
+        fr = K("unstated_fact", attr="fee", subject=ca)
+        if kb_answer(store, fr).answer == "absent":
+            out.append(("low_coverage", fr, {"subject": ca, "facts_about_subject": deg[ca]}))
+    return out
+
+
 def kx_substrate(store, full: bool = False) -> dict[str, Any]:
     """Mine the knowlytix store with the production answer-key generators (book nb 25):
     every category under the two-way geometric guard, with the per-question recovery tag
@@ -234,6 +276,18 @@ def mine_kb_items(store, seed: int = 42) -> tuple[list[KBItem], dict[str, Any]]:
                     cap_notes.setdefault(cat, {})[dd["triple"][1]] = dd["cap_radius"]
             items.append(it)
 
+    # hallucination probes (absence truths; the bot must abstain)
+    probe_stats = Counter()
+    for j, (kind, fr, diag) in enumerate(_probes(store)):
+        truth = kb_answer(store, fr)
+        it = KBItem(f"kb-probe-{kind}-{j:02d}", "absence_detection", fr, truth.answer, truth.answer_type,
+                    truth.primitive, probe=kind)
+        tag, detail = two_way_check(store, truth)
+        it.recovery, it.recovery_detail = tag, detail + [diag]
+        it.admission = {"two_way": "doubly_grounded", "rejected": "rejected"}.get(tag, "symbolic_only")
+        probe_stats[kind] += 1
+        items.append(it)
+
     # the geometry earns its keep: a forged question whose answer recomputes correctly
     # but whose declared fact triple is another option's real fee
     true_q = kb_answer(store, K("value", attr="fee", entity="expedited_delivery"))
@@ -285,4 +339,7 @@ def mine_kb_items(store, seed: int = 42) -> tuple[list[KBItem], dict[str, Any]]:
                  "recovery": mh.recovery}}
     if hasattr(store, "kx"):
         recovery["knowlytix_substrate"] = kx_substrate(store)
-    return items, {"self_tests": self_tests, "precondition": precondition, "recovery": recovery}
+    probes = [{"qid": i.qid, "kind": i.probe, "frame": str(i.frame), "admission": i.admission,
+               "diagnostic": (i.recovery_detail or [{}])[-1]} for i in items if i.probe]
+    return items, {"self_tests": self_tests, "precondition": precondition, "recovery": recovery,
+                   "hallucination_probes": {"n": len(probes), "by_kind": dict(probe_stats), "items": probes}}

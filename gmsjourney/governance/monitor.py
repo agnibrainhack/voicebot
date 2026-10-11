@@ -7,6 +7,16 @@ asks every gate before each tool call executes. ``GovernedTools`` is the drop-in
 tool client: in ``monitor`` mode it only records (the test outcome is unchanged), in
 ``enforce`` mode a DENY blocks the call and the bot receives a tool error. Every
 decision is sealed into a hash-chained audit log.
+
+Decision rule (``GovernanceConfig.decision_rule``):
+
+* ``strict``  any gate's DENY denies the call (the default; unchanged behaviour);
+* ``quorum``  gmsh's ``check_with_quorum``: a schema (syntax) error always denies; two or
+  more independent layers (policy, GMS plausibility) denying -> DENY; exactly one ->
+  REVIEW, which is routed onto the existing escalation path (the call proceeds, an
+  escalation is raised for a human); none -> ALLOW.
+Both outcomes are computed for every call and reported, so the cost of either rule
+(false denies vs. reviews) is visible whichever one is deployed.
 """
 from __future__ import annotations
 
@@ -27,6 +37,7 @@ class GovernanceConfig:
     relation: str = "enables"
     plan_criterion: str = "mean"      # mean (book) | max
     mode: str = "monitor"             # monitor | enforce
+    decision_rule: str = "strict"     # strict | quorum (gmsh check_with_quorum; one blocking layer -> review)
 
 
 class RuntimeMonitor:
@@ -46,6 +57,8 @@ class RuntimeMonitor:
         self.events: list[dict[str, Any]] = []
         self.input_flags: list[dict[str, Any]] = []
         self._seq = 0
+        self.decisions: list[dict[str, Any]] = []
+        self.last_outcome = "allowed"
         self._fee_text = {f"${store.lookup_enm('delivery_fee_usd', 'expedited_delivery')}",
                           f"{store.lookup_enm('delivery_fee_usd', 'expedited_delivery')} dollars"}
 
@@ -91,11 +104,31 @@ class RuntimeMonitor:
         if res:
             self._seal("speech", {"text": text}, res, "flagged")
 
+    @staticmethod
+    def outcomes(results: list[GateResult]) -> tuple[str, str]:
+        """(strict outcome, quorum outcome) for one proposed call."""
+        deny_layers = {r.gate_name for r in results if r.decision == GateDecision.DENY}
+        escalate = any(r.decision == GateDecision.ESCALATE for r in results)
+        strict = "denied" if deny_layers else "escalated" if escalate else "allowed"
+        if "syntax" in deny_layers or len(deny_layers) >= 2:
+            quorum = "denied"
+        elif deny_layers:
+            quorum = "review"                       # one blocking layer: a human looks, the call is not denied
+        else:
+            quorum = "escalated" if escalate else "allowed"
+        return strict, quorum
+
     def before_tool(self, tool: str, args: dict) -> list[GateResult]:
         action = ToolCall(tool, dict(args))
         results = [g.check(action, self.state, self.registry) for g in self.gates]
-        worst = "denied" if any(r.decision == GateDecision.DENY for r in results) else \
-            "escalated" if any(r.decision == GateDecision.ESCALATE for r in results) else "allowed"
+        strict, quorum = self.outcomes(results)
+        worst = quorum if self.cfg.decision_rule == "quorum" else strict
+        self.last_outcome = worst
+        self.decisions.append({"tool": tool, "strict": strict, "quorum": quorum,
+                               "layers": sorted({r.gate_name for r in results if r.decision != GateDecision.ALLOW})})
+        if worst == "review":
+            results = results + [GateResult(GateDecision.ESCALATE, "quorum", "one blocking layer: routed to review",
+                                            rule="quorum")]
         self._seal("tool", {"tool": tool, "args": dict(args), "prev": self.state.prev_node()}, results, worst)
         return results
 
@@ -125,6 +158,14 @@ class RuntimeMonitor:
                 "by_gate_rule": by, "events": self.events, "input_flags": self.input_flags,
                 "plan": {"admissible": plan.admissible, "drift": plan.drift, "max_step": plan.max_step},
                 "plausibility_scores": scores,
+                "decision_rule": self.cfg.decision_rule,
+                "numeric_attestations": {k: sum(1 for x in self.speech.attestations if x["verdict"] == k)
+                                         for k in ("PASS", "REVIEW", "FAIL")},
+                "quorum": {"calls": len(self.decisions),
+                           "strict_denied": sum(d["strict"] == "denied" for d in self.decisions),
+                           "quorum_denied": sum(d["quorum"] == "denied" for d in self.decisions),
+                           "routed_to_review": sum(d["quorum"] == "review" for d in self.decisions),
+                           "disagreements": [d for d in self.decisions if (d["strict"] == "denied") != (d["quorum"] == "denied")]},
                 "audit": {"n_events": len(self.audit.events), "head": self.audit.head(),
                           "verified": self.audit.verify(), "engine": self.engine}}
 
@@ -151,7 +192,7 @@ class GovernedTools:
     def call(self, tool: str, **args: Any) -> Any:
         from ..sut.tools import ToolError
         res = self.monitor.before_tool(tool, args)
-        if self.monitor.cfg.mode == "enforce" and any(r.decision == GateDecision.DENY for r in res):
+        if self.monitor.cfg.mode == "enforce" and self.monitor.last_outcome == "denied":
             reason = "; ".join(f"{r.gate_name}: {r.reason}" for r in res if r.decision == GateDecision.DENY)
             self.blocked.append({"tool": tool, "args": dict(args), "reason": reason})
             self.inner.log.append({"tool": tool, "args": dict(args), "result": {"error": f"blocked: {reason}"},

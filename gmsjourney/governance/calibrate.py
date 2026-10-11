@@ -16,6 +16,17 @@
   the four thresholds that matter, each row scored on its own labelled cohort.
 * ``recalibration_triggers`` store retrained, score drift (PSI), false-reject creep,
   policy changed.
+
+Comparability with gmsh (GMSJudge / plausibility_calibration):
+
+* ``logistic_p50``     gmsh's operating point: a one-feature L2 logistic fit of P(admit | score)
+  and the score where P = 0.5, reported next to the regulated point;
+* ``holdout_eval``     stratified k-fold: every operating-point rule is fitted on the other
+  folds and scored on the held-out one (gmsh reports training-set accuracy only);
+* ``bootstrap_thetas`` 200 stratified resamples of the cohort -> mean, sd and 95% interval of
+  each rule's threshold (gmsh plausibility_calibration's bootstrap, CI kept for the audit);
+* ``tau_bootstrap``    the same for every relation's cut on the store's own facts vs
+  counterfactual tails, plus the realised true/false accept rates at the deployed cut.
 """
 from __future__ import annotations
 
@@ -75,6 +86,117 @@ def operating_points(scores: list[tuple[float, str]]) -> dict[str, Any]:
             "max_admit_score": max(pos) if pos else None, "min_block_score": min(neg) if neg else None}
 
 
+# ----------------------------------------------------------------------------- gmsh comparability
+def logistic_p50(scores: list[tuple[float, str]], l2: float = 1.0, iters: int = 100) -> dict[str, Any]:
+    """One-feature logistic P(admit | score) (L2 on the slope, like sklearn's default C=1) and the
+    score where P = 0.5 - gmsh GMSJudge's operating-point rule - with its errors on the cohort."""
+    x = np.array([s for s, _ in scores], dtype=float)
+    y = np.array([1.0 if l == "admit" else 0.0 for _, l in scores])
+    if len(set(y)) < 2:
+        return {"theta": float("nan"), "note": "one class only"}
+    mu, sd = float(x.mean()), float(x.std()) or 1.0
+    X = np.c_[np.ones_like(x), (x - mu) / sd]
+    w = np.zeros(2)
+    R = np.diag([0.0, l2])
+    for _ in range(iters):
+        p = 1.0 / (1.0 + np.exp(-(X @ w)))
+        g = X.T @ (y - p) - R @ w
+        H = X.T @ (X * (p * (1 - p) + 1e-9)[:, None]) + R
+        step = np.linalg.solve(H, g)
+        w = w + step
+        if np.max(np.abs(step)) < 1e-10:
+            break
+    theta = float(mu + sd * (-w[0] / w[1])) if abs(w[1]) > 1e-12 else float("nan")
+    at = sweep(scores, [theta])[0] if theta == theta else {}
+    return {"theta": theta, "coef": [float(w[0]), float(w[1])], **{k: v for k, v in at.items() if k != "theta"},
+            "rule": "P(admit|score) = 0.5 (gmsh GMSJudge)"}
+
+
+def _rules(scores: list[tuple[float, str]]) -> dict[str, float]:
+    ops = operating_points(scores)
+    return {"regulated": ops["regulated"]["theta"], "max_accuracy": ops["max_accuracy"]["theta"],
+            "p50": logistic_p50(scores)["theta"]}
+
+
+def holdout_eval(scores: list[tuple[float, str]], k: int = 5, seed: int = 0) -> dict[str, Any]:
+    """Stratified k-fold: fit each rule on k-1 folds, count its errors on the held-out fold."""
+    rng = np.random.default_rng(seed)
+    pos = [i for i, (_, l) in enumerate(scores) if l == "admit"]
+    neg = [i for i, (_, l) in enumerate(scores) if l == "block"]
+    k = max(2, min(k, len(pos), len(neg)))
+    rng.shuffle(pos)
+    rng.shuffle(neg)
+    fold = {i: j % k for j, i in enumerate(pos)} | {i: j % k for j, i in enumerate(neg)}
+    tot = {r: {"false_admits": 0, "false_rejects": 0, "n": 0} for r in ("regulated", "max_accuracy", "p50")}
+    for f in range(k):
+        train = [scores[i] for i in range(len(scores)) if fold[i] != f]
+        test = [scores[i] for i in range(len(scores)) if fold[i] == f]
+        for r, th in _rules(train).items():
+            if th != th:
+                continue
+            sw = sweep(test, [th])[0]
+            tot[r]["false_admits"] += sw["false_admits"]
+            tot[r]["false_rejects"] += sw["false_rejects"]
+            tot[r]["n"] += len(test)
+    return {"k": k, **{r: {**v, "heldout_accuracy": 1 - (v["false_admits"] + v["false_rejects"]) / max(1, v["n"])}
+                       for r, v in tot.items()}}
+
+
+def bootstrap_thetas(scores: list[tuple[float, str]], B: int = 200, seed: int = 0) -> dict[str, Any]:
+    """Stratified bootstrap of every rule's threshold: mean, sd and 95% interval."""
+    rng = np.random.default_rng(seed)
+    pos = [s for s in scores if s[1] == "admit"]
+    neg = [s for s in scores if s[1] == "block"]
+    draws: dict[str, list[float]] = {"regulated": [], "max_accuracy": [], "p50": []}
+    for _ in range(B):
+        sample = [pos[i] for i in rng.integers(0, len(pos), len(pos))] + [neg[i] for i in rng.integers(0, len(neg), len(neg))]
+        for r, th in _rules(sample).items():
+            if th == th:
+                draws[r].append(th)
+    out = {}
+    for r, v in draws.items():
+        if v:
+            a = np.array(v)
+            out[r] = {"mean": float(a.mean()), "sd": float(a.std()), "ci95": [float(np.percentile(a, 2.5)),
+                                                                             float(np.percentile(a, 97.5))], "n": len(v)}
+    return {"B": B, **out}
+
+
+def tau_bootstrap(store, B: int = 200, seed: int = 7, max_relations: int = 60) -> dict[str, Any]:
+    """Per relation: the cut re-fitted on bootstrap resamples of (true facts, counterfactual tails)
+    with the store's own operating-point rule, and the realised TAR/FAR at the deployed cut."""
+    import random as _random
+    from ..knowledge.store import GMSStore
+    rng_py = _random.Random(seed)
+    rng = np.random.default_rng(seed)
+    out = {}
+    for rel, trs in sorted(store.by_r.items())[:max_relations]:
+        try:
+            tau = float(store.tau(rel))
+        except (KeyError, ValueError):
+            continue
+        trs = sorted(trs)
+        pos = [float(store.score_triple(h, r, t)) for h, r, t in trs]
+        neg = [float(store.score_triple(h, r, c)) for h, r, t in trs for c in store.negatives_for(h, r, t, rng_py)]
+        if not pos or not neg:
+            continue
+        taus, tars, fars = [], [], []
+        for _ in range(B):
+            P = [pos[i] for i in rng.integers(0, len(pos), len(pos))]
+            N = [neg[i] for i in rng.integers(0, len(neg), len(neg))]
+            op = GMSStore._operating_point(P, N)
+            if op["tau"] == op["tau"]:
+                taus.append(op["tau"])
+            tars.append(float(np.mean([x <= tau for x in P])))
+            fars.append(float(np.mean([x <= tau for x in N])))
+        ci = lambda v: [float(np.percentile(v, 2.5)), float(np.percentile(v, 97.5))] if v else None
+        out[rel] = {"tau_deployed": tau, "n_pos": len(pos), "n_neg": len(neg),
+                    "refit_tau_ci95": ci(taus), "tar_ci95": ci(tars), "far_ci95": ci(fars)}
+    return {"B": B, "relations": out,
+            "note": "knowlytix cuts are learned cap radii (not re-fitted at run time); the refit interval shows how "
+                    "stable a data-driven cut would be on this cohort, the TAR/FAR intervals how stable the deployed one is"}
+
+
 def calibrate_plausibility(store, relation: str = "enables") -> dict[str, Any]:
     cohort = workflow_cohort(store, relation)
     scored = [(store.score_triple(e.context, e.relation, e.tail), e.label) for e in cohort]
@@ -84,6 +206,7 @@ def calibrate_plausibility(store, relation: str = "enables") -> dict[str, Any]:
     return {"relation": relation, "n_admit": sum(e.label == "admit" for e in cohort),
             "n_block": sum(e.label == "block" for e in cohort),
             "book_grid": sweep(scored, BOOK_GRID), **ops, "theta": ops["regulated"]["theta"],
+            "p50": logistic_p50(scored), "holdout": holdout_eval(scored), "bootstrap": bootstrap_thetas(scored),
             "false_rejects_at_theta": false_rejects,
             "cohort_scores": [{"edge": f"{e.context}->{e.tail}", "label": e.label, "score": round(s, 4)}
                               for e, (s, _) in zip(cohort, scored)]}
@@ -129,8 +252,11 @@ def calibrate_plan(store, journeys: list[list[str]], relation: str = "enables") 
     # deploy the criterion with fewer false rejects at zero false admits (ties: the book's mean)
     use_max = max_ops["regulated"]["false_rejects"] < mean_ops["regulated"]["false_rejects"]
     chosen = max_ops if use_max else mean_ops
+    chosen_scores = max_scores if use_max else mean_scores
     return {"n_admissible_plans": len(pos), "n_inadmissible_plans": len(neg),
             "criterion": "max" if use_max else "mean", "drift_budget": chosen["regulated"]["theta"],
+            "p50": logistic_p50(chosen_scores), "holdout": holdout_eval(chosen_scores),
+            "bootstrap": bootstrap_thetas(chosen_scores),
             "mean_drift": mean_ops, "max_step": max_ops,     # book criterion / per-step criterion
             "examples": {"admissible": pos[:3], "inadmissible": neg[:5]}}
 

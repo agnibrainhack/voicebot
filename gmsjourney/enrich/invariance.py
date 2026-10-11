@@ -69,6 +69,8 @@ class ProofResult:
     mean_surface_cosine: float
     min_surface_cosine: float
     turns: list[dict[str, Any]] = field(default_factory=list)
+    arm: str = "template"                       # template | llm (the enrichment arm that wrote the text)
+    extra: dict[str, Any] = field(default_factory=dict)   # arm-specific evidence (LLM gates, realised factors)
 
 
 
@@ -132,6 +134,13 @@ class InvarianceValidator:
                           "frame_distance": self.ont.frame_distance(frame, g, st),
                           "surface_cosine": cosine(self.store.v.encode(base_text), self.store.v.encode(text))})
         scn.metadata["seed_overrides"] = overrides
+        return self._conclude(scn, path, states, turns, read_frames, retries)
+
+    def _conclude(self, scn: Scenario, path, states, turns, read_frames, retries: int,
+                  arm: str = "template", extra_ok: bool = True, extra: dict | None = None) -> ProofResult:
+        """L1 (truth identity), L3 (oracle replay of the read-back cards) and the signatures -
+        shared by both enrichment arms so they are judged by exactly the same scenario-level test."""
+        item = scn.base
         # L1: carried truth == recomputed truth
         recomputed = self.oracle.run(item.metadata["spec"], item.metadata["fixture"])
         rc = {f"expected_{k}": v for k, v in recomputed.components().items()}
@@ -144,11 +153,11 @@ class InvarianceValidator:
         base_sig = sequence_signature([self.ont.canonicalize(f, st) for (f, _), st in zip(path, states)], states)
         enr_sig = sequence_signature(read_frames, states)
         cos = [t["surface_cosine"] for t in turns] or [1.0]
-        res = ProofResult(scn.sid, item.qid, dict(scn.factor_levels), frames_ok and oracle_ok and gt_ok,
+        res = ProofResult(scn.sid, item.qid, dict(scn.factor_levels), frames_ok and oracle_ok and gt_ok and extra_ok,
                           gt_ok, frames_ok, oracle_ok, base_sig, enr_sig, len(turns), retries,
                           max([t["frame_distance"] for t in turns] or [0.0]),
-                          statistics.fmean(cos), min(cos), turns)
-        scn.metadata["proof"] = {"accepted": res.accepted, "signature": enr_sig, "retries": retries}
+                          statistics.fmean(cos), min(cos), turns, arm, dict(extra or {}))
+        scn.metadata["proof"] = {"accepted": res.accepted, "signature": enr_sig, "retries": retries, "arm": arm}
         return res
 
     # -------------------------------------------------------- negative controls
@@ -189,6 +198,11 @@ class InvarianceValidator:
                 out.append(("kb_value_shift", F.make(a, **{**sl, "value": str(int(sl["value"]) + 5)})))
             if i == "faster":
                 out.append(("kb_intent_swap", F.make(a, intent="cheaper")))
+            if i == "unknown_option":       # the near-miss name replaced by a real option: the probe is gone
+                out.append(("kb_fake_option_to_real", F.make(a, intent="value", attr=sl.get("attr", "fee"),
+                                                             entity="expedited_delivery")))
+            if i == "unstated_fact":
+                out.append(("kb_subject_swap", F.make(a, intent="value", attr="fee", entity="standard_delivery")))
         return out
 
     def _text_mutations(self, text: str, frame: F | None = None) -> list[tuple[str, str]]:

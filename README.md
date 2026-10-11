@@ -12,12 +12,17 @@ reference bot and its mutants. Without knowlytix, the same pipeline runs on a bu
 ```
 policy PDF -> policy graph JSON (head/relation/tail + dialog states + per-state policy; policy/charge_review_kg.json)
    -> GMS [knowlytix]: GEODE loop -> embed loop (v SFT) -> contradiction SFT (u) -> cap-trained store -> GMSJudge calibration
-   -> base cases: 27 policy questions (knowlytix's two-way generator gate, else a stated symbolic check) + 54 journeys (covering array + closure)
-   -> enrichment: official catalogs [proofloop] + application layer, 16 voice factors, phi_p design, 486 scenarios
-   -> invariance proof: every enriched scenario shown to be the same test as its base case
+   -> base cases: 27 policy questions (knowlytix's two-way generator gate, else a stated symbolic check)
+                  + 4 hallucination probes (near-miss option names, an unstated fee) + journeys (covering array + closure)
+   -> enrichment: official catalogs [proofloop] + application layer, 16 voice factors, phi_p design;
+                  two arms on the same design rows: template realiser (always) and LLM (DeepSeek via LangChain, --llm)
+   -> invariance proof: every enriched scenario shown to be the same test as its base case - the LLM arm
+                  separately, behind extra per-turn gates and its own negative controls
    -> runtime gates calibrated (Appendix C) [forgeloop GMS gates + audit on the knowlytix store]
-   -> run the bot under the runtime monitor; KB answers also judged by GMSJudge [knowlytix via proofloop]
-   -> diagnosis: DOEAnalyzer [knowlytix] + per component / weak link, resilience, mutation analysis
+   -> run the bot under the runtime monitor (strict or quorum rule, numeric range attestor, per-turn latency /
+      length budgets); KB answers also judged by GMSJudge [knowlytix via proofloop]
+   -> diagnosis: DOEAnalyzer [knowlytix] + per component / weak link, severity + risk tiers + release gate,
+      template-vs-LLM paired comparison, resilience, mutation analysis
    -> training corpora [proofloop emitters]
    -> exports: gms_canonicals.json (canonicals as the trained GMS holds them) + dataset/*.csv (every test case)
 ```
@@ -56,9 +61,16 @@ pip install -r requirements-knowlytix.txt
 export KNOWLYTIX_LICENSE_KEY=...            # or put it in ~/.knowlytix/license.key; never committed, never logged
 python run_campaign.py --out campaign_out   # first run builds the GMS (CPU: ~10-45 min), later runs reload it (~2.5 min)
 python tests/test_selfchecks.py             # 20 self-checks (the knowlytix one runs when GMSJOURNEY_KX_STORE is set)
+python tests/test_parity_and_llm_arm.py     # 8 checks for 0.4 (LLM arm with a fake model: no key, no network)
 
 # open baseline, any Python >= 3.10, no licence
 pip install -r requirements.txt && python run_campaign.py --backend builtin --out campaign_builtin
+
+# + the LLM enrichment arm (DeepSeek through LangChain)
+pip install -r requirements-llm.txt
+export DEEPSEEK_API_KEY=...                  # read from the environment only; never written to outputs
+python run_campaign.py --llm --out campaign_llm                 # generations are cached under ~/.cache/gmsjourney/llm
+python run_campaign.py --llm --llm-mode replay --out rerun      # re-run from the cache, no network
 ```
 
 Colab: upload `gmsjourney.zip`, add a secret named `KNOWLYTIX_LICENSE_KEY`, open
@@ -166,6 +178,59 @@ scenario: (1) ground truth identical; (2) every enriched turn read back to the s
 the read-back frames and re-derives the same outcome; (4) geometric corroboration (surface moved, meaning did
 not). Meaning-changing edits must all be rejected; they are. Evidence is exported as RDF (`ontology.ttl`).
 
+## Two enrichment arms: template and LLM
+
+Both arms realise the **same design rows** (same base, same factor levels), so their results can be compared pair by
+pair. The template arm builds each customer turn from its meaning card with deterministic code. The LLM arm
+(`gmsjourney/enrich/llm`, `--llm`) asks DeepSeek, through LangChain, to write the turn. It is not trusted to
+construct the meaning, so it is validated separately and more strictly:
+
+1. **Blind generation.** The model is given the agent's question for the dialog state, what the customer means (in
+   plain words), the base wording and the presentation instructions. It never sees the expected bot behaviour, the
+   oracle, tool names or rule ids (`prompts.py`).
+2. **Per-turn gates** (`gates.py`, `validate.py`). A turn is accepted only when all of these pass:
+   - **G0 form:** one spoken line, with no internal names.
+   - **G1 facts:** no figure or merchant that the base meaning does not carry, and every decision value kept.
+   - **G3 one clear decision:** no competing decision cues.
+   - **G2 meaning:** the rule reader reads the final text, after surface noise, in its dialog state and gets the
+     base meaning card. With `--llm-dual-read gate` (the default), an independent LLM reader that never saw the base
+     must also get it.
+   - **Retries:** a failing turn is regenerated, up to 3 times. The feedback names the failed gate, never the answer.
+     A scenario that still fails is excluded and reported as *not materialised*.
+3. **The same scenario-level test as the template arm:**
+   - L1: the ground truth is identical;
+   - L3: the oracle, replaying the read-back cards, re-derives the outcome and every stage;
+   - the conversation signatures are equal.
+4. **Negative controls on LLM text**, reported separately:
+   - meaning-changing edits of the accepted LLM utterances (negation, digit, figure, delivery, card action,
+     merchant, bare yes/no);
+   - adversarial rewrites in which the LLM changes exactly one meaning element;
+   - the wrong-state control.
+
+   All of these go through the same acceptance function and must be rejected. Accepted controls are listed for
+   audit in `dataset/llm_negative_controls_audit.csv`.
+5. **Manipulation check.** Each requested factor level is checked for whether it is visible in the text. The LLM arm
+   is attributed on the levels that actually reached the bot.
+
+Accepted LLM utterances are pinned. The run sends the bot exactly the text that was proved. A turn the proof never
+saw (the bot left the oracle's path) is generated live under the same gates, or falls back to the template arm and is
+counted. Generations are cached by content hash, so a campaign re-runs byte for byte with `--llm-mode replay`.
+
+## gmsh parity (0.4)
+
+These additions follow from the gmsh comparison (`UPSTREAM_GMSH_ISSUES.md` lists the gmsh defects to report):
+
+| addition | where |
+|---|---|
+| GEODE `dedup=False`, so the loop's retrains and anchor check see every fact; duplicate resolution runs audit-only on the trained store; anchor violations reported. `--kx-dedup-mode audit` keeps the 0.3 behaviour; `accept` is stock gmsh. | `knowledge/kx_store.py` |
+| v-space fine-tuning A/B: rotation (book) vs full (gmsh default), keeping the better held-out noisy-alias binding (`--kx-v-sft-mode`) | `knowledge/kx_store.py` |
+| gmsh's P=0.5 logistic operating point next to the regulated one, k-fold held-out accuracy, bootstrap 95% intervals for θ, the plan budget and every relation's cut | `governance/calibrate.py` |
+| Quorum REVIEW (`--decision-rule quorum`). Always shadow-computed and reported: a syntax error or ≥2 blocking layers deny; one blocking layer is routed to review (escalation). | `governance/monitor.py` |
+| Numeric range attestor on every figure the bot speaks: PASS (register value), REVIEW (a register value of another quantity), FAIL (invented) | `governance/attestor.py` |
+| Per-turn latency and length budgets plus a tool-call budget, reported next to correctness | `evaluation/constraints.py` |
+| Severity per run with gmsh's risk-tier escalation, and a tiered release gate | `evaluation/severity.py` |
+| Hallucination probes: near-miss option names and an unstated fee. The bot must abstain; a new mutant (`kb_fabricate_unknown`) fabricates instead. | `bases/kb.py`, `kb_truth.py` |
+
 ## Testing your real bot
 
 ```python
@@ -200,6 +265,9 @@ runtime monitor wraps the same tool client, so the gates watch your bot exactly 
 | `dataset/test_turns.csv` | one row per customer turn: state, stage, the state's rules/limits/accepted cards, meaning card and its H/R/T, base and enriched text, read-back card, equivalence |
 | `dataset/policy_questions.csv`, `dataset/test_cases.jsonl` | the 27 policy questions; the cases with nested structure |
 | `dataset/turn_by_turn.csv`, `dataset/turn_by_turn_summary.csv` | per customer turn: oracle's expected tools and bot acts vs the bot's actual tools, acts and text; per case: first divergence and outcome |
+| `results_enriched_llm.csv`, `scenarios_llm.jsonl` | LLM arm: one row per scenario (realised factor levels); every LLM scenario with its gates and proof |
+| `dataset/llm_enrichment_turns.csv` | every LLM-written turn: base, template and LLM text, both readers' cards, each gate, attempts, factors requested / realised |
+| `dataset/llm_negative_controls_audit.csv`, `dataset/arm_pairs.csv` | controls the LLM gate accepted (for human audit); template-vs-LLM pairs |
 
 ## Layout
 
@@ -213,9 +281,14 @@ gmsjourney/
   policy/            charge_review_kg.json (source), charge_review_policy.md (structured transcription of the PDF)
   reuse/             adapters: DOEAnalyzer, GMSJudge, forgeloop gates/audit, proofloop emitters/taxonomy
   catalogs/          application.yaml (+ level_aliases), custom_factors.yaml, official/ (fallback copy)
-  governance/        gates (policy, speech, GMS), monitor, audit, calibrate (Appendix C)
+  governance/        gates (policy, speech, GMS), monitor (strict / quorum), attestor (numeric range), audit,
+                     calibrate (Appendix C + P=0.5, holdout, bootstrap)
+  enrich/llm/        the LLM enrichment arm: client (LangChain + DeepSeek, replay cache), prompts, gates,
+                     realizer, extractor (independent reader), validate (separate proof + controls), export
+  evaluation/        runner, attribution, stats, constraints (budgets), severity (tiers + release gate), ...
   ontology.py journey.py oracle.py kb_truth.py bases/ enrich/ design/ sut/ evaluation/ pipeline.py report.py
 run_campaign.py · validate_catalogs (python -m gmsjourney.validate_catalogs) · tests/ · notebooks/ · DESIGN.md · NOTICE
+tools/gmsh_upstream_repro.py · UPSTREAM_GMSH_ISSUES.md
 ```
 
 Licensing: knowlytix-core is used under the Knowlytix EULA and is not included in this package; the other

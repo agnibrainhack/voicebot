@@ -147,6 +147,26 @@ def kb_answer(store, frame: SemanticFrame) -> KBTruth:
         v = f()
         return KBTruth(intent, v, "sequence", "sequence_check", f,
                        answer_triples=[(a, "precedes", b) for a, b in zip(v, v[1:])])
+    if intent == "unknown_option":
+        name = str(frame.get("name"))
+
+        def f():
+            options = set(store.value_sets.get("delivery", [])) | \
+                {e for e, ty in store.entity_types.items() if ty in ("delivery", "delivery_option")}
+            spoken = name.replace("_", " ")
+            alias = any(spoken == a.lower() for o in options for a in store.aliases.get(o, []))
+            stated = name in options or alias or any(name in (h, t) for h, _r, t in store.triples)
+            return "present" if stated else "absent"
+        return KBTruth(intent, f(), "absent", "query_triples_empty", f,
+                       symbolic_reason="absence: the policy names no such delivery option (near-miss name)",
+                       metadata={"probe": "near_miss", "name": name})
+    if intent == "unstated_fact":
+        subj, attr = str(frame.get("subject")), frame.get("attr")
+        rel = {"fee": "has_fee_usd", "days": "has_business_days_max"}.get(attr, "has_fee_usd")
+        f = lambda: "present" if (store.query_triples(subj, rel) or store.query_triples(subj.lower(), rel)) else "absent"
+        return KBTruth(intent, f(), "absent", "query_triples_empty", f,
+                       symbolic_reason=f"absence: the policy states no {attr} for {subj} (low-coverage entity)",
+                       metadata={"probe": "low_coverage", "subject": subj, "relation": rel})
     raise KeyError(f"unknown KB intent {intent!r}")
 
 

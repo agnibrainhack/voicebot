@@ -264,7 +264,24 @@ class Realizer:
         if i == "procedure":
             return ["What are the steps in this review?", "What's the process you follow for checking charges?",
                     "Walk me through how this works, step by step."][k]
+        if i == "unknown_option":
+            N = self._fake(f.get("name"), lv)
+            if f.get("attr") == "fee":
+                return [f"How much does {N} cost{rep}?", f"What's the fee for {N}{rep}?",
+                        f"If I pick {N}{rep}, what would I have to pay?"][k]
+            return [f"How long does {N} take{rep}?", f"How many business days is {N}{rep}?",
+                    f"If I choose {N}{rep}, when would the card arrive?"][k]
+        if i == "unstated_fact":
+            card = CARD_PHRASES[f.get("subject")][lv["entity_aliasing"]]
+            return [f"How much does it cost to {card}?", f"Is there a fee to {card}?",
+                    f"If you {card}, what would I have to pay?"][k]
         raise ValueError(i)
+
+    @staticmethod
+    def _fake(name: str, lv: dict) -> str:
+        """A near-miss option name, with the noun varied by entity_aliasing like a real option."""
+        q = str(name).removesuffix("_delivery").replace("_", " ")
+        return f"{q} " + {"canonical": "delivery", "synonym": "shipping", "colloquial": "courier"}[lv["entity_aliasing"]]
 
     def _kb_terse(self, f: SemanticFrame, lv: dict) -> str:
         i = f.get("intent")
@@ -280,6 +297,10 @@ class Realizer:
         if i == "mcq":
             opts = [self._num(o, lv, money=True) for o in f.get("options")]
             return f"{E} fee: {', '.join(opts[:-1])} or {opts[-1]}?"
+        if i == "unknown_option":
+            return f"{_cap(self._fake(f.get('name'), lv))} {'fee' if f.get('attr') == 'fee' else 'days'}?"
+        if i == "unstated_fact":
+            return f"Fee to {CARD_PHRASES[f.get('subject')][lv['entity_aliasing']]}?"
         n = self._num(f.get("days"), lv) if f.get("days") is not None else ""
         return {"faster": "Faster delivery option?", "cheaper": "Cheaper delivery option?",
                 "fee_difference": "Fee difference, expedited versus standard?",

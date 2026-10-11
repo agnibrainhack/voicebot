@@ -68,6 +68,9 @@ KB_INTENTS = {
     "window_check": ("days",),
     "skip_auth": (),
     "procedure": (),
+    # hallucination probes (bases/kb.py): the policy states nothing, the bot must abstain
+    "unknown_option": ("attr", "name"),        # a near-miss option name ("priority delivery")
+    "unstated_fact": ("attr", "subject"),      # an attribute a low-coverage entity does not have
 }
 
 

@@ -151,11 +151,17 @@ def render_html(R: dict[str, Any]) -> str:
                      f"compiler and knowlytix's ingest: <span class='{'ok' if bd['enm_agreement']['all_agree'] else 'bad'}'>"
                      f"{bd['enm_agreement']['n']}/{bd['enm_agreement']['n'] if bd['enm_agreement']['all_agree'] else '?'}</span>.</p>")
         parts.append("<div class='card'>" + table(["step (knowlytix API)", "result"], [
-            ["GEODE self-correction (GeodeLoop)", f"converged={g['converged']} in {g['iterations']}/{g['max_iters']} iterations; "
-             f"{g['n_proposed']} proposed, {g['n_kept_fact_triples']} fact triples kept; {len(g['corrections'])} corrections; "
-             f"{len(g.get('duplicates_rejected', []))} dedup proposals rejected (stated verbatim in the source)"],
-            ["v-space SFT (GeodeEmbedLoop, rotation)", f"{el['iterations']} iterations, converged={el['converged']}; held-out noisy-alias "
-             f"binding {pct(el['before'])} → <b>{pct(el['after'])}</b> (n={el['n_probes']})"],
+            ["GEODE self-correction (GeodeLoop)", f"dedup mode <b>{esc(g.get('dedup_mode', 'audit'))}</b>; converged={g['converged']} "
+             f"in {g['iterations']}/{g['max_iters']} iterations; {g['n_proposed']} proposed, {g['n_kept_fact_triples']} fact triples "
+             f"kept; {len(g['corrections'])} corrections; anchor violations <b>{g.get('n_anchor_violations', len(g.get('anchor_violations') or []))}</b>; "
+             f"dedup removals {len(g.get('duplicates_proposed') or [])}, reinstated {len(g.get('duplicates_rejected', []))}"
+             + (f"; audit-only proposals on the trained store: {len((g.get('dedup_audit_only') or {}).get('would_remove') or [])} "
+                f"remove, {len((g.get('dedup_audit_only') or {}).get('would_flag') or [])} flag"
+                if g.get('dedup_audit_only') else "")],
+            [f"v-space SFT (GeodeEmbedLoop, {esc(el.get('mode', 'rotation'))})", f"{el['iterations']} iterations, converged={el['converged']}; held-out noisy-alias "
+             f"binding {pct(el['before'])} → <b>{pct(el['after'])}</b> (n={el['n_probes']})"
+             + (" · A/B: " + ", ".join(f"{m} {pct(v['after'])}" for m, v in el['ab']['modes'].items())
+                + f" → kept <b>{esc(el['ab']['chosen'])}</b> ({esc(el['ab']['rule'])})" if el.get('ab') else "")],
             ["u-space SFT (contradiction_sft, full)", f"held-out phrasing routing {pct(uc['before'])} → <b>{pct(uc['after'])}</b> "
              f"over {len(uc['groups'])} relation groups"],
             ["production store (store_from_triples, cap loss)", f"{bd['store']['n_entities']} entities, {bd['store']['n_triples']} triples, "
@@ -170,6 +176,15 @@ def render_html(R: dict[str, Any]) -> str:
                  f"{'yes' if st['injected_misread_caught'] else 'no'}</span>.</p>")
     parts.append("<div class='card'>" + table(["primitive", "value"],
                  [[f"<code>{esc(k)}</code>", esc(round(v, 4) if isinstance(v, float) else v)] for k, v in ex.items()]) + "</div>")
+    tb = st.get("tau_bootstrap") or {}
+    if tb.get("relations"):
+        f2 = lambda v: "–" if not v else f"{v[0]:.3f}–{v[1]:.3f}"
+        parts.append(f"<details><summary>Cut stability: bootstrap intervals per relation (B={tb['B']})</summary>"
+                     "<div class='card'>" + table(["relation", "deployed cut", "facts / counterfactuals", "refit cut 95%",
+                                                   "true-accept 95%", "false-accept 95%"],
+            [[f"<code>{esc(r)}</code>", f"{v['tau_deployed']:.3f}", f"{v['n_pos']} / {v['n_neg']}", f2(v["refit_tau_ci95"]),
+              f2(v["tar_ci95"]), f2(v["far_ci95"])] for r, v in tb["relations"].items()], {1}) +
+            f"<p class='muted'>{esc(tb.get('note', ''))}</p></div></details>")
     op = st.get("oracle_property") or []
     if op:
         parts.append("<h3>An oracle, not an index: true facts inside the calibrated band, cross-tail substitutions outside</h3>"
@@ -202,6 +217,16 @@ def render_html(R: dict[str, Any]) -> str:
                 [[esc(k), v.get("admitted", "–"), esc(v.get("recovery_stats") or v.get("skipped") or v.get("error")),
                   pct(v.get("graph_answers_own_questions")) if v.get("graph_answers_own_questions") is not None else "–",
                   esc(v.get("calibrated_cut") or "")] for k, v in sub.items()]) + "</div></details>")
+    hp = kb.get("hallucination_probes")
+    if hp and hp.get("n"):
+        parts.append(f"<h3>Hallucination probes</h3><p>{hp['n']} probes whose truth is absence ({esc(hp['by_kind'])}): "
+                     "near-miss option names a caller could use and attributes a sparsely described entity does not have. "
+                     "The correct bot abstains; a quoted figure is graded <i>fabricated</i> (severity critical).</p>"
+                     "<div class='card'>" + table(["probe", "kind", "meaning card", "admission", "GMS binding of the fake name"],
+            [[esc(x["qid"]), esc(x["kind"]), f"<code>{esc(x['frame'])}</code>", esc(x["admission"]),
+              esc({k: v for k, v in x["diagnostic"].items() if k in ("gms_binds_to", "confidence", "binds_to_real_option",
+                                                                       "facts_about_subject")})]
+             for x in hp["items"]]) + "</div>")
     parts.append("<details><summary>Mined policy questions</summary><div class='card'>" + table(
         ["qid", "category", "frame", "answer", "primitive", "recovery"],
         [[esc(i["qid"]), esc(i["category"]), f"<code>{esc(i['frame'])}</code>", esc(i["answer"]), esc(i["primitive"]),
@@ -286,12 +311,20 @@ def render_html(R: dict[str, Any]) -> str:
                          f"surface cos {t['surface_cosine']:.2f}</div></div>")
         parts.append("</div></details>")
 
+    parts.append(_llm_section(R))
+
     # 5 results
     parts.append("<h2>5. Results</h2>")
     b, e = res["base_level"], res["enriched"]
+    el = res.get("enriched_llm")
     keys = [k for k in e if k not in ("n",)]
-    parts.append("<div class='card'>" + table(["metric", "base cases", "enriched scenarios"],
-                 [[esc(k), pct(b.get(k)), pct(e.get(k))] for k in keys], {1, 2}) + "</div>")
+    head = ["metric", "base cases", "enriched (template arm)"] + (["enriched (LLM arm)"] if el else [])
+    parts.append("<div class='card'>" + table(head,
+                 [[esc(k), pct(b.get(k)), pct(e.get(k))] + ([pct(el.get(k))] if el else []) for k in keys],
+                 {1, 2, 3}) + f"<p class='muted'>Runs: base {b['n']}, template {e['n']}" +
+                 (f", LLM {el['n']}" if el else "") + f". Budgets per bot turn: {esc(res.get('budgets'))}.</p></div>")
+    parts.append(_arms_section(R))
+    parts.append(_release_section(R))
     att = dg["outcome_attribution"]
     parts.append(f"<h3>Which presentation factors drive failure (logistic deviance, BH-corrected)</h3>"
                  f"<p class='muted'>{dg['failures']} failures in {dg['n']} runs"
@@ -385,6 +418,8 @@ def render_html(R: dict[str, Any]) -> str:
                      f"safe-harboured (escalated, never denied).</p>")
         parts.append("<div class='card'>" + table(["θ (book grid)", "false admits", "false rejects", "accuracy"],
                      [[r["theta"], r["false_admits"], r["false_rejects"], pct(r["accuracy"])] for r in pcal["book_grid"]], {0, 1, 2, 3}) + "</div>")
+        parts.append(_operating_points_section("Plausibility gate", pcal))
+        parts.append(_operating_points_section("Plan gate", plan))
         parts.append(f"<p>Plan gate: {plan['n_admissible_plans']} admissible oracle plans vs {plan['n_inadmissible_plans']} skipped/"
                      f"swapped/premature ones. Book criterion (mean drift) at zero false admits rejects "
                      f"{plan['mean_drift']['regulated']['false_rejects']}; per-step max rejects {plan['max_step']['regulated']['false_rejects']} "
@@ -405,6 +440,13 @@ def render_html(R: dict[str, Any]) -> str:
                 f"{esc(rt['injection_guard_by_level'])} — the paraphrased overrides pass the regex; the bot's behaviour under "
                 f"them is what the invariance proof and outcome scoring test. Recalibration triggers: "
                 f"{esc(rt['recalibration']['triggers'])} (PSI {rt['recalibration']['psi']:.3f}).</p></div>")
+            qa = rt.get("quorum_and_attestor")
+            if qa:
+                parts.append(f"<p>Quorum rule (gmsh check_with_quorum, shadow-computed for every call): "
+                             f"{qa['calls_routed_to_review']} calls would be routed to review instead of denied; strict and "
+                             f"quorum disagree on {qa['calls_where_strict_and_quorum_disagree']} calls. Numeric range attestor: "
+                             f"{qa['runs_with_numeric_review']} runs with a REVIEW figure, {qa['runs_with_numeric_fail']} with an "
+                             f"invented figure; correct runs with a numeric alarm: {qa['correct_runs_with_numeric_alarm']}.</p>")
     sft = R.get("sft")
     if sft and "classifier" in sft:
         c = sft["classifier"]
@@ -436,8 +478,128 @@ def render_html(R: dict[str, Any]) -> str:
                                                        f"{ds['enriched_cases']} enriched)") if ds else "–"],
             ["<code>dataset/test_turns.csv</code>", esc(f"{ds['turn_rows']} customer turns") if ds else "–"],
             ["<code>dataset/policy_questions.csv</code>", esc(f"{ds['policy_questions']} policy questions") if ds else "–"],
-        ]) + "</div>")
+        ] + ([["<code>dataset/llm_enrichment_turns.csv</code>", esc(f"{R['llm_exports'].get('llm_turns', 0)} LLM-written "
+                                                                    "turns with every gate, both readers and the factor check")],
+              ["<code>dataset/llm_negative_controls_audit.csv</code>", esc(f"{R['llm_exports'].get('llm_controls_audit', 0)} "
+                                                                           "controls the LLM gate accepted (for human audit)")],
+              ["<code>dataset/arm_pairs.csv</code>", esc(f"{R['llm_exports'].get('arm_pairs', 0)} template/LLM pairs")]]
+             if R.get("llm_exports") else [])) + "</div>")
     parts.append("<h2>12. Reading the failures</h2><p>Every failed run is written to <code>failures.jsonl</code> "
                  "with its transcript; <code>results_enriched.csv</code> holds one row per scenario.</p>")
     parts.append("</main></body></html>")
     return "".join(parts)
+
+
+# ----------------------------------------------------------------------------- gmsh-parity sections
+def _operating_points_section(name: str, cal: dict[str, Any]) -> str:
+    p50, ho, bs = cal.get("p50"), cal.get("holdout"), cal.get("bootstrap")
+    if not p50:
+        return ""
+    reg = cal.get("regulated") or (cal.get("mean_drift") or {}).get("regulated") or {}
+    theta = cal.get("theta", cal.get("drift_budget"))
+    rows = []
+    for rule, th, fa, fr in (("regulated (zero false admits)", theta, reg.get("false_admits"), reg.get("false_rejects")),
+                             ("gmsh P=0.5 (logistic)", p50.get("theta"), p50.get("false_admits"), p50.get("false_rejects"))):
+        key = "regulated" if rule.startswith("regulated") else "p50"
+        h = (ho or {}).get(key, {})
+        b = (bs or {}).get(key, {})
+        rows.append([esc(rule), "–" if th is None else f"{th:.3f}", esc(fa), esc(fr),
+                     pct(h.get("heldout_accuracy")) if h else "–",
+                     f"{b['ci95'][0]:.3f}–{b['ci95'][1]:.3f}" if b.get("ci95") else "–"])
+    return (f"<h3>{esc(name)}: operating points side by side</h3><div class='card'>" +
+            table(["rule", "threshold", "false admits", "false rejects", f"held-out accuracy ({(ho or {}).get('k', '–')}-fold)",
+                   f"bootstrap 95% interval (B={(bs or {}).get('B', '–')})"], rows, {1, 2, 3, 4}) + "</div>")
+
+
+def _llm_section(R: dict[str, Any]) -> str:
+    L = R.get("invariance_llm")
+    if not L:
+        return ""
+    s, nc = L["summary"], L["negative_controls"]
+    adv = nc.get("_adversarial", {})
+    out = ["<h2>4b. LLM enrichment arm: separate invariance validation</h2>",
+           f"<p>Customer turns written by <b>{esc(L['settings']['model'])}</b> through LangChain "
+           f"(mode {esc(L['settings']['mode'])}, temperature {L['settings']['temperature']}), blind to the expected outcome. "
+           "Every turn passed G0 form, G1 no new facts, G3 one clear decision and G2 the rule reader's meaning card in its "
+           f"dialog state{' and the independent LLM reader' if s['dual_read']['mode'] == 'gate' else ''}; then the same "
+           "scenario-level L1/L3 test as the template arm.</p>"]
+    if L.get("unavailable_reason"):
+        out.append(f"<p class='warn'>LLM not callable during this run: {esc(L['unavailable_reason'])}. Only cached "
+                   "generations were usable; scenarios without one are reported as not materialised.</p>")
+    out.append("<div class='tiles'>" + tile(f"{s['accepted']}/{s['scenarios']}", "LLM scenarios proved invariant") +
+               tile(pct(nc["_overall"]["detection_rate"]), "meaning-changing edits of LLM text rejected") +
+               tile(pct(adv.get("rejection_rate")) if adv.get("n") else "–", "adversarial LLM rewrites rejected") +
+               tile(pct(s["dual_read"]["agreement"]) if s["dual_read"]["agreement"] is not None else "–",
+                    "independent reader agrees") + "</div>")
+    out.append("<div class='card'>" + table(["check", "value"], [
+        ["L1 ground truth identical", f"{s['L1_gt_identical']}/{s['scenarios']}"],
+        ["L2 every turn passed every gate", f"{s['L2_frames_equivalent']}/{s['scenarios']} ({s['turns_checked']} turns)"],
+        ["L3 oracle re-derived the answer", f"{s['L3_oracle_rederived']}/{s['scenarios']}"],
+        ["signatures equal", f"{s['signatures_equal']}/{s['scenarios']}"],
+        ["mean attempts per turn", "–" if s["mean_attempts_per_turn"] is None else f"{s['mean_attempts_per_turn']:.2f}"],
+        ["gate failures over all attempts", esc(s["gate_failures_by_attempt"])],
+        ["not materialised (excluded, reported)", esc(s["not_materialised"])],
+        ["surface cosine to base / to the template text", f"{s['surface_cosine_mean']:.2f} / "
+         + ("–" if s["cosine_to_template_text_mean"] is None else f"{s['cosine_to_template_text_mean']:.2f}")],
+        ["scenarios with an unrealised factor (attributed at the realised level)", esc(s["scenarios_with_unrealised_factors"])],
+    ]) + "</div>")
+    if s.get("top_rejection_reasons"):
+        out.append("<details><summary>Why LLM turns were rejected</summary><div class='card'>" +
+                   table(["reason", "turns"], [[esc(r), n] for r, n in s["top_rejection_reasons"]], {1}) + "</div></details>")
+    out.append("<h3>Negative controls on LLM text</h3><div class='card'>" + table(["edit", "n", "rejected"],
+               [[esc(k), v["n"], f"<span class='{'ok' if v['detection_rate'] == 1 else 'warn'}'>{pct(v['detection_rate'])}</span>"]
+                for k, v in nc.items() if not k.startswith("_")], {1, 2}) +
+               (f"<p class='muted'>Adversarial rewrites: {adv['n']} generated, {adv['rejected']} rejected; of the "
+                f"{adv['effective']} the rule reader reads as the target meaning, {pct(adv['rejection_rate_when_meaning_changed'])} "
+                f"rejected. Accepted controls are listed in <code>dataset/llm_negative_controls_audit.csv</code> "
+                f"({L.get('controls_audit_n', 0)}).</p>" if adv.get("n") else "") + "</div>")
+    fr = s.get("factor_realisation") or {}
+    if fr:
+        out.append("<details><summary>Manipulation check: did each requested factor level reach the text?</summary>"
+                   "<div class='card'>" + table(["factor=level", "turns", "realised"],
+                   [[esc(k), v["turns"], pct(v["rate"])] for k, v in fr.items()], {1, 2}) + "</div></details>")
+    for e in L.get("examples", [])[:3]:
+        out.append(f"<details><summary>LLM example {esc(e['sid'])} (accepted: {e['accepted']})</summary><div class='card'>")
+        for t in e["turns"]:
+            out.append(f"<div class='turn u'><div class='mono'>{esc(t['frame'])} · state {esc(t['state'])}</div>"
+                       f"<div>base: {esc(t.get('base_text'))}</div><div>template arm: {esc(t.get('template_text'))}</div>"
+                       f"<div>LLM arm: {esc(t.get('enriched_text'))}</div>"
+                       f"<div class='muted'>rule reader: {esc(t.get('read_back'))} · independent reader: {esc(t.get('dual_read'))}"
+                       f" · gates {esc(t.get('gates'))}</div></div>")
+        out.append("</div></details>")
+    return "".join(out)
+
+
+def _arms_section(R: dict[str, Any]) -> str:
+    A = R.get("arms")
+    if not A or not A.get("pairs_n"):
+        return ""
+    out = [f"<h3>Template arm vs LLM arm on the same design rows</h3><p>{A['pairs_n']} pairs (same base, same assigned "
+           f"levels, both proved): template accuracy {pct(A['template_accuracy_on_pairs'])}, LLM accuracy "
+           f"{pct(A['llm_accuracy_on_pairs'])}; discordant pairs: template-only correct {A['template_only_correct']}, "
+           f"LLM-only correct {A['llm_only_correct']} (exact McNemar p = {pfmt(A['mcnemar_exact_p'])}).</p>"]
+    dl = R.get("diagnosis_llm")
+    if dl and dl.get("outcome_attribution"):
+        out.append("<div class='card'>" + table(["factor (LLM arm, realised levels)", "G²", "p (BH)", "significant"],
+                   [[esc(t["factor"]), f"{t['deviance']:.2f}", pfmt(t["p_value_adj"]),
+                     "<span class='bad'>yes</span>" if t["significant_adj"] else "no"] for t in dl["outcome_attribution"][:8]],
+                   {1, 2}) + "</div>")
+    return "".join(out)
+
+
+def _release_section(R: dict[str, Any]) -> str:
+    G = R.get("release_gate")
+    if not G:
+        return ""
+    rows = []
+    for suite, g in G.items():
+        for tier, t in (g.get("tiers") or {}).items():
+            rows.append([esc(suite), esc(tier), t["n"], pct(t["accuracy"]), esc(t["severity"]), pct(t["within_budget"]),
+                         f"<span class='{'ok' if t['passed'] else 'bad'}'>{'pass' if t['passed'] else 'fail'}</span>",
+                         esc("; ".join(t["reasons"]) or "–")])
+    return ("<h3>Severity and the tiered release gate (gmsh severity + risk tiers)</h3><div class='card'>" +
+            table(["suite", "risk tier", "runs", "accuracy", "runs by worst severity", "within budget", "gate", "why"],
+                  rows, {2, 3, 5}) +
+            "<p class='muted'>Action-taking journeys (the correct path writes to the account) promote moderate and high "
+            "failures by one level, as gmsh's tier escalation does; each tier has an accuracy floor and failure budgets "
+            "(evaluation/severity.py).</p></div>")
