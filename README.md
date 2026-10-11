@@ -55,7 +55,7 @@ python3.12 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-knowlytix.txt
 export KNOWLYTIX_LICENSE_KEY=...            # or put it in ~/.knowlytix/license.key; never committed, never logged
 python run_campaign.py --out campaign_out   # first run builds the GMS (CPU: ~10-45 min), later runs reload it (~2.5 min)
-python tests/test_selfchecks.py             # 19 self-checks (the knowlytix one runs when GMSJOURNEY_KX_STORE is set)
+python tests/test_selfchecks.py             # 20 self-checks (the knowlytix one runs when GMSJOURNEY_KX_STORE is set)
 
 # open baseline, any Python >= 3.10, no licence
 pip install -r requirements.txt && python run_campaign.py --backend builtin --out campaign_builtin
@@ -73,23 +73,25 @@ nli-mpnet-base-v2). When the hub is unreachable (as in the environment these res
 runs; the build report records which encoders were used. With hub access the real encoders are used
 automatically, and the embedding numbers below should improve.
 
-## Results on the reference bot (knowlytix backend)
+## Results on the reference bot (knowlytix backend, trained on the policy graph; offline stand-in encoders)
 
 | | |
 |---|---|
-| GMS store (knowlytix) | 195 entities, 336 triples, 12 ENM entries; GEODE converged in 3 iterations; 12/12 ENM figures agree with our compiler |
+| GMS store (knowlytix) | 229 entities, 607 triples (policy + dialog-state layer), 12 ENM entries; GEODE converged in 3 iterations; 12/12 ENM figures agree with the graph; the store carries every graph fact |
 | Oracle property | 12/12 facts inside their learned cap radius, every cross-tail substitution outside |
-| Embedding SFT (held out) | v: noisy-alias binding 25.4% → 68.4%; u: phrasing → relation routing 80.8% → 87.2% |
+| Embedding SFT (held out) | v: noisy-alias binding 25.4% → 73.7%; u: phrasing → relation routing 80.8% → 88.5% (your run with the real HuggingFace encoders on the previous graph: 45.6% → 81.6% and 98.7% → 100%) |
 | Policy-question bases | 27: 17 two-way admitted by knowlytix's gate, 10 symbolic with stated reasons (thresholds, aggregations, absence, stance); forged triple rejected |
 | Substrate (knowlytix generators) | exact_recall 12/12 two-way, multi_hop 19/19 two-way, counting 71 symbolic; graph answers its own questions 100% |
 | Feasible content-level pairs covered | 523 / 523; rules 32/32 · workflow edges 21/21 · escalation triggers 11/11 |
-| Enriched scenarios proved invariant | 486 / 486 (4,428 customer turns); 592 / 592 meaning-changing edits rejected |
+| Enriched scenarios proved invariant | 486 / 486 (4,428 customer turns, each read in its dialog state); 632 / 632 meaning-changing edits rejected, incl. 40 wrong-state edits |
 | Bot accuracy, base cases → enriched | 90.1% → 50.0% |
 | Factors that drive failure (DOEAnalyzer, BH) | noise (p_adj 1.6e-10), numeric_format (1.5e-4), disfluency (0.012) |
-| Runtime gate (Appendix C) | θ = 0.824 on `enables`: AUC 1.0, 0 false admits, 0 false rejects; probe sweep 15 TP / 27 TN, no errors |
-| Runtime monitor | 0% false alarms on fully correct runs; 103 / 328 failed runs flagged live; hash chains verified; PSI 0.04 |
+| Runtime gate (Appendix C) | θ = 0.882 on `enables`: AUC 1.0, 0 false admits, 0 false rejects; probe sweep 15 TP / 27 TN, no errors |
+| Runtime monitor | 0% false alarms on fully correct runs; 103 / 328 failed runs flagged live; hash chains verified; PSI 0.02 |
 | Seeded defects (16) | 100% caught by the suites (covering 75% vs random of equal size 37.5%); **16/16 flagged live by the runtime monitor** |
 | Silent failures under injected tool faults | 0 |
+| GMS canonicals | 97.4% of aliases bound by the trained GMS to the canonical value the graph states; 90.2% of the 509 trained facts inside their relation's cut |
+| Turn by turn (oracle vs bot) | 300 / 567 runs match the oracle at every turn; every wrong outcome diverges, first divergences mostly in PRESENT_TXN (139) and ASK_AUTH (115) |
 
 The built-in backend reproduces the journey-level results (same bases, 486/486 proofs, 90.1% → 50.0%, 100% of
 defects caught, 16/16 flagged live); its runtime gate separates less cleanly (θ = 0.979: 0 false admits, 1 of
@@ -116,6 +118,45 @@ same report for it.
 | Runtime *policy* checks (R2/R3, R4, R11, R15, R16, R20-R22, R26, R28, R30, R31) and speech checks (claims, fraud stance, ENM figures) | ours, plugged into forgeloop's gate protocol |
 | Design | ours (φp Sobol+refine with rank transform + swaps). knowlytix `DesignMatrix` sobol+refine is run on the same factors and reported alongside: at n=486 its own quality report shows 11 of 43 level cells empty (the middle level of every 3-level factor), pairwise level coverage 55%, marginal χ² p ≈ 1e-53 |
 | Resilience probe, mutation analysis | ours (knowlytix's `ToolGateway` installs on a knowlytix `Harness`; our bot talks to a mock backend) |
+
+## How the bot is validated, and the turn-by-turn view
+
+Each test case runs the real bot (yours or the reference bot) live: a fresh bot and a fresh mock backend, a simulated
+customer that answers whatever the bot actually asks (`journey.UserSimulator`), and every bot reply, act and tool call
+recorded. Some checks happen during the run, turn by turn:
+
+- each customer line is read back to its meaning card in its dialog state;
+- the runtime monitor checks every tool call before it executes and every bot sentence (claims, fraud stance,
+  figures);
+- each policy answer is graded against the exact register.
+
+The verdict is given on the whole run, against the oracle's answer key (`evaluation/runner.score`):
+
+- the outcome (end state, transfer reason, what was truly recorded, which card action truly completed);
+- each stage's decision;
+- whether every step was admissible (workflow edges, login before account tools, limits, confirmation and fee
+  disclosure before submit, no claim without SUCCESS, 20-turn limit).
+
+The bot's reply at turn *i* is not required to equal the oracle's: a different but allowed route is accepted.
+
+`gmsjourney/turn_compare.py` shows the two runs side by side, one row per customer turn:
+
+- the state the customer answered and the words the bot received;
+- the oracle's expected response: tool calls with arguments and results, then bot acts such as
+  `PRESENT_TXN(T2: Starbucks $6.25)` or `TRANSFER(card_options_unavailable)`;
+- the bot's actual tools, acts and text;
+- whether they match, and the first turn where the runs diverge.
+
+The oracle decides what to do, not the wording, so the comparison is on tool calls and decision acts.
+Acknowledgements such as CONFIRM_RECORDED are ignored there and checked on the tool call itself.
+
+On clean base cases the reference bot matches the oracle turn by turn on every run (a self-check). On enriched cases,
+every wrong outcome has a divergence, and some correct outcomes do too: the bot took a different but recoverable
+route.
+
+Use `show_turns(runner, oracle, scenario)` in the notebook (cell 11b). The campaign writes
+`dataset/turn_by_turn.csv` (every turn of every case) and `dataset/turn_by_turn_summary.csv` (per case: first
+divergence, expected vs actual outcome, stages wrong, violations).
 
 ## How a base case and its enriched variants are proved to be the same test
 
@@ -158,6 +199,7 @@ runtime monitor wraps the same tool client, so the gates watch your bot exactly 
 | `dataset/test_cases.csv` | one row per test case (81 base + 486 enriched): category, policy question, canonicals, meaning cards, base case, enrichment, enriched output, expected outcome, complete trajectory, proof verdict |
 | `dataset/test_turns.csv` | one row per customer turn: state, stage, the state's rules/limits/accepted cards, meaning card and its H/R/T, base and enriched text, read-back card, equivalence |
 | `dataset/policy_questions.csv`, `dataset/test_cases.jsonl` | the 27 policy questions; the cases with nested structure |
+| `dataset/turn_by_turn.csv`, `dataset/turn_by_turn_summary.csv` | per customer turn: oracle's expected tools and bot acts vs the bot's actual tools, acts and text; per case: first divergence and outcome |
 
 ## Layout
 
@@ -167,6 +209,7 @@ gmsjourney/
   knowledge/         policy_kg (the policy graph: build, load, validate), kx_store (knowlytix build/load + facade),
                      kx_view (GEODE input), canonicals (export), ingest/geode/store/training (open baseline)
   export_dataset.py  dataset/*.csv
+  turn_compare.py    turn by turn: oracle's expected bot response vs the bot's actual response
   policy/            charge_review_kg.json (source), charge_review_policy.md (structured transcription of the PDF)
   reuse/             adapters: DOEAnalyzer, GMSJudge, forgeloop gates/audit, proofloop emitters/taxonomy
   catalogs/          application.yaml (+ level_aliases), custom_factors.yaml, official/ (fallback copy)

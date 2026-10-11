@@ -103,7 +103,12 @@ class PolicyOracle:
         return frame
 
     def _call(self, tool: str, **args: Any) -> Any:
-        res = self._tools.call(tool, **args)
+        try:
+            res = self._tools.call(tool, **args)
+        except ToolError as e:                 # a failed call is part of the expected trajectory too
+            self._tr.events.append({"role": "tool", "tool": tool, "args": args, "result": {"error": str(e)},
+                                    "ok": False})
+            raise
         self._tr.events.append({"role": "tool", "tool": tool, "args": args, "result": res})
         return res
 

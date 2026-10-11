@@ -281,6 +281,26 @@ def test_oracle_conforms_to_the_state_graph():
         assert not bad, bad
 
 
+def test_turn_by_turn_oracle_vs_bot():
+    """On clean base cases the reference bot does, turn by turn, what the oracle says it
+    should; a seeded defect shows up as a divergence at the turn where it acts."""
+    from gmsjourney.turn_compare import turn_by_turn
+    store, oracle, R, rd = env()
+    gen = JourneyBaseGenerator(oracle, kb_pool=[], seed=42)
+    cover, _ = gen.covering()
+    items = [to_item(sp, oracle, f"J{i:03d}") for i, sp in enumerate(cover[:12])]
+    runner = JourneyRunner(bot_factory=make_reference_factory(store), store=store, realizer=R, reader=rd)
+    for it in items:
+        df, s = turn_by_turn(runner, oracle, Scenario(f"{it.qid}~base", it, {}, "base"))
+        assert s["first_divergence_turn"] is None and s["outcome_correct"], (it.qid, s)
+    retry = next((to_item(sp, oracle, "JFAIL") for sp in cover if sp.auth == "fail_twice"), None)
+    if retry is not None:
+        bad = JourneyRunner(bot_factory=make_reference_factory(store, frozenset({"auth_three_tries"})),
+                            store=store, realizer=R, reader=rd)
+        df, s = turn_by_turn(bad, oracle, Scenario(f"{retry.qid}~base", retry, {}, "base"))
+        assert s["first_divergence_turn"] is not None and df.loc[s["first_divergence_turn"], "state"] == "ASK_AUTH_RETRY"
+
+
 # knowlytix backend (runs only where knowlytix is installed, licensed and a store is built) --
 def test_knowlytix_store_if_available():
     import os

@@ -319,6 +319,13 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     R["failure_modes"] = _failure_modes(R)
     log("[12/12] writing outputs")
     R["state_mapping"] = _state_mapping_summary(proofs, kg)
+    # turn by turn: what the oracle says the bot should do at each customer turn, next to what
+    # the bot did (diagnostic view of the same runs; grading above is outcome + stages + admissibility)
+    from .turn_compare import export_turn_by_turn
+    diag_runner = runner if (gcfg is not None and getattr(gcfg, "mode", "observe") == "enforce") else \
+        JourneyRunner(bot_factory=factory, governance=None, **rk)
+    R["turn_by_turn"] = export_turn_by_turn(out / "dataset", diag_runner, oracle, base_scns + scenarios,
+                                            validator=validator)
     if kg is not None:
         from .export_dataset import write_dataset
         from .knowledge.canonicals import export_canonicals
