@@ -1,0 +1,876 @@
+<title>Inside gmsjourney</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Instrument-panel: cool steel neutrals, signal-amber accent, teal for the LLM arm.
+   Layout: one prose column, with a numbered rail on each pipeline step and full-bleed
+   console blocks for real inputs and outputs. */
+:root{
+  --bg:#eef1f4; --surface:#fff; --surface-2:#f5f8fa; --ink:#131c26; --muted:#5a6b7d;
+  --line:#d3dbe3; --line-soft:#e3e9ee;
+  --accent:#a8500a; --accent-soft:#f7e9db; --llm:#0d6a72; --llm-soft:#dff0f1;
+  --pass:#1c7a4a; --fail:#b3261e; --code-bg:#f2f5f8;
+  --display:"IBM Plex Sans Condensed",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",Consolas,"Courier New",monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#10161d; --surface:#161e27; --surface-2:#1b242e; --ink:#e6edf3; --muted:#93a3b3;
+    --line:#2b3743; --line-soft:#222c36;
+    --accent:#f0a35e; --accent-soft:#33261a; --llm:#63c9cf; --llm-soft:#14292c;
+    --pass:#5cc98d; --fail:#f2857c; --code-bg:#131a22;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#10161d; --surface:#161e27; --surface-2:#1b242e; --ink:#e6edf3; --muted:#93a3b3;
+  --line:#2b3743; --line-soft:#222c36;
+  --accent:#f0a35e; --accent-soft:#33261a; --llm:#63c9cf; --llm-soft:#14292c;
+  --pass:#5cc98d; --fail:#f2857c; --code-bg:#131a22;
+  color-scheme:dark;
+}
+body{
+  background:var(--bg); color:var(--ink); font-family:var(--body);
+  font-size:16px; line-height:1.62; padding-inline:16px;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1080px; margin:0 auto; padding-block:clamp(28px,5vw,64px)}
+.prose{max-width:72ch}
+h1,h2,h3,h4{font-family:var(--display); text-wrap:balance; line-height:1.15; margin:0}
+h1{font-size:clamp(2rem,5.5vw,3.1rem); font-weight:700; letter-spacing:-.01em}
+h2{font-size:clamp(1.35rem,3vw,1.75rem); font-weight:700; margin-block:0 .5rem}
+h3{font-size:1.12rem; font-weight:600}
+h4{font-size:.95rem; font-weight:600}
+p{margin:.65rem 0}
+a{color:var(--accent); text-underline-offset:2px}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:3px}
+code{font-family:var(--mono); font-size:.86em; background:var(--code-bg); border:1px solid var(--line-soft);
+     border-radius:4px; padding:.08em .32em; word-break:break-word}
+.eyebrow{font-family:var(--mono); font-size:.7rem; text-transform:uppercase; letter-spacing:.14em; color:var(--muted)}
+.lede{font-size:1.08rem; color:var(--muted); max-width:64ch}
+hr{border:0; border-top:1px solid var(--line); margin-block:clamp(28px,4vw,48px)}
+
+.masthead{display:flex; flex-direction:column; gap:.4rem; margin-bottom:1.5rem}
+.kicker{display:inline-flex; align-items:center; gap:.5rem; font-family:var(--mono); font-size:.72rem;
+        text-transform:uppercase; letter-spacing:.16em; color:var(--accent)}
+.kicker::before{content:""; width:22px; height:2px; background:var(--accent)}
+
+.card{background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:clamp(16px,2.4vw,26px)}
+.grid{display:grid; gap:14px}
+@media (min-width:720px){ .g2{grid-template-columns:1fr 1fr} }
+.toc{display:grid; gap:2px 22px; grid-template-columns:1fr; font-size:.9rem; margin-top:.6rem}
+@media (min-width:640px){ .toc{grid-template-columns:1fr 1fr} }
+.toc a{display:flex; gap:.6rem; padding:.28rem 0; color:var(--ink); text-decoration:none; border-bottom:1px dashed var(--line)}
+.toc a:hover{color:var(--accent)}
+.toc .n{font-family:var(--mono); color:var(--accent); min-width:2.2em; font-size:.84rem}
+
+table{border-collapse:collapse; width:100%; font-size:.88rem}
+th,td{text-align:left; vertical-align:top; padding:.5rem .65rem; border-bottom:1px solid var(--line-soft)}
+th{font-family:var(--display); font-size:.74rem; text-transform:uppercase; letter-spacing:.09em; color:var(--muted);
+   border-bottom:1px solid var(--line)}
+tbody tr:last-child td{border-bottom:0}
+.tscroll{overflow-x:auto; border:1px solid var(--line); border-radius:8px; background:var(--surface)}
+.tscroll table{min-width:560px}
+td code,th code{background:none; border:0; padding:0}
+
+.step{display:grid; gap:0; margin-block:clamp(22px,3.4vw,40px); scroll-margin-top:18px}
+.step-head{display:flex; gap:.9rem; align-items:baseline}
+.step-n{font-family:var(--mono); font-weight:500; font-size:.9rem; color:var(--accent); background:var(--accent-soft);
+        border-radius:6px; padding:.1rem .5rem; white-space:nowrap}
+.step-title{font-family:var(--display); font-size:1.28rem; font-weight:700}
+.analogy{border-left:3px solid var(--accent); background:var(--surface); padding:.7rem .9rem; border-radius:0 8px 8px 0;
+         margin:.7rem 0 1rem; font-size:.97rem}
+.analogy b{font-family:var(--display)}
+.io{display:grid; gap:10px; margin-top:.6rem}
+@media (min-width:760px){ .io{grid-template-columns:1fr 1fr} }
+.io .box{background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:.75rem .85rem; min-width:0}
+.io h4{margin-bottom:.35rem; color:var(--muted); font-family:var(--mono); font-size:.7rem; text-transform:uppercase;
+       letter-spacing:.12em}
+.io .box p, .io .box ul{font-size:.88rem; margin:.25rem 0}
+ul{margin:.4rem 0; padding-left:1.15rem}
+li{margin:.2rem 0}
+.console{background:var(--code-bg); border:1px solid var(--line); border-left:3px solid var(--accent);
+         border-radius:6px; padding:.7rem .85rem; overflow-x:auto; font-family:var(--mono); font-size:.79rem;
+         line-height:1.5; margin:.6rem 0; white-space:pre; color:var(--ink)}
+.console.llm{border-left-color:var(--llm)}
+.tag{display:inline-block; font-family:var(--mono); font-size:.68rem; text-transform:uppercase; letter-spacing:.09em;
+     padding:.1rem .42rem; border-radius:4px; border:1px solid currentColor; vertical-align:.12em}
+.ok{color:var(--pass)} .bad{color:var(--fail)} .amber{color:var(--accent)} .teal{color:var(--llm)}
+.small{font-size:.84rem; color:var(--muted)}
+figure{margin:1.2rem 0}
+figcaption{font-size:.84rem; color:var(--muted); margin-top:.5rem; max-width:70ch}
+svg{max-width:100%; height:auto; display:block}
+.figscroll{overflow-x:auto; border:1px solid var(--line); border-radius:10px; background:var(--surface); padding:12px}
+dl.gloss{margin:0; display:grid; gap:.55rem}
+dl.gloss div{display:grid; gap:.15rem; padding-bottom:.5rem; border-bottom:1px solid var(--line-soft)}
+dl.gloss dt{font-family:var(--display); font-weight:600; font-size:.95rem}
+dl.gloss dd{margin:0; font-size:.9rem; color:var(--ink)}
+.stat{display:grid; gap:8px; grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.stat .t{background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:.6rem .7rem}
+.stat .v{font-family:var(--display); font-size:1.5rem; font-weight:700; line-height:1.1; font-variant-numeric:tabular-nums}
+.stat .k{font-family:var(--mono); font-size:.68rem; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); margin-top:.2rem}
+footer{margin-top:3rem; padding-top:1rem; border-top:1px solid var(--line); font-size:.85rem; color:var(--muted)}
+</style>
+
+<div class="wrap">
+
+<div class="masthead">
+  <span class="kicker">Code walkthrough · campaign_llm run, 2026-10-12</span>
+  <h1>Inside gmsjourney</h1>
+  <p class="lede">What every step of this pipeline does, with the real files it reads and writes — illustrated with data from the end-to-end run on your machine.</p>
+</div>
+
+<div class="prose">
+<p>This page assumes you have never read a line of this code. It starts from the idea, then walks the twelve steps in order. Each step answers four questions: <b>what comes in</b>, <b>which function does the work</b>, <b>what happens inside</b>, and <b>what comes out</b>. Every number and every snippet below is copied from the run in <code>campaign_llm/</code>, so you can open the files and see them yourself.</p>
+</div>
+
+<hr>
+
+<section aria-labelledby="tldr">
+<h2 id="tldr">The whole thing in one analogy</h2>
+<div class="prose">
+<p>Imagine a bank has a phone robot that handles “I don’t recognise this charge on my card” calls. The bank also has a written procedure: a rulebook that says what the robot may ask, what it may promise, how many times a customer may retry their card digits, how far back charges can be reviewed, and so on.</p>
+<p>Before letting that robot talk to real customers, you want evidence. Not “we tried a few calls and it seemed fine” — actual evidence, at scale, that says: <i>here are 500 realistic conversations, here is what the correct answer was for each one and why, and here is exactly how the robot did.</i></p>
+<p>This program is the machine that produces that evidence. It is a <b>test factory</b>, and its raw material is the rulebook itself:</p>
+<ol>
+  <li>It shreds the procedure document into index cards (<b>the policy graph</b>).</li>
+  <li>It teaches a “memory” those cards so questions can be checked for truth (<b>the GMS store</b>).</li>
+  <li>It manufactures hundreds of customer conversations from the rulebook — every rule, every boundary, every failure path (<b>the bases</b>).</li>
+  <li>It dresses each conversation in realistic human messiness: typos, fillers, rambling asides, urgency (<b>enrichment</b>).</li>
+  <li>Before running anything, it <i>proves</i> that the messy version still means exactly what the clean version meant (<b>the invariance proof</b>). This is what makes the results trustworthy: if a test fails, it is the robot’s fault, not a badly written test.</li>
+  <li>It runs the robot through every conversation while a supervisor watches each sentence and each tool call live (<b>the runtime monitor</b>).</li>
+  <li>It reports what broke, which kind of messiness caused it, and whether the test suite itself is strong enough to catch deliberately broken robots (<b>diagnosis, mutation, resilience</b>).</li>
+</ol>
+<p>There are two ways the messy conversations get written. The <b>template arm</b> writes them with deterministic code — always available, always reproducible. The <b>LLM arm</b> (your DeepSeek run) asks a language model to write them like a real person would, and then checks the model’s work much more strictly, because a model can quietly change the meaning of a sentence.</p>
+</div>
+</section>
+
+<hr>
+
+<section aria-labelledby="cast">
+<h2 id="cast">The cast: six nouns you need</h2>
+<div class="prose"><p>Almost every confusing name in this codebase is one of these six things. Learn them once and the rest of the page reads easily.</p></div>
+<div class="tscroll" style="margin-top:.8rem">
+<table>
+<thead><tr><th style="width:22%">Name</th><th style="width:34%">Plain-English analogy</th><th>What it actually is in the code</th></tr></thead>
+<tbody>
+<tr><td><b>Policy graph</b><br><span class="small">charge_review_kg.json</span></td><td>The rulebook shredded into index cards. Every card is one fact: <i>subject → relationship → object</i>, with the page it came from and the exact sentence it was taken from.</td><td>724 triples. <code>T0027: standard_delivery — has_fee_usd — 0</code>, evidence “Standard replacement delivery fee is $0.”, source <code>pdf.5</code>.</td></tr>
+<tr><td><b>GMS store</b><br><span class="small">the “memory”</span></td><td>A librarian who has memorised the cards, so you can hand them a made-up card and ask “does this fit what you know?” — measured as a distance, not a yes/no lookup.</td><td>knowlytix build: 231 entities, 609 triples, 12 exact numbers, plus a geometry where every relation has a tolerance (“cap radius”).</td></tr>
+<tr><td><b>Meaning card</b><br><span class="small">SemanticFrame</span></td><td>A structured sticky note of what the customer <i>meant</i>, ignoring their words: one action plus named values.</td><td><code>ASK_KB(intent=value, attr=fee, entity=standard_delivery)</code> is the card for “How much does standard delivery cost?”.</td></tr>
+<tr><td><b>Reader</b><br><span class="small">FrameReader</span></td><td>A clerk who hears one sentence and writes the sticky note. Deterministic code, no AI.</td><td>Reads “how far back can you check” and writes the card <code>ASK_KB(intent=limit, key=lookback_days)</code>.</td></tr>
+<tr><td><b>Realizer</b><br><span class="small">Realizer / LLMRealizer</span></td><td>A scriptwriter who takes the sticky note and writes the sentence a person would actually say — in the requested style (terse, rambling, urgent…).</td><td>Template arm: deterministic text. LLM arm: DeepSeek writes it, blind to the expected answer.</td></tr>
+<tr><td><b>Oracle</b><br><span class="small">PolicyOracle</span></td><td>The perfect employee. Follows the rulebook exactly, never gets tired, never improvises — so whatever it does is the correct answer key for that conversation.</td><td>Plays the whole call using only meaning cards, reading every limit from exact memory (20 turns, 30 days, 4 transactions, $15 fee…).</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<hr>
+
+<section aria-labelledby="flow">
+<h2 id="flow">The pipeline on one page</h2>
+<div class="prose"><p>Each arrow carries one artifact. Everything on the left of an arrow is a file you can open; nothing is hidden in memory between steps.</p></div>
+<div class="figscroll">
+<figure>
+<svg viewBox="0 0 900 560" role="img" aria-label="Flow diagram: the policy PDF becomes a policy graph, which trains a GMS store; the store plus an oracle produce 85 base test cases; enrichment writes messy variants that are proved equivalent; the bot runs under a runtime monitor; results go to attribution, mutation and resilience analysis; everything lands in report.html and dataset CSVs.">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <g font-family="IBM Plex Sans, system-ui, sans-serif" font-size="13" fill="currentColor">
+    <!-- row 1 -->
+    <rect x="20" y="24" width="170" height="52" rx="7" fill="none" stroke="currentColor" stroke-opacity=".45"/>
+    <text x="105" y="46" text-anchor="middle" font-weight="600">Procedure PDF</text>
+    <text x="105" y="64" text-anchor="middle" font-size="11" fill-opacity=".7">fictional_poc…pdf</text>
+    <line x1="194" y1="50" x2="248" y2="50" stroke="currentColor" stroke-opacity=".6" marker-end="url(#ah)"/>
+    <text x="221" y="42" text-anchor="middle" font-size="10" fill-opacity=".75">compile</text>
+    <rect x="252" y="24" width="196" height="52" rx="7" fill="none" stroke="currentColor" stroke-opacity=".45"/>
+    <text x="350" y="46" text-anchor="middle" font-weight="600">Policy graph</text>
+    <text x="350" y="64" text-anchor="middle" font-size="11" fill-opacity=".7">724 triples, each with a quote</text>
+    <line x1="452" y1="50" x2="506" y2="50" stroke="currentColor" stroke-opacity=".6" marker-end="url(#ah)"/>
+    <text x="479" y="42" text-anchor="middle" font-size="10" fill-opacity=".75">train</text>
+    <rect x="510" y="24" width="196" height="52" rx="7" fill="none" stroke="currentColor" stroke-opacity=".45"/>
+    <text x="608" y="46" text-anchor="middle" font-weight="600">GMS store</text>
+    <text x="608" y="64" text-anchor="middle" font-size="11" fill-opacity=".7">known facts + tolerances</text>
+    <line x1="710" y1="50" x2="764" y2="50" stroke="currentColor" stroke-opacity=".6" marker-end="url(#ah)"/>
+    <text x="737" y="42" text-anchor="middle" font-size="10" fill-opacity=".75">answer</text>
+    <rect x="768" y="24" width="112" height="52" rx="7" fill="none" stroke="currentColor" stroke-opacity=".45"/>
+    <text x="824" y="46" text-anchor="middle" font-weight="600">Oracle</text>
+    <text x="824" y="64" text-anchor="middle" font-size="11" fill-opacity=".7">the answer key</text>
+
+    <!-- row 2 -->
+    <line x1="824" y1="80" x2="824" y2="112" stroke="currentColor" stroke-opacity=".6" marker-end="url(#ah)"/>
+    <rect x="510" y="116" width="370" height="56" rx="7" fill="none" stroke="currentColor" stroke-opacity=".45"/>
+    <text x="695" y="140" text-anchor="middle" font-weight="600">85 base cases</text>
+    <text x="695" y="158" text-anchor="middle" font-size="11" fill-opacity=".7">policy questions + journeys (covering array + closure)</text>
+    <line x1="506" y1="144" x2="452" y2="144" stroke="currentColor" stroke-opacity=".6" marker-end="url(#ah)"/>
+    <text x="479" y="136" text-anchor="middle" font-size="10" fill-opacity=".75">assign factors</text>
+    <rect x="256" y="116" width="192" height="56" rx="7" fill="none" stroke="currentColor" stroke-opacity=".45"/>
+    <text x="352" y="140" text-anchor="middle" font-weight="600">Design row</text>
+    <text x="352" y="158" text-anchor="middle" font-size="11" fill-opacity=".7">1 base × 16 factor levels</text>
+
+    <!-- row 3: two arms -->
+    <line x1="300" y1="176" x2="220" y2="212" stroke="currentColor" stroke-opacity=".6" marker-end="url(#ah)"/>
+    <line x1="404" y1="176" x2="484" y2="212" stroke="currentColor" stroke-opacity=".6" marker-end="url(#ah)"/>
+    <rect x="60" y="216" width="230" height="60" rx="7" fill="none" stroke="currentColor" stroke-opacity=".45"/>
+    <text x="175" y="240" text-anchor="middle" font-weight="600">Template arm</text>
+    <text x="175" y="258" text-anchor="middle" font-size="11" fill-opacity=".7">code writes the messy text</text>
+    <rect x="340" y="216" width="230" height="60" rx="7" fill="none" stroke="currentColor" stroke-opacity=".45" style="color:var(--llm)"/>
+    <text x="455" y="240" text-anchor="middle" font-weight="600">LLM arm</text>
+    <text x="455" y="258" text-anchor="middle" font-size="11" fill-opacity=".7">DeepSeek writes it, then gates check it</text>
+
+    <!-- row 4: proof -->
+    <line x1="175" y1="280" x2="175" y2="312" stroke="currentColor" stroke-opacity=".6" marker-end="url(#ah)"/>
+    <line x1="455" y1="280" x2="455" y2="312" stroke="currentColor" stroke-opacity=".6" marker-end="url(#ah)"/>
+    <rect x="60" y="316" width="230" height="56" rx="7" fill="none" stroke="currentColor" stroke-opacity=".45"/>
+    <text x="175" y="340" text-anchor="middle" font-weight="600">Invariance proof</text>
+    <text x="175" y="358" text-anchor="middle" font-size="11" fill-opacity=".7">same meaning? same answer?</text>
+    <rect x="340" y="316" width="230" height="56" rx="7" fill="none" stroke="currentColor" stroke-opacity=".45"/>
+    <text x="455" y="340" text-anchor="middle" font-weight="600">Separate proof + controls</text>
+    <text x="455" y="358" text-anchor="middle" font-size="11" fill-opacity=".7">the model’s text, checked harder</text>
+    <line x1="290" y1="344" x2="336" y2="344" stroke="currentColor" stroke-opacity=".6" marker-end="url(#ah)"/>
+    <line x1="455" y1="376" x2="455" y2="408" stroke="currentColor" stroke-opacity=".6" marker-end="url(#ah)"/>
+    <text x="486" y="396" font-size="10" fill-opacity=".75">only accepted scenarios run</text>
+
+    <!-- row 5: run -->
+    <rect x="270" y="412" width="370" height="56" rx="7" fill="none" stroke="var(--accent)" stroke-width="1.6"/>
+    <text x="455" y="436" text-anchor="middle" font-weight="600">The bot runs every case</text>
+    <text x="455" y="454" text-anchor="middle" font-size="11" fill-opacity=".75">fresh bot + mock bank per case, customer simulator replies</text>
+    <text x="455" y="492" text-anchor="middle" font-size="11" fill="var(--accent)">runtime monitor watches every tool call and sentence</text>
+    <line x1="455" y1="472" x2="455" y2="504" stroke="currentColor" stroke-opacity=".6" marker-end="url(#ah)"/>
+
+    <!-- row 6: verdicts -->
+    <rect x="60" y="508" width="180" height="40" rx="7" fill="none" stroke="currentColor" stroke-opacity=".45"/>
+    <text x="150" y="533" text-anchor="middle" font-size="12">Attribution (DOE)</text>
+    <rect x="270" y="508" width="170" height="40" rx="7" fill="none" stroke="currentColor" stroke-opacity=".45"/>
+    <text x="355" y="533" text-anchor="middle" font-size="12">Resilience (tool faults)</text>
+    <rect x="470" y="508" width="170" height="40" rx="7" fill="none" stroke="currentColor" stroke-opacity=".45"/>
+    <text x="555" y="533" text-anchor="middle" font-size="12">Mutation (17 impostors)</text>
+    <rect x="670" y="508" width="210" height="40" rx="7" fill="none" stroke="currentColor" stroke-opacity=".45"/>
+    <text x="775" y="533" text-anchor="middle" font-size="12">report.html + dataset/*.csv</text>
+    <line x1="240" y1="528" x2="266" y2="528" stroke="currentColor" stroke-opacity=".5" marker-end="url(#ah)"/>
+    <line x1="440" y1="528" x2="466" y2="528" stroke="currentColor" stroke-opacity=".5" marker-end="url(#ah)"/>
+    <line x1="640" y1="528" x2="666" y2="528" stroke="currentColor" stroke-opacity=".5" marker-end="url(#ah)"/>
+  </g>
+</svg>
+<figcaption>Every stage consumes a file the previous stage wrote. The two enrichment arms share the same design rows, which is what makes their results comparable pair by pair.</figcaption>
+</figure>
+</div>
+</section>
+
+<hr>
+
+<section aria-labelledby="toc">
+<h2 id="toc">The twelve steps</h2>
+<div class="toc">
+  <a href="#step0"><span class="n">00</span><span>Compile the rulebook into a graph</span></a>
+  <a href="#step1"><span class="n">01</span><span>Train the GMS store</span></a>
+  <a href="#step2"><span class="n">02</span><span>Write the exam questions</span></a>
+  <a href="#step3"><span class="n">03</span><span>Build the journey test matrix</span></a>
+  <a href="#step4"><span class="n">04</span><span>Choose the knobs and the schedule</span></a>
+  <a href="#step5"><span class="n">05</span><span>Prove the messy tests are the same tests</span></a>
+  <a href="#step5b"><span class="n">05b</span><span>Let DeepSeek write them instead</span></a>
+  <a href="#step6"><span class="n">06</span><span>Set the smoke detector’s sensitivity</span></a>
+  <a href="#step7"><span class="n">07</span><span>Run the bot under supervision</span></a>
+  <a href="#step8"><span class="n">08</span><span>Detective work: which knob broke it?</span></a>
+  <a href="#step9"><span class="n">09</span><span>Break the tools on purpose</span></a>
+  <a href="#step10"><span class="n">10</span><span>Hire 17 impostors</span></a>
+  <a href="#step11"><span class="n">11</span><span>Turn the exams into training material</span></a>
+  <a href="#step12"><span class="n">12</span><span>Write the report card</span></a>
+  <a href="#worked"><span class="n">→</span><span>One case, end to end (J000)</span></a>
+  <a href="#files"><span class="n">→</span><span>Where every file comes from</span></a>
+  <a href="#glossary"><span class="n">→</span><span>Glossary</span></a>
+</div>
+</section>
+
+<hr>
+
+<!-- ============================== STEP 0 ============================== -->
+<section class="step" id="step0">
+  <div class="step-head"><span class="step-n">00</span><span class="step-title">Compile the rulebook into a graph</span></div>
+  <div class="analogy"><b>Analogy:</b> shredding a policy document into index cards. Each card says one thing, and — this is the important part — every card can be traced back to the exact sentence and page it came from. Nothing is paraphrased, nothing is invented, and nothing is “remembered” from someone’s summary.</div>
+  <div class="io">
+    <div class="box">
+      <h4>Input</h4>
+      <p><code>fictional_poc_operating_procedure_gpt_readable.pdf</code> — the bank’s procedure, plus <code>gmsjourney/policy/charge_review_policy.md</code>, a structured transcription of it.</p>
+      <h4 style="margin-top:.6rem">The call</h4>
+      <div class="console">python -m gmsjourney.knowledge.policy_kg build \
+    --pdf fictional_poc_operating_procedure_gpt_readable.pdf</div>
+      <p class="small">Validating an existing file: <code>… policy_kg check</code></p>
+    </div>
+    <div class="box">
+      <h4>Output</h4>
+      <p><code>gmsjourney/policy/charge_review_kg.json</code> — <b>724 triples</b>:</p>
+      <ul class="small">
+        <li><b>284 policy</b> — rules, limits, fees, required disclosures</li>
+        <li><b>246 state</b> — what is true in each of 19 dialog states</li>
+        <li><b>92 vocabulary</b> — the values and the customer synonyms for them</li>
+        <li><b>85 trajectory</b> — the workflow and the state machine</li>
+        <li><b>17 domain</b> — the objects (customer, session, card)</li>
+      </ul>
+    </div>
+  </div>
+  <h4 style="margin-top:1rem">What a card looks like (real, from your file)</h4>
+  <div class="console">{
+  "id": "T0027",
+  "head": "standard_delivery",
+  "relation": "has_fee_usd",
+  "tail": 0,
+  "tail_type": "number",
+  "kind": "policy",
+  "source": "pdf.5",
+  "evidence": "Standard replacement delivery fee is $0.",
+  "gms": true
+}</div>
+  <div class="prose"><p>Read it as: <i>standard delivery costs $0, according to page 5, sentence “Standard replacement delivery fee is $0.”</i> The <code>gms</code> flag marks cards that are rendered into the text the store is trained on. The program later checks that the trained store carries every card (<code>PolicyKG.consistency()</code> returned <span class="tag ok">all_agree</span> in your run).</p></div>
+</section>
+
+<!-- ============================== STEP 1 ============================== -->
+<section class="step" id="step1">
+  <div class="step-head"><span class="step-n">01</span><span class="step-title">Train the GMS store</span></div>
+  <div class="analogy"><b>Analogy:</b> hiring a librarian who memorises every card, then testing whether they flinch at forgeries. You don’t just want a lookup table — you want someone who can be shown a plausible but false card (“the fee is $150”) and answer “that doesn’t fit what I know, the distance is too large.” That distance is the whole trick: it turns “is this true?” into geometry.</div>
+  <div class="io">
+    <div class="box">
+      <h4>Input</h4>
+      <p><code>charge_review_kg.json</code> → rendered into <code>policy.gms.md</code>, one table per relation.</p>
+      <h4 style="margin-top:.6rem">The call</h4>
+      <div class="console">build_gms(policy_path, backend_choice="auto",
+          epochs=150, geode_epochs=80,
+          seed=42, dedup_mode="off",
+          v_sft_mode="ab")</div>
+      <p class="small">With knowlytix installed and licensed this delegates to <code>build_kx_store()</code>; otherwise the built-in fallback builds an equivalent store.</p>
+    </div>
+    <div class="box">
+      <h4>Output (your run)</h4>
+      <ul class="small">
+        <li><b>231 entities, 609 triples, 12 exact numbers</b></li>
+        <li>GEODE converged in <b>1 iteration</b> (895 proposed, 609 kept)</li>
+        <li><b>14 anchor violations reported</b> — e.g. <code>ack_declined</code> pointing at two different rules</li>
+        <li>Store directory: <code>~/.cache/gmsjourney/stores/&lt;hash&gt;/</code>, with <code>kx/model.pt</code> and <code>gms_build_report.json</code></li>
+      </ul>
+    </div>
+  </div>
+  <h4 style="margin-top:1rem">What happens inside, in five sub-steps</h4>
+  <div class="tscroll">
+  <table>
+  <thead><tr><th style="width:26%">Sub-step</th><th>What it does</th><th style="width:26%">Real number</th></tr></thead>
+  <tbody>
+  <tr><td><b>Ingest</b></td><td>Parses the cards into candidate facts and exact numbers.</td><td>895 candidates proposed</td></tr>
+  <tr><td><b>GEODE loop</b><br><span class="small">self-correction</span></td><td>A proofreader pass: re-check every candidate against the exact register, drop contradictions, flag facts whose neighbours disagree (“anchor violations”). This is the part that catches an OCR misread like a $150 expedited fee.</td><td>1 iteration, 0 corrections needed, 14 anchor violations logged</td></tr>
+  <tr><td><b>v-space SFT</b><br><span class="small">embedding fine-tune</span></td><td>Practises binding noisy spellings of a value to the canonical value — so “four eight two one” and “4 8 2 1” land in the same place. Runs two variants and keeps the better.</td><td>noisy-alias binding <b>0.46 → 0.75</b> (the “full” mode won over the book’s “rotation” mode)</td></tr>
+  <tr><td><b>u-space SFT</b></td><td>Practises the logical channel: routing a phrasing to its relation — used for contradiction detection, e.g. “an unrecognised charge is proof of fraud” against the policy’s “must_not” stance.</td><td>held-out routing <b>0.99 → 1.00</b></td></tr>
+  <tr><td><b>Calibration</b></td><td>Sets each relation’s tolerance (<i>cap radius</i>): how far a true statement may sit from its head, so forgeries fall outside.</td><td>oracle property: true facts inside the radius, substitutions outside <span class="tag ok">12/12</span></td></tr>
+  </tbody>
+  </table>
+  </div>
+  <div class="prose"><p>The trained store is the single most reused artifact in the pipeline: seven later steps ask it questions. It is also cached by a hash of its inputs, so a second run reloads it in about two and a half minutes instead of rebuilding for half an hour.</p></div>
+</section>
+
+<!-- ============================== STEP 2 ============================== -->
+<section class="step" id="step2">
+  <div class="step-head"><span class="step-n">02</span><span class="step-title">Write the exam questions</span></div>
+  <div class="analogy"><b>Analogy:</b> a teacher writing questions <i>and</i> marking their own paper twice by different routes. A question is only used if the answer can be re-derived symbolically (from the rule) <i>and</i> confirmed geometrically (the store places it inside the tolerance). Questions that pass both are “admitted”; the ones that can’t are still kept, but labelled with the reason, so nothing is silently dropped.</div>
+  <div class="io">
+    <div class="box">
+      <h4>Input</h4>
+      <p>The trained store, plus the 18-category question taxonomy.</p>
+      <h4 style="margin-top:.6rem">The call</h4>
+      <div class="console">mine_kb_items(store, seed=42)
+# each item admitted by
+two_way_check(store, truth, seed=7)</div>
+    </div>
+    <div class="box">
+      <h4>Output (your run)</h4>
+      <ul class="small">
+        <li><b>31 policy questions</b>, each with its answer computed from the store</li>
+        <li><b>4 hallucination probes</b> — 3 “near-miss” option names that don’t exist in the policy, and 1 unstated fee. The correct answer for all four is “that doesn’t exist”, so a bot that invents an answer is caught.</li>
+        <li>Written into <code>dataset/policy_questions.csv</code> and the bases inside <code>report.json</code></li>
+      </ul>
+    </div>
+  </div>
+  <h4 style="margin-top:1rem">A real question with its provenance</h4>
+  <div class="console">question : "How much does standard delivery cost?"
+card     : ASK_KB(intent=value, attr=fee, entity=standard_delivery)
+answer   : 0        ← read from exact memory (T0027), never from prose
+admission: two_way  ← symbolic re-derivation + inside the calibrated tolerance</div>
+  <div class="prose"><p>The graph answering its own questions is a precondition, not a result: if the store can’t answer its own exam, the exam is broken. In your run it answered <b>100%</b>.</p></div>
+</section>
+
+<!-- ============================== STEP 3 ============================== -->
+<section class="step" id="step3">
+  <div class="step-head"><span class="step-n">03</span><span class="step-title">Build the journey test matrix</span></div>
+  <div class="analogy"><b>Analogy:</b> crash-testing cars without building every possible car. Instead of the millions of combinations, you pick a small set that still covers every <i>pair</i> of features (a “covering array”), then add special cases until every rule, every workflow edge, every escalation trigger and every boundary has been exercised at least once (“closure”). It’s how testers get most of the coverage for a fraction of the runs.</div>
+  <div class="io">
+    <div class="box">
+      <h4>Input</h4>
+      <p>13 content dimensions — authentication path, retrieval, number of transactions, 30-day window, disposition pattern, record result, card intent, options availability, confirmation, submit result, human request, mid-journey question, turn pressure.</p>
+      <h4 style="margin-top:.6rem">The call</h4>
+      <div class="console">gen = JourneyBaseGenerator(oracle, kb_pool, seed=42)
+cover, report = gen.covering()      # 50 journeys
+extra = gen.closure(cover, store, report,
+                    extra_traces=kb_traces)
+item  = to_item(spec, oracle, "J000")</div>
+    </div>
+    <div class="box">
+      <h4>Output (your run)</h4>
+      <ul class="small">
+        <li><b>54 journey bases + 31 policy questions = 85 bases</b></li>
+        <li>Level pairs covered: <b>523 / 523</b> (276 pairs are impossible by construction and recorded as such, not dropped)</li>
+        <li>Every rule R1–R30, every workflow edge and every trigger exercised</li>
+        <li>Each base carries: the exact conversation text, the meaning card per turn, the oracle’s tool calls, and the expected verdict</li>
+      </ul>
+    </div>
+  </div>
+  <div class="prose"><p>Two ideas make the base honest. First, <b>relevance collapse</b>: after a failed authentication, everything downstream is marked N/A — a pair only counts as “covered” when both halves could actually matter. Second, the <b>oracle plays the conversation for real</b> against the same mock bank the bot will face, so the expected verdict is computed, never hand-written.</p></div>
+</section>
+
+<!-- ============================== STEP 4 ============================== -->
+<section class="step" id="step4">
+  <div class="step-head"><span class="step-n">04</span><span class="step-title">Choose the knobs and the schedule</span></div>
+  <div class="analogy"><b>Analogy:</b> deciding which dials to twiddle on the test rig (background noise? accent? rambling?) and writing a fair schedule so each dial setting gets spread evenly across cases instead of clustering. Without this, a failure could just mean “this case also happened to be the noisy one”.</div>
+  <div class="io">
+    <div class="box">
+      <h4>Input</h4>
+      <p>The 42-factor catalog from proofloop, plus an application layer that selects <b>16 factors</b> that make sense for a phone call and records the other 26 with a reason for exclusion.</p>
+      <div class="console">cat  = Catalog.load()
+suite = resolve_profile(cat, "voice_full")
+rows = compose(suite.level_specs(), bases,
+               n_runs, seed, mode="embedded",
+               assign="dispersed")</div>
+    </div>
+    <div class="box">
+      <h4>Output (your run)</h4>
+      <ul class="small">
+        <li><b>85 design rows</b> — one messy variant per base at this scale (the README’s published run uses six per base)</li>
+        <li>Factors include <code>noise</code> (none/typo/asr), <code>disfluency</code>, <code>style</code>, <code>numeric_format</code> (digits/spoken), <code>entity_aliasing</code>, <code>paraphrase_depth</code>, <code>question_format</code>, <code>emotional_frame</code>, <code>self_correction</code>, <code>history</code>, <code>instruction_conflict</code>, <code>answer_anchoring</code>, <code>confidence_pressure</code>, <code>clarity</code>, <code>specificity</code>, <code>length</code></li>
+        <li>The design quality (φp fill, power curve, and knowlytix’s own DesignMatrix for comparison) lands in <code>report.json → design</code></li>
+      </ul>
+    </div>
+  </div>
+  <div class="prose"><p>The rule that governs this step: <b>any dial that could change the correct answer is not a dial — it is part of the base.</b> For example, a failed tool means the bot must transfer, and an ambiguous answer means the bot must ask for clarification. Those aren’t “variation”; they change what’s correct, so they live in the base and the catalogue records them as <code>moved_to_base</code>.</p></div>
+</section>
+
+<!-- ============================== STEP 5 ============================== -->
+<section class="step" id="step5">
+  <div class="step-head"><span class="step-n">05</span><span class="step-title">Prove the messy tests are the same tests</span></div>
+  <div class="analogy"><b>Analogy:</b> you re-record the same sentence with a bad phone line, a heavy accent and someone rambling about their morning — and then you prove, with a listener, that all three recordings still mean exactly the same thing. If you skipped this, a failure could just as easily mean “the test was garbled” as “the robot misunderstood”. This proof is what makes every later number mean something.</div>
+  <div class="io">
+    <div class="box">
+      <h4>The call</h4>
+      <div class="console">realizer  = Realizer()
+reader    = FrameReader(store)
+validator = InvarianceValidator(store, oracle,
+                                reader, realizer)
+proof     = validator.prove(scenario)
+controls  = validator.negative_controls(
+                scenarios, per_type=40)</div>
+    </div>
+    <div class="box">
+      <h4>Output (your run)</h4>
+      <ul class="small">
+        <li><b>85 / 85 scenarios proved</b>, across <b>754 customer turns</b>, zero re-seeds</li>
+        <li>Maximum frame distance among accepted turns: <b>0.0</b> — every read-back card identical to the intended one</li>
+        <li>Negative controls: <b>433 / 433 meaning-changing edits rejected</b> across 20 kinds (negation flips, digit swaps, wrong dialog state, an inserted turn…)</li>
+        <li>Evidence exported as RDF in <code>ontology.ttl</code>; per-turn detail in <code>dataset/test_turns.csv</code></li>
+      </ul>
+    </div>
+  </div>
+  <h4 style="margin-top:1rem">The four layers, in plain words</h4>
+  <div class="tscroll">
+  <table>
+  <thead><tr><th style="width:14%">Layer</th><th>Claim</th><th style="width:30%">How it’s checked</th></tr></thead>
+  <tbody>
+  <tr><td><b>L1</b></td><td>The correct answer didn’t drift between generating and running the test.</td><td>Hash of the carried ground truth equals a freshly recomputed one.</td></tr>
+  <tr><td><b>L2</b></td><td>Each messy turn still means what the clean turn meant.</td><td>The reader turns the messy text back into a meaning card; it must equal the intended card in that dialog state.</td></tr>
+  <tr><td><b>L3</b></td><td>The conclusion survives re-derivation.</td><td>The oracle replays the read-back cards end to end and must reach the same outcome and per-stage decisions.</td></tr>
+  <tr><td><b>L4</b></td><td>Reported, not gating.</td><td>How far the surface text moved (cosine) — evidence that the variation is real, not a claim of correctness.</td></tr>
+  </tbody>
+  </table>
+  </div>
+  <div class="prose"><p>The controls are the part that keeps the proof honest. A checker that accepts everything would pass L1–L3 trivially; so the same machinery is fed edits that <i>must</i> change the meaning, and every one of them must be rejected. In your run all 433 were — including 40 “wrong dialog state” edits, where the same words are answered in a state that reads them differently.</p></div>
+</section>
+
+<!-- ============================== STEP 5b ============================== -->
+<section class="step" id="step5b">
+  <div class="step-head"><span class="step-n">05b</span><span class="step-title">Let DeepSeek write them instead</span></div>
+  <div class="analogy"><b>Analogy:</b> the template arm is a scriptwriter following a formula. The LLM arm is a freelance writer with better instincts and no loyalty to the formula — so you hire them, but you never let them see the answer key, and every sentence they write goes past a bouncer before it reaches the robot. Sentences that pass are <i>pinned</i>: the robot later receives exactly the text that was proved, not a fresh generation.</div>
+  <div class="io">
+    <div class="box">
+      <h4>The call</h4>
+      <div class="console">settings = LLMSettings(model="deepseek-chat",
+                        temperature=0.7,
+                        mode="live")
+realizer, validator, clients = build_llm_arm(
+    store, oracle, reader, validator,
+    settings, dual_read="gate",
+    adversarial=True, max_attempts=3)</div>
+      <p class="small">Blind generation: the prompt (<code>enrich/llm/prompts.py</code>) contains the agent’s question, the meaning in plain words, the base wording and the style instructions — never the expected behaviour, the tools or the rule ids.</p>
+    </div>
+    <div class="box">
+      <h4>Output (your run)</h4>
+      <ul class="small">
+        <li><b>29 / 85 scenarios materialised</b> (34%); 754 turns; 54.8% accepted on the first attempt; 1.82 attempts per turn</li>
+        <li>3,025 DeepSeek calls, 0 errors, ~2.66M input / 115k output tokens</li>
+        <li>Controls on the model’s own text: <b>95 / 96 rejected</b>; adversarial rewrites <b>20 / 20 rejected</b></li>
+        <li>Every turn recorded in <code>dataset/llm_enrichment_turns.csv</code></li>
+      </ul>
+    </div>
+  </div>
+  <h4 style="margin-top:1rem">The gates each sentence must pass</h4>
+  <div class="tscroll">
+  <table>
+  <thead><tr><th style="width:16%">Gate</th><th>Question it asks</th><th style="width:30%">Example of a failure</th></tr></thead>
+  <tbody>
+  <tr><td><b>G0 form</b></td><td>Is this one spoken line, with no speaker labels, stage directions or internal names?</td><td>“Customer: yes, record_charge_response it”</td></tr>
+  <tr><td><b>G1 facts</b></td><td>Did it invent a number, a fee or a merchant that the base meaning doesn’t carry — and did it keep every value it must?</td><td>“…I heard it’s ten dollars” when $10 is nowhere in the case</td></tr>
+  <tr><td><b>G3 one decision</b></td><td>Is there exactly one clear decision, with no competing cues (unless a self-correction was requested)?</td><td>“I recognize it, it’s not mine.”</td></tr>
+  <tr><td><b>G2 meaning</b></td><td>Does the deterministic reader, reading the noisy final text in its dialog state, recover the intended card?</td><td>“Uh, days?” for a question that must mean <code>limit/lookback_days</code></td></tr>
+  <tr><td><b>G2′ dual read</b></td><td>Does an <i>independent</i> LLM reader, which never saw the base, recover the same card?</td><td>It reads <code>ASK_KB(intent=count_options)</code> where the base is <code>intent=limit</code></td></tr>
+  </tbody>
+  </table>
+  </div>
+  <div class="prose"><p>When a gate fails, the turn is regenerated with feedback that names the failed gate and nothing else (“the independent reader recovers a different meaning: …”). After three attempts a scenario is declared <i>not materialised</i> and excluded from the arm’s results — reported, never silently dropped.</p></div>
+  <h4 style="margin-top:1rem">A real accepted turn, and a real rejected one</h4>
+  <div class="console llm">ACCEPTED — state ASK_AUTH, meaning PROVIDE_CREDENTIAL(credential=4821)
+
+base      : The last four digits of my card are 4821.
+llm_final : Hey, it's probably nothing, but the last four digits of my card are —
+            sorry, the last four digits of my card are four eight two one. I doubt
+            this helps much. I already checked my statement this morning. …
+read back : PROVIDE_CREDENTIAL(credential=4821)   ← both readers agree  ✓</div>
+  <div class="console llm">REJECTED — state PRESENT_TXN, meaning ASK_KB(intent=limit, key=max_transactions_per_session)
+
+llm_final : … how many — sorry, I want to know how many transactions you can go over
+            with me, yeah, … someone told me the policy changed last week, …
+rule reader      : ASK_KB(intent=limit, key=max_transactions_per_session)  ✓
+independent reader: ASK_KB(intent=count_options)                            ✗
+reason     : the independent reader recovers a different meaning</div>
+  <div class="prose"><p>That second example is the dominant failure mode of the whole arm — <b>721 of ~980 gate failures</b> came from the independent reader, with only 47.5% agreement. Many are annotation disagreements rather than real misunderstandings, which is why a re-run with <code>--llm-dual-read report</code> (agreement measured but not gating) is the cheap next experiment: the generations are cached, so it costs minutes, not hours.</p></div>
+</section>
+
+<!-- ============================== STEP 6 ============================== -->
+<section class="step" id="step6">
+  <div class="step-head"><span class="step-n">06</span><span class="step-title">Set the smoke detector’s sensitivity</span></div>
+  <div class="analogy"><b>Analogy:</b> a smoke detector that’s too sensitive goes off when you make toast (false alarms, and everyone ignores it); too dull and it misses a fire (a bad tool call sails through). This step picks the threshold from data — the strictest setting that produces zero false admits, then the fewest false rejects.</div>
+  <div class="io">
+    <div class="box">
+      <h4>The call</h4>
+      <div class="console">cal = calibrate_plausibility(store)
+pc  = calibrate_plan(store, journeys)
+gcfg = GovernanceConfig(
+    theta=cal["theta"],
+    drift_budget=pc["drift_budget"],
+    plan_criterion=pc["criterion"],
+    decision_rule="strict")   # or "quorum"</div>
+    </div>
+    <div class="box">
+      <h4>Output (your run)</h4>
+      <ul class="small">
+        <li>Plausibility threshold <b>θ = 0.9591</b> at the regulated operating point: <b>0 false admits, 0 false rejects</b></li>
+        <li>Reported alongside: gmsh’s P=0.5 point (θ = 0.917), held-out accuracy, and bootstrap 95% intervals</li>
+        <li>A probe sweep (known-good and known-bad transitions) and the multi-threshold design land in <code>report.json → governance</code></li>
+      </ul>
+    </div>
+  </div>
+  <div class="prose"><p>The monitor is not one check but a stack, each with its own sensitivity: a syntax gate, ten symbolic policy rules (authenticate before account tools, no claim without a success status, disclose the $15 fee before confirming…), the geometric plausibility gate above, a plan gate on the whole trajectory, a speech monitor, and a numeric attestor that grades every figure the bot says as PASS / REVIEW / FAIL. A <b>quorum</b> mode is also computed in shadow: one blocking layer routes to human review instead of denying outright.</p></div>
+</section>
+
+<!-- ============================== STEP 7 ============================== -->
+<section class="step" id="step7">
+  <div class="step-head"><span class="step-n">07</span><span class="step-title">Run the bot under supervision</span></div>
+  <div class="analogy"><b>Analogy:</b> the exam itself. A fresh robot and a fresh fake bank for every single case (so nothing leaks between tests), a simulated customer who answers whatever the robot actually asks, and an invigilator watching every move as it happens — not afterwards.</div>
+  <div class="io">
+    <div class="box">
+      <h4>The call</h4>
+      <div class="console">runner = JourneyRunner(
+    bot_factory=make_reference_factory(store),
+    governance=gcfg,          # the monitor
+    budgets=ConstraintBudget(…),
+    store=store, realizer=realizer, reader=reader)
+rows = run(scenarios, runner, oracle.limits,
+           store.workflow, validator)</div>
+      <p class="small">Swap in your own bot with <code>CallableBotAdapter</code> or <code>HTTPBotAdapter</code>; the same monitor wraps it.</p>
+    </div>
+    <div class="box">
+      <h4>Output (your run)</h4>
+      <ul class="small">
+        <li>Base cases: <b>90.6% correct</b>, workflow adherence 100%, KB answers 84.6%</li>
+        <li>Enriched (template): <b>49.4%</b> — the messiness costs ~41 points</li>
+        <li>Enriched (LLM arm): <b>58.6%</b> on the 29 materialised cases</li>
+        <li>Runtime monitor: <b>0% false alarms</b> on correct runs; 13 of 53 failed runs flagged live</li>
+        <li>Written to <code>results_enriched.csv</code>, <code>failures.jsonl</code>, <code>dataset/turn_by_turn.csv</code></li>
+      </ul>
+    </div>
+  </div>
+  <div class="prose"><p>The verdict for each case has three independent parts: the <b>outcome</b> (end state, transfer reason, what was really recorded), each <b>stage’s decision</b> (authenticate, retrieve, present, capture, record, card action, transfer, summary), and <b>admissibility</b> (was every step allowed — no tool before login, no promise without success, no submit before confirmation and fee disclosure, no run past 20 turns). A bot may take a different but legal route and still pass: the grading is on decisions and tool calls, not on wording — which is exactly why the turn-by-turn view exists alongside it.</p></div>
+</section>
+
+<!-- ============================== STEP 8 ============================== -->
+<section class="step" id="step8">
+  <div class="step-head"><span class="step-n">08</span><span class="step-title">Detective work: which knob broke it?</span></div>
+  <div class="analogy"><b>Analogy:</b> you know 43 of 85 runs failed. But <i>why</i>? This step is a statistician looking for the dial settings that keep showing up in failures — and then correcting for the fact that you tested many dials at once, so one of them would look guilty by luck alone.</div>
+  <div class="io">
+    <div class="box">
+      <h4>The call</h4>
+      <div class="console">attribution.diagnose(rows, factor_names)
+kx_attribution(rows, factor_names)   # knowlytix DOE</div>
+    </div>
+    <div class="box">
+      <h4>Output (your run)</h4>
+      <ul class="small">
+        <li>Worst levels: <b>disfluency=fillers</b> (72% failure rate), <b>noise=asr</b> (68%), <b>numeric_format=spoken</b> (65%), <b>style=formal</b> (61%)</li>
+        <li><code>disfluency</code> is the strongest factor (deviance 11.3, pseudo-R² 0.10) but after correcting for multiple comparisons it sits just outside significance (p<sub>adj</sub> = 0.051)</li>
+        <li>Weakest link by stage: <b>KB retrieval (19)</b> then <b>authentication (18)</b></li>
+      </ul>
+    </div>
+  </div>
+  <div class="prose"><p>Read the caveat with the number: this run has 85 rows, so the confidence intervals are wide (the honest Wilson intervals are in the report next to each rate). The <i>pattern</i> — telephone-style noise and spoken numbers cost the most — matches the published full-scale run, which had 486 rows and much tighter intervals.</p></div>
+</section>
+
+<!-- ============================== STEP 9, 10 ============================== -->
+<section class="step" id="step9">
+  <div class="step-head"><span class="step-n">09</span><span class="step-title">Break the tools on purpose</span></div>
+  <div class="analogy"><b>Analogy:</b> the bank’s systems will fail in production — the login service will time out, the transaction lookup will return garbage. This step injects those faults and asks a sharper question than “did it survive?”: did it fail <i>loudly</i> (transfer to a human, tell the customer) or <i>silently</i> (make something up)? Silent failure is the dangerous one.</div>
+  <div class="io">
+    <div class="box">
+      <h4>The call</h4>
+      <div class="console">resilience.probe(runner, oracle, probe_scns)
+# faults injected by ToolGateway:
+#   kind: error | timeout | stale | plausible_wrong</div>
+    </div>
+    <div class="box">
+      <h4>Output (your run)</h4>
+      <ul class="small">
+        <li>Every injected fault detected: detection rate <b>1.0</b>, agreement with the oracle <b>1.0</b></li>
+        <li><b>0 silent failures</b> — no case where the bot invented an answer under a broken tool</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="step" id="step10">
+  <div class="step-head"><span class="step-n">10</span><span class="step-title">Hire 17 impostors</span></div>
+  <div class="analogy"><b>Analogy:</b> how do you know your exam is hard enough to catch a bad employee? You build 17 fake employees, each with exactly one flaw — one reviews 5 transactions instead of 4, one claims success before the system confirms it, one fabricates an answer instead of saying “I don’t know” — and check whether the exam catches each. Any impostor that slips through marks a hole in the test suite, not in the impostor.</div>
+  <div class="io">
+    <div class="box">
+      <h4>The call</h4>
+      <div class="console">mutation.mutation_analysis(store, rk, suites,
+    oracle.limits, store.workflow, validator,
+    fault_scenarios=probe_scns,
+    governance=gcfg)</div>
+      <p class="small">The same 17 impostors are also run against a random suite of equal size — that comparison is what proves the covering array earns its keep.</p>
+    </div>
+    <div class="box">
+      <h4>Output (your run)</h4>
+      <ul class="small">
+        <li>Covering suite catches <b>70.6%</b>; a random suite of the same size catches <b>35.3%</b></li>
+        <li>All suites combined: <b>94.1%</b></li>
+        <li>The runtime monitor flagged <b>100%</b> of the impostors live, while they were misbehaving</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== STEP 11, 12 ============================== -->
+<section class="step" id="step11">
+  <div class="step-head"><span class="step-n">11</span><span class="step-title">Turn the exams into training material</span></div>
+  <div class="analogy"><b>Analogy:</b> the exam papers are also a textbook. Every proved conversation becomes a training example — “here is what the customer said, here is what a correct response looks like” — and drafts that the policy can’t support are dropped rather than taught.</div>
+  <div class="io">
+    <div class="box">
+      <h4>The call</h4>
+      <div class="console">classifier_corpus(proofs, reader, ontology)
+draft_corpus(store, admitted, answer_fn, realizer)
+to_jsonl(records, out / "sft_classifier.jsonl")</div>
+    </div>
+    <div class="box">
+      <h4>Output (your run)</h4>
+      <ul class="small">
+        <li><code>sft_classifier.jsonl</code> — 754 records, one label per seed, 0 dropped by the grounding filter</li>
+        <li><code>sft_draft.jsonl</code> — 31 drafts for the reference bot, plus variants for two mutants (so the corpus shows both correct and incorrect behaviour)</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="step" id="step12">
+  <div class="step-head"><span class="step-n">12</span><span class="step-title">Write the report card</span></div>
+  <div class="analogy"><b>Analogy:</b> the exam results, the invigilator’s log and the inspector’s notes, assembled into one document a release manager can actually read — and a machine-readable twin so nothing has to be retyped.</div>
+  <div class="io">
+    <div class="box">
+      <h4>The call</h4>
+      <div class="console">write_dataset(out/"dataset", store=…, kg=…,
+              oracle=…, validator=…, bases=…,
+              scenarios=…, proofs=…, kb_items=…)
+export_canonicals(store, kg, backend_info)
+render_html(R) → report.html</div>
+    </div>
+    <div class="box">
+      <h4>Output (your run)</h4>
+      <ul class="small">
+        <li><code>report.html</code> — the human report (12 sections)</li>
+        <li><code>report.json</code> — every number in it, machine-readable</li>
+        <li><code>dataset/test_cases.csv</code> (170 rows), <code>test_turns.csv</code> (1,508), <code>turn_by_turn.csv</code> (1,672), <code>policy_questions.csv</code>, the LLM arm’s two CSVs</li>
+        <li><code>gms_canonicals.json</code> — how the trained memory binds each alias, with its score and cut</li>
+        <li>The release gate verdict, computed with severity tiers: <span class="tag bad">failed</span> on all three arms in your run — an honest “not ready”, with the reasons listed per tier</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<hr>
+
+<!-- ============================== WORKED EXAMPLE ============================== -->
+<section aria-labelledby="worked">
+<h2 id="worked">One case, end to end: J000</h2>
+<div class="prose"><p>Everything above is easier to hold onto as one concrete case. J000 is a real base from your run: a customer who keeps asking questions until they hit the 20-turn limit.</p></div>
+
+<h3 style="margin-top:1.4rem">1 · The rules it exercises (from the graph)</h3>
+<div class="console">R2/R3   the customer is authenticated before any account tool is called
+R15/R16 delivery options: expedited costs $15 and needs a clear confirmation
+R28     a call may not exceed 20 turns; at the limit the bot must transfer
+R30     only charges within the lookback window (30 days) can be reviewed</div>
+
+<h3 style="margin-top:1.4rem">2 · The conversation the oracle plays (the answer key)</h3>
+<div class="console">T0  [ASK_AUTH]    The last four digits of my card are 4821.
+T1  [PRESENT_TXN] How much does standard delivery cost?      → answer: 0 (it's free)
+T2  [PRESENT_TXN] How much does standard delivery cost?
+T3  [PRESENT_TXN] How long does expedited delivery take?
+T4  [PRESENT_TXN] How far back can you check transactions?   → answer: 30 days
+…                    (questions keep coming until the turn budget is spent)
+
+expected outcome : end TRANSFERRED, reason turn_limit
+recorded         : T1 → UNRECOGNIZED
+rules fired      : R1 R2 R3 R6 R7 R9 R12 R15 R19 R24 R25 R26 R28 R30
+workflow edges   : W1 W3 W5 W9 W19 W20</div>
+<div class="prose"><p>Note what is <i>computed</i> here and what is <i>not</i>: the turn limit is read from exact memory, the answer to “how much does standard delivery cost” comes from the card <code>T0027</code>, and the ending is whatever the oracle actually reached — nobody typed “TRANSFERRED, turn_limit” into a table.</p></div>
+
+<h3 style="margin-top:1.4rem">3 · The same case, dressed up (real enriched text)</h3>
+<div class="console">levels drawn for J000~0040:
+  noise=typo · disfluency=fillers · history=related_history
+  instruction_conflict=contradictory_hint · style=casual · length=medium …
+
+turn 0  base     : The last four digits of my card are 4821.
+        enriched : hmm, I already checked my syatement this morning. The last agent
+                   told me okay so, I would't need to veify. four eight… soryr, for
+                   verificayion, the …
+        read back: PROVIDE_CREDENTIAL(credential=4821)          ✓ same meaning
+
+turn 1  base     : How much does standard delivery cost?
+        enriched : okay so, I already checkrd my okay so, statement this morning.
+                   Somone told me the poilcy changed last week. Tell me if I pick
+                   rrgular shipping, what w…
+        read back: ASK_KB(intent=value, attr=fee, entity=standard_delivery)  ✓</div>
+<div class="prose"><p>The typos are <b>deliberate and deterministic</b> (a seeded noise layer, with decision-carrying tokens protected — the card digits are never corrupted), and the read-back column is the proof that all of it still means the original. That proof is recorded per turn in <code>dataset/test_turns.csv</code>, and the whole case carries its evidence into <code>ontology.ttl</code>.</p></div>
+
+<h3 style="margin-top:1.4rem">4 · What the reference bot actually did</h3>
+<div class="prose"><p>The bot gets the enriched text turn by turn. It scored <b>90.6% across the clean base cases</b> but <b>49.4% on the messy versions</b> — and this is where the interesting failure lives. A real failure from your run (<code>J009~0001</code>, a different case, but the same shape):</p></div>
+<div class="console">failure_codes : OUTCOME_INCORRECT      severity: high
+factor levels : disfluency=restart · numeric_format=spoken · emotional_frame=skeptical …
+
+bot  : Before I review account-specific charges, I need to authenticate you.
+       Please tell me the last four digits of your card.
+user : Hey. I already — sorry, Hey. I already checked my statement this morning.
+       The last agent told me I wouldn't need to verify. I doubt this helps much.
+       Just for the record, …
+bot  : I see a charge at Amazon for $45.67. Do you recognize it?
+user : … (same restart pattern, digits spoken as words)
+bot  : Sorry, I didn't catch that. Do you recognize that charge?</div>
+<div class="prose"><p>Read the failure: the customer <i>did</i> say the digits — but spoken as words (“four eight two one”) inside a sentence that restarts itself, and this keyword-driven bot has no speech-recognition repair and no digit-word parsing, so it never heard them. It never got past authentication, so the whole outcome is wrong. That is a genuine, realistic weakness of the bot under test — exactly what the factory exists to find — and it is <i>not</i> a flaw in the test, because the invariance proof showed the messy text still means <code>PROVIDE_CREDENTIAL(4821)</code>.</p>
+<p>The <code>numeric_format=spoken</code> factor showing a 65% failure rate in the attribution is this same story, measured across the suite.</p></div>
+</section>
+
+<hr>
+
+<!-- ============================== FILE MAP ============================== -->
+<section aria-labelledby="files">
+<h2 id="files">Where every file comes from</h2>
+<div class="prose"><p>The left column is what the step reads; the right column is what it leaves behind. Paths are relative to the project root, except the store cache under your home directory.</p></div>
+<div class="tscroll" style="margin-top:.8rem">
+<table>
+<thead><tr><th style="width:6%">Step</th><th style="width:26%">Reads</th><th style="width:68%">Writes</th></tr></thead>
+<tbody>
+<tr><td>00</td><td><code>fictional_poc…pdf</code>, <code>policy/charge_review_policy.md</code></td><td><code>gmsjourney/policy/charge_review_kg.json</code> (724 triples)</td></tr>
+<tr><td>01</td><td><code>charge_review_kg.json</code></td><td><code>~/.cache/gmsjourney/stores/&lt;hash&gt;/</code> → <code>kx/model.pt</code>, <code>gms_build_report.json</code>, <code>policy.gms.md</code>; copied into the out dir</td></tr>
+<tr><td>02</td><td>store</td><td><code>dataset/policy_questions.csv</code>, bases in <code>report.json</code></td></tr>
+<tr><td>03</td><td>store + oracle</td><td>bases + expected verdicts in <code>report.json</code> / <code>dataset/test_cases.csv</code></td></tr>
+<tr><td>04</td><td><code>catalogs/*.yaml</code></td><td><code>report.json → design</code> (factors, quality, power)</td></tr>
+<tr><td>05</td><td>bases + factors</td><td><code>ontology.ttl</code>, <code>dataset/test_turns.csv</code>, <code>scenarios.jsonl</code></td></tr>
+<tr><td>05b</td><td>bases + <code>DEEPSEEK_API_KEY</code></td><td><code>dataset/llm_enrichment_turns.csv</code>, <code>results_enriched_llm.csv</code>, <code>scenarios_llm.jsonl</code>; generations cached under <code>~/.cache/gmsjourney/llm/</code></td></tr>
+<tr><td>06</td><td>store + oracle journeys</td><td><code>report.json → governance</code> (θ, budgets, probe sweep)</td></tr>
+<tr><td>07</td><td>accepted scenarios + monitor</td><td><code>results_enriched.csv</code>, <code>results_base_level.csv</code>, <code>failures.jsonl</code>, <code>dataset/turn_by_turn*.csv</code></td></tr>
+<tr><td>08</td><td>result rows</td><td><code>report.json → diagnosis</code></td></tr>
+<tr><td>09</td><td>runner + faults</td><td><code>report.json → resilience</code></td></tr>
+<tr><td>10</td><td>17 mutants</td><td><code>report.json → mutation</code></td></tr>
+<tr><td>11</td><td>proofs + store</td><td><code>sft_classifier.jsonl</code>, <code>sft_draft.jsonl</code></td></tr>
+<tr><td>12</td><td>everything above</td><td><code>report.html</code>, <code>report.json</code>, <code>gms_canonicals.json</code>, <code>dataset/test_cases.csv</code>, <code>store_graph.dot</code></td></tr>
+</tbody>
+</table>
+</div>
+<div class="prose"><p>Two entry points create all of this. The campaign: <code>python run_campaign.py --llm --runs-per-base 1 --out campaign_llm</code>. And the programmatic API, if you want to test your own bot:</p></div>
+<div class="console">from gmsjourney.pipeline import CampaignConfig, run_campaign
+from gmsjourney.sut.adapter import CallableBotAdapter
+
+def factory(tools):            # point your bot's tool client at `tools`
+    session = MyBot(tool_client=tools)
+    return CallableBotAdapter(start_fn=session.start,
+                              respond_fn=session.respond)
+
+run_campaign(CampaignConfig(out_dir="my_bot_run",
+                            bot_factory=factory, bot_name="MyBot"))</div>
+</section>
+
+<hr>
+
+<!-- ============================== GLOSSARY ============================== -->
+<section aria-labelledby="glossary">
+<h2 id="glossary">Glossary</h2>
+<dl class="gloss" style="margin-top:.9rem">
+<div><dt>Triple (head / relation / tail)</dt><dd>One fact as three parts, e.g. <code>standard_delivery — has_fee_usd — 0</code>. The whole policy graph is 724 of them.</dd></div>
+<div><dt>Meaning card (SemanticFrame)</dt><dd>What a customer turn means, as data: one act plus named slots. Words don’t matter; the card does.</dd></div>
+<div><dt>Frame distance</dt><dd>A 0-to-1 number for how far apart two meaning cards are. 0 means identical; 0.75 usually means a hard mismatch such as a different disposition.</dd></div>
+<div><dt>Dialog state</dt><dd>Where the conversation is (e.g. <code>ASK_AUTH</code>, <code>PRESENT_TXN</code>, <code>CONFIRM_ACTION</code>). The same words mean different things in different states — “yes” answers whatever was just asked.</dd></div>
+<div><dt>ENM (Exact Numeric Memory)</dt><dd>The 12 authoritative numbers (20 turns, 30 days, 4 transactions, $15 fee, 2 attempts…). Read by key, never parsed out of prose.</dd></div>
+<div><dt>Cap radius / τ (tau)</dt><dd>Per-relation tolerance in the store’s geometry: how far a true statement may sit from its subject. Forgeries fall outside.</dd></div>
+<div><dt>GEODE</dt><dd>The self-correction loop that reviews candidate facts before training. “Converged in 1 iteration” means it found nothing left to fix.</dd></div>
+<div><dt>θ (theta)</dt><dd>The runtime plausibility threshold. A tool call scoring above θ is blocked (or, under the quorum rule, sent to review).</dd></div>
+<div><dt>Covering array</dt><dd>A small set of test cases that still covers every pair of feature combinations — how 54 journeys stand in for millions.</dd></div>
+<div><dt>Closure</dt><dd>Extra cases added until every rule, workflow edge, escalation trigger and boundary has been exercised at least once.</dd></div>
+<div><dt>Factor / level</dt><dd>A dial (e.g. <code>noise</code>) and its settings (<code>none</code>, <code>typo</code>, <code>asr</code>). The design assigns levels to bases.</dd></div>
+<div><dt>Invariance</dt><dd>The proved claim that an enriched scenario is the same test as its base case: same truth, same meaning per turn, same re-derived outcome.</dd></div>
+<div><dt>Negative control</dt><dd>An edit that <i>must</i> be rejected (flip a negation, swap a digit, answer in the wrong state). A checker that accepts these is broken.</dd></div>
+<div><dt>Materialised (LLM arm)</dt><dd>A scenario whose LLM-written turns all passed the gates and the proof. Non-materialised scenarios are excluded and counted, never silently dropped.</dd></div>
+<div><dt>Pinned utterance</dt><dd>An accepted LLM sentence stored by key, so at run time the bot receives exactly the text that was proved.</dd></div>
+<div><dt>Mutant</dt><dd>A deliberately broken copy of the reference bot with one seeded defect, used to measure whether the test suite catches real failures.</dd></div>
+<div><dt>Weak link</dt><dd>The first stage in workflow order where a failed run went wrong — the stage the failure is charged to.</dd></div>
+<div><dt>Release gate</dt><dd>The final pass/fail verdict, computed from severity tiers and per-tier thresholds. Your run failed it — correctly, since the bot loses half its accuracy under realistic messiness.</dd></div>
+</dl>
+</section>
+
+<hr>
+
+<section aria-labelledby="yourrun">
+<h2 id="yourrun">Your run, in six numbers</h2>
+<div class="stat" style="margin-top:.9rem">
+  <div class="t"><div class="v">724</div><div class="k">policy triples</div></div>
+  <div class="t"><div class="v">85 / 85</div><div class="k">scenarios proved invariant</div></div>
+  <div class="t"><div class="v">90.6% → 49.4%</div><div class="k">accuracy, clean → messy</div></div>
+  <div class="t"><div class="v">29 / 85</div><div class="k">LLM-written scenarios materialised</div></div>
+  <div class="t"><div class="v">94.1%</div><div class="k">seeded defects caught</div></div>
+  <div class="t"><div class="v">0</div><div class="k">silent failures under tool faults</div></div>
+</div>
+<div class="prose" style="margin-top:1rem">
+<p>The full evidence is in <code>campaign_llm/report.html</code> (open it in a browser) and <code>campaign_llm/report.json</code>. The per-case detail is in <code>campaign_llm/dataset/</code> — in particular <code>test_turns.csv</code> (every turn with its meaning card and read-back) and <code>turn_by_turn.csv</code> (what the oracle expected the bot to do at each turn versus what it did).</p>
+</div>
+</section>
+
+<footer>
+  <p><b>The answer key:</b> <a href="ANSWER_SHEET.html">Answer Sheet</a> — every case, its customer turns, meaning cards and the correct bot behaviour.</p>
+  <p><b>Next:</b> <a href="INVARIANCE.html">How Invariance Is Proven</a> — the full proof machinery, step by step, with the negative controls executed live.</p>
+  <p>Built from the run of 2026-10-12 on branch <code>gmsh-parity-0.4</code> — knowlytix 1.5.0 backend, DeepSeek <code>deepseek-chat</code> for the LLM arm. Every quoted number and excerpt comes from <code>campaign_llm/</code>.</p>
+</footer>
+
+</div>
