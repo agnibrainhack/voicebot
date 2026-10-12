@@ -189,7 +189,11 @@ pair. The template arm builds each customer turn from its meaning card with dete
 (`gmsjourney/enrich/llm`, `--llm`) asks a chat model to write the turn. The transport is chosen at run time with
 `--llm-provider`: `aexp` (default) is an OpenAI-compatible model gateway authenticated with a short-lived
 `gcloud` access token — `AEXP_ACCESS_TOKEN` and `AEXP_USE_CASE_ID` override the CLI and the routing header —
-and `deepseek` is the DeepSeek API through LangChain. `--llm-fallback` (default `deepseek`) names the transport
+and `deepseek` is the DeepSeek API through LangChain. For the gateway, set the exact endpoint with
+`GMSJOURNEY_LLM_URL` (full chat-completions URL; `{model}` is filled with the model name, e.g. `gpt-41`) and the
+corporate CA bundle with `GMSJOURNEY_CA_BUNDLE` (else `REQUESTS_CA_BUNDLE`, else `/etc/ssl/certs/ca-certificates.crt`).
+If the deployment rejects `temperature`/`max_tokens` or the system role, the client adapts once and records it
+(`report.json: invariance_llm.clients.*.adaptations`). `--llm-fallback` (default `none`: no silent switch) names a transport
 to use when the chosen one cannot be built or fails mid-run; the switch is recorded in the report, and because
 the provider is part of the cache key, a fallback neither collides with nor discards the other's cached
 generations. It is not trusted to construct the meaning, so it is validated separately and more strictly:

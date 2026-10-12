@@ -267,8 +267,11 @@ instructions. Write exactly one customer utterance that:
 2. follows every presentation instruction;
 3. contains every 'keep verbatim' token exactly as given;
 4. contains no number, amount, date or merchant that is not already in the base wording or the instructions;
-5. names options and actions only with the words listed as understood;
-6. is plain spoken English: no quotation marks, no speaker labels, no stage directions, no emojis.
+5. names options, actions and decisions only with the words listed as understood for them, and names
+   nothing else (no other option, no other action, no greeting or thanks unless an instruction asks);
+6. is plain spoken English, as a real caller would say it on the phone: no quotation marks, no speaker
+   labels, no stage directions, no emojis, no explanation of what you changed.
+If the presentation instructions pull against the meaning, the meaning wins.
 Reply with JSON only: {"utterance": "..."}"""
 
 
@@ -277,7 +280,12 @@ def build_rephrase_prompt(f: F, levels: dict[str, str], ctx: dict[str, Any] | No
     spoken = (levels or {}).get("numeric_format") == "spoken"
     instr = factor_instructions(f, levels, ctx) or ["None: keep it plain, short and natural."]
     keep = protected_tokens(f, levels, ctx)
-    understood = sorted({w for v in READER_LEXICON.values() for w in v})
+    # only the names for what this turn means: offering every name in the lexicon invites the model
+    # to mention options, actions or decisions the customer is not talking about (a competing cue)
+    vals = [f.get(k) for k in ("disposition", "delivery", "card_action", "entity", "subject")]
+    if f.act in READER_LEXICON:
+        vals.append(f.act)
+    understood = {LABEL.get(v, v).strip("'"): READER_LEXICON[v] for v in vals if v in READER_LEXICON}
     user = {
         "agent_question": state_question(state, ctx),
         "customer_means": describe_meaning(f, spoken),

@@ -90,7 +90,7 @@ class CampaignConfig:
     llm_arm: bool = False
     llm_mode: str = "live"                       # live (call on cache miss) | replay (cache only)
     llm_provider: str = "aexp"                   # aexp (gateway, gcloud token) | deepseek
-    llm_fallback_provider: str | None = "deepseek"   # used when the chosen provider cannot be built
+    llm_fallback_provider: str | None = None   # used when the chosen provider cannot be built
     llm_model: str = ""                          # empty: the provider's own default
     llm_temperature: float = 0.7
     llm_share: float = 1.0                       # share of design rows also realised by the LLM (paired)

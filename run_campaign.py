@@ -43,7 +43,7 @@ if __name__ == "__main__":
                     help="aexp: OpenAI-compatible gateway authenticated with a gcloud access token "
                          "(AEXP_ACCESS_TOKEN overrides the CLI; AEXP_USE_CASE_ID the use-case header); "
                          "deepseek: the DeepSeek API through LangChain")
-    ap.add_argument("--llm-fallback", default="deepseek", choices=["deepseek", "none"],
+    ap.add_argument("--llm-fallback", default="none", choices=["deepseek", "none"],
                     help="provider used when the chosen one cannot be built or fails mid-run")
     ap.add_argument("--llm-model", default=None, help="model name (default: the provider's own)")
     ap.add_argument("--llm-temperature", type=float, default=0.7)

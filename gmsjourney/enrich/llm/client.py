@@ -53,13 +53,20 @@ class LLMUnavailable(RuntimeError):
 @dataclass
 class LLMSettings:
     provider: str = "aexp"                # aexp (gateway, gcloud token) | deepseek
-    fallback_provider: str | None = "deepseek"   # used when the chosen one cannot be built or fails
+    # None by default: a run asked to use the gateway must not silently switch to another provider.
+    fallback_provider: str | None = None  # e.g. "deepseek": used when the chosen one cannot be built or fails
     model: str = ""                       # empty: the provider's own default (PROVIDER_DEFAULTS)
     temperature: float = 0.7              # paraphrase diversity; reproducibility comes from the cache
     max_tokens: int = 220
     api_key_env: str = "DEEPSEEK_API_KEY"  # deepseek only
     base_url: str = ""                    # empty: the provider's own default
     use_case_id: str = "825"              # aexp only: the x-aip-usecase-id header
+    # aexp only: the full chat-completions URL. "{model}" is replaced by the model name. Empty: built
+    # from base_url as {base_url}/models/{model}/chat/completions. Env override: GMSJOURNEY_LLM_URL.
+    url: str = ""
+    # aexp only: CA bundle for the corporate TLS proxy (what REQUESTS_CA_BUNDLE pointed at in the
+    # sample). Env overrides: GMSJOURNEY_CA_BUNDLE, then REQUESTS_CA_BUNDLE. Empty: system default.
+    ca_bundle: str = "/etc/ssl/certs/ca-certificates.crt"
     token_cmd: str = "gcloud auth print-access-token"   # aexp only: how the bearer token is obtained
     access_token_env: str = "AEXP_ACCESS_TOKEN"         # aexp only: override for the CLI (tests, CI)
     # aexp only: send temperature/max_tokens as well (standard OpenAI fields). Set
@@ -77,6 +84,9 @@ class LLMSettings:
         self.base_url = (self.base_url or os.environ.get("GMSJOURNEY_LLM_BASE_URL", "")
                          or d.get("base_url", ""))
         self.use_case_id = os.environ.get("AEXP_USE_CASE_ID", self.use_case_id)
+        self.url = os.environ.get("GMSJOURNEY_LLM_URL", "") or self.url
+        self.ca_bundle = (os.environ.get("GMSJOURNEY_CA_BUNDLE") or os.environ.get("REQUESTS_CA_BUNDLE")
+                          or self.ca_bundle)
         if os.environ.get("AEXP_SEND_SAMPLING_PARAMS", "").strip() in ("0", "false", "no"):
             self.send_sampling_params = False
 
@@ -135,12 +145,58 @@ class GatewayChat:
     the hour-long credential does not fail mid-run.
     """
 
+    # what the deployment turned out to reject, learnt from HTTP 400s and kept for the rest of the run
+    _DROP_ON_400 = (("temperature", "temperature"), ("max_tokens", "max_tokens"), ("system", "system"))
+
     def __init__(self, s: LLMSettings):
         self.s = s
         self._token = _token(s)
+        self.send_sampling = s.send_sampling_params
+        self.token_field = "max_tokens"         # reasoning deployments (gpt-5.x) want max_completion_tokens
+        self.system_role = True                 # some gateways reject the system role: folded into user
+        self.adaptations: list[str] = []
 
     def _url(self) -> str:
+        if self.s.url:
+            u = self.s.url.replace("{model}", self.s.model)
+            return u if u.startswith("http") else "https://" + u
         return f"{self.s.base_url.rstrip('/')}/models/{self.s.model}/chat/completions"
+
+    def _verify(self):
+        cb = self.s.ca_bundle
+        return cb if cb and Path(cb).exists() else True
+
+    def _payload(self, messages: list[Any]) -> dict[str, Any]:
+        msgs = [{"role": _role(m), "content": _text(m)} for m in messages]
+        if not self.system_role and msgs and msgs[0]["role"] == "system":
+            sys_text = msgs.pop(0)["content"]
+            if msgs and msgs[0]["role"] == "user":
+                msgs[0] = {"role": "user", "content": f"{sys_text}\n\n{msgs[0]['content']}"}
+            else:
+                msgs.insert(0, {"role": "user", "content": sys_text})
+        payload: dict[str, Any] = {"model": self.s.model, "messages": msgs}
+        if self.send_sampling:
+            payload["temperature"] = self.s.temperature
+            payload[self.token_field] = self.s.max_tokens
+        return payload
+
+    def _adapt(self, body: str) -> bool:
+        """After an HTTP 400, drop or rename what the deployment rejected; False when nothing applies."""
+        b = body.lower()
+        if self.send_sampling and self.token_field == "max_tokens" and "max_completion_tokens" in b:
+            self.token_field = "max_completion_tokens"
+            self.adaptations.append("max_tokens -> max_completion_tokens")
+            return True
+        if self.send_sampling and ("temperature" in b or "max_tokens" in b or "max_completion_tokens" in b
+                                   or "unsupported" in b or "unrecognized" in b or "extra" in b):
+            self.send_sampling = False
+            self.adaptations.append("sampling parameters dropped (model + messages only)")
+            return True
+        if self.system_role and "system" in b and "role" in b:
+            self.system_role = False
+            self.adaptations.append("system message folded into the user message")
+            return True
+        return False
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token}", "x-aip-usecase-id": self.s.use_case_id,
@@ -148,24 +204,36 @@ class GatewayChat:
 
     def invoke(self, messages: list[Any]) -> SimpleNamespace:
         import requests                                    # the gateway path needs only requests
-        payload = {"model": self.s.model,
-                   "messages": [{"role": _role(m), "content": _text(m)} for m in messages]}
-        if self.s.send_sampling_params:                # AEXP_SEND_SAMPLING_PARAMS=0 drops these two,
-            payload["temperature"] = self.s.temperature       # leaving exactly model + messages
-            payload["max_tokens"] = self.s.max_tokens
         last_error = "no attempt made"
-        for attempt in range(self.s.max_retries + 1):
+        refreshed, adapted, attempt = False, 0, 0
+        while attempt <= self.s.max_retries:
             try:
-                r = requests.post(self._url(), headers=self._headers(), json=payload, timeout=self.s.timeout)
-            except Exception as e:                         # noqa: BLE001 - transport errors
+                r = requests.post(self._url(), headers=self._headers(), json=self._payload(messages),
+                                  timeout=self.s.timeout, verify=self._verify())
+            except Exception as e:                         # noqa: BLE001 - transport errors (incl. TLS)
                 last_error = f"{type(e).__name__}: {str(e)[:160]}"
+                attempt += 1
+                time.sleep(min(8.0, 1.5 ** attempt))
                 continue
-            if r.status_code == 401 and attempt == 0:      # the credential expired: refresh once
+            if r.status_code in (401, 403) and not refreshed:   # the credential expired: refresh once
                 self._token = _token(self.s)
+                refreshed = True
+                continue
+            if r.status_code == 400 and adapted < 3 and self._adapt(r.text):
+                adapted += 1                               # retried with what the deployment accepts
+                continue
+            if r.status_code == 429 or r.status_code >= 500:   # throttled / transient: back off
+                last_error = f"HTTP {r.status_code}: {r.text[:160]}"
+                attempt += 1
+                wait = r.headers.get("retry-after")
+                time.sleep(float(wait) if wait and wait.replace(".", "", 1).isdigit() else min(20.0, 2.0 ** attempt))
                 continue
             if r.status_code != 200:
-                raise LLMUnavailable(f"gateway HTTP {r.status_code}: {r.text[:200]}")
-            data = r.json()
+                raise LLMUnavailable(f"gateway HTTP {r.status_code} at {self._url()}: {r.text[:200]}")
+            try:
+                data = r.json()
+            except ValueError as e:
+                raise LLMUnavailable(f"gateway returned non-JSON: {r.text[:200]}") from e
             choice = (data.get("choices") or [{}])[0]
             usage = data.get("usage") or {}
             return SimpleNamespace(content=((choice.get("message") or {}).get("content") or ""),
@@ -416,7 +484,9 @@ class CachedLLM:
         return parse_json_object(self.invoke(system, user, salt))
 
     def report(self) -> dict[str, Any]:
-        return {"tag": self.tag, **asdict(self.stats), "cache_dir": str(self.dir),
+        m = getattr(self.model, "_primary", self.model)
+        gw = {"endpoint": m._url(), "adaptations": list(m.adaptations)} if isinstance(m, GatewayChat) else {}
+        return {"tag": self.tag, **asdict(self.stats), **gw, "cache_dir": str(self.dir),
                 "unavailable_reason": None if self.settings.mode == "live" and self.model is not None
                 else self._model_error}
 

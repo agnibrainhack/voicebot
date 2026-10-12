@@ -200,16 +200,28 @@ def test_operating_points_p50_holdout_bootstrap():
 # ----------------------------------------------------------------------------- LLM providers
 # (stdlib mock rather than pytest fixtures: this file also runs as a plain script)
 def test_provider_defaults_and_fallback_to_deepseek():
-    """The gateway is the default; when it cannot be built the fallback takes over and says so."""
+    """The gateway is the default with no silent fallback; an explicit fallback takes over and says so."""
     C = llm_client
     s = C.LLMSettings()
-    assert s.provider == "aexp" and s.fallback_provider == "deepseek"
+    assert s.provider == "aexp" and s.fallback_provider is None
+    with mock.patch.dict(os.environ, {"AEXP_ACCESS_TOKEN": ""}), \
+            mock.patch.object(C, "_token", side_effect=C.LLMUnavailable("no gcloud")):
+        try:
+            C.make_chat_model(C.LLMSettings())
+            raise AssertionError("expected LLMUnavailable: no fallback by default")
+        except C.LLMUnavailable as e:
+            assert "deepseek" not in str(e), str(e)
     assert s.model == "gpt-41" and "gaiapis" in s.base_url      # the provider's own defaults
 
+    import importlib.util as _u
+    has_lc = any(_u.find_spec(m) for m in ("langchain_deepseek", "langchain_openai"))
     with mock.patch.dict(os.environ):
         os.environ.pop("AEXP_ACCESS_TOKEN", None)
         os.environ["DEEPSEEK_API_KEY"] = "test-key-never-used"
-        s = C.LLMSettings()
+        s = C.LLMSettings(fallback_provider="deepseek")
+        if not has_lc:                      # the DeepSeek transport needs a LangChain integration
+            print("    (fallback-to-deepseek part skipped: no langchain-deepseek / langchain-openai)")
+            return
         with mock.patch.object(C, "_token", side_effect=C.LLMUnavailable("no gcloud")):
             model = C.make_chat_model(s)
         assert s.resolved_provider == "deepseek" and s.effective_provider == "deepseek"
@@ -232,7 +244,7 @@ def test_provider_defaults_and_fallback_to_deepseek():
         os.environ.pop("AEXP_ACCESS_TOKEN", None)
         with mock.patch.object(C, "_token", side_effect=C.LLMUnavailable("no gcloud")):
             try:
-                C.make_chat_model(C.LLMSettings())
+                C.make_chat_model(C.LLMSettings(fallback_provider="deepseek"))
                 raise AssertionError("expected LLMUnavailable")
             except C.LLMUnavailable as e:
                 assert "aexp" in str(e) and "deepseek" in str(e), str(e)
@@ -252,8 +264,8 @@ def test_gateway_transport_builds_the_documented_request():
             return {"choices": [{"message": {"content": '{"utterance": "hi"}'}}],
                     "usage": {"prompt_tokens": 7, "completion_tokens": 3}}
 
-    def _post(url, headers=None, json=None, timeout=None):
-        seen.update(url=url, headers=headers, payload=json)
+    def _post(url, headers=None, json=None, timeout=None, **kw):
+        seen.update(url=url, headers=headers, payload=json, verify=kw.get("verify"))
         return _Resp()
 
     with mock.patch.dict(os.environ, {"AEXP_ACCESS_TOKEN": "token-123", "AEXP_USE_CASE_ID": "825"}):
@@ -273,7 +285,7 @@ def test_gateway_transport_builds_the_documented_request():
 def test_failover_switches_provider_on_a_call_time_failure():
     """A transport that dies mid-run hands over to the fallback once, and the switch is visible."""
     C = llm_client
-    s = C.LLMSettings()
+    s = C.LLMSettings(fallback_provider="deepseek")
     built = []
 
     def _fake_build(provider, settings):
@@ -330,7 +342,7 @@ def test_first_call_after_a_fallback_is_filed_under_the_resolved_provider():
 
     with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "k"}):
         cache = Path(tempfile.mkdtemp())
-        settings = C.LLMSettings(provider="aexp", cache_dir=str(cache))
+        settings = C.LLMSettings(provider="aexp", fallback_provider="deepseek", cache_dir=str(cache))
         settings.model = "gpt-41"                     # as CachedLLM.__post_init__ resolves it
         with mock.patch.object(C, "_token", side_effect=C.LLMUnavailable("no gcloud")), \
              mock.patch.object(C, "_deepseek_model", _stub):
