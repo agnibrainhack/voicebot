@@ -33,3 +33,8 @@ gmsjourney/bases/sut/
 # OS / editor
 .DS_Store
 Thumbs.db
+
+# Source procedure document: kept locally, not published.
+# The compiled policy graph gmsjourney/policy/charge_review_kg.json is committed,
+# so the campaign runs without it; only rebuilding the graph from the PDF needs it.
+fictional_poc_operating_procedure_gpt_readable.pdf
