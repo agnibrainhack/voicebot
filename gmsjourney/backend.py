@@ -20,6 +20,19 @@ signed hashes of the sub-word strings and whose attention/feed-forward outputs a
 zeroed, so with knowlytix's mean pooling it is a deterministic bag-of-sub-words
 hashing encoder (typo-robust through sub-words, no semantic prior). Every report
 records which encoders a store was built with.
+
+Local model folders (no download). Point the two encoders at directories that already
+hold the models (a ``sentence-transformers`` or plain HuggingFace save: config.json +
+weights + tokenizer), either by editing ``HF_V_LOCAL`` / ``HF_U_LOCAL`` below or with
+the environment variables ``GMSJOURNEY_HF_V`` / ``GMSJOURNEY_HF_U``. When both folders
+exist they are used as-is: nothing is downloaded, the hub is never contacted and
+``HF_HUB_OFFLINE`` / ``TRANSFORMERS_OFFLINE`` are set for the process.
+
+DeepSpeed. ``transformers.save_pretrained`` (via accelerate) imports DeepSpeed whenever it
+is installed; a DeepSpeed build that does not match the installed torch fails on import
+(``cannot import name '_get_socket_with_port'``). ``guard_deepspeed()`` checks once and,
+if DeepSpeed cannot be imported, tells accelerate/transformers it is absent. Nothing
+here uses DeepSpeed.
 """
 from __future__ import annotations
 
@@ -31,8 +44,11 @@ import socket
 from pathlib import Path
 from typing import Any
 
-HF_V = "sentence-transformers/all-MiniLM-L6-v2"
+HF_V = "sentence-transformers/all-MiniLM-L6-v2"           # hub names (used only when no local folder is set)
 HF_U = "sentence-transformers/nli-mpnet-base-v2"
+# local folders that already contain the models; edit here or set GMSJOURNEY_HF_V / GMSJOURNEY_HF_U
+HF_V_LOCAL = os.environ.get("GMSJOURNEY_HF_V", "/aip/amex/nchak14/VoiceBOT/all-MiniLM-L6-v2")
+HF_U_LOCAL = os.environ.get("GMSJOURNEY_HF_U", "/aip/amex/nchak14/VoiceBOT/nli-mpnet-base-v2")
 LICENSE_FILE = Path.home() / ".knowlytix" / "license.key"
 CACHE = Path(os.environ.get("GMSJOURNEY_CACHE", Path.home() / ".cache" / "gmsjourney"))
 
@@ -50,6 +66,7 @@ def available() -> bool:
     """True when the knowlytix family is installed and a licence is configured."""
     os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
     os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    guard_deepspeed()
     if os.environ.get("GMSJOURNEY_BACKEND", "auto") == "builtin":
         return False
     if importlib.util.find_spec("knowlytix") is None or importlib.util.find_spec("knowlytix.core") is None:
@@ -79,7 +96,60 @@ def describe() -> dict[str, Any]:
     return out
 
 
+# ----------------------------------------------------------------------------- environment guards
+_DS_CHECKED = False
+
+
+def guard_deepspeed() -> bool:
+    """If DeepSpeed is installed but cannot be imported (version mismatch with torch), make
+    accelerate and transformers treat it as absent. Returns True when a patch was applied."""
+    global _DS_CHECKED
+    if _DS_CHECKED:
+        return False
+    _DS_CHECKED = True
+    if importlib.util.find_spec("deepspeed") is None:
+        return False
+    try:
+        import deepspeed  # noqa: F401
+        return False
+    except Exception:                      # noqa: BLE001 - any import failure: pretend it is not installed
+        pass
+    no = lambda *a, **k: False             # noqa: E731
+    import sys
+    for mod in ("accelerate.utils", "accelerate.utils.imports", "accelerate.utils.other",
+                "accelerate.accelerator", "transformers.integrations.deepspeed", "transformers.integrations",
+                "transformers.modeling_utils", "transformers.utils.import_utils", "transformers.trainer"):
+        try:
+            m = sys.modules.get(mod) or importlib.import_module(mod)
+        except Exception:                  # noqa: BLE001
+            continue
+        for name in ("is_deepspeed_available", "is_deepspeed_zero3_enabled"):
+            if hasattr(m, name):
+                setattr(m, name, no)
+    return True
+
+
 # ----------------------------------------------------------------------------- encoders
+def _local_model(path: str | None) -> bool:
+    """A folder holding a saved model (HF or sentence-transformers layout)."""
+    if not path:
+        return False
+    p = Path(path).expanduser()
+    return p.is_dir() and ((p / "config.json").exists() or (p / "modules.json").exists())
+
+
+def local_encoders() -> tuple[str, str] | None:
+    """(v_path, u_path) when both local model folders exist, else None."""
+    if _local_model(HF_V_LOCAL) and _local_model(HF_U_LOCAL):
+        return str(Path(HF_V_LOCAL).expanduser()), str(Path(HF_U_LOCAL).expanduser())
+    return None
+
+
+def _force_offline() -> None:
+    for k in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE"):
+        os.environ[k] = "1"
+
+
 def _hub_reachable(timeout: float = 3.0) -> bool:
     if os.environ.get("HF_HUB_OFFLINE") == "1":
         return False
@@ -152,6 +222,8 @@ def encoder_kind(mode: str | None = None) -> str:
     mode = mode or os.environ.get("GMSJOURNEY_ENCODER", "auto")
     if mode == "offline":
         return "offline-stand-in"
+    if local_encoders() is not None:
+        return "huggingface"
     if (_hf_cached(HF_V) and _hf_cached(HF_U)) or _hub_reachable():
         return "huggingface"
     return "offline-stand-in"
@@ -160,7 +232,16 @@ def encoder_kind(mode: str | None = None) -> str:
 def resolve_encoders(corpus: list[str], mode: str | None = None) -> dict[str, Any]:
     """{'v': name_or_path, 'u': name_or_path, 'kind': 'huggingface' | 'offline-stand-in', 'reason': ...}"""
     mode = mode or os.environ.get("GMSJOURNEY_ENCODER", "auto")
-    if mode in ("auto", "hf"):
+    guard_deepspeed()
+    if mode in ("auto", "hf", "local"):
+        loc = local_encoders()
+        if loc is not None:
+            _force_offline()
+            return {"v": loc[0], "u": loc[1], "kind": "huggingface",
+                    "reason": f"local model folders ({loc[0]}, {loc[1]}); hub not contacted"}
+        if mode == "local":
+            raise RuntimeError(f"local encoders requested but not found: v={HF_V_LOCAL!r} u={HF_U_LOCAL!r} "
+                               "(each folder needs config.json or modules.json)")
         if _hf_cached(HF_V) and _hf_cached(HF_U):
             return {"v": HF_V, "u": HF_U, "kind": "huggingface", "reason": "found in the local HF cache"}
         if _hub_reachable():

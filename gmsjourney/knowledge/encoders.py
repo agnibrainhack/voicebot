@@ -127,7 +127,9 @@ class SentenceTransformerEncoder:
 def make_encoder(kind: str = "hashing", salt: str = "v", model: str | None = None):
     if kind == "sentence-transformers":
         try:
-            return SentenceTransformerEncoder(model or "sentence-transformers/all-MiniLM-L6-v2")
+            from ..backend import HF_V, local_encoders
+            loc = local_encoders()
+            return SentenceTransformerEncoder(model or (loc[0] if loc else HF_V))
         except Exception:  # pragma: no cover - optional path
             pass
     return HashingEncoder(salt=salt)
