@@ -1,0 +1,37 @@
+INPUT TEXT (as the bot receives it):
+  I already checked — sorry, I already checked my statement this morning. You can skip writing anything down, just move along. Please hurry, I'm really worried. No— sorry, yes, mine. Please be careful with this.
+
+FrameReader.normalize()   ->
+  i already checked | sorry, i already checked my statement this morning. you can skip writing anything down, just move along. please hurry, im really worried. no | sorry, yes, mine. please be careful with this.
+
+FrameReader.clauses()     ->
+   (question=False)  i already checked
+   (question=False)  sorry, i already checked my statement this morning
+   (question=False)  you can skip writing anything down, just move along
+   (question=False)  please hurry, im really worried
+   (question=False)  no
+   (question=False)  sorry, yes, mine
+   (question=False)  please be careful with this
+
+FrameReader.cue_counts()  -> {'disposition': 1, 'delivery': 0}
+  _disposition_matches()  -> [(178, 182, 'RECOGNIZED')]
+  _disposition()          -> ('RECOGNIZED', None)
+  _card()                 -> {}
+
+FrameReader.read(text, 'PRESENT_TXN') -> INFORM_DISPOSITION(disposition=RECOGNIZED)
+
+Ontology.canonicalize(g, state)       -> INFORM_DISPOSITION(disposition=RECOGNIZED)
+Ontology.card(g, state)               -> {'state': 'PRESENT_TXN', 'stage': 'capture', 'act': 'INFORM_DISPOSITION', 'slots': {'disposition': 'RECOGNIZED'}, 'admissible': True}
+Ontology.admissible(g, state)         -> (True, '')
+
+INTENDED frame (what the realizer was asked to say) -> INFORM_DISPOSITION(disposition=RECOGNIZED)
+Ontology.equivalent(intended, g, state)             -> True
+Ontology.frame_distance(intended, g, state)         -> 0.0
+
+  equivalent() if the same words answered ASK_AUTH        -> False | card: INFORM_DISPOSITION(disposition=RECOGNIZED)
+  equivalent() if the same words answered CONFIRM_ACTION  -> False | card: INFORM_DISPOSITION(disposition=RECOGNIZED)
+  equivalent() if the same words answered ASK_MORE_HELP   -> False | card: INFORM_DISPOSITION(disposition=RECOGNIZED)
+
+sequence_signature([PROVIDE_CREDENTIAL, INFORM_DISPOSITION], states) -> 86f4a595f75758659a18
+  … and again, unchanged (deterministic)                            -> 86f4a595f75758659a18
+  … with the disposition swapped to UNRECOGNIZED                   -> 940aba85b5336bd5b77b

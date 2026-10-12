@@ -1,4 +1,4 @@
-"""The generated test suite as clean tables (campaign_out/dataset/).
+"""The generated test suite as clean tables (<out_dir>/dataset/).
 
 ``test_cases.csv``    one row per test case: the 81 base cases and their 486 enriched
                       variants. Columns: case_id, case_type (base / enriched), base_id,

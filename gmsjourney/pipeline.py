@@ -64,7 +64,7 @@ POLICY_MD = Path(__file__).resolve().parent / "policy" / "charge_review_policy.m
 @dataclass
 class CampaignConfig:
     policy_path: str = str(POLICY)
-    out_dir: str = "campaign_out"
+    out_dir: str = "output/campaign_out"
     profile: str = "voice_full"
     runs_per_base: int = 6
     seed: int = 42
@@ -86,10 +86,12 @@ class CampaignConfig:
     budgets: dict | None = None                  # ConstraintBudget fields (None = defaults)
     decision_rule: str = "strict"                # strict | quorum   (runtime gates)
     calibration_bootstrap: int = 200             # bootstrap resamples for theta / tau intervals
-    # LLM enrichment arm (enrich/llm): DeepSeek through LangChain, proved separately
+    # LLM enrichment arm (enrich/llm): a chat model writes the turns, proved separately
     llm_arm: bool = False
     llm_mode: str = "live"                       # live (call on cache miss) | replay (cache only)
-    llm_model: str = "deepseek-chat"
+    llm_provider: str = "aexp"                   # aexp (gateway, gcloud token) | deepseek
+    llm_fallback_provider: str | None = "deepseek"   # used when the chosen provider cannot be built
+    llm_model: str = ""                          # empty: the provider's own default
     llm_temperature: float = 0.7
     llm_share: float = 1.0                       # share of design rows also realised by the LLM (paired)
     llm_dual_read: str = "gate"                  # gate | report | off   (independent LLM reader)
@@ -270,10 +272,12 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     # 5b ------------------------------------------------------------- LLM enrichment arm
     llm_scns, llm_proofs, llm_realizer, llm_validator, llm_controls = [], [], None, None, None
     if cfg.llm_arm:
-        log("[5b/12] LLM enrichment arm (DeepSeek via LangChain): generate blind, gate every turn, prove "
+        log(f"[5b/12] LLM enrichment arm ({cfg.llm_provider}): generate blind, gate every turn, prove "
             "separately, controls on LLM text")
         from .enrich.llm import LLMSettings, build_llm_arm
-        settings = LLMSettings(model=cfg.llm_model, temperature=cfg.llm_temperature, mode=cfg.llm_mode,
+        settings = LLMSettings(provider=cfg.llm_provider, model=cfg.llm_model or "",
+                               fallback_provider=cfg.llm_fallback_provider,
+                               temperature=cfg.llm_temperature, mode=cfg.llm_mode,
                                cache_dir=cfg.llm_cache_dir)
         llm_realizer, llm_validator, clients = build_llm_arm(
             store, oracle, reader, validator, settings, dual_read=cfg.llm_dual_read,
@@ -281,6 +285,10 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         why = clients["rephrase"].unavailable_reason()
         if why:
             log(f"      LLM not callable ({why}); only cached generations can be used")
+        else:
+            log(f"      LLM provider: {settings.effective_provider} · model {settings.model}"
+                + (f" (requested {settings.provider})" if settings.effective_provider != settings.provider
+                   else ""))
         pick = random.Random(cfg.seed + 7)
         chosen = [s for s in scenarios if pick.random() < cfg.llm_share]
         llm_scns = [Scenario(f"{s.sid}~llm", s.base, dict(s.factor_levels), s.mode,

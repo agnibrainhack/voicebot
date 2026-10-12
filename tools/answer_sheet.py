@@ -1,6 +1,6 @@
 """Generate an answer sheet (HTML) for every base case of a campaign.
 
-    python tools/answer_sheet.py --campaign campaign_llm --out ANSWER_SHEET.html
+    python tools/answer_sheet.py --campaign output/campaign_llm --out docs/ANSWER_SHEET.html
 
 The cases are rebuilt deterministically from the policy graph (same seed and the same
 construction as ``pipeline.run_campaign``), and the required bot behaviour is read from
@@ -29,9 +29,14 @@ import argparse
 import csv
 import html
 import json
+import sys
 from pathlib import Path
 
-from gmsjourney.bases.journey import JourneyBaseGenerator, to_item
+# Runnable from any directory, with or without PYTHONPATH: Python puts a script's own directory on
+# sys.path, not the working directory, so the package root has to be added explicitly.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from gmsjourney.bases.journey import JourneyBaseGenerator, to_item      # noqa: E402
 from gmsjourney.bases.kb import mine_kb_items
 from gmsjourney.enrich.invariance import InvarianceValidator
 from gmsjourney.enrich.reader import FrameReader
@@ -248,9 +253,9 @@ footer{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--line);font-
 def main() -> None:
     ap = argparse.ArgumentParser(description="Answer sheet for every base case of a campaign.")
     ap.add_argument("--policy", default=str(ROOT / "gmsjourney" / "policy" / "charge_review_kg.json"))
-    ap.add_argument("--campaign", default="campaign_llm",
+    ap.add_argument("--campaign", default="output/campaign_llm",
                     help="campaign output dir (dataset/test_cases.csv, dataset/test_turns.csv)")
-    ap.add_argument("--out", default="ANSWER_SHEET.html")
+    ap.add_argument("--out", default=str(ROOT / "docs" / "ANSWER_SHEET.html"))
     ap.add_argument("--backend", default="auto", choices=["auto", "knowlytix", "builtin"])
     ap.add_argument("--store-dir", default=None, help="knowlytix store dir (default: the build cache)")
     ap.add_argument("--seed", type=int, default=42)

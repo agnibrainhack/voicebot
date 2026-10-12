@@ -15,7 +15,7 @@ policy PDF -> policy graph JSON (head/relation/tail + dialog states + per-state 
    -> base cases: 27 policy questions (knowlytix's two-way generator gate, else a stated symbolic check)
                   + 4 hallucination probes (near-miss option names, an unstated fee) + journeys (covering array + closure)
    -> enrichment: official catalogs [proofloop] + application layer, 16 voice factors, phi_p design;
-                  two arms on the same design rows: template realiser (always) and LLM (DeepSeek via LangChain, --llm)
+                  two arms on the same design rows: template realiser (always) and LLM (--llm, transport chosen at run time)
    -> invariance proof: every enriched scenario shown to be the same test as its base case - the LLM arm
                   separately, behind extra per-turn gates and its own negative controls
    -> runtime gates calibrated (Appendix C) [forgeloop GMS gates + audit on the knowlytix store]
@@ -59,18 +59,22 @@ does not accept. The invariance proof compares (state, card) sequences.
 python3.12 -m venv .venv && . .venv/bin/activate
 pip install -r requirements-knowlytix.txt
 export KNOWLYTIX_LICENSE_KEY=...            # or put it in ~/.knowlytix/license.key; never committed, never logged
-python run_campaign.py --out campaign_out   # first run builds the GMS (CPU: ~10-45 min), later runs reload it (~2.5 min)
+python run_campaign.py --out output/campaign_out   # first run builds the GMS (CPU: ~10-45 min), later runs reload it (~2.5 min)
 python tests/test_selfchecks.py             # 20 self-checks (the knowlytix one runs when GMSJOURNEY_KX_STORE is set)
 python tests/test_parity_and_llm_arm.py     # 8 checks for 0.4 (LLM arm with a fake model: no key, no network)
 
 # open baseline, any Python >= 3.10, no licence
 pip install -r requirements.txt && python run_campaign.py --backend builtin --out campaign_builtin
 
-# + the LLM enrichment arm (DeepSeek through LangChain)
+# + the LLM enrichment arm (transport chosen at run time; see "Two enrichment arms")
 pip install -r requirements-llm.txt
-export DEEPSEEK_API_KEY=...                  # read from the environment only; never written to outputs
-python run_campaign.py --llm --out campaign_llm                 # generations are cached under ~/.cache/gmsjourney/llm
+python tools/check_llm.py                    # one call through the configured transport: will it work here?
+python run_campaign.py --llm --out output/campaign_llm                 # default transport: the model gateway
+python run_campaign.py --llm --llm-provider deepseek --out campaign_ds   # or the DeepSeek API
+export DEEPSEEK_API_KEY=...                  # deepseek only; read from the environment, never written to outputs
 python run_campaign.py --llm --llm-mode replay --out rerun      # re-run from the cache, no network
+# replay reads the cache of the provider it resolves to, so pass the same --llm-provider
+# (and --llm-fallback) the recorded run used
 ```
 
 Colab: upload `gmsjourney.zip`, add a secret named `KNOWLYTIX_LICENSE_KEY`, open
@@ -182,8 +186,13 @@ not). Meaning-changing edits must all be rejected; they are. Evidence is exporte
 
 Both arms realise the **same design rows** (same base, same factor levels), so their results can be compared pair by
 pair. The template arm builds each customer turn from its meaning card with deterministic code. The LLM arm
-(`gmsjourney/enrich/llm`, `--llm`) asks DeepSeek, through LangChain, to write the turn. It is not trusted to
-construct the meaning, so it is validated separately and more strictly:
+(`gmsjourney/enrich/llm`, `--llm`) asks a chat model to write the turn. The transport is chosen at run time with
+`--llm-provider`: `aexp` (default) is an OpenAI-compatible model gateway authenticated with a short-lived
+`gcloud` access token — `AEXP_ACCESS_TOKEN` and `AEXP_USE_CASE_ID` override the CLI and the routing header —
+and `deepseek` is the DeepSeek API through LangChain. `--llm-fallback` (default `deepseek`) names the transport
+to use when the chosen one cannot be built or fails mid-run; the switch is recorded in the report, and because
+the provider is part of the cache key, a fallback neither collides with nor discards the other's cached
+generations. It is not trusted to construct the meaning, so it is validated separately and more strictly:
 
 1. **Blind generation.** The model is given the agent's question for the dialog state, what the customer means (in
    plain words), the base wording and the presentation instructions. It never sees the expected bot behaviour, the
@@ -248,7 +257,7 @@ run_campaign(CampaignConfig(out_dir="my_bot_run", bot_factory=factory, bot_name=
 runtime monitor wraps the same tool client, so the gates watch your bot exactly as they watch the reference bot;
 `GovernanceConfig(mode="enforce")` turns DENY into a blocked call.
 
-## Outputs (`campaign_out/`)
+## Outputs (`output/campaign_out/`)
 
 | file | content |
 |---|---|
@@ -283,13 +292,21 @@ gmsjourney/
   catalogs/          application.yaml (+ level_aliases), custom_factors.yaml, official/ (fallback copy)
   governance/        gates (policy, speech, GMS), monitor (strict / quorum), attestor (numeric range), audit,
                      calibrate (Appendix C + P=0.5, holdout, bootstrap)
-  enrich/llm/        the LLM enrichment arm: client (LangChain + DeepSeek, replay cache), prompts, gates,
+  enrich/llm/        the LLM enrichment arm: client (gateway or DeepSeek, replay cache), prompts, gates,
                      realizer, extractor (independent reader), validate (separate proof + controls), export
   evaluation/        runner, attribution, stats, constraints (budgets), severity (tiers + release gate), ...
   ontology.py journey.py oracle.py kb_truth.py bases/ enrich/ design/ sut/ evaluation/ pipeline.py report.py
 run_campaign.py · validate_catalogs (python -m gmsjourney.validate_catalogs) · tests/ · notebooks/ · DESIGN.md · NOTICE
-tools/gmsh_upstream_repro.py · UPSTREAM_GMSH_ISSUES.md
+tools/             check_llm (one-call transport preflight), gmsh_upstream_repro,
+                   answer_sheet (the case answer key), build_annotated (the core-file listing)
+docs/              generated walkthroughs: EXPLAINER, INVARIANCE, ANSWER_SHEET, ANNOTATED
+output/            generated campaign runs (report, dataset/, corpora) — gitignored
+UPSTREAM_GMSH_ISSUES.md · fictional_poc_operating_procedure_gpt_readable.pdf (source document, not published)
 ```
+
+The package, the notebook and the tools are the source; `docs/` and `output/` hold everything generated,
+so a clean checkout is `gmsjourney/ notebooks/ tests/ tools/ *.py *.md *.txt *.toml` — regenerate the rest
+with `run_campaign.py` and the two tools.
 
 Licensing: knowlytix-core is used under the Knowlytix EULA and is not included in this package; the other
 knowlytix packages, proofloop and forgeloop are Apache-2.0. See `NOTICE`.

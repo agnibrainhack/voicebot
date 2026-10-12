@@ -126,7 +126,7 @@ def listing(path: Path, notes) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Annotated listing of the invariance-critical source files.")
-    ap.add_argument("--out", default=str(ROOT / "ANNOTATED.html"))
+    ap.add_argument("--out", default=str(ROOT / "docs" / "ANNOTATED.html"))
     ap.add_argument("--trace", default=None,
                     help="a captured trace to embed; omitted renders a placeholder")
     args = ap.parse_args()

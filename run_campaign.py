@@ -1,6 +1,6 @@
 """Run the full GMS-grounded journey test campaign.
 
-    python run_campaign.py --out campaign_out                      # knowlytix if installed + licensed
+    python run_campaign.py --out output/campaign_out               # knowlytix if installed + licensed
     python run_campaign.py --out quick --runs-per-base 3 --no-mutation --no-power
     python run_campaign.py --backend builtin                       # open baseline, no knowlytix
     python run_campaign.py --llm                                   # + the LLM enrichment arm (DeepSeek)
@@ -17,7 +17,7 @@ from gmsjourney.pipeline import CampaignConfig, run_campaign
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--policy", default=None, help="policy graph JSON or structured policy markdown (default: gmsjourney/policy/charge_review_kg.json)")
-    ap.add_argument("--out", default="campaign_out")
+    ap.add_argument("--out", default="output/campaign_out")
     ap.add_argument("--profile", default="voice_full")
     ap.add_argument("--runs-per-base", type=int, default=6)
     ap.add_argument("--seed", type=int, default=42)
@@ -37,9 +37,15 @@ if __name__ == "__main__":
     ap.add_argument("--decision-rule", default="strict", choices=["strict", "quorum"])
     ap.add_argument("--max-bot-latency-ms", type=float, default=2500.0)
     ap.add_argument("--max-bot-words", type=int, default=60)
-    ap.add_argument("--llm", action="store_true", help="add the LLM enrichment arm (DeepSeek via LangChain)")
+    ap.add_argument("--llm", action="store_true", help="add the LLM enrichment arm")
     ap.add_argument("--llm-mode", default="live", choices=["live", "replay"])
-    ap.add_argument("--llm-model", default="deepseek-chat")
+    ap.add_argument("--llm-provider", default="aexp", choices=["aexp", "deepseek"],
+                    help="aexp: OpenAI-compatible gateway authenticated with a gcloud access token "
+                         "(AEXP_ACCESS_TOKEN overrides the CLI; AEXP_USE_CASE_ID the use-case header); "
+                         "deepseek: the DeepSeek API through LangChain")
+    ap.add_argument("--llm-fallback", default="deepseek", choices=["deepseek", "none"],
+                    help="provider used when the chosen one cannot be built or fails mid-run")
+    ap.add_argument("--llm-model", default=None, help="model name (default: the provider's own)")
     ap.add_argument("--llm-temperature", type=float, default=0.7)
     ap.add_argument("--llm-share", type=float, default=1.0, help="share of design rows also realised by the LLM")
     ap.add_argument("--llm-dual-read", default="gate", choices=["gate", "report", "off"])
@@ -53,7 +59,9 @@ if __name__ == "__main__":
                          rebuild_store=a.rebuild_store, kx_dedup_mode=a.kx_dedup_mode,
                          kx_v_sft_mode=a.kx_v_sft_mode, decision_rule=a.decision_rule,
                          budgets={"max_bot_latency_ms": a.max_bot_latency_ms, "max_bot_words": a.max_bot_words},
-                         llm_arm=a.llm, llm_mode=a.llm_mode, llm_model=a.llm_model, llm_temperature=a.llm_temperature,
+                         llm_arm=a.llm, llm_mode=a.llm_mode, llm_provider=a.llm_provider,
+                         llm_fallback_provider=None if a.llm_fallback == "none" else a.llm_fallback,
+                         llm_model=a.llm_model or "", llm_temperature=a.llm_temperature,
                          llm_share=a.llm_share, llm_dual_read=a.llm_dual_read,
                          llm_adversarial_controls=a.llm_adversarial, llm_cache_dir=a.llm_cache_dir)
     if a.policy:
