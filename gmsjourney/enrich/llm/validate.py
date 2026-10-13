@@ -198,7 +198,27 @@ class LLMInvarianceValidator(InvarianceValidator):
         return {"read_ok": ok, "read_failed": bad}
 
     def prove_all(self, scenarios: list[Scenario], workers: int = 1, desc: str = "LLM proof",
-                  show: bool = True) -> list[ProofResult]:
+                  show: bool = True, retry_unavailable: int = 1, log=print) -> list[ProofResult]:
+        """prove() over scenarios, then up to ``retry_unavailable`` more passes over the scenarios a
+        failed gateway call left without a verdict (calls that succeeded are cache hits, so only the
+        failed ones go out again). A scenario that still fails stays 'not generated' - it is never run
+        and never counted as an invariance failure."""
+        out = self._prove_batch(scenarios, workers, desc, show)
+        for rnd in range(retry_unavailable):
+            idx = [i for i, p in enumerate(out) if p.extra.get("llm_unavailable")]
+            tripped = self.llm_realizer.llm._tripped or (self.extractor and self.extractor.llm._tripped)
+            if not idx or tripped:
+                break
+            if log:
+                log(f"      retrying {len(idx)} scenario(s) left without a verdict by failed gateway calls "
+                    f"(pass {rnd + 1}/{retry_unavailable})")
+            redo = self._prove_batch([scenarios[i] for i in idx], workers, f"{desc} (retry {rnd + 1})", show)
+            for i, p in zip(idx, redo):
+                out[i] = p
+        return out
+
+    def _prove_batch(self, scenarios: list[Scenario], workers: int = 1, desc: str = "LLM proof",
+                     show: bool = True) -> list[ProofResult]:
         """prove() over scenarios with a progress bar (accepted so far, live calls, errors).
 
         workers > 1 proves several scenarios at once. Everything except the gateway call itself runs
@@ -281,7 +301,7 @@ class LLMInvarianceValidator(InvarianceValidator):
             reasons.append("the rule reader recovers a different meaning: " + str(self.ont.canonicalize(read, st))
                            + ("" if ok_adm else f" ({why})"))
         if self.extractor is not None and self.dual_read in ("gate", "report"):
-            dual = self.extractor.read(text_final, st, ctx)
+            dual = self.extractor.read(text_final, st, ctx, strict=True)   # a network failure raises
             agree = dual is not None and self.ont.equivalent(frame, dual, st)
             res["G2_dual_read"] = agree
             res["dual_read"] = dual
@@ -308,14 +328,22 @@ class LLMInvarianceValidator(InvarianceValidator):
             st = states[i]
             ctx = dict(ctx or {})
             feedback, chosen, attempts = None, None, []
-            for attempt in range(self.max_attempts):
+            turn_unavailable = False      # later turns are still generated: one pass surfaces every failed
+            for attempt in range(self.max_attempts):  # call, and a dead gateway is cut off by the breaker
                 seed = f"{scn.sid}|{i}" + (f"#{attempt}" if attempt else "")
                 t = self.llm_realizer.generate(frame, levels, seed, ctx, st, feedback)
                 if t.error:
                     attempts.append({"attempt": attempt, "error": t.error})
-                    unavailable = True
+                    unavailable = turn_unavailable = True
                     break
-                chk = self._accept_turn(t.raw, t.final, frame, st, ctx, levels, [t.base_text, t.template_text])
+                try:
+                    chk = self._accept_turn(t.raw, t.final, frame, st, ctx, levels, [t.base_text, t.template_text])
+                except LLMUnavailable as e:           # the independent reader's call failed: not a verdict
+                    attempts.append({"attempt": attempt, "raw": t.raw, "final": t.final,
+                                     "error": f"independent reader unavailable: {e}"})
+                    unavailable = turn_unavailable = True
+                    chosen = None
+                    break
                 attempts.append({"attempt": attempt, "raw": t.raw, "final": t.final, "json_reply": t.json_reply,
                                  **{k: v for k, v in chk.items() if k not in ("read", "dual_read")},
                                  "read": str(chk["read"]),
@@ -329,7 +357,7 @@ class LLMInvarianceValidator(InvarianceValidator):
                 if chk["accepted"]:
                     break
                 feedback = "; ".join(chk["reasons"][:4]) or "the meaning changed"
-            if chosen is None:                            # LLM unavailable before any text
+            if chosen is None or turn_unavailable:        # a call failed: this turn has no verdict
                 base_text = self.template_validator.realizer.realize(frame, {}, "base", ctx)
                 turns.append({"turn": i, "state": st, "frame": str(frame), "frame_obj": frame, "read_obj": None,
                               "base_text": base_text, "enriched_text": "", "card": self.ont.card(frame, st),
@@ -440,6 +468,7 @@ class LLMInvarianceValidator(InvarianceValidator):
         rng.shuffle(accepted)
         adv_left = adversarial if self.adversary is not None else 0
         adv = {"n": 0, "rejected": 0, "effective": 0, "rejected_effective": 0, "unavailable": 0}
+        controls_unavailable = 0
         for p in accepted:
             scn = by_sid.get(p.sid)
             if scn is None:
@@ -451,7 +480,11 @@ class LLMInvarianceValidator(InvarianceValidator):
                 text = t["enriched_text"]
                 licensed = [t["base_text"], t["template_text"]]
                 for kind, mt in self._llm_text_mutations(text, frame, ctx):
-                    chk = self._accept_turn(mt, mt, frame, st, ctx, scn.factor_levels, licensed, check_form=False)
+                    try:
+                        chk = self._accept_turn(mt, mt, frame, st, ctx, scn.factor_levels, licensed, check_form=False)
+                    except LLMUnavailable:            # no read, no verdict: not counted as a detection
+                        controls_unavailable += 1
+                        continue
                     rec(kind, not chk["accepted"], {"sid": p.sid, "turn": i, "state": st, "original": text,
                                                      "edited": mt, "read": str(chk["read"])})
                 # wrong state: same words answered where this meaning is not accepted
@@ -477,7 +510,12 @@ class LLMInvarianceValidator(InvarianceValidator):
                         continue
                     adv_left -= 1
                     at = _clean(obj["utterance"])
-                    chk = self._accept_turn(at, at, frame, st, ctx, scn.factor_levels, licensed + [at], check_form=False)
+                    try:
+                        chk = self._accept_turn(at, at, frame, st, ctx, scn.factor_levels, licensed + [at],
+                                                check_form=False)
+                    except LLMUnavailable:
+                        adv["unavailable"] += 1
+                        continue
                     effective = self.ont.equivalent(target, chk["read"], st)
                     adv["n"] += 1
                     adv["rejected"] += int(not chk["accepted"])
@@ -489,7 +527,8 @@ class LLMInvarianceValidator(InvarianceValidator):
                                       "dual_read": str(chk.get("dual_read"))})
         out = {k: {"n": v["n"], "detection_rate": v["detected"] / max(1, v["n"])} for k, v in sorted(stats.items())}
         total = sum(v["n"] for v in stats.values())
-        out["_overall"] = {"n": total, "detection_rate": sum(v["detected"] for v in stats.values()) / max(1, total)}
+        out["_overall"] = {"n": total, "detection_rate": sum(v["detected"] for v in stats.values()) / max(1, total),
+                           "skipped_unavailable": controls_unavailable}
         out["_adversarial"] = {**adv, "rejection_rate": adv["rejected"] / max(1, adv["n"]),
                                "rejection_rate_when_meaning_changed": adv["rejected_effective"] / max(1, adv["effective"]),
                                "note": "an accepted rewrite is a gate miss or an adversary that kept the meaning; "
@@ -518,7 +557,20 @@ class LLMInvarianceValidator(InvarianceValidator):
                     for r in t.get("reasons", [])[:2] or (["llm unavailable"] if t.get("llm_unavailable") else []):
                         reasons[re.sub(r"\d+", "#", r)[:90]] += 1
         tc = [t["template_cosine"] for t in turns if "template_cosine" in t]
+        gate_fail: Counter = Counter()
+        dual = []
+        for t in turns:
+            for a in t.get("attempts", []):
+                for k in ("G0_form", "G1_facts", "G3_one_decision", "G2_reader", "G2_dual_read"):
+                    if a.get(k) is False:
+                        gate_fail[k] += 1
+                if "G2_dual_read" in a:
+                    dual.append(bool(a["G2_dual_read"]))
+        self.gate_failures, self.dual_agree = gate_fail, dual
+        net = [p for p in not_mat if p.extra.get("llm_unavailable")]
         return {**base, "arm": "llm",
+                "rejected_meaning_changed": len(not_mat) - len(net),     # a real verdict: the text failed a gate
+                "not_generated_network": len(net),                       # no verdict: a gateway call failed
                 "gate_failures_by_attempt": dict(self.gate_failures),
                 "mean_attempts_per_turn": statistics.fmean(att) if att else None,
                 "turns_first_attempt_accepted": sum(1 for t in turns if len(t.get("attempts", [])) == 1 and t["equivalent"]),
@@ -527,7 +579,8 @@ class LLMInvarianceValidator(InvarianceValidator):
                 "llm_unavailable_scenarios": sum(1 for p in proofs if p.extra.get("llm_unavailable")),
                 # the transport errors behind 'llm unavailable' (first few distinct messages)
                 "llm_errors": Counter(a.get("error") for p in proofs for t in p.turns
-                                      for a in t.get("attempts", []) if a.get("error")).most_common(5),
+                                      for a in t.get("attempts", [])
+                                      if a.get("error") and not a["error"].startswith("skipped")).most_common(5),
                 "not_materialised": len(not_mat),
                 "top_rejection_reasons": reasons.most_common(12),
                 "factor_realisation": {k: {**v, "rate": v["realised"] / max(1, v["turns"])} for k, v in sorted(fr.items())},

@@ -248,6 +248,7 @@ summary{cursor:pointer;font-size:.82rem;color:var(--accent)}
 .tag.llm{background:var(--accent-soft);color:var(--accent)}
 .tag.ok{background:var(--pass-soft);color:var(--pass)}
 .tag.no{background:var(--fail-soft);color:var(--fail)}
+.tag.gen{background:var(--code-bg);border:1px dashed var(--line);color:var(--muted)}
 table{border-collapse:collapse;width:100%;font-size:.86rem}
 th,td{text-align:left;vertical-align:top;padding:.45rem .6rem;border-bottom:1px solid var(--line-soft)}
 th{font-family:var(--display);font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;color:var(--muted)}
@@ -315,7 +316,9 @@ def main() -> None:
                 arm = x.get("arm") or ("llm" if x["case_id"].endswith("~llm") else "template")
                 variants.setdefault(x["base_id"], []).append({
                     "case_id": x["case_id"], "arm": arm, "changed": x.get("enrichment_changed", ""),
-                    "accepted": str(x.get("proof_accepted", "")).lower() == "true"})
+                    "accepted": str(x.get("proof_accepted", "")).lower() == "true",
+                    "status": x.get("proof_status") or ("accepted" if str(x.get("proof_accepted", "")).lower()
+                                                        == "true" else "rejected")})
         for v in variants.values():                # accepted first, template before LLM, then by id
             v.sort(key=lambda r: (not r["accepted"], r["arm"] != "template", r["case_id"]))
     if (camp / "dataset" / "test_turns.csv").exists():
@@ -324,7 +327,8 @@ def main() -> None:
     allv = [r for v in variants.values() for r in v]
     say(f"      enriched variants: {len(allv)} for {len(variants)} base cases "
         f"({sum(r['arm'] == 'template' for r in allv)} template, {sum(r['arm'] == 'llm' for r in allv)} LLM; "
-        f"{sum(not r['accepted'] for r in allv)} rejected)"
+        f"{sum(r['status'] == 'rejected' for r in allv)} rejected, "
+        f"{sum(r['status'] == 'not_generated' for r in allv)} not generated)"
         if variants else "      no campaign dataset found: rendering without the enriched lines")
 
     def variant_block(base_id: str, turn: int) -> str:
@@ -333,7 +337,9 @@ def main() -> None:
             t = enr_text.get((v["case_id"], str(turn)), "")
             if not t:
                 continue
-            ok = '<span class="tag ok">accepted</span>' if v["accepted"] else '<span class="tag no">rejected</span>'
+            ok = {"accepted": '<span class="tag ok">accepted</span>',
+                  "not_generated": '<span class="tag gen">not generated</span>'}.get(
+                v["status"], '<span class="tag no">rejected</span>')
             rows.append(f'<div class="enr{"" if v["accepted"] else " rej"}"><div class="vmeta">'
                         f'<span class="tag {E(v["arm"])}">{E(v["arm"])}</span>{ok}<span>{E(v["case_id"])}</span>'
                         f'<span>{E(v["changed"] or "base levels")}</span></div>{E(t)}</div>')

@@ -301,7 +301,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
             if pf.get("stopped"):
                 raise RuntimeError(f"LLM gateway not usable - {pf['stopped']}\n"
                                    "check it with:  python tools/check_llm.py   (endpoint, token, CA bundle, proxy)")
-        llm_proofs = llm_validator.prove_all(llm_scns, workers=cfg.llm_workers)
+        llm_proofs = llm_validator.prove_all(llm_scns, workers=cfg.llm_workers, log=log)
         if cfg.llm_workers > 1:
             llm_validator.prefetch_controls(llm_proofs, llm_scns, per_type=ctl_n, workers=cfg.llm_workers)
         llm_controls = llm_validator.negative_controls(llm_proofs, llm_scns, per_type=ctl_n,

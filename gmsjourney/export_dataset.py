@@ -154,7 +154,7 @@ def write_dataset(out_dir: str | Path, *, store, kg, oracle, validator, bases, s
                                   for i, c in enumerate(base_cards)],
                 "base_case": conv(base_texts), "enrichment": {}, "enrichment_changed": "",
                 "enriched_output": "", "trajectory": _trajectory(trace, base_texts, base_cards),
-                "proof_accepted": True, "proof_layers": "base", "n_turns": len(path), "surface_cosine_mean": 1.0}
+                "proof_accepted": True, "proof_status": "accepted", "proof_layers": "base", "n_turns": len(path), "surface_cosine_mean": 1.0}
         case_rows.append(case)
         jsonl.append(case)
         for i, ((f, _), st) in enumerate(zip(path, states)):
@@ -186,6 +186,10 @@ def write_dataset(out_dir: str | Path, *, store, kg, oracle, validator, bases, s
                     "enriched_output": conv(enr_texts),
                     "trajectory": _trajectory(trace, enr_texts, [t["read_card"] for t in p.turns]),
                     "proof_accepted": p.accepted,
+                    # accepted | rejected (a gate's verdict: the meaning changed) | not_generated (a gateway
+                    # call failed, so there is no verdict; never run, never counted against invariance)
+                    "proof_status": "accepted" if p.accepted else
+                                    ("not_generated" if p.extra.get("llm_unavailable") else "rejected"),
                     "proof_layers": f"L1={p.gt_identical} L2={p.frames_equivalent} L3={p.oracle_rederived}",
                     "n_turns": p.n_turns, "surface_cosine_mean": round(p.mean_surface_cosine, 4)}
             if pq:
@@ -212,7 +216,7 @@ def write_dataset(out_dir: str | Path, *, store, kg, oracle, validator, bases, s
                  "policy_question_enriched", "policy_question_card", "policy_answer", "canonicals", "meaning_cards",
                  "base_case", "enrichment", "enrichment_changed", "enriched_output", "expected_outcome",
                  "expected_components", "trajectory", "states_visited", "rules_fired", "workflow_edges",
-                 "proof_accepted", "proof_layers", "n_turns", "surface_cosine_mean"]
+                 "proof_accepted", "proof_status", "proof_layers", "n_turns", "surface_cosine_mean"]
     turn_cols = ["case_id", "case_type", "arm", "base_id", "category", "turn", "state", "stage", "state_rules",
                  "state_limits", "accepted_acts", "meaning_card", "canonical_hrt", "base_text", "enrichment",
                  "enriched_text", "read_back_card", "equivalent", "admissible", "frame_distance", "surface_cosine",

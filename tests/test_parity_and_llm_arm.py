@@ -440,6 +440,52 @@ def test_pick_llm_rows_caps_and_spreads_over_bases():
     assert pick_llm_rows(rows, 1.0, 12, 1) == got                           # deterministic
 
 
+def test_partial_network_failures_are_retried_and_never_counted_as_meaning_failures():
+    """Flaky gateway: transient failures are recovered by the retry pass (same proofs as a clean run);
+    a call that keeps failing leaves its scenario 'not generated' - never a gate failure, never run."""
+    import hashlib
+    real_messages = llm_client._messages
+    store, oracle, R, rd, ls, tv, realizer, lv, llm_scns = _llm_fixture()
+    clean = [(p.sid, p.accepted, p.enriched_signature) for p in lv.prove_all(llm_scns, show=False, log=None)]
+    clean_summary = lv.summarize_llm(lv.prove_all(llm_scns, show=False, log=None), [])
+
+    def h(u):
+        return int(hashlib.sha256(u.encode()).hexdigest(), 16)
+
+    class _Flaky:                                   # every 3rd distinct prompt fails once, then works
+        def __init__(self, m):
+            self.m, self.seen = m, set()
+
+        def invoke(self, msgs):
+            u = str(msgs[-1])
+            if h(u) % 3 == 0 and u not in self.seen:
+                self.seen.add(u)
+                raise ConnectionError("connection reset")
+            return self.m.invoke(msgs)
+
+    store, oracle, R, rd, ls, tv, realizer, lv, llm_scns = _llm_fixture()
+    for c in (lv.llm_realizer.llm, lv.extractor.llm):
+        c.settings.max_consecutive_failures = 0
+        c.model = _Flaky(c.model)
+    got = [(p.sid, p.accepted, p.enriched_signature) for p in lv.prove_all(llm_scns, show=False, log=None,
+                                                                             retry_unavailable=2)]
+    assert got == clean                                                    # fully recovered
+
+    class _Dead:                                    # the independent reader is down for good
+        def invoke(self, msgs):
+            raise ConnectionError("down")
+    store, oracle, R, rd, ls, tv, realizer, lv, llm_scns = _llm_fixture()
+    lv.extractor.llm.settings.max_consecutive_failures = 0
+    lv.extractor.llm.model = _Dead()
+    proofs = lv.prove_all(llm_scns, show=False, log=None)
+    sm = lv.summarize_llm(proofs, [])
+    assert sm["accepted"] == 0 and sm["not_generated_network"] == len(llm_scns)
+    assert sm["rejected_meaning_changed"] == 0 and not sm["gate_failures_by_attempt"].get("G2_dual_read")
+    assert all(len(t["attempts"]) <= 1 for p in proofs for t in p.turns)    # no rephrase retries wasted
+    assert clean_summary["not_generated_network"] == 0
+    llm_client._messages = real_messages
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

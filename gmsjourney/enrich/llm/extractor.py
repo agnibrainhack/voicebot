@@ -61,14 +61,20 @@ class LLMFrameExtractor:
         self.calls = 0
         self.failures = 0
 
-    def read(self, text: str, state: str | None, ctx: dict[str, Any] | None = None) -> F | None:
-        """The meaning card the independent reader recovers, or None (unavailable / unparsable)."""
+    def read(self, text: str, state: str | None, ctx: dict[str, Any] | None = None,
+             strict: bool = False) -> F | None:
+        """The meaning card the independent reader recovers, or None (unavailable / unparsable).
+
+        strict=True re-raises LLMUnavailable instead of returning None, so a *network* failure is
+        never mistaken for "the reader recovered a different meaning"."""
         system, user = build_extract_prompt(text, state, ctx, self.schema)
         self.calls += 1
         try:
             obj = self.llm.invoke_json(system, user, salt="extract")
         except LLMUnavailable:
             self.failures += 1
+            if strict:
+                raise
             return None
         if not obj or obj.get("act") not in self.acts:
             self.failures += 1
