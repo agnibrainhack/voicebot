@@ -96,6 +96,7 @@ class CampaignConfig:
     llm_max_attempts: int = 3
     llm_adversarial_controls: int = 20
     llm_cache_dir: str | None = None
+    llm_workers: int = 8                         # concurrent gateway calls (prefetch); 1 = sequential
 
 
 def build_gms(policy_path: str | Path = POLICY, *, backend_choice: str = "auto", kx_store_dir: str | None = None,
@@ -287,7 +288,12 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         chosen = [s for s in scenarios if pick.random() < cfg.llm_share]
         llm_scns = [Scenario(f"{s.sid}~llm", s.base, dict(s.factor_levels), s.mode,
                              {"arm": "llm", "paired_with": s.sid}) for s in chosen]
+        if cfg.llm_workers > 1:
+            llm_validator.prefetch(llm_scns, workers=cfg.llm_workers, log=log)
         llm_proofs = [llm_validator.prove(s) for s in llm_scns]
+        if cfg.llm_workers > 1:
+            llm_validator.prefetch_controls(llm_proofs, llm_scns, per_type=cfg.negative_controls_per_type,
+                                            workers=cfg.llm_workers)
         llm_controls = llm_validator.negative_controls(llm_proofs, llm_scns, per_type=cfg.negative_controls_per_type,
                                                        adversarial=cfg.llm_adversarial_controls)
         R["invariance_llm"] = {

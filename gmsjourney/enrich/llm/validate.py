@@ -53,6 +53,23 @@ from .realizer import LLMRealizer, _clean
 MAX_LLM_ATTEMPTS = 3
 
 
+def _pmap(fn, items: list, workers: int) -> tuple[int, int]:
+    """Run fn over items on a thread pool (the calls are network-bound); (ok, failed)."""
+    from concurrent.futures import ThreadPoolExecutor
+    if not items:
+        return 0, 0
+
+    def safe(x):
+        try:
+            fn(x)
+            return True
+        except Exception:                                   # noqa: BLE001 - a failed prefetch is retried live
+            return False
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+        res = list(ex.map(safe, items))
+    return sum(res), len(res) - sum(res)
+
+
 class LLMInvarianceValidator(InvarianceValidator):
     def __init__(self, store, oracle, reader, llm_realizer: LLMRealizer, template_validator: InvarianceValidator,
                  dual_read: str = "gate", extractor_llm: CachedLLM | None = None,
@@ -68,6 +85,73 @@ class LLMInvarianceValidator(InvarianceValidator):
         self.max_attempts = max_attempts
         self.gate_failures: Counter = Counter()
         self.dual_agree: list[bool] = []
+
+    # ------------------------------------------------------------------ concurrency
+    def prefetch(self, scenarios: list[Scenario], workers: int = 8, log=print) -> dict[str, Any]:
+        """Issue every first-attempt call of ``prove`` concurrently, ahead of time.
+
+        The proof itself stays sequential and unchanged: it asks for exactly the same prompts and
+        finds the answers in the cache, so results are identical to a purely sequential run. Only
+        retries (a minority) go out one by one. Wave 1: the rephrasings; wave 2: the independent
+        reader on the resulting utterances (when dual read is on)."""
+        import time as _t
+        rr = self.llm_realizer
+        if not rr.llm.available:
+            return {"skipped": rr.llm.unavailable_reason()}
+        t0 = _t.time()
+        jobs = []
+        for scn in scenarios:
+            path = self.base_path(scn.base)
+            states = self._states.get(scn.base.qid, [None] * len(path))
+            for i, (frame, ctx) in enumerate(path):
+                system, user, *_ = rr.prompt(frame, scn.factor_levels, f"{scn.sid}|{i}", ctx, states[i])
+                jobs.append((system, user, f"{scn.sid}|{i}", scn, i, frame, ctx, states[i]))
+        ok1, bad1 = _pmap(lambda j: rr.llm.invoke(j[0], j[1], salt=j[2]), jobs, workers)
+        if log:
+            log(f"      prefetch: {ok1} rephrasings ({bad1} failed) in {_t.time() - t0:.0f}s with {workers} workers")
+        ok2 = bad2 = 0
+        if self.extractor is not None:
+            from .prompts import build_extract_prompt
+            reads = []
+            for _s, _u, seed, scn, i, frame, ctx, st in jobs:
+                t = rr.generate(frame, scn.factor_levels, seed, ctx, st)        # cache hit now
+                if not t.error and t.final:
+                    reads.append(build_extract_prompt(t.final, st, ctx, self.extractor.schema))
+            ext = self.extractor.llm
+            ext.available                                   # build the client once, before the threads start
+            ok2, bad2 = _pmap(lambda p: ext.invoke(p[0], p[1], salt="extract"), reads, workers)
+            if log:
+                log(f"      prefetch: {ok2} independent reads ({bad2} failed); total {_t.time() - t0:.0f}s")
+        return {"rephrase_ok": ok1, "rephrase_failed": bad1, "read_ok": ok2, "read_failed": bad2,
+                "seconds": round(_t.time() - t0, 1), "workers": workers}
+
+    def prefetch_controls(self, proofs: list[ProofResult], scenarios: list[Scenario], per_type: int = 40,
+                          seed: int = 11, workers: int = 8) -> dict[str, Any]:
+        """The independent reader's calls for the deterministic controls, concurrently, in the same order
+        and with the same per-kind cap that ``negative_controls`` will use."""
+        if self.extractor is None or not self.extractor.llm.available:
+            return {"skipped": True}
+        from .prompts import build_extract_prompt
+        rng = random.Random(seed)
+        by_sid = {s.sid: s for s in scenarios}
+        accepted = [p for p in proofs if p.accepted]
+        rng.shuffle(accepted)
+        count: Counter = Counter()
+        reads = []
+        for p in accepted:
+            scn = by_sid.get(p.sid)
+            if scn is None:
+                continue
+            path = self.base_path(scn.base)
+            for t in p.turns:
+                frame, ctx = path[t["turn"]]
+                for kind, mt in self._llm_text_mutations(t["enriched_text"], frame, ctx):
+                    if count[kind] < per_type:
+                        count[kind] += 1
+                        reads.append(build_extract_prompt(mt, t["state"], ctx, self.extractor.schema))
+        ext = self.extractor.llm
+        ok, bad = _pmap(lambda q: ext.invoke(q[0], q[1], salt="extract"), reads, workers)
+        return {"read_ok": ok, "read_failed": bad}
 
     # ------------------------------------------------------------------ one turn
     def _accept_turn(self, text_raw: str, text_final: str, frame, st, ctx, levels, licensed: list[str],

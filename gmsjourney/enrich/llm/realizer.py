@@ -91,13 +91,21 @@ class LLMRealizer:
         lv = {**BASE_LEVELS, **(levels or {})}
         return {k: _aside(frame, k, lv[k], ctx) for k in WRAPPER_FACTORS if lv[k] != BASE_LEVELS[k]}
 
-    def generate(self, frame: F, levels: dict[str, str], seed: str, ctx: dict[str, Any] | None,
-                 state: str | None, feedback: str | None = None) -> LLMTurn:
+    def prompt(self, frame: F, levels: dict[str, str], seed: str, ctx: dict[str, Any] | None,
+               state: str | None, feedback: str | None = None) -> tuple[str, str, str, str]:
+        """(system, user, base_text, template_text) exactly as ``generate`` sends them - so a prefetch
+        can issue the same calls ahead of time and ``generate`` then finds them in the cache."""
         ctx = {k: v for k, v in (ctx or {}).items() if k in ("merchant", "amount")}
         base_text = self.template.realize(frame, {}, "base", ctx)
         tmpl_text = self.template.realize(frame, levels, seed, ctx)
-        turn = LLMTurn(seed, base_text=base_text, template_text=tmpl_text)
         system, user = build_rephrase_prompt(frame, levels, ctx, state, base_text, feedback)
+        return system, user, base_text, tmpl_text
+
+    def generate(self, frame: F, levels: dict[str, str], seed: str, ctx: dict[str, Any] | None,
+                 state: str | None, feedback: str | None = None) -> LLMTurn:
+        system, user, base_text, tmpl_text = self.prompt(frame, levels, seed, ctx, state, feedback)
+        ctx = {k: v for k, v in (ctx or {}).items() if k in ("merchant", "amount")}
+        turn = LLMTurn(seed, base_text=base_text, template_text=tmpl_text)
         try:
             reply = self.llm.invoke(system, user, salt=seed)
         except LLMUnavailable as e:

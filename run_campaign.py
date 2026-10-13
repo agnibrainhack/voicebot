@@ -45,6 +45,7 @@ if __name__ == "__main__":
     ap.add_argument("--llm-dual-read", default="gate", choices=["gate", "report", "off"])
     ap.add_argument("--llm-adversarial", type=int, default=20, help="adversarial LLM rewrites used as controls")
     ap.add_argument("--llm-cache-dir", default=None)
+    ap.add_argument("--llm-workers", type=int, default=8, help="concurrent gateway calls (1 = sequential)")
     a = ap.parse_args()
     cfg = CampaignConfig(out_dir=a.out, profile=a.profile, runs_per_base=a.runs_per_base, seed=a.seed,
                          run_mutation=not a.no_mutation, run_resilience=not a.no_resilience,
@@ -55,7 +56,8 @@ if __name__ == "__main__":
                          budgets={"max_bot_latency_ms": a.max_bot_latency_ms, "max_bot_words": a.max_bot_words},
                          llm_arm=a.llm, llm_mode=a.llm_mode, llm_model=a.llm_model or "", llm_temperature=a.llm_temperature,
                          llm_share=a.llm_share, llm_dual_read=a.llm_dual_read,
-                         llm_adversarial_controls=a.llm_adversarial, llm_cache_dir=a.llm_cache_dir)
+                         llm_adversarial_controls=a.llm_adversarial, llm_cache_dir=a.llm_cache_dir,
+                         llm_workers=a.llm_workers)
     if a.policy:
         cfg.policy_path = a.policy
     run_campaign(cfg)

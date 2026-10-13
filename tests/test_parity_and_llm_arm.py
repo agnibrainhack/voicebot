@@ -304,6 +304,40 @@ def test_gateway_path_is_langchain_free():
                 assert client.stats.errors == 0 and client.stats.provider == "aexp"
 
 
+def test_prefetch_is_concurrent_and_changes_nothing():
+    """Prefetching issues the first-attempt calls on a thread pool; the proof then finds them in the
+    cache, so the result is identical to a sequential run and only retries go out afterwards."""
+    import threading
+    import time as _t
+    store, oracle, R, rd, ls, tv, realizer, lv, llm_scns = _llm_fixture()
+    seq = [(p.sid, p.accepted, p.enriched_signature) for p in (lv.prove(s) for s in llm_scns)]
+    store, oracle, R, rd, ls, tv, realizer, lv, llm_scns = _llm_fixture()      # fresh caches
+    active, peak = [0], [0]
+    lock = threading.Lock()
+    for c in (lv.llm_realizer.llm, lv.extractor.llm):
+        inner = c.model
+
+        class _Slow:
+            def __init__(self, m):
+                self.m = m
+
+            def invoke(self, msgs):
+                with lock:
+                    active[0] += 1
+                    peak[0] = max(peak[0], active[0])
+                _t.sleep(0.02)
+                with lock:
+                    active[0] -= 1
+                return self.m.invoke(msgs)
+        c.model = _Slow(inner)
+    info = lv.prefetch(llm_scns, workers=6, log=None)
+    assert info["rephrase_ok"] > 0 and info["rephrase_failed"] == 0 and peak[0] > 1
+    misses = lv.llm_realizer.llm.stats.cache_misses
+    par = [(p.sid, p.accepted, p.enriched_signature) for p in (lv.prove(s) for s in llm_scns)]
+    assert par == seq
+    assert lv.llm_realizer.llm.stats.cache_misses == misses        # the proof made no new rephrase calls
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
