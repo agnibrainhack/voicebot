@@ -428,7 +428,8 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         (out / "gms_canonicals.json").write_text(json.dumps(canon, indent=1, ensure_ascii=False, default=str))
         R["canonicals"] = canon["summary"]
         R["dataset"] = write_dataset(out / "dataset", store=store, kg=kg, oracle=oracle, validator=validator,
-                                     bases=bases, scenarios=scenarios, proofs=proofs, kb_items=admitted)
+                                     bases=bases, scenarios=scenarios, proofs=proofs, kb_items=admitted,
+                                     llm_scenarios=llm_scns, llm_proofs=llm_proofs)
     _write_rows(out / "results_enriched.csv", rows)
     _write_rows(out / "results_base_level.csv", base_rows)
     if llm_rows:

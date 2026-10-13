@@ -231,6 +231,7 @@ def _messages(system: str, user: str, provider: str | None = None):
     return [SimpleNamespace(type="system", content=system), SimpleNamespace(type="human", content=user)]
 
 
+@dataclass
 class LLMStats:
     calls: int = 0
     cache_hits: int = 0

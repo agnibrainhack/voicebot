@@ -1,7 +1,9 @@
 """The generated test suite as clean tables (<out_dir>/dataset/).
 
-``test_cases.csv``    one row per test case: the 81 base cases and their 486 enriched
-                      variants. Columns: case_id, case_type (base / enriched), base_id,
+``test_cases.csv``    one row per test case: the base cases and every enriched variant of
+                      both arms (template and, when the LLM arm ran, LLM), accepted or not.
+                      Columns: case_id, case_type (base / enriched), arm (base / template /
+                      llm), base_id,
                       category, tags, policy_question (+ its meaning card and the answer the
                       store computes), canonicals (every canonical value and state the case
                       uses), meaning_cards (the customer's turns as state-aware canonical
@@ -97,12 +99,15 @@ def _tools_after_turns(trace) -> list[list[str]]:
 
 
 def write_dataset(out_dir: str | Path, *, store, kg, oracle, validator, bases, scenarios, proofs,
-                  kb_items) -> dict[str, Any]:
+                  kb_items, llm_scenarios=None, llm_proofs=None) -> dict[str, Any]:
+    """llm_scenarios / llm_proofs: the LLM arm's variants (proved separately); written as enriched
+    cases with arm=llm next to the template arm's (arm=template)."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     ont = validator.ont
     kb_by_qid = {k.qid: k for k in kb_items}
-    proofs_by_sid = {p.sid: p for p in proofs}
+    proofs_by_sid = {p.sid: p for p in list(proofs) + list(llm_proofs or [])}
+    all_scenarios = [(s, "template") for s in scenarios] + [(s, "llm") for s in (llm_scenarios or [])]
     case_rows, turn_rows, jsonl = [], [], []
 
     def state_policy(st):
@@ -143,7 +148,7 @@ def write_dataset(out_dir: str | Path, *, store, kg, oracle, validator, bases, s
         conv = lambda texts: " || ".join(f"T{i} [{st}] {t}" for i, (st, t) in enumerate(zip(states, texts)))
 
         # ---- the base case
-        case = {"case_id": f"{item.qid}~base", "case_type": "base", **common,
+        case = {"case_id": f"{item.qid}~base", "case_type": "base", "arm": "base", **common,
                 "canonicals": _canonicals(base_cards),
                 "meaning_cards": [{"turn": i, **{k: c[k] for k in ("state", "act", "slots")}}
                                   for i, c in enumerate(base_cards)],
@@ -155,7 +160,8 @@ def write_dataset(out_dir: str | Path, *, store, kg, oracle, validator, bases, s
         for i, ((f, _), st) in enumerate(zip(path, states)):
             sp = state_policy(st)
             turn_rows.append({
-                "case_id": case["case_id"], "case_type": "base", "base_id": item.qid, "category": item.base,
+                "case_id": case["case_id"], "case_type": "base", "arm": "base", "base_id": item.qid,
+                "category": item.base,
                 "turn": i, "state": st, "stage": sp.get("stage"), "state_rules": ";".join(sp.get("rules", [])),
                 "state_limits": ";".join(f"{k}={v}" for k, v in sp.get("limits", {}).items()),
                 "accepted_acts": ";".join(sp.get("accepts", [])),
@@ -164,14 +170,14 @@ def write_dataset(out_dir: str | Path, *, store, kg, oracle, validator, bases, s
                 "equivalent": True, "admissible": base_cards[i]["admissible"], "frame_distance": 0.0,
                 "surface_cosine": 1.0, "next_tools": ";".join(tools_after[i] if i < len(tools_after) else [])})
 
-        # ---- its enriched variants
-        for scn in [s for s in scenarios if s.base.qid == item.qid]:
+        # ---- its enriched variants, both arms
+        for scn, arm in [(s, a) for s, a in all_scenarios if s.base.qid == item.qid]:
             p = proofs_by_sid.get(scn.sid)
             if p is None:
                 continue
             enr_texts = [t["enriched_text"] for t in p.turns]
             changed = {k: v for k, v in scn.factor_levels.items() if BASE_LEVELS.get(k) not in (None, v)}
-            case = {"case_id": scn.sid, "case_type": "enriched", **common,
+            case = {"case_id": scn.sid, "case_type": "enriched", "arm": arm, **common,
                     "canonicals": _canonicals([t["read_card"] for t in p.turns]),
                     "meaning_cards": [{"turn": t["turn"], **{k: t["read_card"][k] for k in ("state", "act", "slots")}}
                                       for t in p.turns],
@@ -190,7 +196,8 @@ def write_dataset(out_dir: str | Path, *, store, kg, oracle, validator, bases, s
                 i, st = t["turn"], t["state"]
                 sp = state_policy(st)
                 turn_rows.append({
-                    "case_id": scn.sid, "case_type": "enriched", "base_id": item.qid, "category": item.base,
+                    "case_id": scn.sid, "case_type": "enriched", "arm": arm, "base_id": item.qid,
+                    "category": item.base,
                     "turn": i, "state": st, "stage": sp.get("stage"), "state_rules": ";".join(sp.get("rules", [])),
                     "state_limits": ";".join(f"{k}={v}" for k, v in sp.get("limits", {}).items()),
                     "accepted_acts": ";".join(sp.get("accepts", [])),
@@ -201,12 +208,12 @@ def write_dataset(out_dir: str | Path, *, store, kg, oracle, validator, bases, s
                     "frame_distance": t["frame_distance"], "surface_cosine": round(t["surface_cosine"], 4),
                     "next_tools": ";".join(tools_after[i] if i < len(tools_after) else [])})
 
-    case_cols = ["case_id", "case_type", "base_id", "category", "tags", "policy_question", "policy_question_count",
+    case_cols = ["case_id", "case_type", "arm", "base_id", "category", "tags", "policy_question", "policy_question_count",
                  "policy_question_enriched", "policy_question_card", "policy_answer", "canonicals", "meaning_cards",
                  "base_case", "enrichment", "enrichment_changed", "enriched_output", "expected_outcome",
                  "expected_components", "trajectory", "states_visited", "rules_fired", "workflow_edges",
                  "proof_accepted", "proof_layers", "n_turns", "surface_cosine_mean"]
-    turn_cols = ["case_id", "case_type", "base_id", "category", "turn", "state", "stage", "state_rules",
+    turn_cols = ["case_id", "case_type", "arm", "base_id", "category", "turn", "state", "stage", "state_rules",
                  "state_limits", "accepted_acts", "meaning_card", "canonical_hrt", "base_text", "enrichment",
                  "enriched_text", "read_back_card", "equivalent", "admissible", "frame_distance", "surface_cosine",
                  "next_tools"]
@@ -234,6 +241,7 @@ def write_dataset(out_dir: str | Path, *, store, kg, oracle, validator, bases, s
     write(out / "policy_questions.csv", pq_rows, ["qid", "category", "question", "meaning_card", "answer",
                                                    "answer_type", "primitive", "admission", "recovery"])
     return {"dir": str(out), "test_cases": len(case_rows), "base_cases": sum(r["case_type"] == "base" for r in case_rows),
-            "enriched_cases": sum(r["case_type"] == "enriched" for r in case_rows), "turn_rows": len(turn_rows),
+            "enriched_cases": sum(r["case_type"] == "enriched" for r in case_rows),
+            "llm_cases": sum(r.get("arm") == "llm" for r in case_rows), "turn_rows": len(turn_rows),
             "policy_questions": len(pq_rows),
             "files": ["test_cases.csv", "test_turns.csv", "test_cases.jsonl", "policy_questions.csv"]}

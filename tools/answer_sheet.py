@@ -15,13 +15,16 @@ For each case the sheet shows:
   * the dialog state's accepted acts, rules and limits, from the policy graph;
   * the expected outcome (end state, transfer reason, recorded dispositions) and the
     per-stage expectations;
-  * collapsed, the same turn in an enriched variant's messy wording — which carries
-    the identical meaning card and therefore the identical answer key (see
-    ``gmsjourney/enrich/invariance.py``).
+  * collapsed, the same turn in every enriched variant of the case - both arms (template
+    and LLM), each labelled with its changed factors and its proof verdict. An accepted
+    variant carries the identical meaning card and therefore the identical answer key (see
+    ``gmsjourney/enrich/invariance.py`` and ``gmsjourney/enrich/llm/validate.py``); a rejected
+    one is shown for audit only.
 
 The enriched wording and the base/enriched pairing are read from the campaign's
 ``dataset/test_cases.csv`` and ``dataset/test_turns.csv`` when they are present; the
-sheet renders without them.
+sheet renders without them. Datasets written before the ``arm`` column existed are read
+as template-only.
 """
 from __future__ import annotations
 
@@ -198,13 +201,15 @@ def render_tool(ev: dict) -> str:
 STYLE = """
 :root{--bg:#eef1f4;--surface:#fff;--ink:#131c26;--muted:#5a6b7d;--line:#d3dbe3;--line-soft:#e3e9ee;
 --accent:#a8500a;--accent-soft:#f7e9db;--pass:#1c7a4a;--pass-soft:#e2f2e9;--code-bg:#f2f5f8;
+--fail:#b3261e;--fail-soft:#fbe9e7;
 --display:"IBM Plex Sans Condensed",system-ui,sans-serif;--body:"IBM Plex Sans",system-ui,sans-serif;
 --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;color-scheme:light}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10161d;--surface:#161e27;--ink:#e6edf3;
 --muted:#93a3b3;--line:#2b3743;--line-soft:#222c36;--accent:#f0a35e;--accent-soft:#33261a;--pass:#5cc98d;
---pass-soft:#16281f;--code-bg:#131a22;color-scheme:dark}}
+--pass-soft:#16281f;--code-bg:#131a22;--fail:#f2837a;--fail-soft:#2e1a19;color-scheme:dark}}
 :root[data-theme="dark"]{--bg:#10161d;--surface:#161e27;--ink:#e6edf3;--muted:#93a3b3;--line:#2b3743;
---line-soft:#222c36;--accent:#f0a35e;--accent-soft:#33261a;--pass:#5cc98d;--pass-soft:#16281f;--code-bg:#131a22;color-scheme:dark}
+--line-soft:#222c36;--accent:#f0a35e;--accent-soft:#33261a;--pass:#5cc98d;--pass-soft:#16281f;--code-bg:#131a22;
+--fail:#f2837a;--fail-soft:#2e1a19;color-scheme:dark}
 body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.6;padding-inline:16px}
 .wrap{max-width:1080px;margin:0 auto;padding-block:clamp(26px,5vw,60px)}
 h1,h2,h3{font-family:var(--display);line-height:1.15;margin:0;text-wrap:balance}
@@ -235,7 +240,14 @@ code{font-family:var(--mono);font-size:.85em;background:var(--code-bg);border:1p
 .res{color:var(--muted)}
 details{margin-top:.5rem}
 summary{cursor:pointer;font-size:.82rem;color:var(--accent)}
-.enr{font-size:.88rem;background:var(--code-bg);border-radius:6px;padding:.5rem .6rem;margin-top:.4rem}
+.enr{font-size:.88rem;background:var(--code-bg);border-radius:6px;padding:.5rem .6rem;margin-top:.4rem;overflow-wrap:anywhere}
+.enr.rej{opacity:.75;border-left:3px solid var(--fail)}
+.vmeta{display:flex;flex-wrap:wrap;gap:.35rem;align-items:baseline;font-family:var(--mono);font-size:.7rem;color:var(--muted);margin-bottom:.25rem}
+.tag{border-radius:4px;padding:0 .35rem;font-size:.68rem;text-transform:uppercase;letter-spacing:.06em}
+.tag.template{background:var(--code-bg);border:1px solid var(--line);color:var(--ink)}
+.tag.llm{background:var(--accent-soft);color:var(--accent)}
+.tag.ok{background:var(--pass-soft);color:var(--pass)}
+.tag.no{background:var(--fail-soft);color:var(--fail)}
 table{border-collapse:collapse;width:100%;font-size:.86rem}
 th,td{text-align:left;vertical-align:top;padding:.45rem .6rem;border-bottom:1px solid var(--line-soft)}
 th{font-family:var(--display);font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;color:var(--muted)}
@@ -293,15 +305,44 @@ def main() -> None:
 
     # optional: the campaign's enriched wording and its base -> enriched pairing
     camp = Path(a.campaign)
-    enriched, enr_text = {}, {}
+    variants: dict[str, list[dict]] = {}          # base_id -> every enriched variant (both arms)
+    enr_text = {}
     if (camp / "dataset" / "test_cases.csv").exists():
         with open(camp / "dataset" / "test_cases.csv", encoding="utf-8") as f:
-            enriched = {x["base_id"]: x["case_id"] for x in csv.DictReader(f) if x["case_type"] == "enriched"}
+            for x in csv.DictReader(f):
+                if x["case_type"] != "enriched":
+                    continue
+                arm = x.get("arm") or ("llm" if x["case_id"].endswith("~llm") else "template")
+                variants.setdefault(x["base_id"], []).append({
+                    "case_id": x["case_id"], "arm": arm, "changed": x.get("enrichment_changed", ""),
+                    "accepted": str(x.get("proof_accepted", "")).lower() == "true"})
+        for v in variants.values():                # accepted first, template before LLM, then by id
+            v.sort(key=lambda r: (not r["accepted"], r["arm"] != "template", r["case_id"]))
     if (camp / "dataset" / "test_turns.csv").exists():
         with open(camp / "dataset" / "test_turns.csv", encoding="utf-8") as f:
             enr_text = {(r["case_id"], r["turn"]): r["enriched_text"] for r in csv.DictReader(f)}
-    say(f"      enriched wording available for {len(enriched)} cases"
-        if enriched else "      no campaign dataset found: rendering without the enriched lines")
+    allv = [r for v in variants.values() for r in v]
+    say(f"      enriched variants: {len(allv)} for {len(variants)} base cases "
+        f"({sum(r['arm'] == 'template' for r in allv)} template, {sum(r['arm'] == 'llm' for r in allv)} LLM; "
+        f"{sum(not r['accepted'] for r in allv)} rejected)"
+        if variants else "      no campaign dataset found: rendering without the enriched lines")
+
+    def variant_block(base_id: str, turn: int) -> str:
+        rows = []
+        for v in variants.get(base_id, []):
+            t = enr_text.get((v["case_id"], str(turn)), "")
+            if not t:
+                continue
+            ok = '<span class="tag ok">accepted</span>' if v["accepted"] else '<span class="tag no">rejected</span>'
+            rows.append(f'<div class="enr{"" if v["accepted"] else " rej"}"><div class="vmeta">'
+                        f'<span class="tag {E(v["arm"])}">{E(v["arm"])}</span>{ok}<span>{E(v["case_id"])}</span>'
+                        f'<span>{E(v["changed"] or "base levels")}</span></div>{E(t)}</div>')
+        if not rows:
+            return ""
+        n_ok = sum(v["accepted"] for v in variants.get(base_id, []))
+        n_llm = sum(v["arm"] == "llm" for v in variants.get(base_id, []))
+        return (f'<details><summary>same test, other wordings — {len(rows)} enriched variants '
+                f'({n_llm} LLM, {n_ok} accepted)</summary>{"".join(rows)}</details>')
 
     say("[3/4] rendering each case from the oracle's own trace")
     blocks = []
@@ -311,7 +352,6 @@ def main() -> None:
         outcome = json.loads(it.answer) if isinstance(it.answer, str) else it.answer
         path = validator.base_path(it)
         states = validator._states.get(it.qid, [None] * len(path))
-        eid = enriched.get(it.qid, "")
         sig = sequence_signature([validator.ont.canonicalize(f, s) for (f, _), s in zip(path, states)], states)
 
         groups, opening, turn_i = [], [], -1
@@ -338,7 +378,6 @@ def main() -> None:
             st = states[i] if i < len(states) else None
             card = validator.ont.card(frame, st)
             base_text = realizer.realize(frame, {}, f"{it.qid}|{i}|base", ctx) if frame else ""
-            etext = enr_text.get((eid, str(i)), "")
             acts = "".join(f"<li>{render_act(x, frame, fx, outcome, limits)}</li>" for x in g["acts"])
             tools = "".join(f"<li>{render_tool(t)}</li>" for t in g["tools"])
             cardj = json.dumps({"act": card.get("act"), "slots": card.get("slots")}, ensure_ascii=False)
@@ -358,7 +397,7 @@ def main() -> None:
           <ul class="acts">{acts or '<li class="small">(no acts recorded)</li>'}{tools}</ul>
         </div>
         <div class="ctx"><span class="who">state rules</span><span class="small">{ctxline}</span></div>
-        {f'<details><summary>same test, messy wording — enriched variant {E(eid)}</summary><div class="enr">{E(etext)}</div></details>' if etext else ''}
+        {variant_block(it.qid, i)}
       </div>""")
 
         k = kb_by_qid.get(it.qid)
@@ -415,9 +454,12 @@ bank returns, and the response it must give — followed by the expected outcome
 <p><b>How to read a case.</b> <i>Customer</i> is the exact line the bot under test receives at the base levels.
 <i>means</i> is the canonical meaning card the reader must recover — the ground truth, independent of wording.
 <i>Correct bot behaviour</i> lists the acts the bot must perform and the tool calls in order, with the status
-the mock bank returns. The collapsed line in a turn shows the same turn in an enriched variant’s messy wording:
-by the invariance proof (<code>gmsjourney/enrich/invariance.py</code>) it carries the identical meaning card
-and therefore the identical answer key.</p>
+the mock bank returns. The collapsed list in a turn shows the same turn in every enriched variant of the case,
+from both arms: <i>template</i> (rule-based rewording) and <i>LLM</i> (written by the model on the gateway), each with
+the factors it changes. An <i>accepted</i> variant passed its invariance proof (<code>gmsjourney/enrich/invariance.py</code>;
+for the LLM arm also the gates and the independent reader in <code>gmsjourney/enrich/llm/validate.py</code>), so it carries
+the identical meaning card and therefore the identical answer key. A <i>rejected</i> variant is listed for audit only
+and is not used in the run.</p>
 
 <div class="tscroll"><table><thead><tr><th>Dialog state</th><th>Accepts (customer acts)</th><th>Bare yes / no means</th>
 <th>Rules</th><th>Limits</th></tr></thead><tbody>{state_table}</tbody></table></div>

@@ -475,7 +475,8 @@ def render_html(R: dict[str, Any]) -> str:
                                                     f"alias bindings agreeing with the graph {pct(cn['alias_agreement'])}")
              if cn else "–"],
             ["<code>dataset/test_cases.csv</code>", esc(f"{ds['test_cases']} cases ({ds['base_cases']} base, "
-                                                       f"{ds['enriched_cases']} enriched)") if ds else "–"],
+                                                       f"{ds['enriched_cases']} enriched, of which {ds.get('llm_cases', 0)} "
+                                                       f"written by the LLM)") if ds else "–"],
             ["<code>dataset/test_turns.csv</code>", esc(f"{ds['turn_rows']} customer turns") if ds else "–"],
             ["<code>dataset/policy_questions.csv</code>", esc(f"{ds['policy_questions']} policy questions") if ds else "–"],
         ] + ([["<code>dataset/llm_enrichment_turns.csv</code>", esc(f"{R['llm_exports'].get('llm_turns', 0)} LLM-written "
