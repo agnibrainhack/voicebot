@@ -38,6 +38,7 @@ def main() -> None:
     scen = {}
     attempts, failed, by_act, by_level, reasons, errors = 0, Counter(), defaultdict(Counter), defaultdict(Counter), Counter(), Counter()
     src = Counter()
+    old_format = [False]
     examples = defaultdict(list)
     for r in rows:
         scen[r["sid"]] = r.get("scenario_accepted") == "True"
@@ -45,7 +46,13 @@ def main() -> None:
         act = re.match(r"([A-Z_]+)", r.get("meaning_card") or "")
         key = f"{act.group(1) if act else '?'} @ {r.get('state')}"
         levels = _j(r.get("levels")) or {}
-        for at in _j(r.get("attempt_log")) or []:
+        log = _j(r.get("attempt_log"))
+        if log is None:      # an export written before attempt_log existed: the final attempt of each turn only
+            log = [{"text": r.get("llm_final"), "rule_read": r.get("rule_reader_card"),
+                    "independent_read": r.get("independent_reader_card"), "reasons": _j(r.get("reasons")),
+                    "failed": [c for c in CHECKS if r.get(f"gate_{c}") == "False"]}]
+            old_format[0] = True
+        for at in log:
             if at.get("error"):
                 errors[re.sub(r"\d+", "#", at["error"])[:80]] += 1
                 continue
@@ -68,6 +75,14 @@ def main() -> None:
     print(f"scenarios: {len(scen)}  accepted: {ok} ({ok / max(1, len(scen)):.0%})")
     print(f"turns: {len(rows)}  by source: {dict(src)}")
     print(f"model attempts: {attempts}  transport errors: {sum(errors.values())}")
+    if old_format[0]:
+        print("(older export without attempt_log: only each turn's final attempt is counted)")
+    rej = [sid for sid, ok in scen.items() if not ok]
+    if rej:
+        good = sum(1 for r in rows if r["sid"] in rej and r.get("turn_accepted") == "True")
+        tot = sum(1 for r in rows if r["sid"] in rej)
+        print(f"rejected scenarios: {len(rej)}; {good} of their {tot} turns passed on their own "
+              f"(a scenario is rejected when any one turn fails)")
     print("\nfailed checks over all attempts (an attempt can fail several):")
     for c in CHECKS:
         print(f"  {c:18s} {failed[c]:5d}  ({failed[c] / max(1, attempts):.0%} of attempts)")
