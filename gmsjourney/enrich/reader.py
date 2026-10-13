@@ -235,9 +235,12 @@ class FrameReader:
     def cue_counts(self, text: str) -> dict[str, int]:
         """How many decision cues an utterance carries (used to keep negative controls unambiguous)."""
         j = " | ".join(c for c, _ in self.clauses(text))
-        n_disp = len(self._disposition_matches(j))
-        n_deliv = len(re.findall(STANDARD, j)) + len(re.findall(EXPEDITED, j))
-        return {"disposition": n_disp, "delivery": n_deliv}
+        m = self._disposition_matches(j)
+        n_std, n_exp = len(re.findall(STANDARD, j)), len(re.findall(EXPEDITED, j))
+        # *_values: how many DIFFERENT decisions are cued ("it's mine, I made that purchase" is one decision
+        # said twice, not two competing ones); the raw counts stay for the negative controls
+        return {"disposition": len(m), "delivery": n_std + n_exp,
+                "disposition_values": len({x[2] for x in m}), "delivery_values": int(n_std > 0) + int(n_exp > 0)}
 
     # ------------------------------------------------------------ read
     def read(self, text: str, state: str | None = None) -> F:

@@ -11,13 +11,15 @@ __all__ = ["CachedLLM", "LLMSettings", "LLMUnavailable", "make_chat_model", "LLM
 
 
 def build_llm_arm(store, oracle, reader, template_validator, settings: LLMSettings | None = None,
-                  dual_read: str = "gate", adversarial: bool = True, max_attempts: int = 3):
+                  dual_read: str = "gate", adversarial: bool = True, max_attempts: int = 3,
+                  asides: str = "verbatim", turn_fallback: str = "template"):
     """Wire the arm: one cached client per role so the roles never share completions."""
     s = settings or LLMSettings()
     rephraser = CachedLLM(s, tag="rephrase")
     extractor = CachedLLM(LLMSettings(**{**s.__dict__, "temperature": 0.0}), tag="extract") if dual_read != "off" else None
     adversary = CachedLLM(LLMSettings(**{**s.__dict__, "temperature": 0.7}), tag="adversary") if adversarial else None
-    realizer = LLMRealizer(rephraser, store, reader, template_validator.realizer)
+    realizer = LLMRealizer(rephraser, store, reader, template_validator.realizer, asides=asides)
     validator = LLMInvarianceValidator(store, oracle, reader, realizer, template_validator, dual_read=dual_read,
-                                       extractor_llm=extractor, adversary_llm=adversary, max_attempts=max_attempts)
+                                       extractor_llm=extractor, adversary_llm=adversary, max_attempts=max_attempts,
+                                       turn_fallback=turn_fallback)
     return realizer, validator, {"rephrase": rephraser, "extract": extractor, "adversary": adversary}

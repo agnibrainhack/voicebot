@@ -50,6 +50,11 @@ if __name__ == "__main__":
                     help="at most this many design rows rewritten by the LLM (spread over the bases)")
     ap.add_argument("--llm-controls", type=int, default=None, help="deterministic controls per type on LLM text")
     ap.add_argument("--llm-max-attempts", type=int, default=3, help="attempts per turn (1 = no retries)")
+    ap.add_argument("--llm-target", type=int, default=None,
+                    help="prove LLM candidates until this many conversations are accepted")
+    ap.add_argument("--llm-max-candidates", type=int, default=None, help="rows tried for --llm-target (default 3x)")
+    ap.add_argument("--llm-asides", default="verbatim", choices=["verbatim", "paraphrase"])
+    ap.add_argument("--llm-turn-fallback", default="template", choices=["template", "none"])
     a = ap.parse_args()
     cfg = CampaignConfig(out_dir=a.out, profile=a.profile, runs_per_base=a.runs_per_base, seed=a.seed,
                          run_mutation=not a.no_mutation, run_resilience=not a.no_resilience,
@@ -62,7 +67,9 @@ if __name__ == "__main__":
                          llm_share=a.llm_share, llm_dual_read=a.llm_dual_read,
                          llm_adversarial_controls=a.llm_adversarial, llm_cache_dir=a.llm_cache_dir,
                          llm_workers=a.llm_workers, llm_max_scenarios=a.llm_max_scenarios,
-                         llm_controls_per_type=a.llm_controls, llm_max_attempts=a.llm_max_attempts)
+                         llm_controls_per_type=a.llm_controls, llm_max_attempts=a.llm_max_attempts,
+                         llm_target_accepted=a.llm_target, llm_max_candidates=a.llm_max_candidates,
+                         llm_asides=a.llm_asides, llm_turn_fallback=a.llm_turn_fallback)
     if a.policy:
         cfg.policy_path = a.policy
     run_campaign(cfg)

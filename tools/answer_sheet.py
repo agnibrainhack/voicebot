@@ -307,7 +307,7 @@ def main() -> None:
     # optional: the campaign's enriched wording and its base -> enriched pairing
     camp = Path(a.campaign)
     variants: dict[str, list[dict]] = {}          # base_id -> every enriched variant (both arms)
-    enr_text = {}
+    enr_text, enr_src = {}, {}
     if (camp / "dataset" / "test_cases.csv").exists():
         with open(camp / "dataset" / "test_cases.csv", encoding="utf-8") as f:
             for x in csv.DictReader(f):
@@ -323,7 +323,9 @@ def main() -> None:
             v.sort(key=lambda r: (not r["accepted"], r["arm"] != "template", r["case_id"]))
     if (camp / "dataset" / "test_turns.csv").exists():
         with open(camp / "dataset" / "test_turns.csv", encoding="utf-8") as f:
-            enr_text = {(r["case_id"], r["turn"]): r["enriched_text"] for r in csv.DictReader(f)}
+            for r in csv.DictReader(f):
+                enr_text[(r["case_id"], r["turn"])] = r["enriched_text"]
+                enr_src[(r["case_id"], r["turn"])] = r.get("turn_source") or ""
     allv = [r for v in variants.values() for r in v]
     say(f"      enriched variants: {len(allv)} for {len(variants)} base cases "
         f"({sum(r['arm'] == 'template' for r in allv)} template, {sum(r['arm'] == 'llm' for r in allv)} LLM; "
@@ -341,7 +343,10 @@ def main() -> None:
                   "not_generated": '<span class="tag gen">not generated</span>'}.get(
                 v["status"], '<span class="tag no">rejected</span>')
             rows.append(f'<div class="enr{"" if v["accepted"] else " rej"}"><div class="vmeta">'
-                        f'<span class="tag {E(v["arm"])}">{E(v["arm"])}</span>{ok}<span>{E(v["case_id"])}</span>'
+                        f'<span class="tag {E(v["arm"])}">{E(v["arm"])}</span>{ok}'
+                        + ('<span class="tag gen">template turn</span>'
+                           if enr_src.get((v["case_id"], str(turn))) == "template_fallback" else "")
+                        + f'<span>{E(v["case_id"])}</span>'
                         f'<span>{E(v["changed"] or "base levels")}</span></div>{E(t)}</div>')
         if not rows:
             return ""

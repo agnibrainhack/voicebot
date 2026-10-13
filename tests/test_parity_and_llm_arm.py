@@ -486,6 +486,87 @@ def test_partial_network_failures_are_retried_and_never_counted_as_meaning_failu
     llm_client._messages = real_messages
 
 
+class _OffTopicFor:
+    """Wraps the fake rephraser: for the given acts it always writes something off-topic."""
+    def __init__(self, m, acts):
+        self.m, self.acts = m, acts
+
+    def invoke(self, msgs):
+        u = json.loads(msgs[-1])
+        if any(a in u["customer_means"] for a in self.acts):
+            return SimpleNamespace(content=json.dumps({"utterance": "what is the weather like today"}))
+        return self.m.invoke(msgs)
+
+
+def test_verbatim_asides_are_added_by_code_not_paraphrased():
+    real_messages = llm_client._messages
+    store, oracle, R, rd, ls, tv, realizer, lv, llm_scns = _llm_fixture()
+    s = next(x for x in llm_scns if x.factor_levels.get("history") == "distracting_history"
+             or x.factor_levels.get("emotional_frame") in ("urgent", "skeptical"))
+    path = lv.base_path(s.base)
+    frame, ctx = path[0]
+    system, user, *_ = lv.llm_realizer.prompt(frame, s.factor_levels, f"{s.sid}|0", ctx, None)
+    assert "Include, in your own words" not in user and "added separately" in user
+    t = lv.llm_realizer.generate(frame, s.factor_levels, f"{s.sid}|0", ctx, None)
+    asides = [x for x in ("I was just on the phone about my mortgage earlier, anyway.", "I doubt this helps much.",
+                          "Please hurry, I'm really worried.") if x.lower() in tv.realizer.realize(
+                              frame, s.factor_levels, "x", ctx).lower()]
+    assert all(a in t.raw for a in asides)
+    llm_client._messages = real_messages
+
+
+def test_turn_fallback_keeps_the_conversation_and_the_run_sends_the_proved_text():
+    real_messages = llm_client._messages
+    store, oracle, R, rd, ls, tv, realizer, lv, llm_scns = _llm_fixture()
+    lv.llm_realizer.llm.model = _OffTopicFor(lv.llm_realizer.llm.model, ["NOT theirs", "IS theirs", "NOT SURE"])
+    proofs = lv.prove_all(llm_scns, show=False, log=None)
+    sm = lv.summarize_llm(proofs, [])
+    assert sm["accepted"] == len(llm_scns) and sm["turns_template_fallback"] > 0
+    assert 0 < sm["llm_turn_share_of_accepted"] < 1
+    p = next(p for p in proofs if any(t.get("turn_source") == "template_fallback" for t in p.turns))
+    scn = next(x for x in llm_scns if x.sid == p.sid)
+    t = next(t for t in p.turns if t.get("turn_source") == "template_fallback")
+    i = t["turn"]
+    frame, ctx = lv.base_path(scn.base)[i]
+    att = scn.metadata["seed_overrides"][i]
+    sent = lv.llm_realizer.realize(frame, scn.factor_levels, f"{scn.sid}|{i}#{att}", {**ctx, "state": t["state"]})
+    assert sent == t["enriched_text"]                                    # the run sends exactly the proved text
+    # without the fallback the same conversations are rejected - as a verdict, not a network failure
+    store, oracle, R, rd, ls, tv, realizer, lv, llm_scns = _llm_fixture()
+    lv.turn_fallback = "none"
+    lv.llm_realizer.llm.model = _OffTopicFor(lv.llm_realizer.llm.model, ["NOT theirs", "IS theirs", "NOT SURE"])
+    sm = lv.summarize_llm(lv.prove_all(llm_scns, show=False, log=None), [])
+    assert sm["rejected_meaning_changed"] > 0 and sm["not_generated_network"] == 0
+    llm_client._messages = real_messages
+
+
+def test_prove_target_tries_more_candidates_until_enough_are_accepted():
+    from gmsjourney.pipeline import pick_llm_rows
+    real_messages = llm_client._messages
+    store, oracle, R, rd, ls, tv, realizer, lv, llm_scns = _llm_fixture()
+    lv.turn_fallback = "none"
+    lv.llm_realizer.llm.model = _OffTopicFor(lv.llm_realizer.llm.model, ["IS theirs"])   # some rows always fail
+    pool = [Scenario(x.sid.removesuffix("~llm"), x.base, dict(x.factor_levels), x.mode, {}) for x in llm_scns]
+    pool = pick_llm_rows(pool, 1.0, None, 1, ordered=True)
+    tried, proofs = lv.prove_target(pool, 2, workers=1, show=False, log=None)
+    assert sum(p.accepted for p in proofs) >= 2 and len(tried) == len(proofs) <= 6
+    assert all(s.sid.endswith("~llm") for s in tried)
+    llm_client._messages = real_messages
+
+
+def test_one_clear_decision_counts_different_answers_not_repeats():
+    from gmsjourney.enrich.llm.gates import LLMOutputGates
+    from gmsjourney.ontology import SemanticFrame as F
+    store, oracle, R, rd = env()
+    g = LLMOutputGates(store, rd)
+    f = F.make("INFORM_DISPOSITION", disposition="RECOGNIZED")
+    assert g.one_clear_decision("yeah that charge is mine, I remember making that purchase", f, {}).ok
+    assert not g.one_clear_decision("that charge is mine, well it's not mine", f, {}).ok
+    d = F.make("REQUEST_CARD_ACTION", card_action="REPLACE_CARD", delivery="expedited_delivery")
+    assert g.one_clear_decision("replace my card, expedited, express please", d, {}).ok
+    assert not g.one_clear_decision("replace my card with standard or expedited delivery", d, {}).ok
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

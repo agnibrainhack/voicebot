@@ -36,6 +36,16 @@ def write_llm_exports(out_dir: str | Path, proofs, controls: dict[str, Any] | No
                 "rule_reader_card": t.get("read_back"), "independent_reader_card": t.get("dual_read"),
                 "turn_accepted": t["equivalent"], **{f"gate_{k}": v for k, v in (t.get("gates") or {}).items()},
                 "reasons": t.get("reasons"), "attempts": len(t.get("attempts", [])),
+                # llm | template_fallback (the LLM failed every attempt; the proved template turn is used)
+                "turn_source": t.get("turn_source", "llm"),
+                "llm_rejected_reasons": t.get("llm_rejected_reasons"),
+                # every attempt: what the model wrote and why it was rejected (or the transport error)
+                "attempt_log": [{"attempt": a.get("attempt"), "text": a.get("final") or a.get("raw"),
+                                 "rule_read": a.get("read"), "independent_read": a.get("dual_read"),
+                                 "failed": [k for k in ("G0_form", "G1_facts", "G3_one_decision", "G2_reader",
+                                                        "G2_dual_read") if a.get(k) is False],
+                                 "reasons": a.get("reasons"), "error": a.get("error")}
+                                for a in t.get("attempts", [])],
                 "surface_cosine_to_base": round(t.get("surface_cosine", 0.0), 4),
                 "surface_cosine_to_template": round(t.get("template_cosine", 0.0), 4) if "template_cosine" in t else None,
                 "factors_requested": {k: v["level"] for k, v in fr.items()},

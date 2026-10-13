@@ -112,8 +112,13 @@ def _pmap(fn, items: list, workers: int, desc: str = "", show: bool = True) -> t
 class LLMInvarianceValidator(InvarianceValidator):
     def __init__(self, store, oracle, reader, llm_realizer: LLMRealizer, template_validator: InvarianceValidator,
                  dual_read: str = "gate", extractor_llm: CachedLLM | None = None,
-                 adversary_llm: CachedLLM | None = None, max_attempts: int = MAX_LLM_ATTEMPTS):
+                 adversary_llm: CachedLLM | None = None, max_attempts: int = MAX_LLM_ATTEMPTS,
+                 turn_fallback: str = "template"):
         super().__init__(store, oracle, reader, llm_realizer)
+        # "template": a turn the LLM could not write correctly in max_attempts is replaced by the template
+        # arm's wording for that turn, proved the template arm's way (rule reader in its state + one clear
+        # decision), so one hard turn no longer sinks the whole conversation; "none": the scenario is rejected
+        self.turn_fallback = turn_fallback
         self.llm_realizer = llm_realizer
         self.template_validator = template_validator
         # share the oracle paths with the template arm: both arms prove the same turns
@@ -275,6 +280,50 @@ class LLMInvarianceValidator(InvarianceValidator):
             bar.close()
         return out                                                      # type: ignore[return-value]
 
+    def _template_turn(self, scn: Scenario, i: int, frame, levels, st, ctx):
+        """The template arm's wording for a turn the LLM could not write correctly, accepted only if the
+        rule reader recovers the same card in this state and it carries one clear decision.
+        Returns (text, read, seed, override_tag) or None."""
+        from ..invariance import MAX_RETRIES
+        tr = self.template_validator.realizer
+        paired = scn.metadata.get("paired_with") or scn.sid.removesuffix("~llm")
+        # first the template arm's own attempt sequence for the paired row (its proved wording), then fresh seeds
+        seeds = [f"{paired}|{i}" + (f"#{a}" if a else "") for a in range(MAX_RETRIES + 1)]
+        seeds += [f"{scn.sid}|{i}#tpl{a}" for a in range(4)]
+        c = {k: v for k, v in (ctx or {}).items() if k in ("merchant", "amount")}
+        for seed in seeds:
+            text = tr.realize(frame, levels, seed, c)
+            g = self.reader.read(text, st)
+            if self.ont.equivalent(frame, g, st) and self.llm_realizer.gates.one_clear_decision(text, frame, levels).ok:
+                return text, g, f"{scn.sid}|{i}#tpl", "tpl"      # pinned under the seed the run will ask for
+        return None
+
+    def prove_target(self, pool: list[Scenario], target: int, max_candidates: int | None = None,
+                     workers: int = 8, show: bool = True, log=print) -> tuple[list[Scenario], list[ProofResult]]:
+        """Prove LLM rewrites of design rows from ``pool`` (in the given order) in small batches until
+        ``target`` scenarios are fully accepted or ``max_candidates`` rows were tried (default 3 x target).
+        Returns every scenario tried and its proof (accepted and not), so the audit trail is complete."""
+        import math
+        cap = min(len(pool), max_candidates or 3 * target)
+        scns: list[Scenario] = []
+        proofs: list[ProofResult] = []
+        k = 0
+        while k < cap and sum(p.accepted for p in proofs) < target:
+            need = target - sum(p.accepted for p in proofs)
+            batch = [Scenario(f"{s.sid}~llm", s.base, dict(s.factor_levels), s.mode,
+                              {"arm": "llm", "paired_with": s.sid})
+                     for s in pool[k:min(cap, k + max(2, math.ceil(need * 1.3)))]]
+            k += len(batch)
+            if workers > 1:
+                pf = self.prefetch(batch, workers=workers, log=log)
+                if pf.get("stopped"):
+                    raise LLMUnavailable(pf["stopped"])
+            proofs += self.prove_all(batch, workers=workers, show=show, log=log)
+            scns += batch
+            if log:
+                log(f"      LLM: {sum(p.accepted for p in proofs)}/{target} accepted after {len(scns)} candidate(s)")
+        return scns, proofs
+
     # ------------------------------------------------------------------ one turn
     def _accept_turn(self, text_raw: str, text_final: str, frame, st, ctx, levels, licensed: list[str],
                      check_form: bool = True) -> dict[str, Any]:
@@ -367,6 +416,27 @@ class LLMInvarianceValidator(InvarianceValidator):
                 read_frames.append(frame)
                 continue
             t, chk, seed, attempt = chosen
+            if not chk["accepted"] and self.turn_fallback == "template":
+                fb = self._template_turn(scn, i, frame, levels, st, ctx)
+                if fb is not None:
+                    text, g, fseed, tag = fb
+                    overrides[i] = tag
+                    retries += attempt + 1
+                    self.llm_realizer.pin(fseed, frame, levels, st, text)       # what the run will send
+                    read_frames.append(self.ont.canonicalize(g, st))
+                    turns.append({"turn": i, "state": st, "frame": str(frame), "frame_obj": frame, "read_obj": g,
+                                  "base_text": t.base_text, "template_text": text, "llm_raw": t.raw,
+                                  "enriched_text": text, "card": self.ont.card(frame, st),
+                                  "read_card": self.ont.card(g, st), "read_back": str(g), "equivalent": True,
+                                  "turn_source": "template_fallback",
+                                  "gates": {k: chk[k] for k in ("G0_form", "G1_facts", "G3_one_decision", "G2_reader",
+                                                                 "G2_dual_read") if k in chk},
+                                  "dual_read": str(chk.get("dual_read")) if "dual_read" in chk else None,
+                                  "reasons": [], "llm_rejected_reasons": chk["reasons"], "attempts": attempts,
+                                  "frame_distance": self.ont.frame_distance(frame, g, st),
+                                  "surface_cosine": cosine(self.store.v.encode(t.base_text), self.store.v.encode(text)),
+                                  "template_cosine": 1.0, "arm": "llm"})
+                    continue
             if attempt:
                 overrides[i] = attempt
                 retries += attempt
@@ -390,7 +460,7 @@ class LLMInvarianceValidator(InvarianceValidator):
                           "frame_distance": self.ont.frame_distance(frame, g, st),
                           "surface_cosine": cosine(self.store.v.encode(t.base_text), self.store.v.encode(t.final)),
                           "template_cosine": cosine(self.store.v.encode(t.template_text), self.store.v.encode(t.final)),
-                          "arm": "llm"})
+                          "turn_source": "llm", "arm": "llm"})
         scn.metadata["seed_overrides"] = overrides
         rl = {k: (sum(v) * 2 >= len(v)) for k, v in realised.items() if v}
         realised_levels = {k: (lvl if rl.get(k, True) else BASE_LEVELS.get(k, lvl))
@@ -417,8 +487,13 @@ class LLMInvarianceValidator(InvarianceValidator):
 
     def _llm_text_mutations(self, text: str, frame, ctx) -> list[tuple[str, str]]:
         out, seen = [], set()
+        # a word swap is a control only when the meaning card carries that word's slot; "how much more is
+        # expedited than standard" (fee_difference) names both options but neither is a slot to change
+        carries = {"text_delivery_word": bool(frame.get("delivery") or frame.get("entity")),
+                   "text_card_action": bool(frame.get("card_action")) or frame.act == "REQUEST_CARD_ACTION",
+                   "text_negation": frame.act == "INFORM_DISPOSITION"}
         for kind, pat, rep in self._SWAPS:
-            if kind in seen or not re.search(pat, text, flags=re.I):
+            if kind in seen or not carries.get(kind, True) or not re.search(pat, text, flags=re.I):
                 continue
             new = re.sub(pat, rep, text, count=1, flags=re.I)
             if new != text:
@@ -568,7 +643,16 @@ class LLMInvarianceValidator(InvarianceValidator):
                     dual.append(bool(a["G2_dual_read"]))
         self.gate_failures, self.dual_agree = gate_fail, dual
         net = [p for p in not_mat if p.extra.get("llm_unavailable")]
+        fb = [t for t in turns if t.get("turn_source") == "template_fallback"]
+        llm_t = [t for t in turns if t.get("turn_source") == "llm" and t["equivalent"]]
         return {**base, "arm": "llm",
+                "turns_written_by_llm": len(llm_t),
+                "turns_template_fallback": len(fb),
+                "llm_turn_share_of_accepted": len([t for p in proofs if p.accepted for t in p.turns
+                                                   if t.get("turn_source") == "llm"]) /
+                                              max(1, sum(p.n_turns for p in proofs if p.accepted)),
+                "fallback_reasons": Counter(re.sub(r"\d+", "#", r)[:90] for t in fb
+                                            for r in t.get("llm_rejected_reasons", [])[:2]).most_common(8),
                 "rejected_meaning_changed": len(not_mat) - len(net),     # a real verdict: the text failed a gate
                 "not_generated_network": len(net),                       # no verdict: a gateway call failed
                 "gate_failures_by_attempt": dict(self.gate_failures),

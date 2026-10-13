@@ -98,6 +98,7 @@ def describe_meaning(f: F, spoken: bool = False) -> str:
             s += f"; they ALSO ask you to {LABEL[f.get('card_action')]}"
             if f.get("delivery"):
                 s += f" with {LABEL[f.get('delivery')]}"
+            s += " - BOTH parts must be said: the answer about the charge AND the card request"
         return s
     if a == "REQUEST_CARD_ACTION":
         s = f"asks you to {LABEL[f.get('card_action')]}"
@@ -217,8 +218,13 @@ def _aside(f: F, factor: str, level: str, ctx: dict[str, Any] | None) -> str:
 
 
 def factor_instructions(f: F, levels: dict[str, str], ctx: dict[str, Any] | None,
-                        aliases_for: dict[str, list[str]] | None = None) -> list[str]:
-    """One instruction per non-base factor level that applies to this turn."""
+                        aliases_for: dict[str, list[str]] | None = None, asides: str = "paraphrase") -> list[str]:
+    """One instruction per non-base factor level that applies to this turn.
+
+    asides="verbatim": the wrapper factors (history, instruction conflict, anchoring, pressure,
+    emotion, length) are NOT given to the model - the code adds the template arm's exact aside
+    sentences around the model's line afterwards, so a paraphrased aside can never smuggle in a
+    competing decision cue (the commonest cause of rejection). The model writes the decision."""
     out: list[str] = []
     lv = {**BASE_LEVELS, **(levels or {})}
     for k, v in lv.items():
@@ -245,6 +251,8 @@ def factor_instructions(f: F, levels: dict[str, str], ctx: dict[str, Any] | None
                            f"(or, for card digits, 'the card I'm calling about').")
             continue
         if k in WRAPPER_FACTORS:
+            if asides == "verbatim":
+                continue                                  # added verbatim by the realizer
             a = _aside(f, k, v, ctx)
             tone = _FACTOR_TEXT.get((k, v))
             if a:
@@ -276,9 +284,13 @@ Reply with JSON only: {"utterance": "..."}"""
 
 
 def build_rephrase_prompt(f: F, levels: dict[str, str], ctx: dict[str, Any] | None, state: str | None,
-                          base_text: str, feedback: str | None = None) -> tuple[str, str]:
+                          base_text: str, feedback: str | None = None,
+                          asides: str = "paraphrase") -> tuple[str, str]:
     spoken = (levels or {}).get("numeric_format") == "spoken"
-    instr = factor_instructions(f, levels, ctx) or ["None: keep it plain, short and natural."]
+    instr = factor_instructions(f, levels, ctx, asides=asides) or ["None: keep it plain, short and natural."]
+    if asides == "verbatim":
+        instr = instr + ["Write only the customer's answer itself - no small talk, no story, no remarks about other "
+                         "people or other calls (those are added separately)."]
     keep = protected_tokens(f, levels, ctx)
     # only the names for what this turn means: offering every name in the lexicon invites the model
     # to mention options, actions or decisions the customer is not talking about (a competing cue)

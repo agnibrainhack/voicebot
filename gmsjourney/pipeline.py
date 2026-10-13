@@ -103,6 +103,12 @@ class CampaignConfig:
     # a full LLMSettings (timeouts, logging, retries, ...); when given it replaces llm_model/llm_temperature/
     # llm_mode/llm_cache_dir
     llm_settings: Any = None
+    # quality: a small population, proved correctly
+    llm_target_accepted: int | None = None       # keep proving candidates until this many are accepted
+    llm_max_candidates: int | None = None        # ... trying at most this many rows (default 3 x target)
+    llm_asides: str = "verbatim"                 # verbatim: template asides around the LLM line | paraphrase
+    llm_turn_fallback: str = "template"          # template: a turn the LLM cannot write is the proved template
+                                                 # turn (the scenario survives) | none: reject the scenario
 
 
 def build_gms(policy_path: str | Path = POLICY, *, backend_choice: str = "auto", kx_store_dir: str | None = None,
@@ -279,29 +285,41 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     if cfg.llm_arm:
         log("[5b/12] LLM enrichment arm (Microsoft gateway): generate blind, gate every turn, prove "
             "separately, controls on LLM text")
-        from .enrich.llm import LLMSettings, build_llm_arm
+        from .enrich.llm import LLMSettings, LLMUnavailable, build_llm_arm
         settings = cfg.llm_settings or LLMSettings(model=cfg.llm_model or "", temperature=cfg.llm_temperature,
                                                    mode=cfg.llm_mode, cache_dir=cfg.llm_cache_dir)
         llm_realizer, llm_validator, clients = build_llm_arm(
             store, oracle, reader, validator, settings, dual_read=cfg.llm_dual_read,
-            adversarial=cfg.llm_adversarial_controls > 0, max_attempts=cfg.llm_max_attempts)
+            adversarial=cfg.llm_adversarial_controls > 0, max_attempts=cfg.llm_max_attempts,
+            asides=cfg.llm_asides, turn_fallback=cfg.llm_turn_fallback)
         why = clients["rephrase"].unavailable_reason()
         if why:
             log(f"      LLM not callable ({why}); only cached generations can be used")
         else:
             log(f"      LLM: Microsoft gateway · model {settings.model}")
-        chosen = pick_llm_rows(scenarios, cfg.llm_share, cfg.llm_max_scenarios, cfg.seed + 7)
-        log(f"      LLM rewrites {len(chosen)} of {len(scenarios)} design rows "
-            f"({len({s.base.qid for s in chosen})} bases)")
-        llm_scns = [Scenario(f"{s.sid}~llm", s.base, dict(s.factor_levels), s.mode,
-                             {"arm": "llm", "paired_with": s.sid}) for s in chosen]
         ctl_n = cfg.llm_controls_per_type if cfg.llm_controls_per_type is not None else cfg.negative_controls_per_type
-        if cfg.llm_workers > 1:
-            pf = llm_validator.prefetch(llm_scns, workers=cfg.llm_workers, log=log)
-            if pf.get("stopped"):
-                raise RuntimeError(f"LLM gateway not usable - {pf['stopped']}\n"
+        if cfg.llm_target_accepted:
+            pool = pick_llm_rows(scenarios, cfg.llm_share, None, cfg.seed + 7, ordered=True)
+            log(f"      LLM: proving candidates until {cfg.llm_target_accepted} are accepted "
+                f"(pool {len(pool)} rows, at most {cfg.llm_max_candidates or 3 * cfg.llm_target_accepted} tried)")
+            try:
+                llm_scns, llm_proofs = llm_validator.prove_target(
+                    pool, cfg.llm_target_accepted, cfg.llm_max_candidates, workers=cfg.llm_workers, log=log)
+            except LLMUnavailable as e:
+                raise RuntimeError(f"LLM gateway not usable - {e}\n"
                                    "check it with:  python tools/check_llm.py   (endpoint, token, CA bundle, proxy)")
-        llm_proofs = llm_validator.prove_all(llm_scns, workers=cfg.llm_workers, log=log)
+        else:
+            chosen = pick_llm_rows(scenarios, cfg.llm_share, cfg.llm_max_scenarios, cfg.seed + 7)
+            log(f"      LLM rewrites {len(chosen)} of {len(scenarios)} design rows "
+                f"({len({s.base.qid for s in chosen})} bases)")
+            llm_scns = [Scenario(f"{s.sid}~llm", s.base, dict(s.factor_levels), s.mode,
+                                 {"arm": "llm", "paired_with": s.sid}) for s in chosen]
+            if cfg.llm_workers > 1:
+                pf = llm_validator.prefetch(llm_scns, workers=cfg.llm_workers, log=log)
+                if pf.get("stopped"):
+                    raise RuntimeError(f"LLM gateway not usable - {pf['stopped']}\n"
+                                       "check it with:  python tools/check_llm.py   (endpoint, token, CA bundle, proxy)")
+            llm_proofs = llm_validator.prove_all(llm_scns, workers=cfg.llm_workers, log=log)
         if cfg.llm_workers > 1:
             llm_validator.prefetch_controls(llm_proofs, llm_scns, per_type=ctl_n, workers=cfg.llm_workers)
         llm_controls = llm_validator.negative_controls(llm_proofs, llm_scns, per_type=ctl_n,
@@ -467,13 +485,15 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     return R
 
 
-def pick_llm_rows(scenarios: list, share: float, cap: int | None, seed: int) -> list:
+def pick_llm_rows(scenarios: list, share: float, cap: int | None, seed: int, ordered: bool = False) -> list:
     """The design rows the LLM also rewrites: a ``share`` of them, then at most ``cap``, spread
-    round-robin over the bases (every base gets one before any gets two), in design order."""
+    round-robin over the bases (every base gets one before any gets two), in design order.
+    ordered=True returns them in the round-robin order instead (a candidate pool to try in turn)."""
     pick = random.Random(seed)
     chosen = [s for s in scenarios if pick.random() < share]
-    if cap is None or len(chosen) <= cap:
+    if not ordered and (cap is None or len(chosen) <= cap):
         return chosen
+    cap = len(chosen) if cap is None else min(cap, len(chosen))
     rng = random.Random(seed + 1)
     by_base: dict[str, list] = {}
     for s in chosen:
@@ -488,6 +508,8 @@ def pick_llm_rows(scenarios: list, share: float, cap: int | None, seed: int) -> 
             if i < len(by_base[b]) and len(out) < cap:
                 out.append(by_base[b][i])
         i += 1
+    if ordered:
+        return out
     order = {id(s): k for k, s in enumerate(scenarios)}
     return sorted(out, key=lambda s: order[id(s)])
 

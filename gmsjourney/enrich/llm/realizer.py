@@ -66,8 +66,9 @@ class LLMTurn:
 
 class LLMRealizer:
     def __init__(self, llm: CachedLLM, store, reader, template: Realizer | None = None,
-                 fallback: str = "template", runtime_attempts: int = 2):
+                 fallback: str = "template", runtime_attempts: int = 2, asides: str = "verbatim"):
         self.llm, self.store, self.reader = llm, store, reader
+        self.asides_mode = asides                 # verbatim: template asides added around the LLM line
         self.template = template or Realizer()
         self.gates = LLMOutputGates(store, reader)
         self.ont = Ontology.from_store(store)
@@ -98,7 +99,7 @@ class LLMRealizer:
         ctx = {k: v for k, v in (ctx or {}).items() if k in ("merchant", "amount")}
         base_text = self.template.realize(frame, {}, "base", ctx)
         tmpl_text = self.template.realize(frame, levels, seed, ctx)
-        system, user = build_rephrase_prompt(frame, levels, ctx, state, base_text, feedback)
+        system, user = build_rephrase_prompt(frame, levels, ctx, state, base_text, feedback, asides=self.asides_mode)
         return system, user, base_text, tmpl_text
 
     def generate(self, frame: F, levels: dict[str, str], seed: str, ctx: dict[str, Any] | None,
@@ -119,6 +120,9 @@ class LLMRealizer:
             raw = _clean(reply)
         else:
             raw = _clean(obj["utterance"])
+        if self.asides_mode == "verbatim" and raw:
+            lv = {**BASE_LEVELS, **(levels or {})}  # the template arm's exact asides around the LLM's line
+            raw = self.template._wrap(frame, raw, lv, random.Random(f"{seed}|wrap"))
         turn.raw = raw
         turn.form = self.gates.form(raw).as_dict()
         turn.facts = self.gates.facts(raw, frame, ctx, levels, [base_text, tmpl_text]).as_dict()

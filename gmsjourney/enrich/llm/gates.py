@@ -157,14 +157,14 @@ class LLMOutputGates:
         r = []
         if frame.act == "INFORM_DISPOSITION":
             allowed = 2 if (frame.get("corrected_from") or lv["self_correction"] != "none") else 1
-            if cues["disposition"] > allowed:
-                r.append(f"{cues['disposition']} competing disposition cues (allowed {allowed})")
+            if cues["disposition_values"] > allowed:          # different answers, not the same one said twice
+                r.append(f"{cues['disposition_values']} competing disposition cues (allowed {allowed})")
         elif cues["disposition"] and frame.act in ("CONFIRM", "DENY", "REQUEST_CARD_ACTION", "END", "REQUEST_HUMAN",
                                                    "PROVIDE_CREDENTIAL"):
             r.append("carries a disposition cue the meaning does not have")
         if frame.get("delivery") or frame.get("entity"):
-            if cues["delivery"] > 1 and lv["self_correction"] == "none":
-                r.append(f"{cues['delivery']} delivery cues (one option is meant)")
+            if cues["delivery_values"] > 1 and lv["self_correction"] == "none":
+                r.append(f"{cues['delivery_values']} delivery cues (one option is meant)")
         return GateReport(not r, r)
 
     # ------------------------------------------------------------------ manipulation check

@@ -208,6 +208,7 @@ def write_dataset(out_dir: str | Path, *, store, kg, oracle, validator, bases, s
                     "meaning_card": t["card"], "canonical_hrt": _card_hrt(t["read_card"], f"{scn.sid}/t{i}"),
                     "base_text": t["base_text"], "enrichment": dict(scn.factor_levels),
                     "enriched_text": t["enriched_text"], "read_back_card": t["read_card"],
+                    "turn_source": t.get("turn_source") or arm,
                     "equivalent": t["equivalent"], "admissible": t["read_card"]["admissible"],
                     "frame_distance": t["frame_distance"], "surface_cosine": round(t["surface_cosine"], 4),
                     "next_tools": ";".join(tools_after[i] if i < len(tools_after) else [])})
@@ -219,7 +220,7 @@ def write_dataset(out_dir: str | Path, *, store, kg, oracle, validator, bases, s
                  "proof_accepted", "proof_status", "proof_layers", "n_turns", "surface_cosine_mean"]
     turn_cols = ["case_id", "case_type", "arm", "base_id", "category", "turn", "state", "stage", "state_rules",
                  "state_limits", "accepted_acts", "meaning_card", "canonical_hrt", "base_text", "enrichment",
-                 "enriched_text", "read_back_card", "equivalent", "admissible", "frame_distance", "surface_cosine",
+                 "enriched_text", "turn_source", "read_back_card", "equivalent", "admissible", "frame_distance", "surface_cosine",
                  "next_tools"]
 
     def write(path, rows, cols):
