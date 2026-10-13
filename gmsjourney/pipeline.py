@@ -290,7 +290,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
                              {"arm": "llm", "paired_with": s.sid}) for s in chosen]
         if cfg.llm_workers > 1:
             llm_validator.prefetch(llm_scns, workers=cfg.llm_workers, log=log)
-        llm_proofs = llm_validator.prove_all(llm_scns)
+        llm_proofs = llm_validator.prove_all(llm_scns, workers=cfg.llm_workers)
         if cfg.llm_workers > 1:
             llm_validator.prefetch_controls(llm_proofs, llm_scns, per_type=cfg.negative_controls_per_type,
                                             workers=cfg.llm_workers)

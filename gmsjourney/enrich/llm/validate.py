@@ -192,16 +192,63 @@ class LLMInvarianceValidator(InvarianceValidator):
         ok, bad = _pmap(lambda q: ext.invoke(q[0], q[1], salt="extract"), reads, workers, "LLM control reads")
         return {"read_ok": ok, "read_failed": bad}
 
-    def prove_all(self, scenarios: list[Scenario], desc: str = "LLM proof", show: bool = True) -> list[ProofResult]:
-        """prove() over scenarios with a progress bar (accepted so far, live calls, errors)."""
-        out = []
+    def prove_all(self, scenarios: list[Scenario], workers: int = 1, desc: str = "LLM proof",
+                  show: bool = True) -> list[ProofResult]:
+        """prove() over scenarios with a progress bar (accepted so far, live calls, errors).
+
+        workers > 1 proves several scenarios at once. Everything except the gateway call itself runs
+        under one lock (the rule reader, encoders, gates and counters are used exactly as in a
+        sequential run); the lock is released only while a call waits on the network, so the retries
+        of different scenarios overlap. Each scenario's result depends only on its own prompts and
+        the cache, so the proofs are identical to a sequential run, returned in input order."""
         st = self.llm_realizer.llm.stats
-        bar = progress(scenarios, total=len(scenarios), desc=desc, show=show)
-        for s in bar:
-            out.append(self.prove(s))
-            bar.set_postfix_str(f"accepted {sum(p.accepted for p in out)}/{len(out)} · "
+        bar = progress(total=len(scenarios), desc=desc, show=show)
+        out: list[ProofResult | None] = [None] * len(scenarios)
+
+        def tick():
+            done = [p for p in out if p is not None]
+            bar.update(1)
+            bar.set_postfix_str(f"accepted {sum(p.accepted for p in done)}/{len(done)} · "
                                 f"live calls {st.cache_misses} · errors {st.errors}")
-        return out
+        if workers <= 1 or len(scenarios) <= 1:
+            for i, s in enumerate(scenarios):
+                out[i] = self.prove(s)
+                tick()
+            bar.close()
+            return out                                                  # type: ignore[return-value]
+
+        import threading
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from contextlib import contextmanager
+        lock = threading.Lock()
+
+        @contextmanager
+        def release():
+            lock.release()
+            try:
+                yield
+            finally:
+                lock.acquire()
+        clients = [c for c in (self.llm_realizer.llm, self.extractor.llm if self.extractor else None) if c]
+        for c in clients:
+            c.available                                       # build the client once, before the threads
+            c.io_release = release
+
+        def one(i):
+            with lock:
+                return i, self.prove(scenarios[i])
+        try:
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                for f in as_completed([ex.submit(one, i) for i in range(len(scenarios))]):
+                    i, p = f.result()
+                    with lock:
+                        out[i] = p
+                        tick()
+        finally:
+            for c in clients:
+                c.io_release = None
+            bar.close()
+        return out                                                      # type: ignore[return-value]
 
     # ------------------------------------------------------------------ one turn
     def _accept_turn(self, text_raw: str, text_final: str, frame, st, ctx, levels, licensed: list[str],

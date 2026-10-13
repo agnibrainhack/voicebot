@@ -338,6 +338,55 @@ def test_prefetch_is_concurrent_and_changes_nothing():
     assert lv.llm_realizer.llm.stats.cache_misses == misses        # the proof made no new rephrase calls
 
 
+def test_parallel_prove_all_matches_sequential():
+    """prove_all(workers>1) overlaps the gateway waits of different scenarios (retries included) and
+    returns exactly the sequential proofs, in input order."""
+    import hashlib
+    import threading
+    import time as _t
+
+    class _FirstTryOff:
+        """Every other first attempt comes back off-topic, so the proof has retries to overlap."""
+        def __init__(self, m):
+            self.m = m
+
+        def invoke(self, msgs):
+            u = str(msgs[-1])
+            if "previous_attempt_rejected_because" not in u and int(hashlib.sha256(u.encode()).hexdigest(), 16) % 2:
+                return '{"utterance": "what is the weather like today"}'
+            return self.m.invoke(msgs)
+
+    real_messages = llm_client._messages
+    store, oracle, R, rd, ls, tv, realizer, lv, llm_scns = _llm_fixture()
+    lv.llm_realizer.llm.model = _FirstTryOff(lv.llm_realizer.llm.model)
+    seq = [(p.sid, p.accepted, p.enriched_signature, p.retries) for p in lv.prove_all(llm_scns, show=False)]
+    assert sum(r for *_, r in seq) > 0                           # retries really happen
+    store, oracle, R, rd, ls, tv, realizer, lv, llm_scns = _llm_fixture()      # fresh caches
+    lv.llm_realizer.llm.model = _FirstTryOff(lv.llm_realizer.llm.model)
+    active, peak = [0], [0]
+    lock = threading.Lock()
+    for c in (lv.llm_realizer.llm, lv.extractor.llm):
+        inner = c.model
+
+        class _Slow:
+            def __init__(self, m):
+                self.m = m
+
+            def invoke(self, msgs):
+                with lock:
+                    active[0] += 1
+                    peak[0] = max(peak[0], active[0])
+                _t.sleep(0.02)
+                with lock:
+                    active[0] -= 1
+                return self.m.invoke(msgs)
+        c.model = _Slow(inner)
+    par = [(p.sid, p.accepted, p.enriched_signature, p.retries) for p in lv.prove_all(llm_scns, workers=6, show=False)]
+    assert par == seq and peak[0] > 1
+    assert lv.llm_realizer.llm.io_release is None                # the hook is removed afterwards
+    llm_client._messages = real_messages
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

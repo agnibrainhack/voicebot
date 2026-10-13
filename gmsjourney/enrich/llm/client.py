@@ -257,6 +257,9 @@ class CachedLLM:
     def __post_init__(self) -> None:
         self.settings.model = self.settings.model or DEFAULT_MODEL
         self._model_error: str | None = None
+        # optional context manager entered around the network call only; the parallel proof uses it
+        # to let other scenarios run their (non-network) checks while this call waits on the gateway
+        self.io_release: Any = None
 
     # ------------------------------------------------------------------ cache
     @property
@@ -322,7 +325,12 @@ class CachedLLM:
             raise LLMUnavailable(self.unavailable_reason() or "LLM unavailable")
         t0 = time.time()
         try:
-            out = self.model.invoke(_messages(system, user, provider=self.settings.effective_provider))
+            msgs = _messages(system, user, provider=self.settings.effective_provider)
+            if self.io_release is not None:
+                with self.io_release():
+                    out = self.model.invoke(msgs)
+            else:
+                out = self.model.invoke(msgs)
         except Exception as e:                       # noqa: BLE001 - transport / gateway errors
             self.stats.errors += 1
             self.stats.last_error = f"{type(e).__name__}: {str(e)[:200]}"
