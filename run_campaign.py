@@ -46,6 +46,10 @@ if __name__ == "__main__":
     ap.add_argument("--llm-adversarial", type=int, default=20, help="adversarial LLM rewrites used as controls")
     ap.add_argument("--llm-cache-dir", default=None)
     ap.add_argument("--llm-workers", type=int, default=8, help="concurrent gateway calls (1 = sequential)")
+    ap.add_argument("--llm-max-scenarios", type=int, default=None,
+                    help="at most this many design rows rewritten by the LLM (spread over the bases)")
+    ap.add_argument("--llm-controls", type=int, default=None, help="deterministic controls per type on LLM text")
+    ap.add_argument("--llm-max-attempts", type=int, default=3, help="attempts per turn (1 = no retries)")
     a = ap.parse_args()
     cfg = CampaignConfig(out_dir=a.out, profile=a.profile, runs_per_base=a.runs_per_base, seed=a.seed,
                          run_mutation=not a.no_mutation, run_resilience=not a.no_resilience,
@@ -57,7 +61,8 @@ if __name__ == "__main__":
                          llm_arm=a.llm, llm_mode=a.llm_mode, llm_model=a.llm_model or "", llm_temperature=a.llm_temperature,
                          llm_share=a.llm_share, llm_dual_read=a.llm_dual_read,
                          llm_adversarial_controls=a.llm_adversarial, llm_cache_dir=a.llm_cache_dir,
-                         llm_workers=a.llm_workers)
+                         llm_workers=a.llm_workers, llm_max_scenarios=a.llm_max_scenarios,
+                         llm_controls_per_type=a.llm_controls, llm_max_attempts=a.llm_max_attempts)
     if a.policy:
         cfg.policy_path = a.policy
     run_campaign(cfg)

@@ -97,6 +97,12 @@ class CampaignConfig:
     llm_adversarial_controls: int = 20
     llm_cache_dir: str | None = None
     llm_workers: int = 8                         # concurrent gateway calls (prefetch); 1 = sequential
+    # cost controls: how many design rows the LLM rewrites, and how many LLM calls the controls use
+    llm_max_scenarios: int | None = None         # cap after llm_share; spread round-robin over the bases
+    llm_controls_per_type: int | None = None     # deterministic controls on LLM text (None: negative_controls_per_type)
+    # a full LLMSettings (timeouts, logging, retries, ...); when given it replaces llm_model/llm_temperature/
+    # llm_mode/llm_cache_dir
+    llm_settings: Any = None
 
 
 def build_gms(policy_path: str | Path = POLICY, *, backend_choice: str = "auto", kx_store_dir: str | None = None,
@@ -274,8 +280,8 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         log("[5b/12] LLM enrichment arm (Microsoft gateway): generate blind, gate every turn, prove "
             "separately, controls on LLM text")
         from .enrich.llm import LLMSettings, build_llm_arm
-        settings = LLMSettings(model=cfg.llm_model or "", temperature=cfg.llm_temperature, mode=cfg.llm_mode,
-                               cache_dir=cfg.llm_cache_dir)
+        settings = cfg.llm_settings or LLMSettings(model=cfg.llm_model or "", temperature=cfg.llm_temperature,
+                                                   mode=cfg.llm_mode, cache_dir=cfg.llm_cache_dir)
         llm_realizer, llm_validator, clients = build_llm_arm(
             store, oracle, reader, validator, settings, dual_read=cfg.llm_dual_read,
             adversarial=cfg.llm_adversarial_controls > 0, max_attempts=cfg.llm_max_attempts)
@@ -284,17 +290,21 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
             log(f"      LLM not callable ({why}); only cached generations can be used")
         else:
             log(f"      LLM: Microsoft gateway · model {settings.model}")
-        pick = random.Random(cfg.seed + 7)
-        chosen = [s for s in scenarios if pick.random() < cfg.llm_share]
+        chosen = pick_llm_rows(scenarios, cfg.llm_share, cfg.llm_max_scenarios, cfg.seed + 7)
+        log(f"      LLM rewrites {len(chosen)} of {len(scenarios)} design rows "
+            f"({len({s.base.qid for s in chosen})} bases)")
         llm_scns = [Scenario(f"{s.sid}~llm", s.base, dict(s.factor_levels), s.mode,
                              {"arm": "llm", "paired_with": s.sid}) for s in chosen]
+        ctl_n = cfg.llm_controls_per_type if cfg.llm_controls_per_type is not None else cfg.negative_controls_per_type
         if cfg.llm_workers > 1:
-            llm_validator.prefetch(llm_scns, workers=cfg.llm_workers, log=log)
+            pf = llm_validator.prefetch(llm_scns, workers=cfg.llm_workers, log=log)
+            if pf.get("stopped"):
+                raise RuntimeError(f"LLM gateway not usable - {pf['stopped']}\n"
+                                   "check it with:  python tools/check_llm.py   (endpoint, token, CA bundle, proxy)")
         llm_proofs = llm_validator.prove_all(llm_scns, workers=cfg.llm_workers)
         if cfg.llm_workers > 1:
-            llm_validator.prefetch_controls(llm_proofs, llm_scns, per_type=cfg.negative_controls_per_type,
-                                            workers=cfg.llm_workers)
-        llm_controls = llm_validator.negative_controls(llm_proofs, llm_scns, per_type=cfg.negative_controls_per_type,
+            llm_validator.prefetch_controls(llm_proofs, llm_scns, per_type=ctl_n, workers=cfg.llm_workers)
+        llm_controls = llm_validator.negative_controls(llm_proofs, llm_scns, per_type=ctl_n,
                                                        adversarial=cfg.llm_adversarial_controls)
         R["invariance_llm"] = {
             "summary": llm_validator.summarize_llm(llm_proofs, suite.factor_names),
@@ -455,6 +465,31 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     (out / "report.html").write_text(render_html(R))
     log(f"done in {R['elapsed_seconds']} s -> {out}")
     return R
+
+
+def pick_llm_rows(scenarios: list, share: float, cap: int | None, seed: int) -> list:
+    """The design rows the LLM also rewrites: a ``share`` of them, then at most ``cap``, spread
+    round-robin over the bases (every base gets one before any gets two), in design order."""
+    pick = random.Random(seed)
+    chosen = [s for s in scenarios if pick.random() < share]
+    if cap is None or len(chosen) <= cap:
+        return chosen
+    rng = random.Random(seed + 1)
+    by_base: dict[str, list] = {}
+    for s in chosen:
+        by_base.setdefault(s.base.qid, []).append(s)
+    bases = list(by_base)
+    rng.shuffle(bases)
+    for b in bases:
+        rng.shuffle(by_base[b])
+    out, i = [], 0
+    while len(out) < cap:
+        for b in bases:
+            if i < len(by_base[b]) and len(out) < cap:
+                out.append(by_base[b][i])
+        i += 1
+    order = {id(s): k for k, s in enumerate(scenarios)}
+    return sorted(out, key=lambda s: order[id(s)])
 
 
 def _arm_comparison(rows: list[dict], llm_rows: list[dict]) -> dict[str, Any]:

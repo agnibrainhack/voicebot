@@ -429,6 +429,17 @@ def test_circuit_breaker_stops_after_consecutive_failures():
     assert "FAILED" in buf.getvalue() and "read timed out" in buf.getvalue()
 
 
+def test_pick_llm_rows_caps_and_spreads_over_bases():
+    from types import SimpleNamespace as NS
+    from gmsjourney.pipeline import pick_llm_rows
+    rows = [NS(sid=f"B{b}~{k}", base=NS(qid=f"B{b}")) for b in range(10) for k in range(6)]
+    assert pick_llm_rows(rows, 1.0, None, 1) == rows
+    got = pick_llm_rows(rows, 1.0, 12, 1)
+    assert len(got) == 12 and len({s.base.qid for s in got}) == 10          # every base before any repeats
+    assert got == sorted(got, key=rows.index)                               # design order kept
+    assert pick_llm_rows(rows, 1.0, 12, 1) == got                           # deterministic
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
