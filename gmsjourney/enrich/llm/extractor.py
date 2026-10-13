@@ -52,6 +52,17 @@ def _coerce(slot: str, v: Any) -> Any:
     return str(v)
 
 
+# The slots each policy-question intent carries (the meaning cards the bases are built from). The reader
+# may volunteer more ("subject=REPLACE_CARD" on a window check because the caller mentioned their card);
+# those are not part of the question's meaning and are dropped, so they cannot fail the comparison.
+KB_INTENT_SLOTS = {
+    "value": ("attr", "entity"), "limit": ("key",), "plausibility": ("attr", "entity", "value"),
+    "mcq": ("attr", "entity", "options"), "window_check": ("days",), "unknown_option": ("attr", "name"),
+    "unstated_fact": ("attr", "subject"),
+}
+KB_DEFAULT_ATTR = {"plausibility": "fee", "mcq": "fee", "unstated_fact": "fee"}   # the only reading these have
+
+
 class LLMFrameExtractor:
     def __init__(self, llm: CachedLLM, store):
         from ...knowledge.policy_kg import ACT_SCHEMA
@@ -90,4 +101,15 @@ class LLMFrameExtractor:
             c = _coerce(k, v)
             if c is not None:
                 slots[k] = c
+        if act == "ASK_KB":
+            intent = slots.get("intent")
+            keep = ("intent",) + KB_INTENT_SLOTS.get(intent, ())
+            slots = {k: v for k, v in slots.items() if k in keep}
+            if intent in KB_DEFAULT_ATTR:
+                slots.setdefault("attr", KB_DEFAULT_ATTR[intent])
+        # a value outside the slot's value set is not a reading of that slot
+        for k in list(slots):
+            vs = (self.schema.get(act, {}).get(k) or {}).get("values")
+            if isinstance(vs, list) and vs and isinstance(slots[k], str) and slots[k] not in vs:
+                del slots[k]
         return F.make(act, **slots)

@@ -317,6 +317,12 @@ def extraction_schema(store) -> dict[str, Any]:
     from ...knowledge.policy_kg import ACT_SCHEMA, EXTRA_VALUE_SETS
     vs = dict(store.value_sets)
     vs.update(EXTRA_VALUE_SETS)
+    if not vs.get("limit"):
+        # the limit keys a policy question can ask about; without them the schema showed the bare set name
+        # "limit" and the reader wrote key="limit" (a frequent false rejection)
+        kg = getattr(store, "kg", None)
+        keys = sorted(getattr(kg, "limits", {}) or {}) if kg is not None and isinstance(getattr(kg, "limits", None), dict) else []
+        vs["limit"] = keys or ["max_transactions_per_session", "lookback_days", "max_auth_attempts"]
     acts = {}
     for act, slots in ACT_SCHEMA.items():
         acts[act] = {s: {"values": vs.get(v) if vs.get(v) else v, "required": req} for s, (v, req) in slots.items()}
@@ -331,6 +337,8 @@ meaning card. Use only the acts, slots and values in the schema. Rules:
 - Fillers, small talk, emotions and asides carry no meaning.
 - For a question (ASK_KB) choose the intent that matches; numbers as digits; an option the schema does not list goes
   in slot "name" as snake_case ending in _delivery (intent unknown_option).
+- For ASK_KB fill ONLY the slots listed for the chosen intent; a card or option the caller merely mentions in
+  passing is not part of the question.
 - If no decision can be recovered, use UNCLEAR.
 Reply with JSON only: {"act": "...", "slots": {...}}"""
 
@@ -349,6 +357,9 @@ def build_extract_prompt(text: str, state: str | None, ctx: dict[str, Any] | Non
         "procedure": "the steps of the review", "unknown_option": "fee/time of an option the schema does not list (attr, name)",
         "unstated_fact": "is there a fee to secure the card (attr fee, subject)",
     }
+    from .extractor import KB_INTENT_SLOTS
+    intents = {k: v + (f" | slots: {', '.join(KB_INTENT_SLOTS[k])}" if k in KB_INTENT_SLOTS else " | no other slots")
+               for k, v in intents.items()}
     user = {"agent_question": state_question(state, ctx), "utterance": text, "schema": schema, "kb_intents": intents}
     return EXTRACT_SYSTEM, json.dumps(user, ensure_ascii=False, indent=1, default=str)
 

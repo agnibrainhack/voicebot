@@ -567,6 +567,30 @@ def test_one_clear_decision_counts_different_answers_not_repeats():
     assert not g.one_clear_decision("replace my card with standard or expedited delivery", d, {}).ok
 
 
+def test_independent_reader_keeps_only_the_slots_of_the_question_intent():
+    import tempfile as _tf
+    from gmsjourney.enrich.llm import CachedLLM, LLMSettings
+    from gmsjourney.enrich.llm.extractor import LLMFrameExtractor
+    from gmsjourney.ontology import SemanticFrame as F
+    store, oracle, R, rd = env()
+    replies = iter([
+        {"act": "ASK_KB", "slots": {"intent": "window_check", "days": "45", "subject": "REPLACE_CARD"}},
+        {"act": "ASK_KB", "slots": {"intent": "limit", "key": "lookback_days", "subject": "REPLACE_CARD"}},
+        {"act": "ASK_KB", "slots": {"intent": "plausibility", "entity": "expedited_delivery", "value": 15}},
+        {"act": "ASK_KB", "slots": {"intent": "limit", "key": "limit"}},
+    ])
+
+    class _M:
+        def invoke(self, msgs):
+            return SimpleNamespace(content=json.dumps(next(replies)))
+    ex = LLMFrameExtractor(CachedLLM(LLMSettings(cache_dir=_tf.mkdtemp()), model=_M(), tag="extract"), store)
+    assert ex.read("a", "PRESENT_TXN") == F.make("ASK_KB", intent="window_check", days=45)
+    assert ex.read("b", "PRESENT_TXN") == F.make("ASK_KB", intent="limit", key="lookback_days")
+    assert ex.read("c", "PRESENT_TXN") == F.make("ASK_KB", intent="plausibility", attr="fee",
+                                                 entity="expedited_delivery", value="15")
+    assert ex.read("d", "PRESENT_TXN") == F.make("ASK_KB", intent="limit")       # 'limit' is no limit key
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
