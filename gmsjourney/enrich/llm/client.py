@@ -58,7 +58,8 @@ class LLMSettings:
     # send temperature/max_tokens (standard OpenAI fields); AEXP_SEND_SAMPLING_PARAMS=0 sends model +
     # messages only. A deployment that rejects them is also detected and adapted to automatically.
     send_sampling_params: bool = True
-    timeout: float = 60.0
+    timeout: float = 60.0                 # read timeout per request (seconds)
+    connect_timeout: float = 10.0         # an unreachable endpoint fails in seconds, not minutes
     max_retries: int = 2
     mode: str = "live"                    # live (call on a cache miss) | replay (cache only)
     cache_dir: str | None = None          # default: <gmsjourney cache>/llm/<model>
@@ -66,6 +67,9 @@ class LLMSettings:
     # silent. Env GMSJOURNEY_LLM_LOG=1. log_max_chars truncates long replies (0 = print in full).
     log_responses: bool = False
     log_max_chars: int = 400
+    # circuit breaker: after this many failed calls in a row (no success in between) the client stops
+    # calling and every further miss fails at once with the reason - instead of hours of timeouts
+    max_consecutive_failures: int = 8
 
     def __post_init__(self) -> None:
         self.model = self.model or DEFAULT_MODEL
@@ -194,7 +198,8 @@ class GatewayChat:
         while attempt <= self.s.max_retries:
             try:
                 r = requests.post(self._url(), headers=self._headers(), json=self._payload(messages),
-                                  timeout=self.s.timeout, verify=self._verify())
+                                  timeout=(min(self.s.connect_timeout, self.s.timeout), self.s.timeout),
+                                  verify=self._verify())
             except Exception as e:                         # noqa: BLE001 - transport errors (incl. TLS)
                 last_error = f"{type(e).__name__}: {str(e)[:160]}"
                 attempt += 1
@@ -280,6 +285,8 @@ class CachedLLM:
         # optional context manager entered around the network call only; the parallel proof uses it
         # to let other scenarios run their (non-network) checks while this call waits on the gateway
         self.io_release: Any = None
+        self._fails_in_row = 0
+        self._tripped: str | None = None      # set by the circuit breaker
 
     # ------------------------------------------------------------------ cache
     @property
@@ -313,6 +320,8 @@ class CachedLLM:
         """True when a miss can be served (live mode and a model can be built)."""
         if self.settings.mode != "live":
             return False
+        if self._tripped:
+            return False
         if self.model is not None:
             return True
         if self._model_error is not None:
@@ -327,6 +336,8 @@ class CachedLLM:
     def unavailable_reason(self) -> str | None:
         if self.settings.mode != "live":
             return "replay mode: cache only"
+        if self._tripped:
+            return self._tripped
         return None if self.available else self._model_error
 
     # ------------------------------------------------------------------ call
@@ -340,6 +351,8 @@ class CachedLLM:
                 return json.loads(p.read_text())["text"]
             except (OSError, ValueError, KeyError):
                 pass
+        if self._tripped:                            # the breaker is open: fail at once, no network
+            raise LLMUnavailable(self._tripped)
         self.stats.cache_misses += 1
         if not self.available:
             raise LLMUnavailable(self.unavailable_reason() or "LLM unavailable")
@@ -354,8 +367,17 @@ class CachedLLM:
         except Exception as e:                       # noqa: BLE001 - transport / gateway errors
             self.stats.errors += 1
             self.stats.last_error = f"{type(e).__name__}: {str(e)[:200]}"
+            self._fails_in_row += 1
+            if self.settings.log_responses or self.stats.errors <= 3:      # failures always show at first
+                _log_line(f"[LLM {self.tag} FAILED · {salt} · {time.time() - t0:.1f}s] {self.stats.last_error}")
+            lim = self.settings.max_consecutive_failures
+            if lim and self._fails_in_row >= lim and not self._tripped:
+                self._tripped = (f"stopped calling the gateway after {self._fails_in_row} failed calls in a row; "
+                                 f"last error: {self.stats.last_error}")
+                _log_line(f"[LLM {self.tag}] {self._tripped}")
             raise LLMUnavailable(self.stats.last_error) from e
         self.stats.seconds += time.time() - t0
+        self._fails_in_row = 0
         text = out.content if hasattr(out, "content") else str(out)
         if isinstance(text, list):                   # content blocks
             text = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in text)

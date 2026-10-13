@@ -148,6 +148,11 @@ class LLMInvarianceValidator(InvarianceValidator):
         ok1, bad1 = _pmap(lambda j: rr.llm.invoke(j[0], j[1], salt=j[2]), jobs, workers, "LLM rephrase")
         if log:
             log(f"      prefetch: {ok1} rephrasings ({bad1} failed) in {_t.time() - t0:.0f}s with {workers} workers")
+        if rr.llm._tripped:
+            if log:
+                log(f"      prefetch stopped: {rr.llm._tripped}")
+            return {"rephrase_ok": ok1, "rephrase_failed": bad1, "stopped": rr.llm._tripped,
+                    "seconds": round(_t.time() - t0, 1), "workers": workers}
         ok2 = bad2 = 0
         if self.extractor is not None:
             from .prompts import build_extract_prompt

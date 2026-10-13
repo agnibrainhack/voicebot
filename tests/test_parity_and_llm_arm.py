@@ -405,6 +405,30 @@ def test_live_responses_are_printed_cache_hits_are_not():
     assert out.count("[LLM rephrase") == 1 and "J1|0" in out and "yes that one is mine" in out
 
 
+def test_circuit_breaker_stops_after_consecutive_failures():
+    import contextlib
+    import io
+    import tempfile as _tf
+    from gmsjourney.enrich.llm import CachedLLM, LLMSettings, LLMUnavailable as LU
+    calls = [0]
+
+    class _Down:
+        def invoke(self, msgs):
+            calls[0] += 1
+            raise TimeoutError("read timed out")
+    c = CachedLLM(LLMSettings(cache_dir=_tf.mkdtemp(), max_consecutive_failures=3), model=_Down(), tag="rephrase")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+        for i in range(10):
+            try:
+                c.invoke("s", f"u{i}")
+            except LU:
+                pass
+    assert calls[0] == 3                                    # no network calls after the breaker opened
+    assert not c.available and "3 failed calls in a row" in c.unavailable_reason()
+    assert "FAILED" in buf.getvalue() and "read timed out" in buf.getvalue()
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
