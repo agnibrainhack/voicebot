@@ -339,6 +339,9 @@ class LLMInvarianceValidator(InvarianceValidator):
                 "dual_read": {"mode": self.dual_read, "checks": len(self.dual_agree),
                               "agreement": (sum(self.dual_agree) / len(self.dual_agree)) if self.dual_agree else None},
                 "llm_unavailable_scenarios": sum(1 for p in proofs if p.extra.get("llm_unavailable")),
+                # the transport errors behind 'llm unavailable' (first few distinct messages)
+                "llm_errors": Counter(a.get("error") for p in proofs for t in p.turns
+                                      for a in t.get("attempts", []) if a.get("error")).most_common(5),
                 "not_materialised": len(not_mat),
                 "top_rejection_reasons": reasons.most_common(12),
                 "factor_realisation": {k: {**v, "rate": v["realised"] / max(1, v["turns"])} for k, v in sorted(fr.items())},
