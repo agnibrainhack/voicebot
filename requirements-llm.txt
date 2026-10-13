@@ -1,14 +1,5 @@
-# LLM enrichment arm (gmsjourney/enrich/llm). The transport is chosen at run time:
-#
-#   --llm-provider aexp      (default) an OpenAI-compatible model gateway, authenticated with a
-#                            short-lived gcloud access token. Needs only `requests`. Set
-#                            AEXP_ACCESS_TOKEN to bypass the CLI, AEXP_USE_CASE_ID for the header.
-#   --llm-provider deepseek  the DeepSeek API through LangChain; key in DEEPSEEK_API_KEY.
-#
-# --llm-fallback (default deepseek) names the transport used when the chosen one cannot be built
-# or fails mid-run. Credentials are read from the environment only and never written to outputs.
+# LLM enrichment arm (gmsjourney/enrich/llm): the internal Microsoft (Azure OpenAI) model gateway.
+# Needs only `requests`. Token: `gcloud auth print-access-token` (AEXP_ACCESS_TOKEN overrides);
+# routing header: AEXP_USE_CASE_ID (default 825); endpoint: GMSJOURNEY_LLM_URL; CA bundle:
+# GMSJOURNEY_CA_BUNDLE / REQUESTS_CA_BUNDLE. Credentials are never written to outputs.
 requests>=2.28
-langchain-core>=0.3
-langchain-deepseek>=0.1
-# alternative transport if langchain-deepseek is unavailable (OpenAI-compatible endpoint):
-# langchain-openai>=0.2

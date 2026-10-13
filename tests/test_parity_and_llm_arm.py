@@ -197,57 +197,21 @@ def test_operating_points_p50_holdout_bootstrap():
     assert b["regulated"]["ci95"][0] <= b["regulated"]["ci95"][1]
 
 
-# ----------------------------------------------------------------------------- LLM providers
+# ----------------------------------------------------------------------------- the Microsoft gateway
 # (stdlib mock rather than pytest fixtures: this file also runs as a plain script)
-def test_provider_defaults_and_fallback_to_deepseek():
-    """The gateway is the default with no silent fallback; an explicit fallback takes over and says so."""
+def test_gateway_is_the_only_transport():
+    """One transport, no fallback: the defaults name the gateway and nothing else can be selected."""
     C = llm_client
     s = C.LLMSettings()
-    assert s.provider == "aexp" and s.fallback_provider is None
+    assert s.provider == "aexp" and s.model == "gpt-41" and "gaiapis" in s.base_url
+    assert not hasattr(C, "FailoverChat") and not hasattr(C, "_deepseek_model")
     with mock.patch.dict(os.environ, {"AEXP_ACCESS_TOKEN": ""}), \
             mock.patch.object(C, "_token", side_effect=C.LLMUnavailable("no gcloud")):
         try:
             C.make_chat_model(C.LLMSettings())
-            raise AssertionError("expected LLMUnavailable: no fallback by default")
+            raise AssertionError("expected LLMUnavailable")
         except C.LLMUnavailable as e:
-            assert "deepseek" not in str(e), str(e)
-    assert s.model == "gpt-41" and "gaiapis" in s.base_url      # the provider's own defaults
-
-    import importlib.util as _u
-    has_lc = any(_u.find_spec(m) for m in ("langchain_deepseek", "langchain_openai"))
-    with mock.patch.dict(os.environ):
-        os.environ.pop("AEXP_ACCESS_TOKEN", None)
-        os.environ["DEEPSEEK_API_KEY"] = "test-key-never-used"
-        s = C.LLMSettings(fallback_provider="deepseek")
-        if not has_lc:                      # the DeepSeek transport needs a LangChain integration
-            print("    (fallback-to-deepseek part skipped: no langchain-deepseek / langchain-openai)")
-            return
-        with mock.patch.object(C, "_token", side_effect=C.LLMUnavailable("no gcloud")):
-            model = C.make_chat_model(s)
-        assert s.resolved_provider == "deepseek" and s.effective_provider == "deepseek"
-        assert s.model == "deepseek-chat" and "deepseek" in s.base_url  # re-pointed, not left on gpt-41
-        assert model is not None
-        deepseek_key = C.CachedLLM(s, model=model, tag="t").key("sys", "user", "salt")
-        # a fallback to DeepSeek must still find the cache written before the gateway existed
-        old_style = C.LLMSettings(provider="deepseek", model="deepseek-chat")
-        assert deepseek_key == C.CachedLLM(old_style, tag="t").key("sys", "user", "salt")
-
-    # the cache key follows the transport that actually served the text
-    with mock.patch.dict(os.environ, {"AEXP_ACCESS_TOKEN": "token-abc"}):
-        s2 = C.LLMSettings()
-        assert s2.effective_provider == "aexp"
-        assert C.CachedLLM(s2, tag="t").key("sys", "user", "salt") != deepseek_key
-
-    # with neither transport available the error names every reason tried
-    with mock.patch.dict(os.environ):
-        os.environ.pop("DEEPSEEK_API_KEY", None)
-        os.environ.pop("AEXP_ACCESS_TOKEN", None)
-        with mock.patch.object(C, "_token", side_effect=C.LLMUnavailable("no gcloud")):
-            try:
-                C.make_chat_model(C.LLMSettings(fallback_provider="deepseek"))
-                raise AssertionError("expected LLMUnavailable")
-            except C.LLMUnavailable as e:
-                assert "aexp" in str(e) and "deepseek" in str(e), str(e)
+            assert "gcloud" in str(e)
 
 
 def test_gateway_transport_builds_the_documented_request():
@@ -282,28 +246,39 @@ def test_gateway_transport_builds_the_documented_request():
     assert seen["payload"]["max_tokens"] == 220
 
 
-def test_failover_switches_provider_on_a_call_time_failure():
-    """A transport that dies mid-run hands over to the fallback once, and the switch is visible."""
+def test_gateway_url_override_ca_bundle_and_400_adaptation():
+    """GMSJOURNEY_LLM_URL is used verbatim ({model} filled in), the CA bundle is passed to requests,
+    a 401 refreshes the token once, and a 400 on sampling parameters drops them for the rest of the run."""
+    import requests
     C = llm_client
-    s = C.LLMSettings(fallback_provider="deepseek")
-    built = []
+    calls = []
 
-    def _fake_build(provider, settings):
-        built.append(provider)
-        settings.resolved_provider = provider
-        settings.model = C.PROVIDER_DEFAULTS[provider]["model"]
-        return SimpleNamespace(invoke=lambda msgs: SimpleNamespace(content="from " + provider))
+    class _R:
+        def __init__(self, code, body):
+            self.status_code, self._b, self.text, self.headers = code, body, json.dumps(body), {}
 
-    class _Down:
-        def invoke(self, msgs):
-            raise RuntimeError("gateway down")
+        def json(self):
+            return self._b
 
-    with mock.patch.object(C, "_build", _fake_build):
-        fo = C.FailoverChat(_Down(), s, "deepseek")
-        out = fo.invoke([SimpleNamespace(type="user", content="x")])
-    assert out.content == "from deepseek" and fo.switched_to == "deepseek"
-    assert built == ["deepseek"] and s.effective_provider == "deepseek"
-    assert "gateway down" in (fo.reason or "")
+    def _post(url, headers=None, json=None, timeout=None, verify=None):
+        calls.append({"url": url, "keys": sorted(json), "verify": verify, "auth": headers["Authorization"]})
+        if len(calls) == 1:
+            return _R(401, {"error": "expired"})
+        if "temperature" in json:
+            return _R(400, {"error": {"message": "Unsupported parameter: 'temperature'"}})
+        return _R(200, {"choices": [{"message": {"content": "ok"}}], "usage": {}})
+
+    bundle = tempfile.NamedTemporaryFile(suffix=".crt", delete=False).name
+    env = {"AEXP_ACCESS_TOKEN": "tok", "GMSJOURNEY_LLM_URL": "gaiapis.example/gcpapi/x/{model}/completions",
+           "GMSJOURNEY_CA_BUNDLE": bundle}
+    with mock.patch.dict(os.environ, env), mock.patch.object(requests, "post", _post), \
+            mock.patch.object(C.time, "sleep", lambda *_: None):
+        model = C.GatewayChat(C.LLMSettings())
+        assert model.invoke(C._messages("S", "U")).content == "ok"
+    assert calls[0]["url"] == "https://gaiapis.example/gcpapi/x/gpt-41/completions"
+    assert all(c["verify"] == bundle for c in calls)
+    assert len(calls) == 3 and calls[-1]["keys"] == ["messages", "model"]
+    assert model.adaptations == ["sampling parameters dropped (model + messages only)"]
 
 
 def test_gateway_path_is_langchain_free():
@@ -327,60 +302,6 @@ def test_gateway_path_is_langchain_free():
                 client = C.CachedLLM(settings, tag="langchain-free")
                 assert client.invoke("sys", "user", salt="s") == "gateway answer"
                 assert client.stats.errors == 0 and client.stats.provider == "aexp"
-
-
-def test_first_call_after_a_fallback_is_filed_under_the_resolved_provider():
-    """The cache path is computed before the provider resolves, so it must be recomputed after —
-    otherwise the first answer of every client lands in the requested provider's directory under
-    a key nobody looks up again."""
-    C = llm_client
-    answers = []
-
-    def _stub(settings):
-        return SimpleNamespace(invoke=lambda msgs: (answers.append(1),
-                                                    SimpleNamespace(content="from deepseek"))[1])
-
-    with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "k"}):
-        cache = Path(tempfile.mkdtemp())
-        settings = C.LLMSettings(provider="aexp", fallback_provider="deepseek", cache_dir=str(cache))
-        settings.model = "gpt-41"                     # as CachedLLM.__post_init__ resolves it
-        with mock.patch.object(C, "_token", side_effect=C.LLMUnavailable("no gcloud")), \
-             mock.patch.object(C, "_deepseek_model", _stub):
-            client = C.CachedLLM(settings, tag="t")
-            assert client.invoke("s", "u", salt="x") == "from deepseek"
-            assert settings.effective_provider == "deepseek"
-
-            # filed under the transport that answered, not the one that was requested
-            resolved = client._path(client.key("s", "u", "x"))
-            assert "deepseek-chat" in str(resolved) and resolved.exists()
-            assert not any(p.suffix == ".json" for p in (cache / "gpt-41").rglob("*.json")) \
-                if (cache / "gpt-41").exists() else True
-
-            # and a second client finds it instead of calling again
-            again = C.CachedLLM(settings, tag="t")
-            assert again.invoke("s", "u", salt="x") == "from deepseek"
-            assert again.stats.cache_hits == 1 and len(answers) == 1
-
-
-def test_cached_llm_records_a_failover_in_its_stats():
-    """The switch reaches the report: a campaign that fell back must not look like one that did not."""
-    C = llm_client
-
-    class _Switched:
-        """A model that has already handed over to the fallback, as FailoverChat leaves it."""
-        switched_to = "deepseek"
-        reason = "RuntimeError: boom"
-
-        def invoke(self, msgs):
-            return SimpleNamespace(content="answer")
-
-    s = C.LLMSettings(cache_dir=tempfile.mkdtemp())
-    client = C.CachedLLM(s, tag="failover-test", model=_Switched())
-    assert client.invoke("sys", "user", salt="s") == "answer"
-    assert client.stats.switched_to == "deepseek"
-    assert "boom" in (client.stats.failover_reason or "")
-    assert client.report()["switched_to"] == "deepseek"
-    assert client.report()["provider"] == s.effective_provider
 
 
 if __name__ == "__main__":

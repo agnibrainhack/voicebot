@@ -66,15 +66,12 @@ python tests/test_parity_and_llm_arm.py     # 8 checks for 0.4 (LLM arm with a f
 # open baseline, any Python >= 3.10, no licence
 pip install -r requirements.txt && python run_campaign.py --backend builtin --out campaign_builtin
 
-# + the LLM enrichment arm (transport chosen at run time; see "Two enrichment arms")
+# + the LLM enrichment arm (the Microsoft model gateway; see "Two enrichment arms")
 pip install -r requirements-llm.txt
-python tools/check_llm.py                    # one call through the configured transport: will it work here?
-python run_campaign.py --llm --out output/campaign_llm                 # default transport: the model gateway
-python run_campaign.py --llm --llm-provider deepseek --out campaign_ds   # or the DeepSeek API
-export DEEPSEEK_API_KEY=...                  # deepseek only; read from the environment, never written to outputs
+export GMSJOURNEY_LLM_URL="https://gaiapis.aexp.com/gcpapi/<path>/completions"   # exact endpoint
+python tools/check_llm.py                    # one call through the gateway: will it work here?
+python run_campaign.py --llm --out output/campaign_llm
 python run_campaign.py --llm --llm-mode replay --out rerun      # re-run from the cache, no network
-# replay reads the cache of the provider it resolves to, so pass the same --llm-provider
-# (and --llm-fallback) the recorded run used
 ```
 
 Colab: upload `gmsjourney.zip`, add a secret named `KNOWLYTIX_LICENSE_KEY`, open
@@ -186,17 +183,13 @@ not). Meaning-changing edits must all be rejected; they are. Evidence is exporte
 
 Both arms realise the **same design rows** (same base, same factor levels), so their results can be compared pair by
 pair. The template arm builds each customer turn from its meaning card with deterministic code. The LLM arm
-(`gmsjourney/enrich/llm`, `--llm`) asks a chat model to write the turn. The transport is chosen at run time with
-`--llm-provider`: `aexp` (default) is an OpenAI-compatible model gateway authenticated with a short-lived
-`gcloud` access token — `AEXP_ACCESS_TOKEN` and `AEXP_USE_CASE_ID` override the CLI and the routing header —
-and `deepseek` is the DeepSeek API through LangChain. For the gateway, set the exact endpoint with
+(`gmsjourney/enrich/llm`, `--llm`) asks a model on the internal Microsoft (Azure OpenAI) gateway to write the turn
+(default deployment `gpt-41`; `--llm-model gpt-55` for 5.5). It is authenticated with a short-lived `gcloud` access
+token — `AEXP_ACCESS_TOKEN` and `AEXP_USE_CASE_ID` override the CLI and the routing header. Set the exact endpoint with
 `GMSJOURNEY_LLM_URL` (full chat-completions URL; `{model}` is filled with the model name, e.g. `gpt-41`) and the
 corporate CA bundle with `GMSJOURNEY_CA_BUNDLE` (else `REQUESTS_CA_BUNDLE`, else `/etc/ssl/certs/ca-certificates.crt`).
 If the deployment rejects `temperature`/`max_tokens` or the system role, the client adapts once and records it
-(`report.json: invariance_llm.clients.*.adaptations`). `--llm-fallback` (default `none`: no silent switch) names a transport
-to use when the chosen one cannot be built or fails mid-run; the switch is recorded in the report, and because
-the provider is part of the cache key, a fallback neither collides with nor discards the other's cached
-generations. It is not trusted to construct the meaning, so it is validated separately and more strictly:
+(`report.json: invariance_llm.clients.*.adaptations`). There is no other transport and no fallback. It is not trusted to construct the meaning, so it is validated separately and more strictly:
 
 1. **Blind generation.** The model is given the agent's question for the dialog state, what the customer means (in
    plain words), the base wording and the presentation instructions. It never sees the expected bot behaviour, the
@@ -296,7 +289,7 @@ gmsjourney/
   catalogs/          application.yaml (+ level_aliases), custom_factors.yaml, official/ (fallback copy)
   governance/        gates (policy, speech, GMS), monitor (strict / quorum), attestor (numeric range), audit,
                      calibrate (Appendix C + P=0.5, holdout, bootstrap)
-  enrich/llm/        the LLM enrichment arm: client (gateway or DeepSeek, replay cache), prompts, gates,
+  enrich/llm/        the LLM enrichment arm: client (Microsoft gateway, replay cache), prompts, gates,
                      realizer, extractor (independent reader), validate (separate proof + controls), export
   evaluation/        runner, attribution, stats, constraints (budgets), severity (tiers + release gate), ...
   ontology.py journey.py oracle.py kb_truth.py bases/ enrich/ design/ sut/ evaluation/ pipeline.py report.py

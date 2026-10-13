@@ -518,7 +518,7 @@ def _llm_section(R: dict[str, Any]) -> str:
     s, nc = L["summary"], L["negative_controls"]
     adv = nc.get("_adversarial", {})
     out = ["<h2>4b. LLM enrichment arm: separate invariance validation</h2>",
-           f"<p>Customer turns written by <b>{esc(L['settings']['model'])}</b> through LangChain "
+           f"<p>Customer turns written by <b>{esc(L['settings']['model'])}</b> through the Microsoft gateway "
            f"(mode {esc(L['settings']['mode'])}, temperature {L['settings']['temperature']}), blind to the expected outcome. "
            "Every turn passed G0 form, G1 no new facts, G3 one clear decision and G2 the rule reader's meaning card in its "
            f"dialog state{' and the independent LLM reader' if s['dual_read']['mode'] == 'gate' else ''}; then the same "

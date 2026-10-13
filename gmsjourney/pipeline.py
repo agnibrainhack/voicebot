@@ -20,7 +20,7 @@ implementation is the open-core fallback:
 12  failure-mode coverage (proofloop taxonomy), report                            Ch. 11
 
 gmsh parity additions (0.4): GEODE dedup mode and v-SFT A/B (step 1); hallucination probes
-(step 2); an optional LLM enrichment arm (DeepSeek via LangChain) proved separately from the
+(step 2); an optional LLM enrichment arm (the Microsoft model gateway) proved separately from the
 template arm (step 5b); gmsh-style P=0.5 operating points, held-out accuracy and bootstrap
 intervals next to the regulated ones (step 6); quorum REVIEW and the numeric range attestor in
 the runtime monitor; per-turn latency/length budgets, severity with risk tiers and a tiered
@@ -89,9 +89,7 @@ class CampaignConfig:
     # LLM enrichment arm (enrich/llm): a chat model writes the turns, proved separately
     llm_arm: bool = False
     llm_mode: str = "live"                       # live (call on cache miss) | replay (cache only)
-    llm_provider: str = "aexp"                   # aexp (gateway, gcloud token) | deepseek
-    llm_fallback_provider: str | None = None   # used when the chosen provider cannot be built
-    llm_model: str = ""                          # empty: the provider's own default
+    llm_model: str = ""                          # gateway deployment; empty: gpt-41
     llm_temperature: float = 0.7
     llm_share: float = 1.0                       # share of design rows also realised by the LLM (paired)
     llm_dual_read: str = "gate"                  # gate | report | off   (independent LLM reader)
@@ -272,12 +270,10 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     # 5b ------------------------------------------------------------- LLM enrichment arm
     llm_scns, llm_proofs, llm_realizer, llm_validator, llm_controls = [], [], None, None, None
     if cfg.llm_arm:
-        log(f"[5b/12] LLM enrichment arm ({cfg.llm_provider}): generate blind, gate every turn, prove "
+        log("[5b/12] LLM enrichment arm (Microsoft gateway): generate blind, gate every turn, prove "
             "separately, controls on LLM text")
         from .enrich.llm import LLMSettings, build_llm_arm
-        settings = LLMSettings(provider=cfg.llm_provider, model=cfg.llm_model or "",
-                               fallback_provider=cfg.llm_fallback_provider,
-                               temperature=cfg.llm_temperature, mode=cfg.llm_mode,
+        settings = LLMSettings(model=cfg.llm_model or "", temperature=cfg.llm_temperature, mode=cfg.llm_mode,
                                cache_dir=cfg.llm_cache_dir)
         llm_realizer, llm_validator, clients = build_llm_arm(
             store, oracle, reader, validator, settings, dual_read=cfg.llm_dual_read,
@@ -286,9 +282,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         if why:
             log(f"      LLM not callable ({why}); only cached generations can be used")
         else:
-            log(f"      LLM provider: {settings.effective_provider} · model {settings.model}"
-                + (f" (requested {settings.provider})" if settings.effective_provider != settings.provider
-                   else ""))
+            log(f"      LLM: Microsoft gateway · model {settings.model}")
         pick = random.Random(cfg.seed + 7)
         chosen = [s for s in scenarios if pick.random() < cfg.llm_share]
         llm_scns = [Scenario(f"{s.sid}~llm", s.base, dict(s.factor_levels), s.mode,

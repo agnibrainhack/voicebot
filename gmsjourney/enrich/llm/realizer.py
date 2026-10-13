@@ -1,4 +1,4 @@
-"""LLM realizer: meaning card + factor levels -> customer utterance, written by DeepSeek.
+"""LLM realizer: meaning card + factor levels -> customer utterance, written by the LLM (Microsoft gateway).
 
 Same interface as the template ``Realizer`` (``realize(frame, levels, seed, ctx)``), so the
 journey runner drives either arm unchanged. Three layers, mirroring the template arm:

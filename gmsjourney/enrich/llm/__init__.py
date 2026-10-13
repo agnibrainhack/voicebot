@@ -1,4 +1,4 @@
-"""The LLM enrichment arm: DeepSeek (via LangChain) writes the customer turns; every turn is
+"""The LLM enrichment arm: a model on the Microsoft gateway writes the customer turns; every turn is
 gated and proved separately from the template arm (see validate.py for the full test)."""
 from .client import CachedLLM, LLMSettings, LLMUnavailable, make_chat_model
 from .extractor import LLMFrameExtractor
