@@ -387,6 +387,24 @@ def test_parallel_prove_all_matches_sequential():
     llm_client._messages = real_messages
 
 
+def test_live_responses_are_printed_cache_hits_are_not():
+    import contextlib
+    import io
+    import tempfile as _tf
+    from gmsjourney.enrich.llm import CachedLLM, LLMSettings
+
+    class _Echo:
+        def invoke(self, msgs):
+            return '{"utterance": "yes that one is mine"}'
+    c = CachedLLM(LLMSettings(cache_dir=_tf.mkdtemp(), log_responses=True), model=_Echo(), tag="rephrase")
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+        c.invoke("sys", "user", salt="J1|0")
+        c.invoke("sys", "user", salt="J1|0")                   # cache hit: silent
+    out = buf.getvalue()
+    assert out.count("[LLM rephrase") == 1 and "J1|0" in out and "yes that one is mine" in out
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

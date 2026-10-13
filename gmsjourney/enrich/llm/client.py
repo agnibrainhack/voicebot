@@ -62,6 +62,10 @@ class LLMSettings:
     max_retries: int = 2
     mode: str = "live"                    # live (call on a cache miss) | replay (cache only)
     cache_dir: str | None = None          # default: <gmsjourney cache>/llm/<model>
+    # print every live gateway response as it arrives (role, seed, seconds, reply text); cache hits are
+    # silent. Env GMSJOURNEY_LLM_LOG=1. log_max_chars truncates long replies (0 = print in full).
+    log_responses: bool = False
+    log_max_chars: int = 400
 
     def __post_init__(self) -> None:
         self.model = self.model or DEFAULT_MODEL
@@ -72,6 +76,8 @@ class LLMSettings:
                           or self.ca_bundle)
         if os.environ.get("AEXP_SEND_SAMPLING_PARAMS", "").strip() in ("0", "false", "no"):
             self.send_sampling_params = False
+        if os.environ.get("GMSJOURNEY_LLM_LOG", "").strip() in ("1", "true", "yes"):
+            self.log_responses = True
 
     # kept so cache keys and reports stay comparable with earlier runs
     provider = PROVIDER
@@ -231,6 +237,19 @@ def _messages(system: str, user: str, provider: str | None = None):
     return [SimpleNamespace(type="system", content=system), SimpleNamespace(type="human", content=user)]
 
 
+_PRINT_LOCK = __import__("threading").Lock()
+
+
+def _log_line(msg: str) -> None:
+    """One line, safe from several threads and above any tqdm progress bar."""
+    with _PRINT_LOCK:
+        try:
+            from tqdm.auto import tqdm
+            tqdm.write(msg)
+        except ImportError:
+            print(msg, flush=True)
+
+
 @dataclass
 class LLMStats:
     calls: int = 0
@@ -340,6 +359,11 @@ class CachedLLM:
         text = out.content if hasattr(out, "content") else str(out)
         if isinstance(text, list):                   # content blocks
             text = "".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in text)
+        if self.settings.log_responses:
+            n = self.settings.log_max_chars
+            shown = text if not n or len(text) <= n else text[:n] + f" ...[+{len(text) - n} chars]"
+            _log_line(f"[LLM {self.tag} #{self.stats.cache_misses} · {salt} · {time.time() - t0:.1f}s] "
+                      + shown.replace("\n", " "))
         usage = getattr(out, "usage_metadata", None) or {}
         self.stats.input_tokens += int(usage.get("input_tokens", 0) or 0)
         self.stats.output_tokens += int(usage.get("output_tokens", 0) or 0)
