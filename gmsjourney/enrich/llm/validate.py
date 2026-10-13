@@ -53,9 +53,38 @@ from .realizer import LLMRealizer, _clean
 MAX_LLM_ATTEMPTS = 3
 
 
-def _pmap(fn, items: list, workers: int) -> tuple[int, int]:
-    """Run fn over items on a thread pool (the calls are network-bound); (ok, failed)."""
-    from concurrent.futures import ThreadPoolExecutor
+def progress(iterable=None, total: int | None = None, desc: str = "", show: bool = True):
+    """A tqdm bar (notebook-aware via tqdm.auto) when tqdm is installed and show is True, else a
+    silent stand-in with the same interface (iteration, update, set_postfix_str, close)."""
+    if show:
+        try:
+            from tqdm.auto import tqdm
+            return tqdm(iterable, total=total, desc=desc, dynamic_ncols=True)
+        except ImportError:
+            pass
+
+    class _Silent:
+        def __init__(self, it):
+            self.it = it
+
+        def __iter__(self):
+            return iter(self.it if self.it is not None else [])
+
+        def update(self, n=1):
+            pass
+
+        def set_postfix_str(self, s):
+            pass
+
+        def close(self):
+            pass
+    return _Silent(iterable)
+
+
+def _pmap(fn, items: list, workers: int, desc: str = "", show: bool = True) -> tuple[int, int]:
+    """Run fn over items on a thread pool (the calls are network-bound), with a progress bar;
+    (ok, failed)."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     if not items:
         return 0, 0
 
@@ -65,9 +94,19 @@ def _pmap(fn, items: list, workers: int) -> tuple[int, int]:
             return True
         except Exception:                                   # noqa: BLE001 - a failed prefetch is retried live
             return False
+    ok = bad = 0
+    bar = progress(total=len(items), desc=desc, show=show)
     with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
-        res = list(ex.map(safe, items))
-    return sum(res), len(res) - sum(res)
+        for f in as_completed([ex.submit(safe, x) for x in items]):
+            if f.result():
+                ok += 1
+            else:
+                bad += 1
+            bar.update(1)
+            if bad:
+                bar.set_postfix_str(f"failed {bad}")
+    bar.close()
+    return ok, bad
 
 
 class LLMInvarianceValidator(InvarianceValidator):
@@ -106,7 +145,7 @@ class LLMInvarianceValidator(InvarianceValidator):
             for i, (frame, ctx) in enumerate(path):
                 system, user, *_ = rr.prompt(frame, scn.factor_levels, f"{scn.sid}|{i}", ctx, states[i])
                 jobs.append((system, user, f"{scn.sid}|{i}", scn, i, frame, ctx, states[i]))
-        ok1, bad1 = _pmap(lambda j: rr.llm.invoke(j[0], j[1], salt=j[2]), jobs, workers)
+        ok1, bad1 = _pmap(lambda j: rr.llm.invoke(j[0], j[1], salt=j[2]), jobs, workers, "LLM rephrase")
         if log:
             log(f"      prefetch: {ok1} rephrasings ({bad1} failed) in {_t.time() - t0:.0f}s with {workers} workers")
         ok2 = bad2 = 0
@@ -119,7 +158,7 @@ class LLMInvarianceValidator(InvarianceValidator):
                     reads.append(build_extract_prompt(t.final, st, ctx, self.extractor.schema))
             ext = self.extractor.llm
             ext.available                                   # build the client once, before the threads start
-            ok2, bad2 = _pmap(lambda p: ext.invoke(p[0], p[1], salt="extract"), reads, workers)
+            ok2, bad2 = _pmap(lambda p: ext.invoke(p[0], p[1], salt="extract"), reads, workers, "LLM independent read")
             if log:
                 log(f"      prefetch: {ok2} independent reads ({bad2} failed); total {_t.time() - t0:.0f}s")
         return {"rephrase_ok": ok1, "rephrase_failed": bad1, "read_ok": ok2, "read_failed": bad2,
@@ -150,8 +189,19 @@ class LLMInvarianceValidator(InvarianceValidator):
                         count[kind] += 1
                         reads.append(build_extract_prompt(mt, t["state"], ctx, self.extractor.schema))
         ext = self.extractor.llm
-        ok, bad = _pmap(lambda q: ext.invoke(q[0], q[1], salt="extract"), reads, workers)
+        ok, bad = _pmap(lambda q: ext.invoke(q[0], q[1], salt="extract"), reads, workers, "LLM control reads")
         return {"read_ok": ok, "read_failed": bad}
+
+    def prove_all(self, scenarios: list[Scenario], desc: str = "LLM proof", show: bool = True) -> list[ProofResult]:
+        """prove() over scenarios with a progress bar (accepted so far, live calls, errors)."""
+        out = []
+        st = self.llm_realizer.llm.stats
+        bar = progress(scenarios, total=len(scenarios), desc=desc, show=show)
+        for s in bar:
+            out.append(self.prove(s))
+            bar.set_postfix_str(f"accepted {sum(p.accepted for p in out)}/{len(out)} · "
+                                f"live calls {st.cache_misses} · errors {st.errors}")
+        return out
 
     # ------------------------------------------------------------------ one turn
     def _accept_turn(self, text_raw: str, text_final: str, frame, st, ctx, levels, licensed: list[str],

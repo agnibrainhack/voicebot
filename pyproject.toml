@@ -17,7 +17,7 @@ test = ["pytest"]
 # only to rebuild the policy graph from the PDF (python -m gmsjourney.knowledge.policy_kg build)
 pdf = ["pypdf>=4.0"]
 # the LLM enrichment arm (the Microsoft model gateway; gcloud token)
-llm = ["requests>=2.28"]
+llm = ["requests>=2.28", "tqdm>=4.60"]
 
 [tool.setuptools.packages.find]
 include = ["gmsjourney*"]

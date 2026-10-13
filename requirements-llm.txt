@@ -3,3 +3,4 @@
 # routing header: AEXP_USE_CASE_ID (default 825); endpoint: GMSJOURNEY_LLM_URL; CA bundle:
 # GMSJOURNEY_CA_BUNDLE / REQUESTS_CA_BUNDLE. Credentials are never written to outputs.
 requests>=2.28
+tqdm>=4.60          # progress bars (optional: runs silently without it)
