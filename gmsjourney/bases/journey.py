@@ -79,7 +79,13 @@ def _triples(rel: dict[str, Any]) -> set[tuple]:
 
 
 class JourneyBaseGenerator:
-    def __init__(self, oracle, kb_pool: list[F] | None = None, seed: int = 42):
+    def __init__(self, oracle, kb_pool: list[F] | None = None, seed: int = 42,
+                 max_turn_limit_cases: int | None = None):
+        """max_turn_limit_cases: None = turn_pressure is an ordinary covering dimension (every level paired
+        with every other dimension: many 20+ turn conversations). An int keeps the covering array at normal
+        length and lets the closure add turn-limit conversations only to reach the at_limit / over_limit
+        boundaries (and any rule only they fire) - at most this many in total."""
+        self.max_turn_limit_cases = max_turn_limit_cases
         self.oracle = oracle
         self.rng = random.Random(seed)
         self.kb_pool = kb_pool or []
@@ -148,6 +154,16 @@ class JourneyBaseGenerator:
 
     # -------------------------------------------------------------- covering
     def covering(self, candidates: int = 40, max_rows: int = 200) -> tuple[list[JourneySpec], CoverageReport]:
+        if self.max_turn_limit_cases is not None:          # pairs over normal-length conversations only
+            saved = DIMENSIONS["turn_pressure"]
+            DIMENSIONS["turn_pressure"] = ["normal"]
+            try:
+                return self._covering(candidates, max_rows)
+            finally:
+                DIMENSIONS["turn_pressure"] = saved
+        return self._covering(candidates, max_rows)
+
+    def _covering(self, candidates: int = 40, max_rows: int = 200) -> tuple[list[JourneySpec], CoverageReport]:
         feasible, infeasible = self.feasible_pairs()
         uncovered = set(feasible)
         rows: list[JourneySpec] = []
@@ -217,12 +233,20 @@ class JourneyBaseGenerator:
         r, e, t, b = goals(rows, extra_traces)
         added: list[JourneySpec] = []
         tries = 0
+        cap = self.max_turn_limit_cases
+        padded = lambda sp: sp.turn_pressure in ("at_limit", "over_limit")
+        n_padded = sum(padded(s) for s in rows)
         while ((all_rules - r) or (all_edges - e) or (all_triggers - t) or (BOUNDARIES - b)) and tries < budget:
             tries += 1
-            spec = self.finalize(self.random_spec())
+            fixed = {"turn_pressure": "normal"} if cap is not None and n_padded >= cap else None
+            spec = self.finalize(self.random_spec(fixed))
             if spec is None:
                 continue
             r2, e2, t2, b2 = goals([spec])
+            if cap is not None and padded(spec) and not ({x for x in b2 - b if x.startswith("turn_pressure")}
+                                                        or ((all_rules - r) & r2)):
+                continue                       # a long conversation only for a boundary or rule nothing else reaches
+            n_padded += int(padded(spec))
             if (r2 - r) or (e2 - e) or (t2 - t) or (b2 - b):
                 added.append(spec)
                 r, e, t, b = r | r2, e | e2, t | t2, b | b2

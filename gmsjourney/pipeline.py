@@ -80,6 +80,9 @@ class CampaignConfig:
     kx_geode_epochs: int = 80                    # GEODE correction-loop trainer epochs
     kx_store_dir: str | None = None              # default: ~/.cache/gmsjourney/stores/<hash>
     rebuild_store: bool = False
+    # 20+ turn conversations (turn-limit tests): None = turn_pressure is an ordinary covering dimension
+    # (~26 such bases); an int = normal-length covering array + at most this many turn-limit bases
+    max_turn_limit_cases: int | None = 2
     kx_dedup_mode: str = "off"                   # off | audit | accept   (knowledge/kx_store.py)
     kx_v_sft_mode: str = "ab"                    # rotation | full | ab
     # runtime checks
@@ -226,7 +229,8 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
 
     # 3 -------------------------------------------------------------- journey bases
     log("[3/12] generating journey bases (covering array + closure)")
-    gen = JourneyBaseGenerator(oracle, kb_pool=[k.frame for k in admitted], seed=cfg.seed)
+    gen = JourneyBaseGenerator(oracle, kb_pool=[k.frame for k in admitted], seed=cfg.seed,
+                               max_turn_limit_cases=cfg.max_turn_limit_cases)
     cover, rep = gen.covering()
     kb_traces = [oracle.run(JourneySpec(n_txn=1, kb_mid="ask", kb_frames=(k.frame,))) for k in admitted]
     extra = gen.closure(cover, store, rep, extra_traces=kb_traces)

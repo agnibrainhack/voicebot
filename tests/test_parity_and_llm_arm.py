@@ -619,6 +619,26 @@ def test_template_acts_and_llm_pool():
     llm_client._messages = real_messages
 
 
+def test_turn_limit_cap_keeps_rules_edges_and_boundaries():
+    store, oracle, R, rd = env()
+    from gmsjourney.bases.journey import JourneyBaseGenerator
+    from gmsjourney.journey import JourneySpec
+    items, _ = mine_kb_items(store, 42)
+    adm = [k for k in items if k.admission != "rejected"]
+    gen = JourneyBaseGenerator(oracle, kb_pool=[k.frame for k in adm], seed=42, max_turn_limit_cases=2)
+    cover, rep = gen.covering()
+    extra = gen.closure(cover, store, rep, extra_traces=[oracle.run(JourneySpec(n_txn=1, kb_mid="ask",
+                                                                                 kb_frames=(k.frame,))) for k in adm])
+    specs = list({s.key(): s for s in cover + extra}.values())
+    long_ = [s for s in specs if s.turn_pressure != "normal"]
+    assert len(long_) <= 2 and {s.turn_pressure for s in long_} == {"at_limit", "over_limit"}
+    assert not rep.rules_missing and not rep.edges_missing and not rep.triggers_missing
+    assert {"turn_pressure=at_limit", "turn_pressure=over_limit"} <= set(rep.boundaries_covered)
+    assert rep.pairs_covered == rep.pairs_required
+    from gmsjourney.journey import DIMENSIONS
+    assert DIMENSIONS["turn_pressure"] == ["normal", "at_limit", "over_limit"]    # restored
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

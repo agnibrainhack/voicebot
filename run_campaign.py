@@ -55,6 +55,8 @@ if __name__ == "__main__":
     ap.add_argument("--llm-max-candidates", type=int, default=None, help="rows tried for --llm-target (default 3x)")
     ap.add_argument("--llm-asides", default="verbatim", choices=["verbatim", "paraphrase"])
     ap.add_argument("--llm-turn-fallback", default="template", choices=["template", "none"])
+    ap.add_argument("--max-turn-limit-cases", type=int, default=2,
+                    help="20+ turn conversations (turn-limit tests) among the journey bases; -1 = no cap")
     ap.add_argument("--llm-all-rows", action="store_true",
                     help="let the LLM rewrite policy-question and turn-padded rows too (default: excluded)")
     ap.add_argument("--llm-kb-turns", default="template", choices=["template", "llm"],
@@ -74,6 +76,7 @@ if __name__ == "__main__":
                          llm_controls_per_type=a.llm_controls, llm_max_attempts=a.llm_max_attempts,
                          llm_target_accepted=a.llm_target, llm_max_candidates=a.llm_max_candidates,
                          llm_asides=a.llm_asides, llm_turn_fallback=a.llm_turn_fallback,
+                         max_turn_limit_cases=None if a.max_turn_limit_cases < 0 else a.max_turn_limit_cases,
                          llm_exclude=() if a.llm_all_rows else ("policy_questions", "turn_padding"),
                          llm_template_acts=("ASK_KB",) if a.llm_kb_turns == "template" else ())
     if a.policy:

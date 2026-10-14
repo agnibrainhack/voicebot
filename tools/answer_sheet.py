@@ -272,6 +272,8 @@ def main() -> None:
     ap.add_argument("--backend", default="auto", choices=["auto", "knowlytix", "builtin"])
     ap.add_argument("--store-dir", default=None, help="knowlytix store dir (default: the build cache)")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--max-turn-limit-cases", type=int, default=None,
+                    help="as in the campaign config (default: read from <campaign>/report.json, else 2; -1 = no cap)")
     a = ap.parse_args()
 
     say("[1/4] the knowledge store (reloaded from the cache when one matches)")
@@ -286,7 +288,15 @@ def main() -> None:
     say("[2/4] rebuilding the base cases (covering array + closure, then the policy questions)")
     items, _info = mine_kb_items(store, a.seed)
     admitted = [k for k in items if k.admission != "rejected"]
-    gen = JourneyBaseGenerator(oracle, kb_pool=[k.frame for k in admitted], seed=a.seed)
+    mtl = a.max_turn_limit_cases
+    if mtl is None:                         # the campaign's own setting, so the case ids match its dataset
+        try:
+            mtl = json.loads((Path(a.campaign) / "report.json").read_text())["config"].get("max_turn_limit_cases", None)
+        except (OSError, ValueError, KeyError):
+            mtl = 2
+    elif mtl < 0:
+        mtl = None
+    gen = JourneyBaseGenerator(oracle, kb_pool=[k.frame for k in admitted], seed=a.seed, max_turn_limit_cases=mtl)
     cover, rep = gen.covering()
     kb_traces = [oracle.run(JourneySpec(n_txn=1, kb_mid="ask", kb_frames=(k.frame,))) for k in admitted]
     extra = gen.closure(cover, store, rep, extra_traces=kb_traces)
