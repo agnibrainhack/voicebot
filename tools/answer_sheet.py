@@ -286,7 +286,11 @@ def main() -> None:
     limits = read_limits(store)
 
     say("[2/4] rebuilding the base cases (covering array + closure, then the policy questions)")
-    items, _info = mine_kb_items(store, a.seed)
+    try:
+        _kbq = json.loads((Path(a.campaign) / "report.json").read_text())["config"].get("kb_questions", "standard")
+    except (OSError, ValueError, KeyError):
+        _kbq = "standard"
+    items, _info = mine_kb_items(store, a.seed, extended=_kbq == "extended")   # as the campaign mined them
     admitted = [k for k in items if k.admission != "rejected"]
     mtl = a.max_turn_limit_cases
     if mtl is None:                         # the campaign's own setting, so the case ids match its dataset

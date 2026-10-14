@@ -83,6 +83,7 @@ class CampaignConfig:
     # 20+ turn conversations (turn-limit tests): None = turn_pressure is an ordinary covering dimension
     # (~26 such bases); an int = normal-length covering array + at most this many turn-limit bases
     max_turn_limit_cases: int | None = 2
+    kb_questions: str = "standard"               # extended: more policy questions over the same facts (bases/kb.py)
     kx_dedup_mode: str = "off"                   # off | audit | accept   (knowledge/kx_store.py)
     kx_v_sft_mode: str = "ab"                    # rotation | full | ab
     # runtime checks
@@ -221,7 +222,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
 
     # 2 -------------------------------------------------------------- KB bases
     log("[2/12] mining policy-question bases (two-way admission" + ("; knowlytix substrate generators)" if use_kx else ")"))
-    kb_items, kb_info = mine_kb_items(store, cfg.seed)
+    kb_items, kb_info = mine_kb_items(store, cfg.seed, extended=cfg.kb_questions == "extended")
     admitted = [k for k in kb_items if k.admission != "rejected"]
     R["kb"] = {"items": [{"qid": k.qid, "category": k.category, "frame": str(k.frame), "answer": k.answer,
                           "primitive": k.primitive, "admission": k.admission, "recovery": k.recovery,

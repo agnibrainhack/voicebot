@@ -161,6 +161,42 @@ NEAR_MISS_OPTIONS = [("priority_delivery", "fee"), ("same_day_delivery", "days")
 READABLE_UNSTATED = {"SECURE_CARD"}
 
 
+# extended mode: more questions over the same policy facts, with intents the reader, the realizer and
+# kb_truth already support - so every answer is still computed from the graph, never hand-labelled
+EXTENDED_NEAR_MISS = [("premium_delivery", "fee"), ("next_day_delivery", "days"), ("saver_delivery", "fee"),
+                      ("priority_delivery", "days"), ("economy_delivery", "days"), ("same_day_delivery", "fee")]
+
+
+def _extended_generators(store) -> dict[str, list[F]]:
+    opts = list(store.value_sets.get("delivery", [])) or ["standard_delivery", "expedited_delivery"]
+    L = int(store.lookup_enm("limit", "lookback_days"))
+    out: dict[str, list[F]] = {
+        # inside, just inside and far outside the review window (the existing ones: L/3, L, L+1, L+15)
+        "conditional_rule": [K("window_check", days=d) for d in (1, L - 1, 2 * L) if d > 0],
+        "plausibility": [K("plausibility", attr="fee", entity=o, value="0") for o in opts],   # "is it free?"
+        "fact_completion": [],
+    }
+    for o in opts:                                   # multiple choice for every option's fee
+        gt = int(store.lookup_enm("delivery_fee_usd", o))
+        opts4 = sorted({gt - 10, gt - 5, gt, gt + 5} if gt >= 10 else {gt, gt + 5, gt + 10, gt + 15})
+        out["fact_completion"].append(K("mcq", attr="fee", entity=o, options=tuple(opts4)))
+    return out
+
+
+def _reads_back(store, frame: F, state: str = "PRESENT_TXN") -> bool:
+    """The template wording of the question reads back to the same meaning card - at base levels and under
+    heavier rewording - so an extended question can be enriched and proved like the others."""
+    from ..enrich.reader import FrameReader
+    from ..enrich.realizers import Realizer
+    from ..ontology import Ontology
+    rz, rd, ont = Realizer(), FrameReader(store), Ontology.from_store(store)
+    for seed in ("a", "b", "c"):
+        for lv in ({}, {"paraphrase_depth": "deep", "entity_aliasing": "colloquial", "numeric_format": "spoken"}):
+            if not ont.equivalent(frame, rd.read(rz.realize(frame, lv, seed, {}), state), state):
+                return False
+    return True
+
+
 def _probes(store) -> list[tuple[str, F, dict]]:
     """Hallucination probes: (kind, frame, diagnostic) - only probes whose truth is absence."""
     out = []
@@ -255,11 +291,35 @@ def render_truth(truth) -> str:
     return str(a)
 
 
-def mine_kb_items(store, seed: int = 42) -> tuple[list[KBItem], dict[str, Any]]:
+def mine_kb_items(store, seed: int = 42, extended: bool = False) -> tuple[list[KBItem], dict[str, Any]]:
+    """extended=True adds more questions over the same policy facts (other days around the review window,
+    'is it free?', multiple choice for every option, more near-miss option names). They are appended after
+    the standard ones, so the standard question ids do not change, and each is kept only if its answer is
+    computed from the graph and its wording reads back to the same meaning card."""
     items: list[KBItem] = []
     recovery_stats: dict[str, Counter] = {}
     cap_notes: dict[str, dict[str, float]] = {}
-    for cat, frames in _generators(store, seed).items():
+    gens = _generators(store, seed)
+    ext_info = {"enabled": extended, "added": [], "dropped": []}
+    if extended:
+        seen = {f.canonical() for fs in gens.values() for f in fs}
+        for cat, frames in _extended_generators(store).items():
+            for f in frames:
+                if f.canonical() in seen:
+                    continue
+                seen.add(f.canonical())
+                try:
+                    kb_answer(store, f)
+                    ok = _reads_back(store, f)
+                except Exception as e:              # noqa: BLE001 - a question the graph cannot answer
+                    ext_info["dropped"].append({"frame": str(f), "why": str(e)[:120]})
+                    continue
+                if not ok:
+                    ext_info["dropped"].append({"frame": str(f), "why": "wording does not read back"})
+                    continue
+                gens.setdefault(cat, []).append(f)
+                ext_info["added"].append(str(f))
+    for cat, frames in gens.items():
         stats = recovery_stats.setdefault(cat, Counter())
         for j, fr in enumerate(frames):
             truth = kb_answer(store, fr)
@@ -287,6 +347,26 @@ def mine_kb_items(store, seed: int = 42) -> tuple[list[KBItem], dict[str, Any]]:
         it.admission = {"two_way": "doubly_grounded", "rejected": "rejected"}.get(tag, "symbolic_only")
         probe_stats[kind] += 1
         items.append(it)
+
+    if extended:                                     # more near-miss names, numbered after the standard probes
+        options = set(store.value_sets.get("delivery", []))
+        known = {str(i.frame) for i in items}
+        for j, (name, attr) in enumerate(EXTENDED_NEAR_MISS):
+            fr = K("unknown_option", attr=attr, name=name)
+            if str(fr) in known or name in options:
+                continue
+            truth = kb_answer(store, fr)
+            if truth.answer != "absent" or not _reads_back(store, fr):
+                ext_info["dropped"].append({"frame": str(fr), "why": "not absent or does not read back"})
+                continue
+            it = KBItem(f"kb-probe-near_miss-x{j:02d}", "absence_detection", fr, truth.answer, truth.answer_type,
+                        truth.primitive, probe="near_miss")
+            tag, detail = two_way_check(store, truth)
+            it.recovery, it.recovery_detail = tag, detail + [{"name": name}]
+            it.admission = {"two_way": "doubly_grounded", "rejected": "rejected"}.get(tag, "symbolic_only")
+            probe_stats["near_miss"] += 1
+            items.append(it)
+            ext_info["added"].append(str(fr))
 
     # the geometry earns its keep: a forged question whose answer recomputes correctly
     # but whose declared fact triple is another option's real fee
@@ -341,5 +421,5 @@ def mine_kb_items(store, seed: int = 42) -> tuple[list[KBItem], dict[str, Any]]:
         recovery["knowlytix_substrate"] = kx_substrate(store)
     probes = [{"qid": i.qid, "kind": i.probe, "frame": str(i.frame), "admission": i.admission,
                "diagnostic": (i.recovery_detail or [{}])[-1]} for i in items if i.probe]
-    return items, {"self_tests": self_tests, "precondition": precondition, "recovery": recovery,
+    return items, {"self_tests": self_tests, "precondition": precondition, "recovery": recovery, "extended": ext_info,
                    "hallucination_probes": {"n": len(probes), "by_kind": dict(probe_stats), "items": probes}}

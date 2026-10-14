@@ -639,6 +639,21 @@ def test_turn_limit_cap_keeps_rules_edges_and_boundaries():
     assert DIMENSIONS["turn_pressure"] == ["normal", "at_limit", "over_limit"]    # restored
 
 
+def test_extended_policy_questions_are_computed_and_read_back():
+    from gmsjourney.bases.kb import _reads_back
+    from gmsjourney.kb_truth import kb_answer
+    store, oracle, R, rd = env()
+    std, _ = mine_kb_items(store, 42)
+    ext, info = mine_kb_items(store, 42, extended=True)
+    by_id = {k.qid: str(k.frame) for k in ext}
+    assert all(by_id.get(k.qid) == str(k.frame) for k in std)             # standard ids unchanged
+    new = [k for k in ext if k.qid not in {x.qid for x in std}]
+    assert len(new) >= 8 and not info["extended"]["dropped"]
+    for k in new:
+        assert k.admission != "rejected" and kb_answer(store, k.frame).answer == k.answer and _reads_back(store, k.frame)
+    assert len({k.frame.canonical() for k in ext}) == len(ext)             # no duplicate questions
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
