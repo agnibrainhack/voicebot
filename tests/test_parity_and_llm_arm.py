@@ -591,6 +591,34 @@ def test_independent_reader_keeps_only_the_slots_of_the_question_intent():
     assert ex.read("d", "PRESENT_TXN") == F.make("ASK_KB", intent="limit")       # 'limit' is no limit key
 
 
+def test_template_acts_and_llm_pool():
+    from types import SimpleNamespace as NS
+    from gmsjourney.pipeline import llm_pool
+    real_messages = llm_client._messages
+    store, oracle, R, rd, ls, tv, realizer, lv, llm_scns = _llm_fixture()
+    lv.template_acts = ("PROVIDE_CREDENTIAL",)
+    asked = []
+
+    class _Spy:
+        def __init__(self, m):
+            self.m = m
+
+        def invoke(self, msgs):
+            asked.append(json.loads(msgs[-1])["customer_means"])
+            return self.m.invoke(msgs)
+    lv.llm_realizer.llm.model = _Spy(lv.llm_realizer.llm.model)
+    lv.prefetch(llm_scns, workers=2, log=None)
+    proofs = lv.prove_all(llm_scns, show=False, log=None)
+    assert not any("last four digits" in a for a in asked)                 # no LLM call for those turns
+    t = [t for p in proofs for t in p.turns if t.get("turn_source") == "template_by_design"]
+    assert t and all(x["equivalent"] for x in t) and all(p.accepted for p in proofs)
+    assert lv.summarize_llm(proofs, [])["turns_template_by_design"] == len(t)
+    rows = [NS(base=NS(metadata={"kb_qid": "KB1", "spec": NS(extra_kb=0)})),
+            NS(base=NS(metadata={"spec": NS(extra_kb=16)})), NS(base=NS(metadata={"spec": NS(extra_kb=0)}))]
+    assert llm_pool(rows) == rows[2:] and llm_pool(rows, ()) == rows
+    llm_client._messages = real_messages
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

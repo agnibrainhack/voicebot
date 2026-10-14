@@ -113,12 +113,15 @@ class LLMInvarianceValidator(InvarianceValidator):
     def __init__(self, store, oracle, reader, llm_realizer: LLMRealizer, template_validator: InvarianceValidator,
                  dual_read: str = "gate", extractor_llm: CachedLLM | None = None,
                  adversary_llm: CachedLLM | None = None, max_attempts: int = MAX_LLM_ATTEMPTS,
-                 turn_fallback: str = "template"):
+                 turn_fallback: str = "template", template_acts: tuple[str, ...] = ()):
         super().__init__(store, oracle, reader, llm_realizer)
         # "template": a turn the LLM could not write correctly in max_attempts is replaced by the template
         # arm's wording for that turn, proved the template arm's way (rule reader in its state + one clear
         # decision), so one hard turn no longer sinks the whole conversation; "none": the scenario is rejected
         self.turn_fallback = turn_fallback
+        # acts whose turns keep the proved template wording (no LLM call at all), e.g. ("ASK_KB",): policy
+        # questions are tested on facts, not on wording, and were most of the LLM calls and rejections
+        self.template_acts = tuple(template_acts)
         self.llm_realizer = llm_realizer
         self.template_validator = template_validator
         # share the oracle paths with the template arm: both arms prove the same turns
@@ -148,6 +151,8 @@ class LLMInvarianceValidator(InvarianceValidator):
             path = self.base_path(scn.base)
             states = self._states.get(scn.base.qid, [None] * len(path))
             for i, (frame, ctx) in enumerate(path):
+                if frame.act in self.template_acts:
+                    continue
                 system, user, *_ = rr.prompt(frame, scn.factor_levels, f"{scn.sid}|{i}", ctx, states[i])
                 jobs.append((system, user, f"{scn.sid}|{i}", scn, i, frame, ctx, states[i]))
         ok1, bad1 = _pmap(lambda j: rr.llm.invoke(j[0], j[1], salt=j[2]), jobs, workers, "LLM rephrase")
@@ -376,6 +381,23 @@ class LLMInvarianceValidator(InvarianceValidator):
         for i, (frame, ctx) in enumerate(path):
             st = states[i]
             ctx = dict(ctx or {})
+            if frame.act in self.template_acts:          # template wording by design: no LLM call
+                fb = self._template_turn(scn, i, frame, levels, st, ctx)
+                if fb is not None:
+                    text, g, fseed, tag = fb
+                    overrides[i] = tag
+                    self.llm_realizer.pin(fseed, frame, levels, st, text)
+                    read_frames.append(self.ont.canonicalize(g, st))
+                    base_text = self.template_validator.realizer.realize(frame, {}, "base", ctx)
+                    turns.append({"turn": i, "state": st, "frame": str(frame), "frame_obj": frame, "read_obj": g,
+                                  "base_text": base_text, "template_text": text, "enriched_text": text,
+                                  "card": self.ont.card(frame, st), "read_card": self.ont.card(g, st),
+                                  "read_back": str(g), "equivalent": True, "turn_source": "template_by_design",
+                                  "reasons": [], "attempts": [],
+                                  "frame_distance": self.ont.frame_distance(frame, g, st),
+                                  "surface_cosine": cosine(self.store.v.encode(base_text), self.store.v.encode(text)),
+                                  "template_cosine": 1.0, "arm": "llm"})
+                    continue
             feedback, chosen, attempts = None, None, []
             turn_unavailable = False      # later turns are still generated: one pass surfaces every failed
             for attempt in range(self.max_attempts):  # call, and a dead gateway is cut off by the breaker
@@ -644,10 +666,12 @@ class LLMInvarianceValidator(InvarianceValidator):
         self.gate_failures, self.dual_agree = gate_fail, dual
         net = [p for p in not_mat if p.extra.get("llm_unavailable")]
         fb = [t for t in turns if t.get("turn_source") == "template_fallback"]
+        by_design = [t for t in turns if t.get("turn_source") == "template_by_design"]
         llm_t = [t for t in turns if t.get("turn_source") == "llm" and t["equivalent"]]
         return {**base, "arm": "llm",
                 "turns_written_by_llm": len(llm_t),
                 "turns_template_fallback": len(fb),
+                "turns_template_by_design": len(by_design),
                 "llm_turn_share_of_accepted": len([t for p in proofs if p.accepted for t in p.turns
                                                    if t.get("turn_source") == "llm"]) /
                                               max(1, sum(p.n_turns for p in proofs if p.accepted)),

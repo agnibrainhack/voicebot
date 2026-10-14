@@ -345,7 +345,8 @@ def main() -> None:
             rows.append(f'<div class="enr{"" if v["accepted"] else " rej"}"><div class="vmeta">'
                         f'<span class="tag {E(v["arm"])}">{E(v["arm"])}</span>{ok}'
                         + ('<span class="tag gen">template turn</span>'
-                           if enr_src.get((v["case_id"], str(turn))) == "template_fallback" else "")
+                           if enr_src.get((v["case_id"], str(turn))) in ("template_fallback", "template_by_design")
+                           else "")
                         + f'<span>{E(v["case_id"])}</span>'
                         f'<span>{E(v["changed"] or "base levels")}</span></div>{E(t)}</div>')
         if not rows:

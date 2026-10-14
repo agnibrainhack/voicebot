@@ -107,6 +107,9 @@ class CampaignConfig:
     llm_target_accepted: int | None = None       # keep proving candidates until this many are accepted
     llm_max_candidates: int | None = None        # ... trying at most this many rows (default 3 x target)
     llm_asides: str = "verbatim"                 # verbatim: template asides around the LLM line | paraphrase
+    # which design rows the LLM may rewrite, and which turns keep template wording inside them
+    llm_exclude: tuple = ("policy_questions", "turn_padding")   # rows left to the template arm (see llm_pool)
+    llm_template_acts: tuple = ("ASK_KB",)       # turns of these acts keep the proved template wording
     llm_turn_fallback: str = "template"          # template: a turn the LLM cannot write is the proved template
                                                  # turn (the scenario survives) | none: reject the scenario
 
@@ -291,7 +294,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         llm_realizer, llm_validator, clients = build_llm_arm(
             store, oracle, reader, validator, settings, dual_read=cfg.llm_dual_read,
             adversarial=cfg.llm_adversarial_controls > 0, max_attempts=cfg.llm_max_attempts,
-            asides=cfg.llm_asides, turn_fallback=cfg.llm_turn_fallback)
+            asides=cfg.llm_asides, turn_fallback=cfg.llm_turn_fallback, template_acts=cfg.llm_template_acts)
         why = clients["rephrase"].unavailable_reason()
         if why:
             log(f"      LLM not callable ({why}); only cached generations can be used")
@@ -299,7 +302,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
             log(f"      LLM: Microsoft gateway · model {settings.model}")
         ctl_n = cfg.llm_controls_per_type if cfg.llm_controls_per_type is not None else cfg.negative_controls_per_type
         if cfg.llm_target_accepted:
-            pool = pick_llm_rows(scenarios, cfg.llm_share, None, cfg.seed + 7, ordered=True)
+            pool = pick_llm_rows(llm_pool(scenarios, cfg.llm_exclude), cfg.llm_share, None, cfg.seed + 7, ordered=True)
             log(f"      LLM: proving candidates until {cfg.llm_target_accepted} are accepted "
                 f"(pool {len(pool)} rows, at most {cfg.llm_max_candidates or 3 * cfg.llm_target_accepted} tried)")
             try:
@@ -309,7 +312,8 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
                 raise RuntimeError(f"LLM gateway not usable - {e}\n"
                                    "check it with:  python tools/check_llm.py   (endpoint, token, CA bundle, proxy)")
         else:
-            chosen = pick_llm_rows(scenarios, cfg.llm_share, cfg.llm_max_scenarios, cfg.seed + 7)
+            chosen = pick_llm_rows(llm_pool(scenarios, cfg.llm_exclude), cfg.llm_share, cfg.llm_max_scenarios,
+                                   cfg.seed + 7)
             log(f"      LLM rewrites {len(chosen)} of {len(scenarios)} design rows "
                 f"({len({s.base.qid for s in chosen})} bases)")
             llm_scns = [Scenario(f"{s.sid}~llm", s.base, dict(s.factor_levels), s.mode,
@@ -483,6 +487,23 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     (out / "report.html").write_text(render_html(R))
     log(f"done in {R['elapsed_seconds']} s -> {out}")
     return R
+
+
+def llm_pool(scenarios: list, exclude=("policy_questions", "turn_padding")) -> list:
+    """The design rows the LLM may rewrite. Excluded rows are still tested with template wording:
+    policy_questions - the single-question policy bases (tested on facts, not on wording);
+    turn_padding     - turn-limit conversations padded to 20+ turns with policy questions (they test the
+                       limit, not the wording, and are the most expensive rows per gateway call)."""
+    ex = set(exclude or ())
+    out = []
+    for s in scenarios:
+        md = s.base.metadata
+        if "policy_questions" in ex and md.get("kb_qid"):
+            continue
+        if "turn_padding" in ex and getattr(md.get("spec"), "extra_kb", 0):
+            continue
+        out.append(s)
+    return out
 
 
 def pick_llm_rows(scenarios: list, share: float, cap: int | None, seed: int, ordered: bool = False) -> list:
