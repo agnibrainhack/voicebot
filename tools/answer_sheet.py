@@ -173,7 +173,7 @@ def render_act(act: dict, frame: SemanticFrame | None, fx: dict, outcome: dict, 
         rec = act.get("recorded")
         return f"Summarises the call{f' (recorded so far: {E(json.dumps(rec))})' if rec else ''}."
     if a == "TRANSFER":
-        return ("<b>Transfers to a human</b> — required reason: <code>"
+        return ("Tells the customer it is <b>transferring them to a human</b> — required reason: <code>"
                 + E(str(act.get("reason") or outcome.get("transfer_reason") or "—")) + "</code>.")
     if a == "ANSWER_KB":
         return "Answers the policy question: " + kb_phrase(frame, act.get("answer"), limits) + "."
@@ -237,6 +237,14 @@ code{font-family:var(--mono);font-size:.85em;background:var(--code-bg);border:1p
 .must{border-left:3px solid var(--pass);background:var(--pass-soft);border-radius:0 7px 7px 0;padding:.45rem .6rem}
 .must ul{margin:0;padding-left:1.05rem}
 .must li{margin:.15rem 0}
+.steps{margin:.15rem 0 0;padding-left:1.4rem}
+.steps li{margin:.2rem 0;padding-left:.15rem}
+.steps li::marker{font-family:var(--mono);font-size:.78rem;color:var(--muted)}
+.sk{display:inline-block;min-width:2.9rem;margin-right:.4rem;font-family:var(--mono);font-size:.66rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.steps li.tool .sk{color:var(--accent)}
+.trans{display:grid;grid-template-columns:6.4rem 1fr;gap:.5rem;margin:.3rem 0;font-size:.86rem;align-items:baseline}
+.trans code{font-weight:600}
+.arr{font-family:var(--mono);font-size:.72rem;color:var(--muted);white-space:nowrap;cursor:help}
 .res{color:var(--muted)}
 details{margin-top:.5rem}
 summary{cursor:pointer;font-size:.82rem;color:var(--accent)}
@@ -256,7 +264,7 @@ th{font-family:var(--display);font-size:.72rem;text-transform:uppercase;letter-s
 .small{font-size:.84rem;color:var(--muted)}
 .toc{columns:2;column-gap:2rem;font-size:.86rem;margin-top:.6rem}
 @media (max-width:640px){.toc{columns:1}}
-@media (max-width:520px){.say,.mean,.must,.ctx{grid-template-columns:1fr}}
+@media (max-width:520px){.say,.mean,.must,.ctx,.trans{grid-template-columns:1fr}}
 .toc a{display:block;padding:.16rem 0;color:var(--ink);text-decoration:none;border-bottom:1px dashed var(--line-soft);font-family:var(--mono);font-size:.78rem}
 .toc a:hover{color:var(--accent)}
 footer{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--line);font-size:.85rem;color:var(--muted)}
@@ -380,32 +388,72 @@ def main() -> None:
         states = validator._states.get(it.qid, [None] * len(path))
         sig = sequence_signature([validator.ont.canonicalize(f, s) for (f, _), s in zip(path, states)], states)
 
+        # every bot act and tool call after a customer turn, in the exact order of the oracle's trace
+        def render_steps(steps, frame):
+            if not steps:
+                return '<ol class="steps"><li class="small">(the bot says nothing more: the call has ended)</li></ol>'
+            li = []
+            for kind, x in steps:
+                if kind == "tool":
+                    li.append(f'<li class="tool"><span class="sk">calls</span>{render_tool(x)}</li>')
+                else:
+                    li.append(f'<li class="act"><span class="sk">says</span>{render_act(x, frame, fx, outcome, limits)}</li>')
+            return '<ol class="steps">' + "".join(li) + "</ol>"
+
+        def transitions(st, frame, steps):
+            """The dialog-state path of this turn: the state the customer answered, then every state the bot
+            enters, each hop labelled with the policy graph's transition (on what, the rules and edges)."""
+            if kg is None:
+                return ""
+            known = set(kg.states)
+            path_ = [a.get("act") for k_, a in steps if k_ == "act" and a.get("act") in known]
+            if st is None and path_:
+                st, path_ = path_[0], path_[1:]
+            if not st:
+                return ""
+            out = [f"<code>{E(st)}</code>"]
+            src, on = st, (frame.act if frame is not None else "auto")
+            for dst in path_:
+                cand = [t for t in kg.transitions(src) if t.get("dst") == dst]
+                t = next((t for t in cand if t.get("on") == on), cand[0] if cand else None)
+                if t:
+                    lab = " · ".join(x for x in (t.get("on"), ",".join(t.get("rules") or []),
+                                                  ",".join(t.get("edges") or [])) if x)
+                    out.append(f'<span class="arr" title="{E(str(t.get("when") or ""))}">─{E(lab)}→</span>'
+                               f"<code>{E(dst)}</code>")
+                else:
+                    out.append(f'<span class="arr">─{E(on)}→</span><code>{E(dst)}</code>')
+                src, on = dst, "auto"
+            ended = bool(steps) and steps[-1][0] == "tool" and steps[-1][1].get("tool") == "transfer_to_human" \
+                or (bool(steps) and steps[-1][0] == "act" and steps[-1][1].get("act") in ("END", "TRANSFER"))
+            if ended:
+                out.append('<span class="arr">─→</span><code>END</code>')
+            return " ".join(out)
+
         groups, opening, turn_i = [], [], -1
         for ev in tr.events:
             if ev["role"] == "user":
                 turn_i += 1
-                groups.append({"turn": turn_i, "acts": [], "tools": []})
+                groups.append({"turn": turn_i, "steps": []})
             elif ev["role"] == "tool":
-                if groups:
-                    groups[-1]["tools"].append(ev)
+                (groups[-1]["steps"] if groups else opening).append(("tool", ev))
             else:
-                (groups[-1]["acts"] if groups else opening).extend(ev.get("acts") or [])
+                (groups[-1]["steps"] if groups else opening).extend(("act", a) for a in ev.get("acts") or [])
 
         rows = []
         if opening:
             rows.append('<div class="turn opening"><div class="hd"><b>Call opens</b>'
                         '<span>before any customer turn</span></div>'
-                        '<div class="must"><div class="who">Correct bot behaviour</div><ul class="acts">'
-                        + "".join(f"<li>{render_act(x, None, fx, outcome, limits)}</li>" for x in opening)
-                        + "</ul></div></div>")
+                        f'<div class="trans"><span class="who">states</span><span>{transitions(None, None, opening)}</span></div>'
+                        '<div class="must"><div class="who">Correct bot behaviour, in order</div>'
+                        + render_steps(opening, None) + "</div></div>")
         for g in groups:
             i = g["turn"]
             frame, ctx = path[i] if i < len(path) else (None, {})
             st = states[i] if i < len(states) else None
             card = validator.ont.card(frame, st)
             base_text = realizer.realize(frame, {}, f"{it.qid}|{i}|base", ctx) if frame else ""
-            acts = "".join(f"<li>{render_act(x, frame, fx, outcome, limits)}</li>" for x in g["acts"])
-            tools = "".join(f"<li>{render_tool(t)}</li>" for t in g["tools"])
+            steps = render_steps(g["steps"], frame)
             cardj = json.dumps({"act": card.get("act"), "slots": card.get("slots")}, ensure_ascii=False)
             if kg is not None and st in getattr(kg, "prompt_states", []):
                 ctxline = (f"accepts <code>{E(', '.join(kg.accepted_acts(st)))}</code> · "
@@ -418,9 +466,10 @@ def main() -> None:
         <div class="hd"><b>Turn {i}</b><span>{E(str(st))}</span><span>{E(str(card.get('stage') or ''))}</span></div>
         <div class="say"><span class="who">Customer</span><span>“{E(base_text)}”</span></div>
         <div class="mean"><span class="who">means</span><span><code>{E(cardj)}</code></span></div>
+        <div class="trans"><span class="who">states</span><span>{transitions(st, frame, g["steps"])}</span></div>
         <div class="must">
-          <div class="who">Correct bot behaviour</div>
-          <ul class="acts">{acts or '<li class="small">(no acts recorded)</li>'}{tools}</ul>
+          <div class="who">Correct bot behaviour, in order</div>
+          {steps}
         </div>
         <div class="ctx"><span class="who">state rules</span><span class="small">{ctxline}</span></div>
         {variant_block(it.qid, i)}
