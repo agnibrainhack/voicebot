@@ -32,6 +32,7 @@ import argparse
 import csv
 import html
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -264,7 +265,7 @@ STYLE = """
 --line-soft:#222c36;--accent:#f0a35e;--accent-soft:#33261a;--pass:#5cc98d;--pass-soft:#16281f;--code-bg:#131a22;
 --fail:#f2837a;--fail-soft:#2e1a19;color-scheme:dark}
 body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.6;padding-inline:16px}
-.wrap{max-width:1080px;margin:0 auto;padding-block:clamp(26px,5vw,60px)}
+.wrap{max-width:1360px;margin:0 auto;padding-block:clamp(26px,5vw,60px)}
 h1,h2,h3{font-family:var(--display);line-height:1.15;margin:0;text-wrap:balance}
 h1{font-size:clamp(1.9rem,5vw,2.9rem);font-weight:700}
 h2{font-size:1.5rem;font-weight:700;margin-block:1.6rem .4rem}
@@ -304,6 +305,17 @@ tr:target td{background:var(--accent-soft)}
 .story ol{margin:.15rem 0 0;padding-left:1.3rem}
 .story li{margin:.2rem 0}
 .plain{font-size:.9rem;margin:.35rem 0;color:var(--ink)}
+.pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.7fr);gap:10px;align-items:start}
+.plaincol{position:sticky;top:3rem;border:1px solid var(--line-soft);border-radius:9px;padding:.65rem .8rem;background:var(--code-bg);font-size:.9rem}
+.plaincol .plain{margin:0}
+@media (max-width:900px){.pair{grid-template-columns:1fr}.plaincol{position:static}}
+.viewbar{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;padding:.5rem 0;background:var(--bg)}
+.viewbar button{font:inherit;font-size:.82rem;padding:.3rem .7rem;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.viewbar button[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+body.view-side .storylist{display:none}
+body.view-details .story,body.view-details .plaincol{display:none}
+body.view-details .pair{grid-template-columns:1fr}
+body.view-story .turns{display:none}
 .brief{font-size:.95rem;line-height:1.55}
 .brief .small{margin-top:.25rem}
 .trans{display:grid;grid-template-columns:6.4rem 1fr;gap:.5rem;margin:.3rem 0;font-size:.86rem;align-items:baseline}
@@ -543,11 +555,12 @@ def main() -> None:
 
         rows = []
         if opening:
-            rows.append('<div class="turn opening"><div class="hd"><b>Call opens</b>'
+            rows.append('<div class="pair"><div class="plaincol">@@PLAIN_O@@</div>'
+                        '<div class="turn opening"><div class="hd"><b>Call opens</b>'
                         '<span>before any customer turn</span></div>'
                         '<div class="who" style="margin-top:.4rem">State transitions</div>' + transitions(None, None, opening)
                         + '<div class="must"><div class="who">Correct bot behaviour, in order</div>'
-                        + render_steps(opening, None) + "</div></div>")
+                        + render_steps(opening, None) + "</div></div></div>")
         for g in groups:
             i = g["turn"]
             frame, ctx = path[i] if i < len(path) else (None, {})
@@ -563,11 +576,11 @@ def main() -> None:
             else:
                 ctxline = ""
             rows.append(f"""
+      <div class="pair"><div class="plaincol">@@PLAIN_{i}@@</div>
       <div class="turn">
         <div class="hd"><b>Turn {i}</b><span>{E(str(st))}</span><span>{E(str(card.get('stage') or ''))}</span></div>
         <div class="say"><span class="who">Customer</span><span>“{E(base_text)}”</span></div>
         <div class="mean"><span class="who">means</span><span><code>{E(cardj)}</code></span></div>
-        @@PLAIN{i}@@
         <div class="who" style="margin-top:.4rem">State transitions</div>
         {transitions(st, frame, g["steps"])}
         <div class="must">
@@ -576,7 +589,7 @@ def main() -> None:
         </div>
         <div class="ctx"><span class="who">state rules</span><span class="small">{ctxline}</span></div>
         {variant_block(it.qid, i)}
-      </div>""")
+      </div></div>""")
 
         # ---- plain-English story of the case, from the same hops and policy-graph transitions
         from gmsjourney.enrich.llm.prompts import describe_meaning
@@ -669,12 +682,15 @@ def main() -> None:
                                     _turns, kg, _q))
         story_html = ('<div class="story">' f'@@BRIEF:{it.qid}@@' '<div><span class="who">What this case tests</span>'
                       + (E("; ".join(tests)).capitalize() + "." if tests else "The standard path with no complications.")
-                      + '</div><div><span class="who">What happens</span><ol>'
+                      + '</div><div class="storylist"><span class="who">What happens</span><ol>'
                       + "".join(f"<li>{x}</li>" for x in story if x)
                       + f'</ol></div><div><span class="who">Why it ends this way</span>{ending}</div></div>')
-        turn_story_by_i = {g["turn"]: s for g, s in zip(groups, story[1:] if opening else story)}
-        rows = [r.replace(f"@@PLAIN{n}@@", f'<div class="plain"><span class="who">In plain words</span>{turn_story_by_i.get(n, "")}</div>')
-                if f"@@PLAIN{n}@@" in r else r for r in rows for n in [next((m for m in turn_story_by_i if f"@@PLAIN{m}@@" in r), -1)]]
+        # the plain-English account of each turn, beside the turn's detailed view
+        plain_by = {str(g["turn"]): s for g, s in zip(groups, story[1:] if opening else story)}
+        if opening:
+            plain_by["O"] = story[0]
+        rows = [re.sub(r"@@PLAIN_(\w+)@@", lambda m: (f'<div class="plain"><span class="who">In plain words</span>'
+                                                      f'{plain_by.get(m.group(1), "")}</div>'), r) for r in rows]
 
         k = kb_by_qid.get(it.qid)
         kbmeta = ""
@@ -771,6 +787,12 @@ links here; the last column counts how often the answer key uses it (greyed: no 
 <div class="toc">{''.join(f'<a href="#{E(b.qid)}">{E(b.qid)} · {E(str(b.base))}</a>' for b in bases)}</div>
 
 <h2>Cases</h2>
+<div class="viewbar" role="group" aria-label="View">
+  <span class="who" style="display:inline">View</span>
+  <button type="button" data-view="side" aria-pressed="true">Side by side</button>
+  <button type="button" data-view="details" aria-pressed="false">Details only (previous view)</button>
+  <button type="button" data-view="story" aria-pressed="false">Story only</button>
+</div>
 {''.join(blocks)}
 
 <footer>Generated by <code>tools/answer_sheet.py</code> from the trained GMS store and the oracle
@@ -799,6 +821,26 @@ See also: <a href="ANNOTATED.html">Frames, Reader, Oracle</a> (the three core fi
                                 f'(turns, transitions, tool results, rules) and checked against them; the step-by-step '
                                 f'account below is computed directly from the policy graph.</div></div>')
                           if cid in briefs else "")
+    doc += """<script>
+(function () {
+  var KEY = "answer-sheet-view";
+  function set(v) {
+    document.body.classList.remove("view-side", "view-details", "view-story");
+    document.body.classList.add("view-" + v);
+    document.querySelectorAll(".viewbar button").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.view === v));
+    });
+    try { localStorage.setItem(KEY, v); } catch (e) {}
+  }
+  var v = "side";
+  try { v = localStorage.getItem(KEY) || "side"; } catch (e) {}
+  set(["side", "details", "story"].indexOf(v) >= 0 ? v : "side");
+  document.querySelectorAll(".viewbar button").forEach(function (b) {
+    b.addEventListener("click", function () { set(b.dataset.view); });
+  });
+})();
+</script>
+"""
     Path(a.out).write_text(doc, encoding="utf-8")
     if inexact_hops:
         say(f"      {len(inexact_hops)} hops match a graph transition only by states (trigger differs):", sorted({(x[1], x[2], x[3]) for x in inexact_hops}))
