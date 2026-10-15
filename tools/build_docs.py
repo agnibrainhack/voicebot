@@ -115,6 +115,8 @@ def main() -> int:
     ap.add_argument("--store-dir", default=None, help="passed to answer_sheet (default: the build cache)")
     ap.add_argument("--trace", default=str(TEMPLATES / "annotated_trace.txt"),
                     help="trace embedded in ANNOTATED.html (omit with --trace none)")
+    ap.add_argument("--summaries", default="template", choices=["template", "llm"],
+                    help="answer sheet: llm adds a checked model-written summary to every case")
     ap.add_argument("--only", default="answer_sheet,annotated,explainer,invariance",
                     help="comma-separated subset to build")
     a = ap.parse_args()
@@ -133,6 +135,7 @@ def main() -> int:
         args = ["--campaign", str(campaign), "--out", str(out / "ANSWER_SHEET.html")]
         if a.store_dir:
             args += ["--store-dir", a.store_dir]
+        args += ["--summaries", a.summaries]
         ok &= run_tool("answer_sheet.py", args)
 
     if "annotated" in want:

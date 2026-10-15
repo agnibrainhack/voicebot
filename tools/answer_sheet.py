@@ -182,6 +182,59 @@ def render_act(act: dict, frame: SemanticFrame | None, fx: dict, outcome: dict, 
     return f"Emits <code>{E(str(a))}</code>."
 
 
+# ---------------------------------------------------------------- plain-English narrative
+STATE_EN = {
+    "OPENING": "the greeting", "ASK_AUTH": "asking for the card digits", "ASK_AUTH_RETRY": "asking for the digits again",
+    "PRESENT_TXN": "asking about a charge", "ANSWER_KB": "answering a policy question",
+    "ASK_CLARIFY": "asking the caller to repeat", "PROVIDE_CONTEXT": "repeating the charge details",
+    "CONFIRM_RECORDED": "confirming the recorded answer", "DISCLOSE_FEE": "disclosing the expedited fee",
+    "CONFIRM_ACTION": "asking to confirm the card action", "ACTION_DONE": "confirming the card action is done",
+    "ACK_DECLINED": "acknowledging the declined card action", "INFORM_NO_CARD_ACTION": "saying no card action is available",
+    "EXPLAIN_LIMIT": "explaining a session limit", "EXPLAIN_NO_TXNS": "explaining there are no charges to review",
+    "SUMMARIZE": "summarising the call", "ASK_MORE_HELP": "asking whether anything else is needed",
+    "TRANSFER": "handing over to a human", "END": "the end of the call",
+}
+DIM_EN = {
+    "auth": {"ok": "the caller verifies on the first try", "retry_ok": "the first card digits are wrong and the second try succeeds",
+             "fail_twice": "both verification attempts fail", "unavailable": "the verification system is down",
+             "human_at_auth": "the caller asks for a human before verifying"},
+    "retrieve": {"unavailable": "the system that lists the charges is down"},
+    "n_txn": {0: "there are no charges to review", 1: "one charge to review", 2: "two charges to review",
+              4: "four charges (exactly the per-call limit)", 5: "five charges (one more than the per-call limit)"},
+    "window": {"day30": "a charge exactly at the 30-day review limit", "day31": "a charge one day past the review limit"},
+    "disposition": {"all_recognized": "the caller recognises the charges", "mixed": "the caller recognises some charges and not others",
+                    "unsure_resolved": "the caller is unsure at first, then answers", "unsure_twice": "the caller stays unsure",
+                    "ambiguous_resolved": "an unclear answer is cleared up after one clarification",
+                    "ambiguous_twice": "the answer stays unclear after a clarification",
+                    "correction": "the caller corrects an earlier answer"},
+    "record": {"fail_first": "recording the first answer fails"},
+    "card_intent": {"secure": "the caller asks to secure the card", "replace_standard": "the caller asks for a replacement card, standard delivery",
+                    "replace_expedited": "the caller asks for a replacement card, expedited delivery"},
+    "card_options": {"none": "no card action is available on the account", "unavailable": "the card-options system is down"},
+    "expedited_confirm": {"switch_standard": "the caller switches to standard delivery when told the fee"},
+    "submit": {"fail": "submitting the card action fails"},
+    "human_mid": {"yes": "the caller asks for a human part-way through"},
+    "kb_mid": {"ask": "the caller asks a policy question before answering"},
+    "turn_pressure": {"at_limit": "the call reaches exactly the 20-turn limit", "over_limit": "the call would run past the 20-turn limit"},
+}
+
+
+def tool_en(ev: dict) -> str:
+    res = ev.get("result") or {}
+    st = res.get("status") or ("ERROR" if res.get("error") else "")
+    tool = ev.get("tool", "")
+    if res.get("transactions") is not None and tool == "get_review_transactions":
+        n = len(res.get("transactions") or [])
+        return f"<code>{E(tool)}</code> returns {E(st)} ({n} charge{'s' if n != 1 else ''})"
+    if res.get("options"):
+        return f"<code>{E(tool)}</code> returns {E(st)} ({E(', '.join(res['options']))})"
+    return f"<code>{E(tool)}</code> returns <b>{E(st)}</b>"
+
+
+def state_en(s: str | None) -> str:
+    return f"{E(STATE_EN.get(s or '', str(s)))} (<code>{E(str(s))}</code>)"
+
+
 def render_tool(ev: dict) -> str:
     args = ", ".join(f"{k}={v}" for k, v in (ev.get("args") or {}).items()) or "—"
     res = ev.get("result") or {}
@@ -247,6 +300,12 @@ code{font-family:var(--mono);font-size:.85em;background:var(--code-bg);border:1p
 .hops td,.hops th{padding:.3rem .45rem}
 tr.unused td{opacity:.55}
 tr:target td{background:var(--accent-soft)}
+.story{display:grid;gap:.45rem;margin:.7rem 0;padding:.65rem .8rem;border:1px solid var(--line-soft);border-radius:9px;background:var(--code-bg);font-size:.92rem}
+.story ol{margin:.15rem 0 0;padding-left:1.3rem}
+.story li{margin:.2rem 0}
+.plain{font-size:.9rem;margin:.35rem 0;color:var(--ink)}
+.brief{font-size:.95rem;line-height:1.55}
+.brief .small{margin-top:.25rem}
 .trans{display:grid;grid-template-columns:6.4rem 1fr;gap:.5rem;margin:.3rem 0;font-size:.86rem;align-items:baseline}
 .trans code{font-weight:600}
 .arr{font-family:var(--mono);font-size:.72rem;color:var(--muted);white-space:nowrap;cursor:help}
@@ -285,6 +344,11 @@ def main() -> None:
     ap.add_argument("--backend", default="auto", choices=["auto", "knowlytix", "builtin"])
     ap.add_argument("--store-dir", default=None, help="knowlytix store dir (default: the build cache)")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--summaries", default="template", choices=["template", "llm"],
+                    help="llm: add a short model-written summary to each case, written from the case's fact sheet "
+                         "and checked against it (the deterministic story is always shown)")
+    ap.add_argument("--llm-model", default="", help="gateway deployment for --summaries llm (default gpt-41)")
+    ap.add_argument("--llm-workers", type=int, default=8, help="concurrent gateway calls for --summaries llm")
     ap.add_argument("--max-turn-limit-cases", type=int, default=None,
                     help="as in the campaign config (default: read from <campaign>/report.json, else 2; -1 = no cap)")
     a = ap.parse_args()
@@ -386,8 +450,11 @@ def main() -> None:
     say("[3/4] rendering each case from the oracle's own trace")
     blocks = []
     from collections import Counter as _Counter
-    used_edges: _Counter = _Counter()               # policy-graph transition triple id -> hops in this sheet
+    used_edges: _Counter = _Counter()
+    inexact_hops: list = []                         # hops whose states match a graph transition but not its trigger               # policy-graph transition triple id -> hops in this sheet
     wf_cond = {w.wid: f"{w.src} -> {w.dst} : {w.condition}" for w in getattr(store, "workflow", [])}
+    from gmsjourney.narrate import case_facts
+    facts_all: list[dict] = []                      # one fact sheet per case (for --summaries llm)
     for it in bases:
         spec, fx = it.metadata["spec"], it.metadata["fixture"]
         tr = oracle.run(spec, fx)
@@ -429,7 +496,10 @@ def main() -> None:
             if kg is None or not src or not dst:
                 return None
             cand = [t for t in kg.where("leads_to", head=src) if t["tail"] == dst]
-            return next((t for t in cand if (t.get("qualifiers") or {}).get("on") == on), cand[0] if cand else None)
+            exact = next((t for t in cand if (t.get("qualifiers") or {}).get("on") == on), None)
+            if exact is None and cand:                 # same states, different trigger: report it, never pass it off
+                inexact_hops.append((it.qid, src, on, dst, [(c["id"], (c.get("qualifiers") or {}).get("on")) for c in cand]))
+            return exact
 
         def transitions(st, frame, steps):
             hops = hops_of(st, frame, steps)
@@ -497,6 +567,7 @@ def main() -> None:
         <div class="hd"><b>Turn {i}</b><span>{E(str(st))}</span><span>{E(str(card.get('stage') or ''))}</span></div>
         <div class="say"><span class="who">Customer</span><span>“{E(base_text)}”</span></div>
         <div class="mean"><span class="who">means</span><span><code>{E(cardj)}</code></span></div>
+        @@PLAIN{i}@@
         <div class="who" style="margin-top:.4rem">State transitions</div>
         {transitions(st, frame, g["steps"])}
         <div class="must">
@@ -506,6 +577,104 @@ def main() -> None:
         <div class="ctx"><span class="who">state rules</span><span class="small">{ctxline}</span></div>
         {variant_block(it.qid, i)}
       </div>""")
+
+        # ---- plain-English story of the case, from the same hops and policy-graph transitions
+        from gmsjourney.enrich.llm.prompts import describe_meaning
+
+        def rule_en(rules):
+            rules = [r for r in rules or [] if kg is not None and kg.rule_text(r)]
+            return "; ".join(f"<code>{E(r)}</code> “{E(kg.rule_text(r).rstrip('.'))}”" for r in rules[:2])
+
+        def hop_sentence(h, first):
+            t = graph_edge(h["src"], h["dst"], h["on"])
+            q = (t or {}).get("qualifiers") or {}
+            why = E(str(q.get("when") or "always"))
+            tools_ = ", ".join(tool_en(x) for x in h["tools"])
+            lead = ("" if not tools_ else f"{tools_}; ")
+            if h["src"] is None:
+                return f"The call starts at {state_en(h['dst'])}."
+            subj = "the bot moves" if first else "it then moves"
+            rr = rule_en(q.get("rules"))
+            cond = "" if why == "always" else f"because <i>{why}</i>, "
+            return (f"{lead}{cond}{subj} from {state_en(h['src'])} to {state_en(h['dst'] or h['src'])}"
+                    + (f" — {rr}" if rr else "") + ".")
+
+        def turn_story(st, frame, steps, who):
+            hops = hops_of(st, frame, steps)
+            m_ = describe_meaning(frame).split(" - BOTH parts must be said")[0] if frame is not None else ""
+            said = (f"The customer {E(m_)}. " if frame is not None else "")
+            parts = [hop_sentence(h, n == 0) for n, h in enumerate(hops)]
+            text = " ".join(p[0].upper() + p[1:] if p else p for p in parts)
+            return f"<b>{E(who)}.</b> {said}{text}" if (said or text) else ""
+
+        story = [turn_story(None, None, opening, "Opening")] if opening else []
+        for g in groups:
+            i = g["turn"]
+            fr_ = path[i][0] if i < len(path) else None
+            st_ = states[i] if i < len(states) else None
+            story.append(turn_story(st_, fr_, g["steps"], f"Turn {i}"))
+        rel_ = {d: v for d, v in (it.metadata.get("relevant") or {}).items() if v not in (None, "N/A")}
+        tests = [DIM_EN.get(d, {}).get(v) for d, v in rel_.items()]
+        tests = [x for x in tests if x]
+        _k = kb_by_qid.get(it.qid)
+        if _k is not None:                          # a single-question policy case: the question is what is tested
+            tests = [f"one policy question — the customer {describe_meaning(_k.frame)}; the answer must be computed "
+                     f"from the policy ({_k.answer!s})"
+                     + ("; the policy says nothing about it, so the bot must say it does not know" if _k.probe else "")]
+        all_hops = []
+        for g in groups:
+            i = g["turn"]
+            all_hops += hops_of(states[i] if i < len(states) else None, path[i][0] if i < len(path) else None, g["steps"])
+        # the decisive step: walk back from the end past the wrap-up states to the step that started the ending
+        final = None
+        for h in reversed(all_hops):
+            final = h
+            if h["src"] not in ("SUMMARIZE", "TRANSFER", "END"):
+                break
+        endw = str(outcome.get("end"))
+        rec = outcome.get("recorded") or []
+        rec_en = ", ".join(f"{E(str(a))} {E(str(b))}" for a, b in rec) if isinstance(rec, list) else E(json.dumps(rec))
+        ending = f"The call ends <b>{E(endw)}</b>"
+        if outcome.get("transfer_reason"):
+            ending += f" (reason <code>{E(str(outcome.get('transfer_reason')))}</code>)"
+        if final is not None:
+            t = graph_edge(final["src"], final["dst"], final["on"])
+            q = (t or {}).get("qualifiers") or {}
+            ending += (f". It is decided at the step from {state_en(final['src'])} to {state_en(final['dst'])}"
+                       + (f", triggered by the customer's <code>{E(str(final['on']))}</code>" if final["on"] not in ("auto", "call start") else "")
+                       + f", taken because <i>{E(str(q.get('when') or 'always'))}</i>")
+            rr = rule_en(q.get("rules"))
+            ending += (f" — {rr}" if rr else "")
+        ending += "."
+        ending += (f" Recorded: {rec_en}." if rec else " Nothing is recorded.")
+        _turns = ([{"turn": "opening", "state": None, "trigger": "call start", "customer_says": None,
+                    "customer_means": None, "steps": opening,
+                    "bot_says": [render_act(x, None, fx, outcome, limits) for k_, x in opening if k_ == "act"]}]
+                  if opening else [])
+        for g in groups:
+            i = g["turn"]
+            fr_ = path[i][0] if i < len(path) else None
+            _turns.append({"turn": i, "state": states[i] if i < len(states) else None,
+                           "trigger": fr_.act if fr_ is not None else None,
+                           "customer_says": realizer.realize(fr_, {}, f"{it.qid}|{i}|base", path[i][1]) if fr_ else None,
+                           "customer_means": (describe_meaning(fr_).split(" - BOTH parts must be said")[0]
+                                              if fr_ is not None else None),
+                           "steps": g["steps"],
+                           "bot_says": [render_act(x, fr_, fx, outcome, limits) for k_, x in g["steps"] if k_ == "act"]})
+        _q = None
+        if _k is not None:
+            _q = {"question": realizer.realize(_k.frame, {}, f"{_k.qid}|kb|base"), "answer": _k.answer,
+                  "policy_is_silent": bool(_k.probe)}
+        facts_all.append(case_facts(it.qid, "policy question" if _k is not None else "journey", outcome,
+                                    _turns, kg, _q))
+        story_html = ('<div class="story">' f'@@BRIEF:{it.qid}@@' '<div><span class="who">What this case tests</span>'
+                      + (E("; ".join(tests)).capitalize() + "." if tests else "The standard path with no complications.")
+                      + '</div><div><span class="who">What happens</span><ol>'
+                      + "".join(f"<li>{x}</li>" for x in story if x)
+                      + f'</ol></div><div><span class="who">Why it ends this way</span>{ending}</div></div>')
+        turn_story_by_i = {g["turn"]: s for g, s in zip(groups, story[1:] if opening else story)}
+        rows = [r.replace(f"@@PLAIN{n}@@", f'<div class="plain"><span class="who">In plain words</span>{turn_story_by_i.get(n, "")}</div>')
+                if f"@@PLAIN{n}@@" in r else r for r in rows for n in [next((m for m in turn_story_by_i if f"@@PLAIN{m}@@" in r), -1)]]
 
         k = kb_by_qid.get(it.qid)
         kbmeta = ""
@@ -525,6 +694,7 @@ def main() -> None:
         · conversation signature <code>{E(sig)}</code></div>
     </div>
     {kbmeta}
+    {story_html}
     <div class="verdict"><span class="who">Correct outcome</span>
       <span>end <b>{E(str(outcome.get('end')))}</b>{f" · transfer reason <b>{E(str(outcome.get('transfer_reason')))}</b>" if outcome.get('transfer_reason') else ''}
       · recorded <code>{E(json.dumps(outcome.get('recorded')))}</code> ·
@@ -612,7 +782,26 @@ See also: <a href="ANNOTATED.html">Frames, Reader, Oracle</a> (the three core fi
 <a href="INVARIANCE.html">How Invariance Is Proven</a>.</footer>
 </div>
 """
+    briefs: dict = {}
+    if a.summaries == "llm":                        # model-written, checked against each case's own fact sheet
+        from gmsjourney.enrich.llm.client import LLMSettings
+        from gmsjourney.narrate import LLMNarrator
+        narr = LLMNarrator(LLMSettings(model=a.llm_model or ""), workers=a.llm_workers, log=say)
+        why = narr.llm.unavailable_reason()
+        if why:
+            say(f"      LLM summaries skipped: {why}")
+        else:
+            briefs = {cid: txt for cid, (txt, src) in narr.summarize_all(facts_all).items() if src == "llm"}
+    for cid in [f["case"] for f in facts_all]:
+        tok = f"@@BRIEF:{cid}@@"
+        doc = doc.replace(tok, (f'<div class="brief"><span class="who">In brief <span class="tag llm">LLM</span></span>'
+                                f'{E(briefs[cid])}<div class="small">Written by the model from this case\'s facts '
+                                f'(turns, transitions, tool results, rules) and checked against them; the step-by-step '
+                                f'account below is computed directly from the policy graph.</div></div>')
+                          if cid in briefs else "")
     Path(a.out).write_text(doc, encoding="utf-8")
+    if inexact_hops:
+        say(f"      {len(inexact_hops)} hops match a graph transition only by states (trigger differs):", sorted({(x[1], x[2], x[3]) for x in inexact_hops}))
     say(f"wrote {a.out} ({len(doc) / 1024:.0f} KB)")
 
 

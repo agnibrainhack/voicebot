@@ -654,6 +654,43 @@ def test_extended_policy_questions_are_computed_and_read_back():
     assert len({k.frame.canonical() for k in ext}) == len(ext)             # no duplicate questions
 
 
+def test_case_summaries_are_checked_against_the_facts():
+    import tempfile as _tf
+    from gmsjourney.enrich.llm import LLMSettings
+    from gmsjourney.narrate import LLMNarrator, case_facts, template_summary
+    store, oracle, R, rd = env()
+    from gmsjourney.journey import JourneySpec
+    tr = oracle.run(JourneySpec(human_mid="yes", n_txn=2))
+    turns, cur, i = [], None, -1
+    for ev in tr.events:                                  # the answer sheet's grouping, in miniature
+        if ev["role"] == "user":
+            i += 1
+            cur = {"turn": i, "state": None, "trigger": ev["frame"].act, "customer_says": "x",
+                   "customer_means": ev["frame"].act.lower(), "steps": [], "bot_says": []}
+            turns.append(cur)
+        elif cur is not None:
+            cur["steps"] += [("tool", ev)] if ev["role"] == "tool" else [("act", a) for a in ev["acts"]]
+    states = [None, "ASK_AUTH", "PRESENT_TXN", "PRESENT_TXN"]
+    for t, s in zip(turns, states[1:]):
+        t["state"] = s
+    facts = case_facts("J900", "journey", {"end": tr.end_state, "transfer_reason": tr.transfer_reason,
+                                           "recorded": tr.recorded() if callable(tr.recorded) else tr.recorded}, turns, store.kg)
+    assert "transfer" in template_summary(facts).lower()
+    assert LLMNarrator.check("After two turns the customer asks for a human and the call ends in a transfer [R20].",
+                             facts) == []
+    assert LLMNarrator.check("The fee is $99, so the call ends in a transfer [R99].", facts)
+    replies = iter(['{"summary": "The fee is $99 and the call ends in a transfer."}',
+                    '{"summary": "The customer asks for a human, so the call ends in a transfer [R20]."}'])
+
+    class _M:
+        def invoke(self, msgs):
+            return SimpleNamespace(content=next(replies))
+    n = LLMNarrator(LLMSettings(cache_dir=_tf.mkdtemp()), workers=1, log=None)
+    n.llm.model = _M()
+    text, src = n._one(facts)                             # first reply invents a figure: retried with the reason
+    assert src == "llm" and "$99" not in text
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
