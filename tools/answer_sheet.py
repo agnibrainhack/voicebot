@@ -242,6 +242,11 @@ code{font-family:var(--mono);font-size:.85em;background:var(--code-bg);border:1p
 .steps li::marker{font-family:var(--mono);font-size:.78rem;color:var(--muted)}
 .sk{display:inline-block;min-width:2.9rem;margin-right:.4rem;font-family:var(--mono);font-size:.66rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
 .steps li.tool .sk{color:var(--accent)}
+.hops{margin-top:.25rem}
+.hops table{font-size:.8rem}
+.hops td,.hops th{padding:.3rem .45rem}
+tr.unused td{opacity:.55}
+tr:target td{background:var(--accent-soft)}
 .trans{display:grid;grid-template-columns:6.4rem 1fr;gap:.5rem;margin:.3rem 0;font-size:.86rem;align-items:baseline}
 .trans code{font-weight:600}
 .arr{font-family:var(--mono);font-size:.72rem;color:var(--muted);white-space:nowrap;cursor:help}
@@ -380,6 +385,9 @@ def main() -> None:
 
     say("[3/4] rendering each case from the oracle's own trace")
     blocks = []
+    from collections import Counter as _Counter
+    used_edges: _Counter = _Counter()               # policy-graph transition triple id -> hops in this sheet
+    wf_cond = {w.wid: f"{w.src} -> {w.dst} : {w.condition}" for w in getattr(store, "workflow", [])}
     for it in bases:
         spec, fx = it.metadata["spec"], it.metadata["fixture"]
         tr = oracle.run(spec, fx)
@@ -400,35 +408,58 @@ def main() -> None:
                     li.append(f'<li class="act"><span class="sk">says</span>{render_act(x, frame, fx, outcome, limits)}</li>')
             return '<ol class="steps">' + "".join(li) + "</ol>"
 
+        def hops_of(st, frame, steps):
+            """Split a turn's ordered steps into dialog-state hops: (before, trigger, tool calls, after, says).
+            The customer's meaning triggers the first hop; the bot's own moves after it are 'auto'."""
+            known = set(kg.states) if kg is not None else set()
+            hops, cur, trig, tools, pending_says = [], st, (frame.act if frame is not None else "call start"), [], []
+            for kind, x in steps:
+                if kind == "tool":
+                    tools.append(x)
+                elif x.get("act") in known:
+                    hops.append({"src": cur, "on": trig, "tools": tools, "dst": x.get("act"), "act": x})
+                    cur, trig, tools = x.get("act"), "auto", []
+            ended = (tools and tools[-1].get("tool") == "transfer_to_human") or (cur in ("TRANSFER", "END"))
+            if tools or (ended and cur != "END"):
+                hops.append({"src": cur, "on": trig, "tools": tools, "dst": "END" if ended else None, "act": None})
+            return hops
+
+        def graph_edge(src, dst, on):
+            """The policy graph's leads_to triple for this hop (exact trigger first), or None."""
+            if kg is None or not src or not dst:
+                return None
+            cand = [t for t in kg.where("leads_to", head=src) if t["tail"] == dst]
+            return next((t for t in cand if (t.get("qualifiers") or {}).get("on") == on), cand[0] if cand else None)
+
         def transitions(st, frame, steps):
-            """The dialog-state path of this turn: the state the customer answered, then every state the bot
-            enters, each hop labelled with the policy graph's transition (on what, the rules and edges)."""
-            if kg is None:
+            hops = hops_of(st, frame, steps)
+            if not hops:
                 return ""
-            known = set(kg.states)
-            path_ = [a.get("act") for k_, a in steps if k_ == "act" and a.get("act") in known]
-            if st is None and path_:
-                st, path_ = path_[0], path_[1:]
-            if not st:
-                return ""
-            out = [f"<code>{E(st)}</code>"]
-            src, on = st, (frame.act if frame is not None else "auto")
-            for dst in path_:
-                cand = [t for t in kg.transitions(src) if t.get("dst") == dst]
-                t = next((t for t in cand if t.get("on") == on), cand[0] if cand else None)
+            rows_ = []
+            for n, h in enumerate(hops, 1):
+                t = graph_edge(h["src"], h["dst"], h["on"])
+                q = (t or {}).get("qualifiers") or {}
+                used_edges.update([t["id"]] if t else [])
+                tools_ = "<br>".join(render_tool(x) for x in h["tools"]) or '<span class="small">—</span>'
+                rules = " ".join(f'<code title="{E(kg.rule_text(r))}">{E(r)}</code>' for r in q.get("rules") or [])
+                edges = " ".join(f'<code title="{E(wf_cond.get(w, ""))}">{E(w)}</code>' for w in q.get("edges") or [])
                 if t:
-                    lab = " · ".join(x for x in (t.get("on"), ",".join(t.get("rules") or []),
-                                                  ",".join(t.get("edges") or [])) if x)
-                    out.append(f'<span class="arr" title="{E(str(t.get("when") or ""))}">─{E(lab)}→</span>'
-                               f"<code>{E(dst)}</code>")
+                    ref = (f'<a href="#{E(t["id"])}"><code>{E(t["id"])}</code></a> '
+                           f'<span class="small">{E(str(t.get("source")))}: “{E(str(t.get("evidence") or ""))}”</span>')
+                    cond = E(str(q.get("when") or "always"))
+                elif h["src"] is None:                  # the call itself starting: the graph begins at OPENING
+                    ref, cond = '<span class="small">entry state of the policy graph</span>', "call begins"
                 else:
-                    out.append(f'<span class="arr">─{E(on)}→</span><code>{E(dst)}</code>')
-                src, on = dst, "auto"
-            ended = bool(steps) and steps[-1][0] == "tool" and steps[-1][1].get("tool") == "transfer_to_human" \
-                or (bool(steps) and steps[-1][0] == "act" and steps[-1][1].get("act") in ("END", "TRANSFER"))
-            if ended:
-                out.append('<span class="arr">─→</span><code>END</code>')
-            return " ".join(out)
+                    ref = '<span class="tag no">not in the policy graph</span>' if h["dst"] else ""
+                    cond = "—"
+                rows_.append(f"<tr><td>{n}</td><td><code>{E(str(h['src'] or 'start'))}</code></td>"
+                             f"<td><code>{E(str(h['on']))}</code></td><td>{tools_}</td><td>{cond}</td>"
+                             f"<td><code>{E(str(h['dst'] or '(stays)'))}</code></td>"
+                             f"<td>{rules}{' · ' if rules and edges else ''}{edges}</td><td>{ref}</td></tr>")
+            return ('<div class="tscroll hops"><table><thead><tr><th>#</th><th>State before</th><th>Trigger</th>'
+                    '<th>Tool calls → result</th><th>Transition condition</th><th>State after</th>'
+                    '<th>Rules · workflow</th><th>Policy graph</th></tr></thead><tbody>' + "".join(rows_)
+                    + "</tbody></table></div>")
 
         groups, opening, turn_i = [], [], -1
         for ev in tr.events:
@@ -444,8 +475,8 @@ def main() -> None:
         if opening:
             rows.append('<div class="turn opening"><div class="hd"><b>Call opens</b>'
                         '<span>before any customer turn</span></div>'
-                        f'<div class="trans"><span class="who">states</span><span>{transitions(None, None, opening)}</span></div>'
-                        '<div class="must"><div class="who">Correct bot behaviour, in order</div>'
+                        '<div class="who" style="margin-top:.4rem">State transitions</div>' + transitions(None, None, opening)
+                        + '<div class="must"><div class="who">Correct bot behaviour, in order</div>'
                         + render_steps(opening, None) + "</div></div>")
         for g in groups:
             i = g["turn"]
@@ -466,7 +497,8 @@ def main() -> None:
         <div class="hd"><b>Turn {i}</b><span>{E(str(st))}</span><span>{E(str(card.get('stage') or ''))}</span></div>
         <div class="say"><span class="who">Customer</span><span>“{E(base_text)}”</span></div>
         <div class="mean"><span class="who">means</span><span><code>{E(cardj)}</code></span></div>
-        <div class="trans"><span class="who">states</span><span>{transitions(st, frame, g["steps"])}</span></div>
+        <div class="who" style="margin-top:.4rem">State transitions</div>
+        {transitions(st, frame, g["steps"])}
         <div class="must">
           <div class="who">Correct bot behaviour, in order</div>
           {steps}
@@ -500,6 +532,24 @@ def main() -> None:
     <div class="turns">{''.join(rows)}</div>
   </section>""")
 
+    graph_table = ""
+    if kg is not None:                              # every transition of the policy graph, with how often it is used
+        rws = []
+        for t in sorted(kg.where("leads_to"), key=lambda t: (t["head"], t["tail"])):
+            q = t.get("qualifiers") or {}
+            n = used_edges.get(t["id"], 0)
+            rules_ = " ".join('<code title="%s">%s</code>' % (E(kg.rule_text(r)), E(r)) for r in q.get("rules") or [])
+            edges_ = " ".join('<code title="%s">%s</code>' % (E(wf_cond.get(w, "")), E(w)) for w in q.get("edges") or [])
+            sep = " · " if rules_ and edges_ else ""
+            rws.append(f'<tr id="{E(t["id"])}" class="{"unused" if not n else ""}"><td><code>{E(t["id"])}</code></td>'
+                       f'<td><code>{E(t["head"])}</code></td><td><code>{E(str(q.get("on")))}</code></td>'
+                       f'<td>{E(str(q.get("when") or "always"))}</td><td><code>{E(t["tail"])}</code></td>'
+                       f'<td>{rules_}{sep}{edges_}</td>'
+                       f'<td class="small">{E(str(t.get("source")))}: “{E(str(t.get("evidence") or ""))}”</td>'
+                       f'<td>{n}</td></tr>')
+        graph_table = ('<div class="tscroll"><table><thead><tr><th>Triple</th><th>State before</th><th>Trigger</th>'
+                       '<th>Condition</th><th>State after</th><th>Rules · workflow</th><th>Source (policy text)</th>'
+                       '<th>Hops in this sheet</th></tr></thead><tbody>' + "".join(rws) + "</tbody></table></div>")
     state_table = ""
     if kg is not None:
         rws = []
@@ -514,7 +564,10 @@ def main() -> None:
                        + "".join(rws) + "</tbody></table>")
 
     say("[4/4] writing", a.out)
-    doc = f"""<title>Answer Sheet</title>
+    doc = f"""<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Answer Sheet</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
@@ -536,8 +589,13 @@ for the LLM arm also the gates and the independent reader in <code>gmsjourney/en
 the identical meaning card and therefore the identical answer key. A <i>rejected</i> variant is listed for audit only
 and is not used in the run.</p>
 
-<div class="tscroll"><table><thead><tr><th>Dialog state</th><th>Accepts (customer acts)</th><th>Bare yes / no means</th>
-<th>Rules</th><th>Limits</th></tr></thead><tbody>{state_table}</tbody></table></div>
+<div class="tscroll">{state_table}</div>
+
+<h2>Policy graph: dialog-state transitions</h2>
+<p class="small">Every <code>leads_to</code> triple of the policy graph (<code>gmsjourney/policy/charge_review_kg.json</code>),
+with the condition, the rules and workflow edges it carries and the policy text it was built from. Each transition in a case
+links here; the last column counts how often the answer key uses it (greyed: no case in this sheet reaches it).</p>
+{graph_table}
 
 <h2>Index</h2>
 <div class="toc">{''.join(f'<a href="#{E(b.qid)}">{E(b.qid)} · {E(str(b.base))}</a>' for b in bases)}</div>
