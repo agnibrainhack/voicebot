@@ -17,8 +17,10 @@ The details panel on the right shows, on hover (click to pin, Esc to unpin):
   workflow `enables` triples whose edge it names, and the text of its source section;
 * nothing selected: the file's own header (title, schema, source document, checksums), the relation
   descriptions and how many triples there are of each relation.
-The layout is computed by Graphviz (dot) when it is installed (`apt install graphviz` / `conda install graphviz`),
-Wheel scrolls down the flow, Ctrl/⌘ + wheel zooms, drag pans, F for full screen.
+The page holds a vertical (top to bottom) and a horizontal (left to right) layout of the same graph and switches
+between them with a button (or #dir=TB / #dir=LR in the address); --direction picks the one it opens with.
+The layout is the built-in layered one by default; --layout graphviz uses Graphviz (dot) when it is installed.
+Wheel scrolls along the flow (down, or sideways in the horizontal view), Ctrl/⌘ + wheel zooms, drag pans, F full screen.
 """
 from __future__ import annotations
 
@@ -45,13 +47,13 @@ def load_graph(kg_path: Path) -> dict:
             "file": kg_path.name}
 
 
-def dot_layout(graph: dict) -> dict | None:
+def dot_layout(graph: dict, direction: str = "TB") -> dict | None:
     """Graphviz (dot) positions: node centres, each transition's spline and label point, in SVG units (y down).
     None when dot is not installed or fails (the page then lays the states out by stage itself)."""
     if not shutil.which("dot"):
         return None
     q = lambda x: '"' + str(x).replace('"', '\\"') + '"'
-    lines = ["digraph G {", "rankdir=TB; nodesep=0.3; ranksep=0.55; splines=true; forcelabels=true;",
+    lines = ["digraph G {", f"rankdir={direction}; nodesep=0.3; ranksep=0.55; splines=true; forcelabels=true;",
              'node [shape=box fixedsize=true width=2.35 height=0.5 fontname="Helvetica" fontsize=14];',
              'edge [fontname="Helvetica" fontsize=11 arrowsize=0.8];']
     lines += [f"{q(n['id'])};" for n in graph["nodes"]]
@@ -87,18 +89,30 @@ def dot_layout(graph: dict) -> dict | None:
     if len(nodes) != len(graph["nodes"]) or len(edges) != len(graph["edges"]):
         return None
     return {"w": x1 - x0 + 2 * pad, "h": y1 - y0 + 2 * pad, "node_w": 2.35 * 72, "node_h": 0.5 * 72,
-            "nodes": nodes, "edges": edges, "engine": "graphviz"}
+            "nodes": nodes, "edges": edges, "engine": "graphviz", "direction": direction}
 
 
-def layered_layout(graph: dict, node_w: float = 210, node_h: float = 52, node_gap: float = 90,
-                   rank_gap: float = 78, lane_gap: float = 13) -> dict:
-    """A layered (Sugiyama-style) top-to-bottom layout in plain Python, so the page looks the same on every
+SPACING = {"TB": {"node_gap": 90, "rank_gap": 78, "lane_gap": 13},      # vertical: rows run top to bottom
+           "LR": {"node_gap": 56, "rank_gap": 90, "lane_gap": 15}}     # horizontal: columns run left to right
+
+
+def layered_layout(graph: dict, direction: str = "TB", node_w: float = 210, node_h: float = 52,
+                   node_gap: float | None = None, rank_gap: float | None = None,
+                   lane_gap: float | None = None) -> dict:
+    """A layered (Sugiyama-style) layout in plain Python, top to bottom (TB) or left to right (LR), so the page
+    looks the same on every
     machine, with or without Graphviz. Steps: break cycles with a depth-first search from the first state
     (back arrows are drawn upwards), rank every state by its longest path from the start, give every arrow
     that spans several rows a lane point on each row it crosses, order each row to reduce crossings
     (barycentre sweeps, best of 40), place rows so that connected states line up, then draw each arrow as a
     smooth curve through its lane points, with arrow ends spread along the box edges.
-    node_gap: space between boxes in a row; rank_gap: space between rows; lane_gap: space between arrow lanes."""
+    node_gap: space between boxes in a row (column, for LR); rank_gap: space between rows (columns);
+    lane_gap: space between arrow lanes. Worked out along a "row" axis and an "across" axis, then mapped to x/y."""
+    sp = SPACING[direction]
+    node_gap = sp["node_gap"] if node_gap is None else node_gap
+    rank_gap = sp["rank_gap"] if rank_gap is None else rank_gap
+    lane_gap = sp["lane_gap"] if lane_gap is None else lane_gap
+    across_size, along_size = (node_w, node_h) if direction == "TB" else (node_h, node_w)
     ids = [n["id"] for n in graph["nodes"]]
     E = [(e["id"], e["src"], e["dst"]) for e in graph["edges"]]
     succ = {v: [] for v in ids}
@@ -143,7 +157,7 @@ def layered_layout(graph: dict, node_w: float = 210, node_h: float = 52, node_ga
     layers = {r: [] for r in range(R + 1)}
     for v in ids:
         layers[rank[v]].append(v)
-    chains, width, lane_row = {}, {v: node_w for v in ids}, {}
+    chains, width, lane_row = {}, {v: across_size for v in ids}, {}
     for eid, a, b, rev in dag:                              # lane points for arrows crossing rows
         chain = [a]
         for r in range(rank[a] + 1, rank[b]):
@@ -220,7 +234,7 @@ def layered_layout(graph: dict, node_w: float = 210, node_h: float = 52, node_ga
     minx = min(x[v] - width[v] / 2 for v in x)
     for v in x:
         x[v] = x[v] - minx + pad
-    row_y = lambda r: pad + r * (node_h + rank_gap) + node_h / 2
+    row_y = lambda r: pad + r * (along_size + rank_gap) + along_size / 2
     y = {v: row_y(lane_row[v] if v in lane_row else rank[v]) for v in x}
     # arrow ends: spread along the bottom (out) and top (in) of each box, ordered by where the arrow goes
     ports = {}
@@ -233,30 +247,35 @@ def layered_layout(graph: dict, node_w: float = 210, node_h: float = 52, node_ga
         lst.sort()
         n = len(lst)
         for i, (_, eid) in enumerate(lst):
-            port_x[(eid, side)] = x[v] + (0 if n == 1 else (i / (n - 1) - .5) * node_w * .78)
+            port_x[(eid, side)] = x[v] + (0 if n == 1 else (i / (n - 1) - .5) * across_size * (.78 if direction == "TB" else .7))
+    # (across, along) -> screen (x, y): vertical keeps them, horizontal swaps them
+    xy = (lambda c, a: (c, a)) if direction == "TB" else (lambda c, a: (a, c))
+    P = lambda c, a: "{:.1f},{:.1f}".format(*xy(c, a))
     edges, loops = {}, {}
     for eid, a, b in E:
-        if a == b:                                          # a state's arrow to itself: a loop on its right side
+        if a == b:                                          # a state's arrow to itself: a loop on its far side
             k = loops[a] = loops.get(a, -1) + 1
-            rx, cy = x[a] + node_w / 2, y[a]
-            d = (f"M{rx:.1f},{cy - 9:.1f} C{rx + 46 + 14 * k:.1f},{cy - 34 - 6 * k:.1f} "
-                 f"{rx + 46 + 14 * k:.1f},{cy + 34 + 6 * k:.1f} {rx:.1f},{cy + 9:.1f}")
+            rc, ca = x[a] + across_size / 2, y[a]
+            o = 46 + 14 * k
+            d = f"M{P(rc, ca - 9)} C{P(rc + o, ca - 34 - 6 * k)} {P(rc + o, ca + 34 + 6 * k)} {P(rc, ca + 9)}"
             edges[eid] = {"d": d}
             continue
         chain, rev = chains[eid]
-        pts = [(port_x[(eid, "bot")], y[chain[0]] + node_h / 2)] + [(x[d], y[d]) for d in chain[1:-1]] + \
-              [(port_x[(eid, "top")], y[chain[-1]] - node_h / 2)]
-        if rev:                                             # a back arrow is drawn from its real head upwards
+        pts = [(port_x[(eid, "bot")], y[chain[0]] + along_size / 2)] + [(x[d], y[d]) for d in chain[1:-1]] + \
+              [(port_x[(eid, "top")], y[chain[-1]] - along_size / 2)]
+        if rev:                                             # a back arrow is drawn from its real head backwards
             pts = pts[::-1]
-        d = f"M{pts[0][0]:.1f},{pts[0][1]:.1f}"
-        for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
-            ym = (y0 + y1) / 2
-            d += f" C{x0:.1f},{ym:.1f} {x1:.1f},{ym:.1f} {x1:.1f},{y1:.1f}"
+        d = f"M{P(*pts[0])}"
+        for (c0, a0), (c1, a1) in zip(pts, pts[1:]):
+            am = (a0 + a1) / 2
+            d += f" C{P(c0, am)} {P(c1, am)} {P(c1, a1)}"
         edges[eid] = {"d": d}
-    W = max(x[v] + width[v] / 2 for v in x) + pad + 60
-    H = pad * 2 + (R + 1) * node_h + R * rank_gap
-    return {"w": W, "h": H, "node_w": node_w, "node_h": node_h,
-            "nodes": {v: {"cx": x[v], "cy": y[v]} for v in ids}, "edges": edges, "engine": "built-in"}
+    across_ext = max(x[v] + width[v] / 2 for v in x) + pad + 60
+    along_ext = pad * 2 + (R + 1) * along_size + R * rank_gap
+    W, H = xy(across_ext, along_ext)
+    return {"w": W, "h": H, "node_w": node_w, "node_h": node_h, "direction": direction,
+            "nodes": {v: dict(zip(("cx", "cy"), xy(x[v], y[v]))) for v in ids}, "edges": edges,
+            "engine": "built-in"}
 
 
 PAGE = r"""<!doctype html>
@@ -344,7 +363,8 @@ table.kv td:first-child{color:var(--muted);white-space:nowrap}
   <div class="tools">
     <button id="zin" type="button" aria-label="Zoom in">+</button>
     <button id="zout" type="button" aria-label="Zoom out">−</button>
-    <button id="fitw" type="button">Fit width</button>
+    <button id="dirb" type="button"></button>
+    <button id="fitw" type="button">Readable size</button>
     <button id="fitb" type="button">Whole graph</button>
     <button id="theme" type="button">Light / dark</button>
     <button id="full" type="button">Full screen</button>
@@ -375,7 +395,14 @@ $("#legend").innerHTML = `<span><i style="border-color:var(--act)"></i>on = ${es
 const svg = $("#map"), NS = "http://www.w3.org/2000/svg";
 const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); (parent || svg).appendChild(e); return e; };
 function fit(t, max) { let size = parseFloat(getComputedStyle(t).fontSize) || 14; while (t.getComputedTextLength() > max && size > 8) { size -= .5; t.style.fontSize = size + "px"; } }
-const L = D.layout, pos = {}, world = el("g", {});
+// vertical (TB) or horizontal (LR): #dir=LR in the address, else the last choice, else how the page was built
+let DIR = (location.hash.match(/dir=(TB|LR)/) || [])[1];
+if (!DIR) { try { DIR = localStorage.getItem("pg-dir"); } catch (e) {} }
+if (!D.layouts[DIR]) DIR = D.direction;
+const L = D.layouts[DIR], pos = {}, world = el("g", {});
+$("#dirb").textContent = DIR === "TB" ? "Horizontal view" : "Vertical view";
+$("#dirb").onclick = () => { const nd = DIR === "TB" ? "LR" : "TB"; try { localStorage.setItem("pg-dir", nd); } catch (e) {}
+  location.hash = "dir=" + nd; location.reload(); };
 const W = L.w, H = L.h, nodeW = L.node_w, nodeH = L.node_h;
 for (const n of D.nodes) pos[n.id] = { x: L.nodes[n.id].cx - nodeW / 2, y: L.nodes[n.id].cy - nodeH / 2 };
 const defs = el("defs", {});
@@ -436,11 +463,15 @@ for (const n of D.nodes) {
 let vb = { x: 0, y: 0, w: W, h: H }, dragged = false;
 const setVB = () => svg.setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
 function fitView() { vb = { x: 0, y: 0, w: W, h: H }; setVB(); }
-function fitWidth() {                                 // the default: full width, readable size; scroll down the flow
-  const r = svg.getBoundingClientRect(), w = Math.max(W, r.width / 1.25);
-  vb = { x: (W - w) / 2, y: 0, w, h: w * r.height / r.width }; setVB();
+function fitWidth() {                                 // the default: readable size, the flow fills the short side;
+  const r = svg.getBoundingClientRect();              // scroll along the flow (down, or right when horizontal)
+  if (DIR === "TB") { const w = Math.max(W, r.width / 1.25); vb = { x: (W - w) / 2, y: 0, w, h: w * r.height / r.width }; }
+  else { const h = Math.max(H, r.height); vb = { x: 0, y: (H - h) / 2, w: h * r.width / r.height, h }; }
+  setVB();
 }
-function clampVB() { const m = 60; vb.y = Math.min(Math.max(vb.y, -m), Math.max(-m, H - vb.h + m)); vb.x = Math.min(Math.max(vb.x, -W), W); }
+function clampVB() { const m = 60;
+  vb.y = Math.min(Math.max(vb.y, -m - (DIR === "LR" ? H : 0)), Math.max(-m, H - vb.h + m));
+  vb.x = Math.min(Math.max(vb.x, -m - (DIR === "TB" ? W : 0)), Math.max(-m, W - vb.w + m)); }
 function zoomAt(f, cx, cy) {
   const r = svg.getBoundingClientRect(), s = Math.max(vb.w / r.width, vb.h / r.height);
   const ox = (r.width - vb.w / s) / 2, oy = (r.height - vb.h / s) / 2;
@@ -452,7 +483,8 @@ svg.addEventListener("wheel", ev => {                // wheel scrolls; Ctrl/⌘ 
   ev.preventDefault();
   if (ev.ctrlKey || ev.metaKey) { zoomAt(ev.deltaY > 0 ? 1.12 : 1 / 1.12, ev.clientX, ev.clientY); return; }
   const r = svg.getBoundingClientRect(), s = Math.max(vb.w / r.width, vb.h / r.height);
-  vb.x += (ev.shiftKey ? ev.deltaY : ev.deltaX) * s; if (!ev.shiftKey) vb.y += ev.deltaY * s; clampVB(); setVB();
+  const along = DIR === "LR" ? !ev.shiftKey : ev.shiftKey;          // horizontal view: the wheel scrolls sideways
+  vb.x += (along ? ev.deltaY : ev.deltaX) * s; if (!along) vb.y += ev.deltaY * s; clampVB(); setVB();
 }, { passive: false });
 let drag = null;
 svg.addEventListener("pointerdown", ev => { drag = { x: ev.clientX, y: ev.clientY, vb: { ...vb } }; dragged = false; });
@@ -566,11 +598,16 @@ render();
 """
 
 
-def build_page(policy: Path, title: str | None, layout: str = "builtin", **spacing) -> tuple[str, dict]:
+def build_page(policy: Path, title: str | None, layout: str = "builtin", direction: str = "TB",
+               **spacing) -> tuple[str, dict]:
+    """Both layouts go into the page (vertical and horizontal); it opens in `direction` and a button switches."""
     graph = load_graph(policy)
-    lay = dot_layout(graph) if layout == "graphviz" else None
+    layouts = {}
+    for dr in ("TB", "LR"):
+        lay = dot_layout(graph, dr) if layout == "graphviz" else None
+        layouts[dr] = lay or layered_layout(graph, dr, **spacing)
     data = {**graph, "title": title or f"{graph['header'].get('title') or graph['file']}: state-transition graph",
-            "layout": lay or layered_layout(graph, **spacing)}
+            "layouts": layouts, "direction": direction}
     html = PAGE.replace("__TITLE__", data["title"].replace("<", "&lt;")).replace(
         "__DATA__", json.dumps(data, ensure_ascii=False, default=str).replace("</", "<\\/"))
     return html, data
@@ -583,12 +620,18 @@ def main() -> int:
     ap.add_argument("--title", default=None, help="page title (default: the file's title + ': state-transition graph')")
     ap.add_argument("--layout", default="builtin", choices=["builtin", "graphviz"],
                     help="builtin (default, the same on every machine) or graphviz (needs the dot program)")
-    ap.add_argument("--node-gap", type=float, default=90, help="space between boxes in a row (built-in layout)")
-    ap.add_argument("--rank-gap", type=float, default=78, help="space between rows (built-in layout)")
-    ap.add_argument("--lane-gap", type=float, default=13, help="space between arrow lanes (built-in layout)")
+    ap.add_argument("--direction", default="TB", choices=["TB", "LR"],
+                    help="how the page opens: TB = vertical (top to bottom), LR = horizontal (left to right); "
+                         "the page has a button to switch")
+    ap.add_argument("--node-gap", type=float, default=None,
+                    help="space between boxes in a row/column (built-in layout; default 90 vertical, 56 horizontal)")
+    ap.add_argument("--rank-gap", type=float, default=None,
+                    help="space between rows/columns (built-in layout; default 78 vertical, 90 horizontal)")
+    ap.add_argument("--lane-gap", type=float, default=None,
+                    help="space between arrow lanes (built-in layout; default 13 vertical, 15 horizontal)")
     a = ap.parse_args()
-    html, data = build_page(Path(a.policy), a.title, a.layout, node_gap=a.node_gap, rank_gap=a.rank_gap,
-                            lane_gap=a.lane_gap)
+    html, data = build_page(Path(a.policy), a.title, a.layout, a.direction, node_gap=a.node_gap,
+                            rank_gap=a.rank_gap, lane_gap=a.lane_gap)
     # nothing on the page is invented: every state, arrow and label is a value from the file
     T = data["triples"]
     assert [n["id"] for n in data["nodes"]] == list(dict.fromkeys(
@@ -598,7 +641,8 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
     print(f"wrote {out} ({len(html) // 1024} KB): {len(data['nodes'])} states, {len(data['edges'])} transitions, "
-          f"{len(T)} triples, layout {data['layout']['engine']}")
+          f"{len(T)} triples, layout {data['layouts']['TB']['engine']} (vertical + horizontal), opens "
+          f"{'vertical' if a.direction == 'TB' else 'horizontal'}")
     return 0
 
 
