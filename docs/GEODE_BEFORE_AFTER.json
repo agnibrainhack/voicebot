@@ -1,0 +1,2434 @@
+{
+ "facts": {
+  "before": {
+   "rows": [
+    {
+     "head": "expedited_delivery",
+     "relation": "has_business_days_max",
+     "true": "2",
+     "fabricated": "7",
+     "score_true": 0.5198,
+     "score_fabricated": 0.7263,
+     "tau": 0.3951,
+     "calibrated_ok": false
+    },
+    {
+     "head": "standard_delivery",
+     "relation": "has_business_days_max",
+     "true": "7",
+     "fabricated": "2",
+     "score_true": 0.7437,
+     "score_fabricated": 0.6759,
+     "tau": 0.3951,
+     "calibrated_ok": false
+    },
+    {
+     "head": "expedited_delivery",
+     "relation": "has_business_days_min",
+     "true": "2",
+     "fabricated": "5",
+     "score_true": 0.6503,
+     "score_fabricated": 0.7302,
+     "tau": 0.3948,
+     "calibrated_ok": false
+    },
+    {
+     "head": "standard_delivery",
+     "relation": "has_business_days_min",
+     "true": "5",
+     "fabricated": "2",
+     "score_true": 0.6438,
+     "score_fabricated": 0.7282,
+     "tau": 0.3948,
+     "calibrated_ok": false
+    },
+    {
+     "head": "expedited_delivery",
+     "relation": "has_fee_usd",
+     "true": "15",
+     "fabricated": "0",
+     "score_true": 0.5236,
+     "score_fabricated": 0.527,
+     "tau": 0.3951,
+     "calibrated_ok": false
+    },
+    {
+     "head": "standard_delivery",
+     "relation": "has_fee_usd",
+     "true": "0",
+     "fabricated": "15",
+     "score_true": 0.4815,
+     "score_fabricated": 0.5854,
+     "tau": 0.3951,
+     "calibrated_ok": false
+    },
+    {
+     "head": "charge_review_policy",
+     "relation": "has_lookback_days",
+     "true": "30",
+     "fabricated": "2",
+     "score_true": 0.7144,
+     "score_fabricated": 0.7006,
+     "tau": 0.3958,
+     "calibrated_ok": false
+    },
+    {
+     "head": "charge_review_policy",
+     "relation": "has_max_auth_attempts",
+     "true": "2",
+     "fabricated": "30",
+     "score_true": 0.578,
+     "score_fabricated": 0.7237,
+     "tau": 0.3958,
+     "calibrated_ok": false
+    },
+    {
+     "head": "charge_review_policy",
+     "relation": "has_max_clarification_retries",
+     "true": "1",
+     "fabricated": "30",
+     "score_true": 0.5369,
+     "score_fabricated": 0.7019,
+     "tau": 0.3958,
+     "calibrated_ok": false
+    },
+    {
+     "head": "charge_review_policy",
+     "relation": "has_max_transactions_per_session",
+     "true": "4",
+     "fabricated": "30",
+     "score_true": 0.6452,
+     "score_fabricated": 0.7414,
+     "tau": 0.3958,
+     "calibrated_ok": false
+    },
+    {
+     "head": "charge_review_policy",
+     "relation": "has_max_turns",
+     "true": "20",
+     "fabricated": "30",
+     "score_true": 0.6943,
+     "score_fabricated": 0.7566,
+     "tau": 0.3958,
+     "calibrated_ok": false
+    },
+    {
+     "head": "charge_review_policy",
+     "relation": "has_max_unsure_retries",
+     "true": "1",
+     "fabricated": "30",
+     "score_true": 0.5579,
+     "score_fabricated": 0.7486,
+     "tau": 0.3958,
+     "calibrated_ok": false
+    }
+   ],
+   "per_relation": {
+    "accepts_act": {
+     "tau": 0.3967040777206421,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 33,
+     "n_neg": 138
+    },
+    "answer_policy_questions_from": {
+     "tau": 0.3911772668361664,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "applies_rule": {
+     "tau": 0.39671269059181213,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 79,
+     "n_neg": 474
+    },
+    "calls_tool": {
+     "tau": 0.3966963589191437,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 20,
+     "n_neg": 78
+    },
+    "claim_completed_without": {
+     "tau": 0.3910277783870697,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 1
+    },
+    "claim_recorded_without": {
+     "tau": 0.3938591778278351,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 1
+    },
+    "confirm_before": {
+     "tau": 0.3911782503128052,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 5
+    },
+    "continue_only_on": {
+     "tau": 0.3900049924850464,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "delivered_by": {
+     "tau": 0.3957635462284088,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 2,
+     "n_neg": 0
+    },
+    "disclose_before_expedited": {
+     "tau": 0.39118194580078125,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "enables": {
+     "tau": 0.39665889739990234,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 21,
+     "n_neg": 105
+    },
+    "erase": {
+     "tau": 0.39310941100120544,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "explain_when_empty": {
+     "tau": 0.39101696014404297,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "failure_value": {
+     "tau": 0.39670225977897644,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 11,
+     "n_neg": 26
+    },
+    "fires_in_state": {
+     "tau": 0.3965764045715332,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 28,
+     "n_neg": 168
+    },
+    "governed_by": {
+     "tau": 0.39118534326553345,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "guess": {
+     "tau": 0.3900238871574402,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "has_alias": {
+     "tau": 0.39665448665618896,
+     "tar": 0.02631578947368421,
+     "far": 0.0,
+     "n_pos": 38,
+     "n_neg": 228
+    },
+    "has_business_days_max": {
+     "tau": 0.3950601816177368,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 2,
+     "n_neg": 11
+    },
+    "has_business_days_min": {
+     "tau": 0.3948470652103424,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 2,
+     "n_neg": 11
+    },
+    "has_disposition": {
+     "tau": 0.39120543003082275,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 4
+    },
+    "has_fee_usd": {
+     "tau": 0.39505189657211304,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 2,
+     "n_neg": 10
+    },
+    "has_lookback_days": {
+     "tau": 0.39578956365585327,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 6
+    },
+    "has_max_auth_attempts": {
+     "tau": 0.39578956365585327,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 5
+    },
+    "has_max_clarification_retries": {
+     "tau": 0.39578956365585327,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 4
+    },
+    "has_max_transactions_per_session": {
+     "tau": 0.39578956365585327,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 6
+    },
+    "has_max_turns": {
+     "tau": 0.39578956365585327,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 6
+    },
+    "has_max_unsure_retries": {
+     "tau": 0.39578956365585327,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 4
+    },
+    "has_session": {
+     "tau": 0.39100226759910583,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 4
+    },
+    "has_slot": {
+     "tau": 0.39623111486434937,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 16,
+     "n_neg": 87
+    },
+    "has_stage": {
+     "tau": 0.3960241675376892,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 6,
+     "n_neg": 36
+    },
+    "has_stance": {
+     "tau": 0.39663034677505493,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 33,
+     "n_neg": 66
+    },
+    "in_stage": {
+     "tau": 0.3964991569519043,
+     "tar": 0.10526315789473684,
+     "far": 0.0,
+     "n_pos": 19,
+     "n_neg": 114
+    },
+    "interprets_no_as": {
+     "tau": 0.39625677466392517,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 7,
+     "n_neg": 39
+    },
+    "interprets_yes_as": {
+     "tau": 0.39609310030937195,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 7,
+     "n_neg": 36
+    },
+    "is_a": {
+     "tau": 0.3964669704437256,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 19,
+     "n_neg": 38
+    },
+    "is_proof_of": {
+     "tau": 0.39111682772636414,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 6
+    },
+    "justified_by": {
+     "tau": 0.39660608768463135,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 11,
+     "n_neg": 66
+    },
+    "leads_to": {
+     "tau": 0.39654800295829773,
+     "tar": 0.0,
+     "far": 0.003401360544217687,
+     "n_pos": 49,
+     "n_neg": 294
+    },
+    "limited_by": {
+     "tau": 0.3965170979499817,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 18,
+     "n_neg": 70
+    },
+    "map_clear_answer_to": {
+     "tau": 0.3910253643989563,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "member_of": {
+     "tau": 0.3966626524925232,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 9,
+     "n_neg": 48
+    },
+    "offer_only": {
+     "tau": 0.39367449283599854,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "on_failure": {
+     "tau": 0.3928774893283844,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 6,
+     "n_neg": 30
+    },
+    "on_unsure": {
+     "tau": 0.3900229334831238,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "on_unsure_twice": {
+     "tau": 0.3938535153865814,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "play_before_servicing": {
+     "tau": 0.393855482339859,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "precedes": {
+     "tau": 0.39640966057777405,
+     "tar": 0.25,
+     "far": 0.05,
+     "n_pos": 4,
+     "n_neg": 20
+    },
+    "precedes_two": {
+     "tau": 0.39600837230682373,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 3,
+     "n_neg": 15
+    },
+    "present": {
+     "tau": 0.39386025071144104,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "read_only": {
+     "tau": 0.3911669850349426,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "record_before": {
+     "tau": 0.39383259415626526,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "requires": {
+     "tau": 0.39381998777389526,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 5
+    },
+    "requires_fee_confirmation": {
+     "tau": 0.3958524763584137,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 2,
+     "n_neg": 2
+    },
+    "review_within": {
+     "tau": 0.39000561833381653,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 5
+    },
+    "reviews": {
+     "tau": 0.39107847213745117,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 4
+    },
+    "source_account_facts_from": {
+     "tau": 0.39384499192237854,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "stop_review_at": {
+     "tau": 0.39118319749832153,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 5
+    },
+    "subject_to": {
+     "tau": 0.39117518067359924,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "success_value": {
+     "tau": 0.3963419795036316,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 6,
+     "n_neg": 26
+    },
+    "summarize_only": {
+     "tau": 0.3938620686531067,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "transfer_when": {
+     "tau": 0.39660385251045227,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 8,
+     "n_neg": 18
+    },
+    "treat_echo_mismatch_as": {
+     "tau": 0.39002615213394165,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "use": {
+     "tau": 0.39002537727355957,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    }
+   }
+  },
+  "after": {
+   "rows": [
+    {
+     "head": "expedited_delivery",
+     "relation": "has_business_days_max",
+     "true": "2",
+     "fabricated": "7",
+     "score_true": 0.1111,
+     "score_fabricated": 1.2196,
+     "tau": 0.3174,
+     "calibrated_ok": true
+    },
+    {
+     "head": "standard_delivery",
+     "relation": "has_business_days_max",
+     "true": "7",
+     "fabricated": "2",
+     "score_true": 0.1612,
+     "score_fabricated": 1.2522,
+     "tau": 0.3174,
+     "calibrated_ok": true
+    },
+    {
+     "head": "expedited_delivery",
+     "relation": "has_business_days_min",
+     "true": "2",
+     "fabricated": "5",
+     "score_true": 0.1055,
+     "score_fabricated": 1.1959,
+     "tau": 0.3234,
+     "calibrated_ok": true
+    },
+    {
+     "head": "standard_delivery",
+     "relation": "has_business_days_min",
+     "true": "5",
+     "fabricated": "2",
+     "score_true": 0.2379,
+     "score_fabricated": 1.1782,
+     "tau": 0.3234,
+     "calibrated_ok": true
+    },
+    {
+     "head": "expedited_delivery",
+     "relation": "has_fee_usd",
+     "true": "15",
+     "fabricated": "0",
+     "score_true": 0.1029,
+     "score_fabricated": 1.0888,
+     "tau": 0.3205,
+     "calibrated_ok": true
+    },
+    {
+     "head": "standard_delivery",
+     "relation": "has_fee_usd",
+     "true": "0",
+     "fabricated": "15",
+     "score_true": 0.1407,
+     "score_fabricated": 1.0995,
+     "tau": 0.3205,
+     "calibrated_ok": true
+    },
+    {
+     "head": "charge_review_policy",
+     "relation": "has_lookback_days",
+     "true": "30",
+     "fabricated": "2",
+     "score_true": 0.1576,
+     "score_fabricated": 1.5035,
+     "tau": 0.4934,
+     "calibrated_ok": true
+    },
+    {
+     "head": "charge_review_policy",
+     "relation": "has_max_auth_attempts",
+     "true": "2",
+     "fabricated": "30",
+     "score_true": 0.1114,
+     "score_fabricated": 1.4998,
+     "tau": 0.4934,
+     "calibrated_ok": true
+    },
+    {
+     "head": "charge_review_policy",
+     "relation": "has_max_clarification_retries",
+     "true": "1",
+     "fabricated": "30",
+     "score_true": 0.1,
+     "score_fabricated": 1.5825,
+     "tau": 0.4934,
+     "calibrated_ok": true
+    },
+    {
+     "head": "charge_review_policy",
+     "relation": "has_max_transactions_per_session",
+     "true": "4",
+     "fabricated": "30",
+     "score_true": 0.1721,
+     "score_fabricated": 1.2226,
+     "tau": 0.4934,
+     "calibrated_ok": true
+    },
+    {
+     "head": "charge_review_policy",
+     "relation": "has_max_turns",
+     "true": "20",
+     "fabricated": "30",
+     "score_true": 0.1418,
+     "score_fabricated": 1.2387,
+     "tau": 0.4934,
+     "calibrated_ok": true
+    },
+    {
+     "head": "charge_review_policy",
+     "relation": "has_max_unsure_retries",
+     "true": "1",
+     "fabricated": "30",
+     "score_true": 0.1012,
+     "score_fabricated": 1.6108,
+     "tau": 0.4934,
+     "calibrated_ok": true
+    }
+   ],
+   "per_relation": {
+    "accepts_act": {
+     "tau": 0.8096581697463989,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 33,
+     "n_neg": 138
+    },
+    "answer_policy_questions_from": {
+     "tau": 0.23294901847839355,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "applies_rule": {
+     "tau": 0.7677125930786133,
+     "tar": 0.8734177215189873,
+     "far": 0.0,
+     "n_pos": 79,
+     "n_neg": 474
+    },
+    "calls_tool": {
+     "tau": 0.7579067945480347,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 20,
+     "n_neg": 78
+    },
+    "claim_completed_without": {
+     "tau": 0.22119835019111633,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 1
+    },
+    "claim_recorded_without": {
+     "tau": 0.22968779504299164,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 1
+    },
+    "confirm_before": {
+     "tau": 0.24229785799980164,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 5
+    },
+    "continue_only_on": {
+     "tau": 0.2462640255689621,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "delivered_by": {
+     "tau": 0.46321576833724976,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 2,
+     "n_neg": 0
+    },
+    "disclose_before_expedited": {
+     "tau": 0.22753416001796722,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "enables": {
+     "tau": 0.8216633796691895,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 21,
+     "n_neg": 105
+    },
+    "erase": {
+     "tau": 0.23750293254852295,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "explain_when_empty": {
+     "tau": 0.23980712890625,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "failure_value": {
+     "tau": 0.6663753986358643,
+     "tar": 0.9090909090909091,
+     "far": 0.0,
+     "n_pos": 11,
+     "n_neg": 26
+    },
+    "fires_in_state": {
+     "tau": 0.7717915773391724,
+     "tar": 0.9285714285714286,
+     "far": 0.005952380952380952,
+     "n_pos": 28,
+     "n_neg": 168
+    },
+    "governed_by": {
+     "tau": 0.23785711824893951,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "guess": {
+     "tau": 0.2379956841468811,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "has_alias": {
+     "tau": 0.6679967641830444,
+     "tar": 0.9736842105263158,
+     "far": 0.0,
+     "n_pos": 38,
+     "n_neg": 228
+    },
+    "has_business_days_max": {
+     "tau": 0.31739503145217896,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 2,
+     "n_neg": 11
+    },
+    "has_business_days_min": {
+     "tau": 0.32336077094078064,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 2,
+     "n_neg": 11
+    },
+    "has_disposition": {
+     "tau": 0.2379399538040161,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 4
+    },
+    "has_fee_usd": {
+     "tau": 0.32045069336891174,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 2,
+     "n_neg": 10
+    },
+    "has_lookback_days": {
+     "tau": 0.49339377880096436,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 6
+    },
+    "has_max_auth_attempts": {
+     "tau": 0.49339377880096436,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 5
+    },
+    "has_max_clarification_retries": {
+     "tau": 0.49339377880096436,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 4
+    },
+    "has_max_transactions_per_session": {
+     "tau": 0.49339377880096436,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 6
+    },
+    "has_max_turns": {
+     "tau": 0.49339377880096436,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 6
+    },
+    "has_max_unsure_retries": {
+     "tau": 0.49339377880096436,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 4
+    },
+    "has_session": {
+     "tau": 0.23464907705783844,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 4
+    },
+    "has_slot": {
+     "tau": 0.6915837526321411,
+     "tar": 0.8125,
+     "far": 0.0,
+     "n_pos": 16,
+     "n_neg": 87
+    },
+    "has_stage": {
+     "tau": 0.5020795464515686,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 6,
+     "n_neg": 36
+    },
+    "has_stance": {
+     "tau": 0.6866151094436646,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 33,
+     "n_neg": 66
+    },
+    "in_stage": {
+     "tau": 0.6248978972434998,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 19,
+     "n_neg": 114
+    },
+    "interprets_no_as": {
+     "tau": 0.4852560758590698,
+     "tar": 1.0,
+     "far": 0.05128205128205128,
+     "n_pos": 7,
+     "n_neg": 39
+    },
+    "interprets_yes_as": {
+     "tau": 0.4805915951728821,
+     "tar": 1.0,
+     "far": 0.16666666666666666,
+     "n_pos": 7,
+     "n_neg": 36
+    },
+    "is_a": {
+     "tau": 0.6747319102287292,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 19,
+     "n_neg": 38
+    },
+    "is_proof_of": {
+     "tau": 0.2598845958709717,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 6
+    },
+    "justified_by": {
+     "tau": 0.47325611114501953,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 11,
+     "n_neg": 66
+    },
+    "leads_to": {
+     "tau": 0.8491891622543335,
+     "tar": 0.9795918367346939,
+     "far": 0.003401360544217687,
+     "n_pos": 49,
+     "n_neg": 294
+    },
+    "limited_by": {
+     "tau": 0.7615092992782593,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 18,
+     "n_neg": 70
+    },
+    "map_clear_answer_to": {
+     "tau": 0.23216722905635834,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "member_of": {
+     "tau": 0.5330580472946167,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 9,
+     "n_neg": 48
+    },
+    "offer_only": {
+     "tau": 0.25162965059280396,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "on_failure": {
+     "tau": 0.5125879049301147,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 6,
+     "n_neg": 30
+    },
+    "on_unsure": {
+     "tau": 0.22729767858982086,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "on_unsure_twice": {
+     "tau": 0.24172697961330414,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "play_before_servicing": {
+     "tau": 0.2315761297941208,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "precedes": {
+     "tau": 0.42788341641426086,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 4,
+     "n_neg": 20
+    },
+    "precedes_two": {
+     "tau": 0.37014809250831604,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 3,
+     "n_neg": 15
+    },
+    "present": {
+     "tau": 0.249463751912117,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "read_only": {
+     "tau": 0.24687866866588593,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "record_before": {
+     "tau": 0.23268094658851624,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "requires": {
+     "tau": 0.23367366194725037,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 5
+    },
+    "requires_fee_confirmation": {
+     "tau": 0.32654431462287903,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 2,
+     "n_neg": 2
+    },
+    "review_within": {
+     "tau": 0.2403535097837448,
+     "tar": 0.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 5
+    },
+    "reviews": {
+     "tau": 0.2356013059616089,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 4
+    },
+    "source_account_facts_from": {
+     "tau": 0.23781348764896393,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "stop_review_at": {
+     "tau": 0.2368527203798294,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 5
+    },
+    "subject_to": {
+     "tau": 0.24071566760540009,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "success_value": {
+     "tau": 0.4840881824493408,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 6,
+     "n_neg": 26
+    },
+    "summarize_only": {
+     "tau": 0.2394169420003891,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "transfer_when": {
+     "tau": 0.7146923542022705,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 8,
+     "n_neg": 18
+    },
+    "treat_echo_mismatch_as": {
+     "tau": 0.2390439510345459,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    },
+    "use": {
+     "tau": 0.2317659556865692,
+     "tar": 1.0,
+     "far": 0.0,
+     "n_pos": 1,
+     "n_neg": 0
+    }
+   }
+  },
+  "before_label": "Before: 1 epoch",
+  "after_label": "After: 150 epochs"
+ },
+ "curve": [
+  {
+   "epochs": 1,
+   "n": 12,
+   "separated": 0,
+   "mean_margin": 0.08803333333333331
+  },
+  {
+   "epochs": 5,
+   "n": 12,
+   "separated": 8,
+   "mean_margin": 0.163925
+  },
+  {
+   "epochs": 20,
+   "n": 12,
+   "separated": 12,
+   "mean_margin": 0.5850583333333333
+  },
+  {
+   "epochs": 60,
+   "n": 12,
+   "separated": 12,
+   "mean_margin": 0.9831666666666666
+  },
+  {
+   "epochs": 150,
+   "n": 12,
+   "separated": 12,
+   "mean_margin": 1.170725
+  }
+ ],
+ "names": {
+  "rows": [
+   {
+    "text": "recognized",
+    "gold": "recognized",
+    "before": "recognized",
+    "after": "recognized"
+   },
+   {
+    "text": "recognied",
+    "gold": "recognized",
+    "before": "secure_card",
+    "after": "secure_card"
+   },
+   {
+    "text": "recognized",
+    "gold": "recognized",
+    "before": "recognized",
+    "after": "recognized"
+   },
+   {
+    "text": "mind",
+    "gold": "recognized",
+    "before": "expedited_delivery",
+    "after": "failed"
+   },
+   {
+    "text": "mine",
+    "gold": "recognized",
+    "before": "unsure",
+    "after": "recognized"
+   },
+   {
+    "text": "mind",
+    "gold": "recognized",
+    "before": "expedited_delivery",
+    "after": "failed"
+   },
+   {
+    "text": "i made it",
+    "gold": "recognized",
+    "before": "unsure",
+    "after": "recognized"
+   },
+   {
+    "text": "i made it",
+    "gold": "recognized",
+    "before": "unsure",
+    "after": "recognized"
+   },
+   {
+    "text": "i made it",
+    "gold": "recognized",
+    "before": "unsure",
+    "after": "recognized"
+   },
+   {
+    "text": "legit",
+    "gold": "recognized",
+    "before": "recognized",
+    "after": "recognized"
+   },
+   {
+    "text": "legot",
+    "gold": "recognized",
+    "before": "unrecognized",
+    "after": "failed"
+   },
+   {
+    "text": "legit",
+    "gold": "recognized",
+    "before": "recognized",
+    "after": "recognized"
+   },
+   {
+    "text": "that's me",
+    "gold": "recognized",
+    "before": "recognized",
+    "after": "recognized"
+   },
+   {
+    "text": "tat's me",
+    "gold": "recognized",
+    "before": "unrecognized",
+    "after": "unrecognized"
+   },
+   {
+    "text": "that's me",
+    "gold": "recognized",
+    "before": "recognized",
+    "after": "recognized"
+   },
+   {
+    "text": "i no it",
+    "gold": "recognized",
+    "before": "unrecognized",
+    "after": "recognized"
+   },
+   {
+    "text": "i know it",
+    "gold": "recognized",
+    "before": "unsure",
+    "after": "recognized"
+   },
+   {
+    "text": "i no it",
+    "gold": "recognized",
+    "before": "unrecognized",
+    "after": "recognized"
+   },
+   {
+    "text": "unrecognized",
+    "gold": "unrecognized",
+    "before": "unrecognized",
+    "after": "unrecognized"
+   },
+   {
+    "text": "unrecgnized",
+    "gold": "unrecognized",
+    "before": "unsure",
+    "after": "unrecognized"
+   },
+   {
+    "text": "unrecognized",
+    "gold": "unrecognized",
+    "before": "unrecognized",
+    "after": "unrecognized"
+   },
+   {
+    "text": "not mind",
+    "gold": "unrecognized",
+    "before": "expedited_delivery",
+    "after": "unrecognized"
+   },
+   {
+    "text": "not mine",
+    "gold": "unrecognized",
+    "before": "unrecognized",
+    "after": "unrecognized"
+   },
+   {
+    "text": "not mind",
+    "gold": "unrecognized",
+    "before": "expedited_delivery",
+    "after": "unrecognized"
+   },
+   {
+    "text": "don't recognise",
+    "gold": "unrecognized",
+    "before": "replace_card",
+    "after": "unrecognized"
+   },
+   {
+    "text": "don't revognize",
+    "gold": "unrecognized",
+    "before": "unrecognized",
+    "after": "unrecognized"
+   },
+   {
+    "text": "don't recognise",
+    "gold": "unrecognized",
+    "before": "replace_card",
+    "after": "unrecognized"
+   },
+   {
+    "text": "never made",
+    "gold": "unrecognized",
+    "before": "standard_delivery",
+    "after": "unrecognized"
+   },
+   {
+    "text": "nevrr made",
+    "gold": "unrecognized",
+    "before": "replace_card",
+    "after": "unrecognized"
+   },
+   {
+    "text": "never made",
+    "gold": "unrecognized",
+    "before": "standard_delivery",
+    "after": "unrecognized"
+   },
+   {
+    "text": "not me",
+    "gold": "unrecognized",
+    "before": "unrecognized",
+    "after": "unrecognized"
+   },
+   {
+    "text": "not me",
+    "gold": "unrecognized",
+    "before": "unrecognized",
+    "after": "unrecognized"
+   },
+   {
+    "text": "not me",
+    "gold": "unrecognized",
+    "before": "unrecognized",
+    "after": "unrecognized"
+   },
+   {
+    "text": "unauthorized",
+    "gold": "unrecognized",
+    "before": "standard_delivery",
+    "after": "unrecognized"
+   },
+   {
+    "text": "unauyhorized",
+    "gold": "unrecognized",
+    "before": "success",
+    "after": "secure_card"
+   },
+   {
+    "text": "unauthorized",
+    "gold": "unrecognized",
+    "before": "standard_delivery",
+    "after": "unrecognized"
+   },
+   {
+    "text": "unsure",
+    "gold": "unsure",
+    "before": "unsure",
+    "after": "unsure"
+   },
+   {
+    "text": "usnure",
+    "gold": "unsure",
+    "before": "standard_delivery",
+    "after": "success"
+   },
+   {
+    "text": "unsure",
+    "gold": "unsure",
+    "before": "unsure",
+    "after": "unsure"
+   },
+   {
+    "text": "not sure",
+    "gold": "unsure",
+    "before": "unrecognized",
+    "after": "unsure"
+   },
+   {
+    "text": "not sure",
+    "gold": "unsure",
+    "before": "unrecognized",
+    "after": "unsure"
+   },
+   {
+    "text": "not sure",
+    "gold": "unsure",
+    "before": "unrecognized",
+    "after": "unsure"
+   },
+   {
+    "text": "don't no",
+    "gold": "unsure",
+    "before": "recognized",
+    "after": "unrecognized"
+   },
+   {
+    "text": "don't know",
+    "gold": "unsure",
+    "before": "recognized",
+    "after": "unrecognized"
+   },
+   {
+    "text": "don't no",
+    "gold": "unsure",
+    "before": "recognized",
+    "after": "unrecognized"
+   },
+   {
+    "text": "can't remember",
+    "gold": "unsure",
+    "before": "success",
+    "after": "unsure"
+   },
+   {
+    "text": "can't rrmember",
+    "gold": "unsure",
+    "before": "unsure",
+    "after": "unsure"
+   },
+   {
+    "text": "can't remember",
+    "gold": "unsure",
+    "before": "success",
+    "after": "unsure"
+   },
+   {
+    "text": "maybe",
+    "gold": "unsure",
+    "before": "secure_card",
+    "after": "unsure"
+   },
+   {
+    "text": "mybe",
+    "gold": "unsure",
+    "before": "success",
+    "after": "recognized"
+   },
+   {
+    "text": "maybe",
+    "gold": "unsure",
+    "before": "secure_card",
+    "after": "unsure"
+   },
+   {
+    "text": "see cure",
+    "gold": "secure_card",
+    "before": "expedited_delivery",
+    "after": "expedited_delivery"
+   },
+   {
+    "text": "secrue",
+    "gold": "secure_card",
+    "before": "unsure",
+    "after": "unrecognized"
+   },
+   {
+    "text": "see cure",
+    "gold": "secure_card",
+    "before": "expedited_delivery",
+    "after": "expedited_delivery"
+   },
+   {
+    "text": "lock",
+    "gold": "secure_card",
+    "before": "replace_card",
+    "after": "secure_card"
+   },
+   {
+    "text": "lock",
+    "gold": "secure_card",
+    "before": "replace_card",
+    "after": "secure_card"
+   },
+   {
+    "text": "lock",
+    "gold": "secure_card",
+    "before": "replace_card",
+    "after": "secure_card"
+   },
+   {
+    "text": "freeze",
+    "gold": "secure_card",
+    "before": "recognized",
+    "after": "secure_card"
+   },
+   {
+    "text": "frreze",
+    "gold": "secure_card",
+    "before": "unsure",
+    "after": "unsure"
+   },
+   {
+    "text": "freeze",
+    "gold": "secure_card",
+    "before": "recognized",
+    "after": "secure_card"
+   },
+   {
+    "text": "block",
+    "gold": "secure_card",
+    "before": "failed",
+    "after": "secure_card"
+   },
+   {
+    "text": "blokc",
+    "gold": "secure_card",
+    "before": "expedited_delivery",
+    "after": "standard_delivery"
+   },
+   {
+    "text": "block",
+    "gold": "secure_card",
+    "before": "failed",
+    "after": "secure_card"
+   },
+   {
+    "text": "re place",
+    "gold": "replace_card",
+    "before": "unrecognized",
+    "after": "unrecognized"
+   },
+   {
+    "text": "replce",
+    "gold": "replace_card",
+    "before": "replace_card",
+    "after": "unrecognized"
+   },
+   {
+    "text": "re place",
+    "gold": "replace_card",
+    "before": "unrecognized",
+    "after": "unrecognized"
+   },
+   {
+    "text": "new cart",
+    "gold": "replace_card",
+    "before": "expedited_delivery",
+    "after": "replace_card"
+   },
+   {
+    "text": "new card",
+    "gold": "replace_card",
+    "before": "secure_card",
+    "after": "replace_card"
+   },
+   {
+    "text": "new cart",
+    "gold": "replace_card",
+    "before": "expedited_delivery",
+    "after": "replace_card"
+   },
+   {
+    "text": "reissue",
+    "gold": "replace_card",
+    "before": "unrecognized",
+    "after": "replace_card"
+   },
+   {
+    "text": "riessue",
+    "gold": "replace_card",
+    "before": "unsure",
+    "after": "failed"
+   },
+   {
+    "text": "reissue",
+    "gold": "replace_card",
+    "before": "unrecognized",
+    "after": "replace_card"
+   },
+   {
+    "text": "send another cart",
+    "gold": "replace_card",
+    "before": "replace_card",
+    "after": "replace_card"
+   },
+   {
+    "text": "send anotehr card",
+    "gold": "replace_card",
+    "before": "secure_card",
+    "after": "replace_card"
+   },
+   {
+    "text": "send another cart",
+    "gold": "replace_card",
+    "before": "replace_card",
+    "after": "replace_card"
+   },
+   {
+    "text": "standard",
+    "gold": "standard_delivery",
+    "before": "standard_delivery",
+    "after": "standard_delivery"
+   },
+   {
+    "text": "stndard",
+    "gold": "standard_delivery",
+    "before": "standard_delivery",
+    "after": "success"
+   },
+   {
+    "text": "standard",
+    "gold": "standard_delivery",
+    "before": "standard_delivery",
+    "after": "standard_delivery"
+   },
+   {
+    "text": "regular",
+    "gold": "standard_delivery",
+    "before": "replace_card",
+    "after": "standard_delivery"
+   },
+   {
+    "text": "rrgular",
+    "gold": "standard_delivery",
+    "before": "unsure",
+    "after": "unrecognized"
+   },
+   {
+    "text": "regular",
+    "gold": "standard_delivery",
+    "before": "replace_card",
+    "after": "standard_delivery"
+   },
+   {
+    "text": "normal shipping",
+    "gold": "standard_delivery",
+    "before": "recognized",
+    "after": "standard_delivery"
+   },
+   {
+    "text": "nomral shippng",
+    "gold": "standard_delivery",
+    "before": "unrecognized",
+    "after": "expedited_delivery"
+   },
+   {
+    "text": "normal shipping",
+    "gold": "standard_delivery",
+    "before": "recognized",
+    "after": "standard_delivery"
+   },
+   {
+    "text": "free delivery",
+    "gold": "standard_delivery",
+    "before": "expedited_delivery",
+    "after": "standard_delivery"
+   },
+   {
+    "text": "free delivey",
+    "gold": "standard_delivery",
+    "before": "unrecognized",
+    "after": "recognized"
+   },
+   {
+    "text": "free delivery",
+    "gold": "standard_delivery",
+    "before": "expedited_delivery",
+    "after": "standard_delivery"
+   },
+   {
+    "text": "expedite it",
+    "gold": "expedited_delivery",
+    "before": "expedited_delivery",
+    "after": "recognized"
+   },
+   {
+    "text": "expeditde",
+    "gold": "expedited_delivery",
+    "before": "standard_delivery",
+    "after": "standard_delivery"
+   },
+   {
+    "text": "expedite it",
+    "gold": "expedited_delivery",
+    "before": "expedited_delivery",
+    "after": "recognized"
+   },
+   {
+    "text": "express",
+    "gold": "expedited_delivery",
+    "before": "replace_card",
+    "after": "expedited_delivery"
+   },
+   {
+    "text": "expres",
+    "gold": "expedited_delivery",
+    "before": "unsure",
+    "after": "recognized"
+   },
+   {
+    "text": "express",
+    "gold": "expedited_delivery",
+    "before": "replace_card",
+    "after": "expedited_delivery"
+   },
+   {
+    "text": "rush",
+    "gold": "expedited_delivery",
+    "before": "standard_delivery",
+    "after": "expedited_delivery"
+   },
+   {
+    "text": "rush",
+    "gold": "expedited_delivery",
+    "before": "standard_delivery",
+    "after": "expedited_delivery"
+   },
+   {
+    "text": "rush",
+    "gold": "expedited_delivery",
+    "before": "standard_delivery",
+    "after": "expedited_delivery"
+   },
+   {
+    "text": "fast shipping",
+    "gold": "expedited_delivery",
+    "before": "recognized",
+    "after": "expedited_delivery"
+   },
+   {
+    "text": "fast shippong",
+    "gold": "expedited_delivery",
+    "before": "replace_card",
+    "after": "expedited_delivery"
+   },
+   {
+    "text": "fast shipping",
+    "gold": "expedited_delivery",
+    "before": "recognized",
+    "after": "expedited_delivery"
+   },
+   {
+    "text": "overnight",
+    "gold": "expedited_delivery",
+    "before": "success",
+    "after": "expedited_delivery"
+   },
+   {
+    "text": "overinght",
+    "gold": "expedited_delivery",
+    "before": "standard_delivery",
+    "after": "expedited_delivery"
+   },
+   {
+    "text": "overnight",
+    "gold": "expedited_delivery",
+    "before": "success",
+    "after": "expedited_delivery"
+   },
+   {
+    "text": "success",
+    "gold": "success",
+    "before": "success",
+    "after": "success"
+   },
+   {
+    "text": "sucess",
+    "gold": "success",
+    "before": "success",
+    "after": "recognized"
+   },
+   {
+    "text": "success",
+    "gold": "success",
+    "before": "success",
+    "after": "success"
+   },
+   {
+    "text": "ok",
+    "gold": "success",
+    "before": "standard_delivery",
+    "after": "success"
+   },
+   {
+    "text": "ok",
+    "gold": "success",
+    "before": "standard_delivery",
+    "after": "success"
+   },
+   {
+    "text": "ok",
+    "gold": "success",
+    "before": "standard_delivery",
+    "after": "success"
+   },
+   {
+    "text": "failed",
+    "gold": "failed",
+    "before": "failed",
+    "after": "failed"
+   },
+   {
+    "text": "faiked",
+    "gold": "failed",
+    "before": "success",
+    "after": "recognized"
+   },
+   {
+    "text": "failed",
+    "gold": "failed",
+    "before": "failed",
+    "after": "failed"
+   },
+   {
+    "text": "error",
+    "gold": "failed",
+    "before": "success",
+    "after": "failed"
+   },
+   {
+    "text": "error",
+    "gold": "failed",
+    "before": "success",
+    "after": "failed"
+   },
+   {
+    "text": "error",
+    "gold": "failed",
+    "before": "success",
+    "after": "failed"
+   }
+  ],
+  "before": 0.2543859649122807,
+  "after": 0.7368421052631579,
+  "n": 114
+ },
+ "routing": {
+  "rows": [
+   {
+    "text": "Compared with standard delivery, how much extra is expedited?",
+    "gold": "has_fee_usd",
+    "before": "has_fee_usd",
+    "after": "has_fee_usd",
+    "fold": 0
+   },
+   {
+    "text": "How much does standard delivery cost?",
+    "gold": "has_fee_usd",
+    "before": "has_fee_usd",
+    "after": "has_fee_usd",
+    "fold": 0
+   },
+   {
+    "text": "I want to know compared with standard delivery, how much extra is expedited.",
+    "gold": "has_fee_usd",
+    "before": "has_fee_usd",
+    "after": "has_fee_usd",
+    "fold": 0
+   },
+   {
+    "text": "I want to know how much does standard delivery cost.",
+    "gold": "has_fee_usd",
+    "before": "has_fee_usd",
+    "after": "has_fee_usd",
+    "fold": 0
+   },
+   {
+    "text": "I want to know if I pick expedited delivery, what would I have to pay.",
+    "gold": "has_fee_usd",
+    "before": "has_fee_usd",
+    "after": "has_fee_usd",
+    "fold": 0
+   },
+   {
+    "text": "I want to know if I want to save money, which delivery should I pick.",
+    "gold": "has_fee_usd",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 0
+   },
+   {
+    "text": "I want to know what's the fee for standard delivery.",
+    "gold": "has_fee_usd",
+    "before": "has_fee_usd",
+    "after": "has_fee_usd",
+    "fold": 0
+   },
+   {
+    "text": "I want to know which delivery option is cheaper.",
+    "gold": "has_fee_usd",
+    "before": "has_fee_confirmation",
+    "after": "has_business_days_max",
+    "fold": 0
+   },
+   {
+    "text": "If I pick expedited delivery, what would I have to pay?",
+    "gold": "has_fee_usd",
+    "before": "has_fee_usd",
+    "after": "has_fee_usd",
+    "fold": 0
+   },
+   {
+    "text": "If I want to save money, which delivery should I pick?",
+    "gold": "has_fee_usd",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 0
+   },
+   {
+    "text": "What's the fee for standard delivery?",
+    "gold": "has_fee_usd",
+    "before": "has_fee_usd",
+    "after": "has_fee_usd",
+    "fold": 0
+   },
+   {
+    "text": "Which delivery option is cheaper?",
+    "gold": "has_fee_usd",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 0
+   },
+   {
+    "text": "How long does expedited delivery take?",
+    "gold": "has_business_days_max",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 0
+   },
+   {
+    "text": "How many business days is expedited delivery?",
+    "gold": "has_business_days_max",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 0
+   },
+   {
+    "text": "I want to know how long does expedited delivery take.",
+    "gold": "has_business_days_max",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 0
+   },
+   {
+    "text": "I want to know how many business days is expedited delivery.",
+    "gold": "has_business_days_max",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 0
+   },
+   {
+    "text": "I want to know if I choose expedited delivery, when would the card arrive.",
+    "gold": "has_business_days_max",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 0
+   },
+   {
+    "text": "I want to know if I want the card quickly, which delivery should I pick.",
+    "gold": "has_business_days_max",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 0
+   },
+   {
+    "text": "I want to know which shipping arrives sooner.",
+    "gold": "has_business_days_max",
+    "before": "has_fee_confirmation",
+    "after": "has_business_days_max",
+    "fold": 0
+   },
+   {
+    "text": "If I choose standard delivery, when would the card arrive?",
+    "gold": "has_business_days_max",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 0
+   },
+   {
+    "text": "Which delivery option is faster?",
+    "gold": "has_business_days_max",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 0
+   },
+   {
+    "text": "How far back can you check transactions?",
+    "gold": "has_value",
+    "before": "has_value",
+    "after": "has_value",
+    "fold": 0
+   },
+   {
+    "text": "How many times can I try to verify?",
+    "gold": "has_value",
+    "before": "has_value",
+    "after": "has_value",
+    "fold": 0
+   },
+   {
+    "text": "How many verification attempts do I get?",
+    "gold": "has_value",
+    "before": "has_delivered_by",
+    "after": "has_value",
+    "fold": 0
+   },
+   {
+    "text": "I want to know how far back can you check transactions.",
+    "gold": "has_value",
+    "before": "has_value",
+    "after": "has_value",
+    "fold": 0
+   },
+   {
+    "text": "I want to know how many times can I try to verify.",
+    "gold": "has_value",
+    "before": "has_value",
+    "after": "has_value",
+    "fold": 0
+   },
+   {
+    "text": "I want to know how many verification attempts do I get.",
+    "gold": "has_value",
+    "before": "has_value",
+    "after": "has_value",
+    "fold": 0
+   },
+   {
+    "text": "I want to know if I get my verification wrong, how many tries do I have.",
+    "gold": "has_value",
+    "before": "has_value",
+    "after": "has_value",
+    "fold": 0
+   },
+   {
+    "text": "I want to know what's the time window for reviewing charges.",
+    "gold": "has_value",
+    "before": "has_precedes",
+    "after": "has_value",
+    "fold": 0
+   },
+   {
+    "text": "What's the most charges you can review in one session?",
+    "gold": "has_value",
+    "before": "has_value",
+    "after": "has_value",
+    "fold": 0
+   },
+   {
+    "text": "For which shipping do I have to approve a fee first?",
+    "gold": "has_fee_confirmation",
+    "before": "has_fee_confirmation",
+    "after": "has_fee_confirmation",
+    "fold": 0
+   },
+   {
+    "text": "I want to know which delivery choice requires my confirmation of a fee before you go ahead.",
+    "gold": "has_fee_confirmation",
+    "before": "has_fee_confirmation",
+    "after": "has_fee_confirmation",
+    "fold": 0
+   },
+   {
+    "text": "Which delivery choice requires my confirmation of a fee before you go ahead?",
+    "gold": "has_fee_confirmation",
+    "before": "has_fee_confirmation",
+    "after": "has_fee_confirmation",
+    "fold": 0
+   },
+   {
+    "text": "How many delivery options are there?",
+    "gold": "has_delivered_by",
+    "before": "has_delivered_by",
+    "after": "has_delivered_by",
+    "fold": 0
+   },
+   {
+    "text": "I want to know how many delivery options are there.",
+    "gold": "has_delivered_by",
+    "before": "has_business_days_max",
+    "after": "has_delivered_by",
+    "fold": 0
+   },
+   {
+    "text": "I want to know what choices do I have for delivery, how many are there.",
+    "gold": "has_delivered_by",
+    "before": "has_delivered_by",
+    "after": "has_delivered_by",
+    "fold": 0
+   },
+   {
+    "text": "I want to know walk me through how this works, step by step.",
+    "gold": "has_precedes",
+    "before": "has_precedes",
+    "after": "has_precedes",
+    "fold": 0
+   },
+   {
+    "text": "I want to know what's the process you follow for checking charges.",
+    "gold": "has_precedes",
+    "before": "has_precedes",
+    "after": "has_precedes",
+    "fold": 0
+   },
+   {
+    "text": "What are the steps in this review?",
+    "gold": "has_precedes",
+    "before": "has_precedes",
+    "after": "has_precedes",
+    "fold": 0
+   },
+   {
+    "text": "How much does expedited delivery cost?",
+    "gold": "has_fee_usd",
+    "before": "has_fee_usd",
+    "after": "has_fee_usd",
+    "fold": 1
+   },
+   {
+    "text": "How much more does expedited delivery cost than standard delivery?",
+    "gold": "has_fee_usd",
+    "before": "has_fee_usd",
+    "after": "has_fee_usd",
+    "fold": 1
+   },
+   {
+    "text": "I want to know how much does expedited delivery cost.",
+    "gold": "has_fee_usd",
+    "before": "has_fee_usd",
+    "after": "has_fee_usd",
+    "fold": 1
+   },
+   {
+    "text": "I want to know how much more does expedited delivery cost than standard delivery.",
+    "gold": "has_fee_usd",
+    "before": "has_fee_usd",
+    "after": "has_fee_usd",
+    "fold": 1
+   },
+   {
+    "text": "I want to know if I pick standard delivery, what would I have to pay.",
+    "gold": "has_fee_usd",
+    "before": "has_fee_usd",
+    "after": "has_fee_usd",
+    "fold": 1
+   },
+   {
+    "text": "I want to know what's the fee for expedited delivery.",
+    "gold": "has_fee_usd",
+    "before": "has_fee_usd",
+    "after": "has_fee_usd",
+    "fold": 1
+   },
+   {
+    "text": "I want to know what's the price difference between expedited and standard delivery.",
+    "gold": "has_fee_usd",
+    "before": "has_fee_usd",
+    "after": "has_fee_usd",
+    "fold": 1
+   },
+   {
+    "text": "I want to know which shipping costs less.",
+    "gold": "has_fee_usd",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 1
+   },
+   {
+    "text": "If I pick standard delivery, what would I have to pay?",
+    "gold": "has_fee_usd",
+    "before": "has_fee_usd",
+    "after": "has_fee_usd",
+    "fold": 1
+   },
+   {
+    "text": "What's the fee for expedited delivery?",
+    "gold": "has_fee_usd",
+    "before": "has_fee_usd",
+    "after": "has_fee_usd",
+    "fold": 1
+   },
+   {
+    "text": "What's the price difference between expedited and standard delivery?",
+    "gold": "has_fee_usd",
+    "before": "has_fee_usd",
+    "after": "has_fee_usd",
+    "fold": 1
+   },
+   {
+    "text": "Which shipping costs less?",
+    "gold": "has_fee_usd",
+    "before": "has_fee_confirmation",
+    "after": "has_business_days_max",
+    "fold": 1
+   },
+   {
+    "text": "How long does standard delivery take?",
+    "gold": "has_business_days_max",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 1
+   },
+   {
+    "text": "How many business days is standard delivery?",
+    "gold": "has_business_days_max",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 1
+   },
+   {
+    "text": "I want to know how long does standard delivery take.",
+    "gold": "has_business_days_max",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 1
+   },
+   {
+    "text": "I want to know how many business days is standard delivery.",
+    "gold": "has_business_days_max",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 1
+   },
+   {
+    "text": "I want to know if I choose standard delivery, when would the card arrive.",
+    "gold": "has_business_days_max",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 1
+   },
+   {
+    "text": "I want to know which delivery option is faster.",
+    "gold": "has_business_days_max",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 1
+   },
+   {
+    "text": "If I choose expedited delivery, when would the card arrive?",
+    "gold": "has_business_days_max",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 1
+   },
+   {
+    "text": "If I want the card quickly, which delivery should I pick?",
+    "gold": "has_business_days_max",
+    "before": "has_business_days_max",
+    "after": "has_business_days_max",
+    "fold": 1
+   },
+   {
+    "text": "Which shipping arrives sooner?",
+    "gold": "has_business_days_max",
+    "before": "has_fee_confirmation",
+    "after": "has_business_days_max",
+    "fold": 1
+   },
+   {
+    "text": "How many charges can we go through in one call?",
+    "gold": "has_value",
+    "before": "has_value",
+    "after": "has_value",
+    "fold": 1
+   },
+   {
+    "text": "How many transactions can you review with me?",
+    "gold": "has_value",
+    "before": "has_value",
+    "after": "has_value",
+    "fold": 1
+   },
+   {
+    "text": "How old can a charge be for you to review it?",
+    "gold": "has_value",
+    "before": "has_value",
+    "after": "has_value",
+    "fold": 1
+   },
+   {
+    "text": "I want to know how many charges can we go through in one call.",
+    "gold": "has_value",
+    "before": "has_value",
+    "after": "has_value",
+    "fold": 1
+   },
+   {
+    "text": "I want to know how many transactions can you review with me.",
+    "gold": "has_value",
+    "before": "has_value",
+    "after": "has_value",
+    "fold": 1
+   },
+   {
+    "text": "I want to know how old can a charge be for you to review it.",
+    "gold": "has_value",
+    "before": "has_value",
+    "after": "has_value",
+    "fold": 1
+   },
+   {
+    "text": "I want to know what's the most charges you can review in one session.",
+    "gold": "has_value",
+    "before": "has_value",
+    "after": "has_value",
+    "fold": 1
+   },
+   {
+    "text": "If I get my verification wrong, how many tries do I have?",
+    "gold": "has_value",
+    "before": "has_value",
+    "after": "has_value",
+    "fold": 1
+   },
+   {
+    "text": "What's the time window for reviewing charges?",
+    "gold": "has_value",
+    "before": "has_precedes",
+    "after": "has_value",
+    "fold": 1
+   },
+   {
+    "text": "I want to know for which shipping do I have to approve a fee first.",
+    "gold": "has_fee_confirmation",
+    "before": "has_fee_confirmation",
+    "after": "has_fee_confirmation",
+    "fold": 1
+   },
+   {
+    "text": "I want to know which delivery option needs me to confirm a fee.",
+    "gold": "has_fee_confirmation",
+    "before": "has_fee_usd",
+    "after": "has_fee_confirmation",
+    "fold": 1
+   },
+   {
+    "text": "Which delivery option needs me to confirm a fee?",
+    "gold": "has_fee_confirmation",
+    "before": "has_fee_confirmation",
+    "after": "has_fee_usd",
+    "fold": 1
+   },
+   {
+    "text": "How many ways can you ship a replacement card?",
+    "gold": "has_delivered_by",
+    "before": "has_value",
+    "after": "has_value",
+    "fold": 1
+   },
+   {
+    "text": "I want to know how many ways can you ship a replacement card.",
+    "gold": "has_delivered_by",
+    "before": "has_value",
+    "after": "has_value",
+    "fold": 1
+   },
+   {
+    "text": "What choices do I have for delivery, how many are there?",
+    "gold": "has_delivered_by",
+    "before": "has_delivered_by",
+    "after": "has_delivered_by",
+    "fold": 1
+   },
+   {
+    "text": "I want to know what are the steps in this review.",
+    "gold": "has_precedes",
+    "before": "has_precedes",
+    "after": "has_precedes",
+    "fold": 1
+   },
+   {
+    "text": "Walk me through how this works, step by step.",
+    "gold": "has_precedes",
+    "before": "has_precedes",
+    "after": "has_precedes",
+    "fold": 1
+   },
+   {
+    "text": "What's the process you follow for checking charges?",
+    "gold": "has_precedes",
+    "before": "has_precedes",
+    "after": "has_precedes",
+    "fold": 1
+   }
+  ],
+  "before": 0.8076923076923077,
+  "after": 0.8846153846153846,
+  "n": 78,
+  "epochs": 300
+ },
+ "encoders_kind": "offline-stand-in",
+ "meta": "knowlytix store ed14838aecc0c82c \u00b7 229 entities, 607 facts \u00b7 encoders: offline-stand-in \u00b7 store trained 150 epochs (cap loss)",
+ "method": "Before = a twin store built with the same facts (kx/triples.json), the same encoders and the same warm-start vectors (v_emb.pt) as the trained store, trained for 1 epoch(s) instead of 150. Substituted values come from oracle_property (another entity's real figure on the same relation, else another limit of the same head). Names: the build's own held-out probes and rule (_noisy_probes, nearest prototype). Routing: the build's two-fold held-out evaluation, per phrasing."
+}
