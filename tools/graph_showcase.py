@@ -18,7 +18,7 @@ The details panel on the right shows, on hover (click to pin, Esc to unpin):
 * nothing selected: the file's own header (title, schema, source document, checksums), the relation
   descriptions and how many triples there are of each relation.
 The layout is computed by Graphviz (dot) when it is installed (`apt install graphviz` / `conda install graphviz`),
-else by a plain left-to-right layout by `in_stage`. Wheel to zoom, drag to pan, F for full screen.
+Wheel scrolls down the flow, Ctrl/⌘ + wheel zooms, drag pans, F for full screen.
 """
 from __future__ import annotations
 
@@ -87,7 +87,176 @@ def dot_layout(graph: dict) -> dict | None:
     if len(nodes) != len(graph["nodes"]) or len(edges) != len(graph["edges"]):
         return None
     return {"w": x1 - x0 + 2 * pad, "h": y1 - y0 + 2 * pad, "node_w": 2.35 * 72, "node_h": 0.5 * 72,
-            "nodes": nodes, "edges": edges}
+            "nodes": nodes, "edges": edges, "engine": "graphviz"}
+
+
+def layered_layout(graph: dict, node_w: float = 210, node_h: float = 52, node_gap: float = 90,
+                   rank_gap: float = 78, lane_gap: float = 13) -> dict:
+    """A layered (Sugiyama-style) top-to-bottom layout in plain Python, so the page looks the same on every
+    machine, with or without Graphviz. Steps: break cycles with a depth-first search from the first state
+    (back arrows are drawn upwards), rank every state by its longest path from the start, give every arrow
+    that spans several rows a lane point on each row it crosses, order each row to reduce crossings
+    (barycentre sweeps, best of 40), place rows so that connected states line up, then draw each arrow as a
+    smooth curve through its lane points, with arrow ends spread along the box edges.
+    node_gap: space between boxes in a row; rank_gap: space between rows; lane_gap: space between arrow lanes."""
+    ids = [n["id"] for n in graph["nodes"]]
+    E = [(e["id"], e["src"], e["dst"]) for e in graph["edges"]]
+    succ = {v: [] for v in ids}
+    for _, a, b in E:
+        if a != b and b not in succ[a]:
+            succ[a].append(b)
+    state, back = {}, set()
+    for root in ids:                                        # iterative DFS: arrows to a state on the stack are back
+        if root in state:
+            continue
+        stack = [(root, iter(succ[root]))]
+        state[root] = 1
+        while stack:
+            v, it = stack[-1]
+            w = next(it, None)
+            if w is None:
+                state[v] = 2
+                stack.pop()
+            elif state.get(w) == 1:
+                back.add((v, w))
+            elif w not in state:
+                state[w] = 1
+                stack.append((w, iter(succ[w])))
+    dag = [(eid, b, a, True) if (a, b) in back else (eid, a, b, False) for eid, a, b in E if a != b]
+    indeg, ch = {v: 0 for v in ids}, {v: [] for v in ids}
+    for _, a, b, _ in dag:
+        indeg[b] += 1
+        ch[a].append(b)
+    rank, queue = {v: 0 for v in ids}, [v for v in ids if indeg[v] == 0]
+    while queue:
+        v = queue.pop(0)
+        for w in ch[v]:
+            rank[w] = max(rank[w], rank[v] + 1)
+            indeg[w] -= 1
+            if indeg[w] == 0:
+                queue.append(w)
+    for v in ids:                                           # a state with no way in sits just above its children
+        kids = [rank[w] for w in ch[v]]
+        if kids and not any(b == v for _, _, b, _ in dag):
+            rank[v] = min(kids) - 1
+    R = max(rank.values())
+    layers = {r: [] for r in range(R + 1)}
+    for v in ids:
+        layers[rank[v]].append(v)
+    chains, width, lane_row = {}, {v: node_w for v in ids}, {}
+    for eid, a, b, rev in dag:                              # lane points for arrows crossing rows
+        chain = [a]
+        for r in range(rank[a] + 1, rank[b]):
+            d = f"{eid}#{r}"
+            layers[r].append(d)
+            width[d] = 0
+            lane_row[d] = r
+            chain.append(d)
+        chain.append(b)
+        chains[eid] = (chain, rev)
+    up, down = {}, {}
+    for chain, _ in chains.values():
+        for u, w in zip(chain, chain[1:]):
+            down.setdefault(u, []).append(w)
+            up.setdefault(w, []).append(u)
+
+    def crossings(order):
+        pos = {v: i for r in order for i, v in enumerate(order[r])}
+        n = 0
+        for r in range(R):
+            segs = [(pos[u], pos[w]) for u in order[r] for w in down.get(u, [])]
+            n += sum(1 for i, (a1, b1) in enumerate(segs) for a2, b2 in segs[i + 1:] if (a1 - a2) * (b1 - b2) < 0)
+        return n
+    order = {r: list(layers[r]) for r in layers}
+    best, best_n = {r: list(o) for r, o in order.items()}, crossings(order)
+    for it in range(40):
+        pos = {v: i for r in order for i, v in enumerate(order[r])}
+        rows = range(1, R + 1) if it % 2 == 0 else range(R - 1, -1, -1)
+        nb = up if it % 2 == 0 else down
+        for r in rows:
+            def key(v):
+                ps = [pos[u] for u in nb.get(v, [])]
+                return (sum(ps) / len(ps)) if ps else pos[v]
+            order[r].sort(key=key)
+            pos.update({v: i for i, v in enumerate(order[r])})
+        n = crossings(order)
+        if n < best_n:
+            best, best_n = {r: list(o) for r, o in order.items()}, n
+    order = best
+
+    def sep(u, w):                                          # centre-to-centre distance between neighbours in a row
+        return (width[u] + width[w]) / 2 + (node_gap if width[u] and width[w] else lane_gap)
+    x = {}
+    for r in order:
+        cx = 0.0
+        for i, v in enumerate(order[r]):
+            cx = cx if i == 0 else cx + sep(order[r][i - 1], v)
+            x[v] = cx
+
+    def pack(row, want):
+        n = len(row)
+        a = list(want)
+        for i in range(1, n):
+            a[i] = max(a[i], a[i - 1] + sep(row[i - 1], row[i]))
+        b = list(want)
+        for i in range(n - 2, -1, -1):
+            b[i] = min(b[i], b[i + 1] - sep(row[i], row[i + 1]))
+        c = [(p + q) / 2 for p, q in zip(a, b)]
+        for i in range(1, n):
+            c[i] = max(c[i], c[i - 1] + sep(row[i - 1], row[i]))
+        return c
+    for it in range(16):                                    # line connected states up, row by row, both ways
+        rows = range(1, R + 1) if it % 2 == 0 else range(R - 1, -1, -1)
+        nb = up if it % 2 == 0 else down
+        for r in rows:
+            row = order[r]
+            want = []
+            for v in row:
+                ps = [x[u] for u in nb.get(v, [])]
+                want.append(sum(ps) / len(ps) if ps else x[v])
+            for v, nx in zip(row, pack(row, want)):
+                x[v] = nx
+    pad = 40
+    minx = min(x[v] - width[v] / 2 for v in x)
+    for v in x:
+        x[v] = x[v] - minx + pad
+    row_y = lambda r: pad + r * (node_h + rank_gap) + node_h / 2
+    y = {v: row_y(lane_row[v] if v in lane_row else rank[v]) for v in x}
+    # arrow ends: spread along the bottom (out) and top (in) of each box, ordered by where the arrow goes
+    ports = {}
+    for eid, (chain, rev) in chains.items():
+        a, b = chain[0], chain[-1]
+        ports.setdefault((a, "bot"), []).append((x[chain[1]], eid))
+        ports.setdefault((b, "top"), []).append((x[chain[-2]], eid))
+    port_x = {}
+    for (v, side), lst in ports.items():
+        lst.sort()
+        n = len(lst)
+        for i, (_, eid) in enumerate(lst):
+            port_x[(eid, side)] = x[v] + (0 if n == 1 else (i / (n - 1) - .5) * node_w * .78)
+    edges, loops = {}, {}
+    for eid, a, b in E:
+        if a == b:                                          # a state's arrow to itself: a loop on its right side
+            k = loops[a] = loops.get(a, -1) + 1
+            rx, cy = x[a] + node_w / 2, y[a]
+            d = (f"M{rx:.1f},{cy - 9:.1f} C{rx + 46 + 14 * k:.1f},{cy - 34 - 6 * k:.1f} "
+                 f"{rx + 46 + 14 * k:.1f},{cy + 34 + 6 * k:.1f} {rx:.1f},{cy + 9:.1f}")
+            edges[eid] = {"d": d}
+            continue
+        chain, rev = chains[eid]
+        pts = [(port_x[(eid, "bot")], y[chain[0]] + node_h / 2)] + [(x[d], y[d]) for d in chain[1:-1]] + \
+              [(port_x[(eid, "top")], y[chain[-1]] - node_h / 2)]
+        if rev:                                             # a back arrow is drawn from its real head upwards
+            pts = pts[::-1]
+        d = f"M{pts[0][0]:.1f},{pts[0][1]:.1f}"
+        for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+            ym = (y0 + y1) / 2
+            d += f" C{x0:.1f},{ym:.1f} {x1:.1f},{ym:.1f} {x1:.1f},{y1:.1f}"
+        edges[eid] = {"d": d}
+    W = max(x[v] + width[v] / 2 for v in x) + pad + 60
+    H = pad * 2 + (R + 1) * node_h + R * rank_gap
+    return {"w": W, "h": H, "node_w": node_w, "node_h": node_h,
+            "nodes": {v: {"cx": x[v], "cy": y[v]} for v in ids}, "edges": edges, "engine": "built-in"}
 
 
 PAGE = r"""<!doctype html>
@@ -119,26 +288,33 @@ button:focus-visible,.node:focus-visible{outline:2px solid var(--glow);outline-o
 .map{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;min-height:0}
 svg{display:block;width:100%;height:100%;cursor:grab;touch-action:none}
 svg.panning{cursor:grabbing}
-.legend{position:absolute;left:10px;top:8px;display:flex;flex-direction:column;gap:.25rem;font-size:.78rem;color:var(--ink-2);background:color-mix(in srgb,var(--surface) 88%,transparent);
-  padding:.35rem .6rem;border-radius:8px;border:1px solid var(--line);max-width:min(330px,40%);font-family:var(--mono);pointer-events:none}
+.legend{order:9;flex-basis:100%;display:flex;flex-wrap:wrap;gap:.2rem 1.2rem;font-size:.76rem;color:var(--ink-2);
+  font-family:var(--mono)}
 .legend i{display:inline-block;width:24px;height:0;border-top:3px solid;vertical-align:middle;margin-right:.35rem}
 .lane-t{fill:var(--muted);font-size:13px;font-family:var(--mono)}
 .lane{fill:var(--surface-2);opacity:.55}
-.edge{fill:none;stroke-width:2.2;opacity:.62;transition:opacity .2s,stroke-width .15s}
-.edge.act{stroke:var(--act)} .edge.auto{stroke:var(--auto);stroke-dasharray:7 5} .edge.any{stroke:var(--any);stroke-dasharray:2 4;stroke-width:2.6}
-.edge.near{opacity:.95;stroke-width:3}
-.edge.hot{opacity:1;stroke-width:5}
-.edge.dim{opacity:.07}
-.lbl{font-size:12px;fill:var(--ink-2);opacity:.9;pointer-events:none;transition:opacity .2s;paint-order:stroke;stroke:var(--surface);stroke-width:4px;font-family:var(--mono)}
-.lbl.dim{opacity:.06}
-.lbl.hot{fill:var(--ink);font-weight:700}
+.edge{fill:none;stroke-width:1.8;opacity:.55;stroke-linecap:round;transition:opacity .2s,stroke-width .15s}
+.edge.act{stroke:var(--act)} .edge.auto{stroke:var(--auto);stroke-dasharray:6 5} .edge.any{stroke:var(--any);stroke-dasharray:1.5 4.5;stroke-width:2.4}
+.edge.near{opacity:1;stroke-width:2.8}
+.edge.hot{opacity:1;stroke-width:4.2}
+.edge.dim{opacity:.06}
+.lbl{pointer-events:none;transition:opacity .2s;opacity:.95}
+.lbl text{font-size:11px;fill:var(--ink-2);font-family:var(--mono)}
+.lbl .pill{fill:var(--surface);stroke:var(--line);stroke-width:1}
+.lbl.dim{opacity:.05}
+.lbl.hot text{fill:var(--ink);font-weight:700}
+.lbl.hot .pill{stroke:var(--glow)}
 .hit{fill:none;stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer}
 .hit.off{pointer-events:none}
 .node{cursor:pointer;transition:opacity .2s}
-.node rect{fill:var(--node);stroke:var(--muted);stroke-width:1.5}
-.node.no rect{stroke-dasharray:5 4}
-.node text{fill:var(--ink);font-size:14.5px;font-weight:600;pointer-events:none;font-family:var(--mono)}
-.node.focus rect{stroke:var(--glow);stroke-width:3;stroke-dasharray:none}
+.node>rect:first-child{fill:var(--node);stroke:var(--line);stroke-width:1.5;filter:drop-shadow(0 2px 6px rgba(0,0,0,.18))}
+.node .tab{fill:var(--act);opacity:.9}
+.node.no .tab{fill:var(--auto)}
+.node.no>rect:first-child{stroke-dasharray:6 4;stroke:var(--muted)}
+.node text{pointer-events:none;font-family:var(--mono)}
+.node .nid{fill:var(--ink);font-size:14px;font-weight:700}
+.node .nst{fill:var(--muted);font-size:10.5px}
+.node.focus>rect:first-child{stroke:var(--glow);stroke-width:2.5;stroke-dasharray:none}
 .node.faded{opacity:.25}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:.8rem .9rem;overflow:auto;min-height:0;font-size:.86rem;line-height:1.4}
 .panel h2{margin:.1rem 0 .1rem;font-size:1.15rem;font-family:var(--mono);word-break:break-word}
@@ -164,10 +340,12 @@ table.kv td:first-child{color:var(--muted);white-space:nowrap}
 <header>
   <h1 id="title"></h1>
   <div class="facts" id="facts"></div>
+  <div class="legend" id="legend"></div>
   <div class="tools">
     <button id="zin" type="button" aria-label="Zoom in">+</button>
     <button id="zout" type="button" aria-label="Zoom out">−</button>
-    <button id="fitb" type="button">Fit</button>
+    <button id="fitw" type="button">Fit width</button>
+    <button id="fitb" type="button">Whole graph</button>
     <button id="theme" type="button">Light / dark</button>
     <button id="full" type="button">Full screen</button>
   </div>
@@ -175,7 +353,6 @@ table.kv td:first-child{color:var(--muted);white-space:nowrap}
 <div class="main">
   <div class="map">
     <svg id="map" role="img" aria-label="State-transition graph"></svg>
-    <div class="legend" id="legend"></div>
   </div>
   <aside class="panel" id="panel" aria-live="polite"></aside>
 </div>
@@ -192,43 +369,28 @@ const acts = [...new Set(D.edges.filter(e => kindOf(e) === "act").map(e => e.on)
 $("#legend").innerHTML = `<span><i style="border-color:var(--act)"></i>on = ${esc(acts.join(", "))}</span>`
   + `<span><i style="border-color:var(--auto);border-top-style:dashed"></i>on = auto</span>`
   + `<span><i style="border-color:var(--any);border-top-style:dotted;border-top-width:4px"></i>on = any</span>`
-  + `<span>solid box: prompts_customer = yes · dashed: no</span>`;
+  + `<span>solid box, blue tab: prompts_customer = yes · dashed box, green tab: no</span>`;
 
-// ---- layout: Graphviz positions when the page was built with dot, else one column per in_stage value
+// ---- layout: computed when the page was built (built-in layered layout, or Graphviz)
 const svg = $("#map"), NS = "http://www.w3.org/2000/svg";
 const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); (parent || svg).appendChild(e); return e; };
 function fit(t, max) { let size = parseFloat(getComputedStyle(t).fontSize) || 14; while (t.getComputedTextLength() > max && size > 8) { size -= .5; t.style.fontSize = size + "px"; } }
 const L = D.layout, pos = {}, world = el("g", {});
-let W, H, nodeW, nodeH;
-if (L) {
-  W = L.w; H = L.h; nodeW = L.node_w; nodeH = L.node_h;
-  for (const n of D.nodes) pos[n.id] = { x: L.nodes[n.id].cx - nodeW / 2, y: L.nodes[n.id].cy - nodeH / 2 };
-} else {
-  nodeW = 178; nodeH = 40; const colW = 210, rowH = 74, top0 = 60, rows = {};
-  D.stages.forEach((s, i) => { el("text", { x: i * colW + colW / 2, y: 30, "text-anchor": "middle", class: "lane-t" }, world).textContent = s; });
-  for (const n of D.nodes) { const c = D.stages.indexOf(n.stage), r = rows[c] = (rows[c] ?? -1) + 1; pos[n.id] = { x: c * colW + (colW - nodeW) / 2, y: top0 + r * rowH }; }
-  W = D.stages.length * colW; H = top0 + (Math.max(...Object.values(rows)) + 1) * rowH + 30;
-}
-function pathFor(e, k, n) {                          // built-in layout only: k-th of n parallel arrows
-  const a = pos[e.src], b = pos[e.dst], o = (k - (n - 1) / 2) * 14;
-  if (e.src === e.dst) { const x = a.x + nodeW * .7, y = a.y, h = 40 + k * 12; return `M${x - 20},${y} C${x - 28},${y - h} ${x + 28},${y - h} ${x + 20},${y}`; }
-  const x1 = a.x + (b.x > a.x ? nodeW : b.x < a.x ? 0 : nodeW), y1 = a.y + nodeH / 2, x2 = b.x + (b.x > a.x ? 0 : b.x < a.x ? nodeW : nodeW), y2 = b.y + nodeH / 2;
-  const dx = Math.max(40, Math.abs(x2 - x1) * .4) * (b.x >= a.x ? 1 : -1) * (Math.abs(b.x - a.x) < 1 ? -1 : 1);
-  return `M${x1},${y1 + o * .3} C${x1 + dx},${y1 + o * 1.5} ${x2 - dx},${y2 + o * 1.5} ${x2},${y2 + o * .3}`;
-}
+const W = L.w, H = L.h, nodeW = L.node_w, nodeH = L.node_h;
+for (const n of D.nodes) pos[n.id] = { x: L.nodes[n.id].cx - nodeW / 2, y: L.nodes[n.id].cy - nodeH / 2 };
 const defs = el("defs", {});
 for (const k of ["act", "auto", "any"]) {
-  const m = el("marker", { id: "mk-" + k, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 11, markerHeight: 11, orient: "auto-start-reverse", markerUnits: "userSpaceOnUse" }, defs);
-  el("path", { d: "M0,0 L10,5 L0,10 z", style: `fill:var(--${k})` }, m);
+  const m = el("marker", { id: "mk-" + k, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 9, markerHeight: 9, orient: "auto-start-reverse", markerUnits: "userSpaceOnUse" }, defs);
+  el("path", { d: "M0,1 L10,5 L0,9 z", style: `fill:var(--${k})` }, m);
 }
 const gE = el("g", {}, world), gL = el("g", {}, world), gH = el("g", {}, world), gN = el("g", {}, world);
-const edgeEl = {}, lblEl = {}, hitEl = {}, nodeEl = {}, pairN = {}, pairK = {};
-for (const e of D.edges) { const k = e.src + ">" + e.dst; pairK[e.id] = pairN[k] = (pairN[k] ?? -1) + 1; }
+const edgeEl = {}, lblEl = {}, hitEl = {}, nodeEl = {};
 for (const e of D.edges) {
-  const d = L ? L.edges[e.id].d : pathFor(e, pairK[e.id], pairN[e.src + ">" + e.dst] + 1);
+  const d = L.edges[e.id].d;
   const p = edgeEl[e.id] = el("path", { d, class: "edge " + kindOf(e), "marker-end": `url(#mk-${kindOf(e)})` }, gE);
-  const mid = L ? { x: L.edges[e.id].lx, y: L.edges[e.id].ly + 4 } : (q => ({ x: q.x, y: q.y - 6 }))(p.getPointAtLength(p.getTotalLength() / 2));
-  (lblEl[e.id] = el("text", { x: mid.x, y: mid.y, "text-anchor": "middle", class: "lbl" }, gL)).textContent = e.on;
+  const lg = lblEl[e.id] = el("g", { class: "lbl" }, gL);
+  el("rect", { rx: 6, class: "pill" }, lg);
+  el("text", { "text-anchor": "middle" }, lg).textContent = e.on;
   const h = hitEl[e.id] = el("path", { d, class: "hit" }, gH);
   h.addEventListener("mouseenter", () => setHover({ t: "edge", id: e.id }));
   h.addEventListener("mouseleave", () => setHover(null));
@@ -237,8 +399,10 @@ for (const e of D.edges) {
 for (const n of D.nodes) {
   const p = pos[n.id];
   const g = nodeEl[n.id] = el("g", { class: "node" + (n.prompts_customer === "no" ? " no" : ""), transform: `translate(${p.x},${p.y})`, tabindex: 0, role: "button", "aria-label": n.id }, gN);
-  el("rect", { width: nodeW, height: nodeH, rx: 10 }, g);
-  const t = el("text", { x: nodeW / 2, y: nodeH / 2 + 5, "text-anchor": "middle" }, g); t.textContent = n.id; fit(t, nodeW - 16);
+  el("rect", { width: nodeW, height: nodeH, rx: 12 }, g);
+  el("rect", { width: 5, height: nodeH - 18, x: 9, y: 9, rx: 2.5, class: "tab" }, g);
+  const t = el("text", { x: nodeW / 2 + 5, y: nodeH / 2 - 2, "text-anchor": "middle", class: "nid" }, g); t.textContent = n.id; fit(t, nodeW - 34);
+  const st = el("text", { x: nodeW / 2 + 5, y: nodeH / 2 + 14, "text-anchor": "middle", class: "nst" }, g); st.textContent = "in_stage: " + (n.stage ?? "");
   g.addEventListener("mouseenter", () => setHover({ t: "node", id: n.id }));
   g.addEventListener("mouseleave", () => setHover(null));
   g.addEventListener("focus", () => setHover({ t: "node", id: n.id })); g.addEventListener("blur", () => setHover(null));
@@ -246,10 +410,37 @@ for (const n of D.nodes) {
   g.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); pin({ t: "node", id: n.id }); } });
 }
 
+// ---- trigger labels: slide each along its arrow to the first spot that overlaps no box and no other label
+(function placeLabels() {
+  const boxes = D.nodes.map(n => ({ x0: pos[n.id].x - 4, y0: pos[n.id].y - 4, x1: pos[n.id].x + nodeW + 4, y1: pos[n.id].y + nodeH + 4 }));
+  const hit = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+  const placed = [], tries = [.5, .42, .58, .34, .66, .26, .74, .18, .82, .12, .88];
+  const sorted = [...D.edges].sort((a, b) => edgeEl[a.id].getTotalLength() - edgeEl[b.id].getTotalLength());
+  for (const e of sorted) {
+    const g = lblEl[e.id], t = g.querySelector("text"), r = g.querySelector("rect"), p = edgeEl[e.id], len = p.getTotalLength();
+    const w = t.getComputedTextLength() + 12, h = 17;
+    let best = null;
+    for (const f of tries) {
+      const q = p.getPointAtLength(len * f), bx = { x0: q.x - w / 2, y0: q.y - h / 2, x1: q.x + w / 2, y1: q.y + h / 2 };
+      const cost = boxes.filter(b => hit(bx, b)).length * 10 + placed.filter(b => hit(bx, b)).length;
+      if (!best || cost < best.cost) best = { cost, q, bx };
+      if (cost === 0) break;
+    }
+    placed.push(best.bx);
+    t.setAttribute("x", best.q.x); t.setAttribute("y", best.q.y + 4);
+    r.setAttribute("x", best.bx.x0); r.setAttribute("y", best.bx.y0); r.setAttribute("width", w); r.setAttribute("height", h);
+  }
+})();
+
 // ---- zoom and pan (viewBox)
 let vb = { x: 0, y: 0, w: W, h: H }, dragged = false;
 const setVB = () => svg.setAttribute("viewBox", `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
 function fitView() { vb = { x: 0, y: 0, w: W, h: H }; setVB(); }
+function fitWidth() {                                 // the default: full width, readable size; scroll down the flow
+  const r = svg.getBoundingClientRect(), w = Math.max(W, r.width / 1.25);
+  vb = { x: (W - w) / 2, y: 0, w, h: w * r.height / r.width }; setVB();
+}
+function clampVB() { const m = 60; vb.y = Math.min(Math.max(vb.y, -m), Math.max(-m, H - vb.h + m)); vb.x = Math.min(Math.max(vb.x, -W), W); }
 function zoomAt(f, cx, cy) {
   const r = svg.getBoundingClientRect(), s = Math.max(vb.w / r.width, vb.h / r.height);
   const ox = (r.width - vb.w / s) / 2, oy = (r.height - vb.h / s) / 2;
@@ -257,7 +448,12 @@ function zoomAt(f, cx, cy) {
   const nw = Math.min(W * 2, Math.max(W / 8, vb.w * f)), k = nw / vb.w;
   vb = { x: px - (px - vb.x) * k, y: py - (py - vb.y) * k, w: nw, h: vb.h * k }; setVB();
 }
-svg.addEventListener("wheel", ev => { ev.preventDefault(); zoomAt(ev.deltaY > 0 ? 1.15 : 1 / 1.15, ev.clientX, ev.clientY); }, { passive: false });
+svg.addEventListener("wheel", ev => {                // wheel scrolls; Ctrl/⌘ + wheel (or pinch) zooms
+  ev.preventDefault();
+  if (ev.ctrlKey || ev.metaKey) { zoomAt(ev.deltaY > 0 ? 1.12 : 1 / 1.12, ev.clientX, ev.clientY); return; }
+  const r = svg.getBoundingClientRect(), s = Math.max(vb.w / r.width, vb.h / r.height);
+  vb.x += (ev.shiftKey ? ev.deltaY : ev.deltaX) * s; if (!ev.shiftKey) vb.y += ev.deltaY * s; clampVB(); setVB();
+}, { passive: false });
 let drag = null;
 svg.addEventListener("pointerdown", ev => { drag = { x: ev.clientX, y: ev.clientY, vb: { ...vb } }; dragged = false; });
 addEventListener("pointermove", ev => {
@@ -270,8 +466,8 @@ addEventListener("pointermove", ev => {
 });
 addEventListener("pointerup", () => { drag = null; svg.classList.remove("panning"); setTimeout(() => { dragged = false; }, 0); });
 svg.addEventListener("click", () => { if (!dragged) pin(null); });
-$("#zin").onclick = () => zoomAt(1 / 1.3); $("#zout").onclick = () => zoomAt(1.3); $("#fitb").onclick = fitView;
-fitView();
+$("#zin").onclick = () => zoomAt(1 / 1.3); $("#zout").onclick = () => zoomAt(1.3); $("#fitb").onclick = fitView; $("#fitw").onclick = fitWidth;
+fitWidth(); addEventListener("resize", () => fitWidth());
 
 // ---- the details panel: triples exactly as stored in the file
 const byHead = {}, byTail = {}, byId = {};
@@ -370,10 +566,11 @@ render();
 """
 
 
-def build_page(policy: Path, title: str | None) -> tuple[str, dict]:
+def build_page(policy: Path, title: str | None, layout: str = "builtin", **spacing) -> tuple[str, dict]:
     graph = load_graph(policy)
+    lay = dot_layout(graph) if layout == "graphviz" else None
     data = {**graph, "title": title or f"{graph['header'].get('title') or graph['file']}: state-transition graph",
-            "layout": dot_layout(graph)}
+            "layout": lay or layered_layout(graph, **spacing)}
     html = PAGE.replace("__TITLE__", data["title"].replace("<", "&lt;")).replace(
         "__DATA__", json.dumps(data, ensure_ascii=False, default=str).replace("</", "<\\/"))
     return html, data
@@ -384,8 +581,14 @@ def main() -> int:
     ap.add_argument("--policy", default=str(ROOT / "gmsjourney" / "policy" / "charge_review_kg.json"))
     ap.add_argument("--out", default=str(ROOT / "docs" / "POLICY_GRAPH_SHOWCASE.html"))
     ap.add_argument("--title", default=None, help="page title (default: the file's title + ': state-transition graph')")
+    ap.add_argument("--layout", default="builtin", choices=["builtin", "graphviz"],
+                    help="builtin (default, the same on every machine) or graphviz (needs the dot program)")
+    ap.add_argument("--node-gap", type=float, default=90, help="space between boxes in a row (built-in layout)")
+    ap.add_argument("--rank-gap", type=float, default=78, help="space between rows (built-in layout)")
+    ap.add_argument("--lane-gap", type=float, default=13, help="space between arrow lanes (built-in layout)")
     a = ap.parse_args()
-    html, data = build_page(Path(a.policy), a.title)
+    html, data = build_page(Path(a.policy), a.title, a.layout, node_gap=a.node_gap, rank_gap=a.rank_gap,
+                            lane_gap=a.lane_gap)
     # nothing on the page is invented: every state, arrow and label is a value from the file
     T = data["triples"]
     assert [n["id"] for n in data["nodes"]] == list(dict.fromkeys(
@@ -395,7 +598,7 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
     print(f"wrote {out} ({len(html) // 1024} KB): {len(data['nodes'])} states, {len(data['edges'])} transitions, "
-          f"{len(T)} triples, layout {'graphviz' if data['layout'] else 'built-in'}")
+          f"{len(T)} triples, layout {data['layout']['engine']}")
     return 0
 
 
