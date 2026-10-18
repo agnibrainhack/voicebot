@@ -240,6 +240,13 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out", default=str(ROOT / "docs" / "GEODE_BEFORE_AFTER.html"))
     a = ap.parse_args()
+    import importlib.util
+    missing = [m for m in ("numpy", "torch", "knowlytix") if importlib.util.find_spec(m) is None]
+    if "numpy" in missing or (a.backend == "knowlytix" and missing):
+        print(f"This Python ({sys.executable}) is missing: {', '.join(missing)}.\n"
+              "Run the script with the same Python as the campaign / notebook kernel, e.g. activate its environment "
+              "first, or from a notebook cell:  !{sys.executable} tools/geode_before_after.py")
+        return 2
     from gmsjourney import backend
     policy = Path(a.policy)
     data: dict = {}
@@ -274,7 +281,10 @@ def main() -> int:
                           "history. Section 2: the GEODE loop's output as recorded in gms_build_report.json.")
     else:
         from gmsjourney.knowledge.geode import build_store
-        print("built-in backend: the built-in embed loop's own evaluation")
+        print("knowlytix is not available in this Python " + (f"(missing: {', '.join(missing)}) " if missing else
+              "(no licence found: KNOWLYTIX_LICENSE_KEY or ~/.knowlytix/license.key) ")
+              + f"[{sys.executable}]; showing the built-in embed loop's own evaluation instead. "
+              "Use --backend knowlytix to stop instead of falling back.")
         b = build_store(policy, train=True)
         el = b.training.get("embed_loop", {})
         ev = el.get("eval") or {}
