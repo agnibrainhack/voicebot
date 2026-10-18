@@ -1,29 +1,25 @@
-"""The policy graph as an explorable map for senior leadership and large rooms (one self-contained HTML page).
+"""The state-transition graph of charge_review_kg.json as one self-contained HTML page (for a large audience).
 
     python tools/graph_showcase.py                                    # -> docs/POLICY_GRAPH_SHOWCASE.html
-    python tools/graph_showcase.py --campaign output/campaign_llm     # the same base cases as that campaign
-    python tools/graph_showcase.py --cases none                       # graph only (no store, no oracle)
+    python tools/graph_showcase.py --campaign output/campaign_llm     # real paths from that campaign's base cases
+    python tools/graph_showcase.py --cases none                       # the graph only (no store, no oracle)
 
-The map opens clean: only the steps of a call, laid out by stage, and no path drawn. Nothing is revealed
-until someone asks:
-* hover a step: its own moves appear (where a call can come from and go to from there), labelled;
-* click a step: the side panel lists the REAL call paths through it - the paths the policy oracle takes in
-  the base test cases, identical ones grouped - each with what it means in plain English, how it ends and how
-  many test cases follow it. Filter by ending (completed by the bot / hand-over to a human);
-* hover a path to preview it on the map; click it to walk it step by step (a token moves along it; the caption
-  says what the caller did, where the bot goes, why, and quotes the policy rule behind it).
+What the audience sees first is the base graph itself: every dialog state (is_a dialog_state) and every
+leads_to transition of the policy graph file, drawn with their original ids, each arrow labelled with its
+trigger (the transition's "on" qualifier). Nothing is added, renamed or left out. The layout is computed by
+Graphviz (dot) when it is installed, else by a built-in left-to-right layout by stage (in_stage).
+* hover a state: its transitions stand out, and a card shows every triple the graph records about it (stage,
+  acts it accepts, yes/no readings, rules with stance and text, limits with values, tools with their results,
+  escalation triggers), with triple ids, source sections and source quotes;
+* hover a transition: every qualifier (on, when, rules with text, workflow edges), its triple id, source quote
+  and the source section text;
+* click a state: the side panel lists the real call paths through it - the paths the policy oracle takes in the
+  base test cases - and any one can be walked transition by transition on the graph.
 
-Only the policy graph is drawn: its 19 dialog states and its leads_to transitions, nothing else. A real path is
-shown only if every move in it is one of those transitions (same from-state, to-state and trigger; the graph's
-"any" trigger only for the turn-limit hand-over it describes); test cases that take a move the graph does not have
-are counted and named on the page, not drawn. Hovering a step or a move shows every triple the graph file records
-about it (stage, acts it accepts, yes/no readings, rules with stance and text, limits with values, tools with their
-results, escalation triggers, conditions, workflow edges), with triple ids, source sections and source quotes.
-
-Real paths come from running the policy oracle on the base cases, rebuilt exactly as the answer sheet does
-(with --campaign, its base-case settings are read from report.json so paths match its answer sheet). With
---cases none, or if the store cannot be loaded, the panel shows example routes the graph allows (shortest
-routes through each move), clearly labelled as examples.
+A real path is shown only if every move in it is one of the graph's transitions (same from-state, to-state and
+trigger; the graph's "any" trigger only for the turn-limit hand-over it describes); test cases that take a move
+the graph does not have are counted and named on the page, not drawn. With --cases none, or if the store cannot
+be loaded, the panel offers example routes the graph allows, labelled as such.
 Keys: Esc clear, <- / -> step through the chosen path, F full screen.
 """
 from __future__ import annotations
@@ -78,7 +74,7 @@ def load_graph(kg_path: Path) -> dict:
     nodes = []
     for s in states:
         isa = next(t for t in by_head[s] if t["relation"] == "is_a" and t["tail"] == "dialog_state")
-        nodes.append({"id": s, "label": STATE_LABELS.get(s, s.replace("_", " ").title()),
+        nodes.append({"id": s, "label": s,
                       "stage": (tails(s, "in_stage") or ["other"])[0],
                       "waits": (tails(s, "prompts_customer") or ["no"])[0] == "yes",
                       "accepts": [ACT_LABELS.get(a, a) for a in tails(s, "accepts_act")],
@@ -102,6 +98,57 @@ def load_graph(kg_path: Path) -> dict:
             "triples": T, "relations": d.get("relations") or {},
             "sections": ((d.get("source") or {}).get("sections") or {}),
             "document": (d.get("source") or {}).get("document"), "graph_title": d.get("title")}
+
+
+def dot_layout(graph: dict) -> dict | None:
+    """Graphviz (dot) positions for the base graph: node centres, each transition's spline and label point, in
+    SVG units (y down). None when dot is not installed or fails (the page then lays out by stage itself)."""
+    import shutil
+    import subprocess
+    if not shutil.which("dot"):
+        return None
+    q = lambda x: '"' + str(x).replace('"', '\\"') + '"'
+    lines = ["digraph G {", 'rankdir=TB; nodesep=0.3; ranksep=0.55; splines=true; forcelabels=true;',
+             'node [shape=box fixedsize=true width=2.35 height=0.5 fontname="Helvetica" fontsize=14];',
+             'edge [fontname="Helvetica" fontsize=11 arrowsize=0.8];']
+    lines += [f"{q(n['id'])};" for n in graph["nodes"]]
+    lines += [f"{q(e['src'])} -> {q(e['dst'])} [id={q(e['id'])} xlabel={q(e['on'])}];" for e in graph["edges"]]
+    lines.append("}")
+    try:
+        out = subprocess.run(["dot", "-Tjson"], input="\n".join(lines), capture_output=True, text=True, timeout=60,
+                             check=True).stdout
+        g = json.loads(out)
+    except Exception:                                       # noqa: BLE001 - fall back to the built-in layout
+        return None
+    x0, y0, x1, y1 = (float(v) for v in g["bb"].split(","))
+    pad = 24
+    tx = lambda x: float(x) - x0 + pad
+    ty = lambda y: (y1 - float(y)) + pad
+    nodes = {}
+    for o in g.get("objects", []):
+        if "pos" in o:
+            x, y = o["pos"].split(",")
+            nodes[o["name"]] = {"cx": tx(x), "cy": ty(y)}
+    edges = {}
+    for e in g.get("edges", []):
+        pts, end = [], None
+        for tok in e["pos"].split():
+            if tok.startswith("e,"):
+                end = tok[2:].split(",")
+            elif not tok.startswith("s,"):
+                pts.append(tok.split(","))
+        P = [(tx(a), ty(b)) for a, b in pts]
+        d = f"M{P[0][0]:.1f},{P[0][1]:.1f}" + "".join(
+            f" C{P[k][0]:.1f},{P[k][1]:.1f} {P[k + 1][0]:.1f},{P[k + 1][1]:.1f} {P[k + 2][0]:.1f},{P[k + 2][1]:.1f}"
+            for k in range(1, len(P) - 2, 3))
+        if end:                                             # dot stops the spline short of the arrow head
+            d += f" L{tx(end[0]):.1f},{ty(end[1]):.1f}"
+        lx, ly = (e.get("xlp") or e.get("lp") or "0,0").split(",")
+        edges[e["id"]] = {"d": d, "lx": tx(lx), "ly": ty(ly)}
+    if len(nodes) != len(graph["nodes"]) or len(edges) != len(graph["edges"]):
+        return None
+    return {"w": x1 - x0 + 2 * pad, "h": y1 - y0 + 2 * pad, "node_w": 2.35 * 72, "node_h": 0.5 * 72,
+            "nodes": nodes, "edges": edges}
 
 
 REASON_EN = {"customer_request": "the caller asked for a person", "auth_failed": "verification failed twice",
@@ -297,12 +344,12 @@ PAGE = r"""<!doctype html>
 <title>__TITLE__</title>
 <style>
 :root{color-scheme:dark;--bg:#0f1318;--surface:#161b22;--surface-2:#1d242d;--line:#2b3440;--ink:#f0efec;--ink-2:#c3c2b7;--muted:#8e98a4;
---normal:#3987e5;--recovery:#199e70;--human:#e66767;--node:#1f2731;--node-hi:#26313d;--glow:#ffd36e;
+--normal:#3987e5;--recovery:#199e70;--human:#e66767;--act:#3987e5;--auto:#199e70;--any:#d95926;--node:#1f2731;--node-hi:#26313d;--glow:#ffd36e;
 --font:"Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif}
 :root[data-theme="light"]{color-scheme:light;--bg:#f4f5f7;--surface:#fcfcfb;--surface-2:#eef0f3;--line:#d5dae1;--ink:#0b0b0b;--ink-2:#52514e;--muted:#6b7280;
---normal:#2a78d6;--recovery:#1baf7a;--human:#e34948;--node:#ffffff;--node-hi:#eef4fd;--glow:#b86e00}
+--normal:#2a78d6;--recovery:#1baf7a;--human:#e34948;--act:#2a78d6;--auto:#1baf7a;--any:#eb6834;--node:#ffffff;--node-hi:#eef4fd;--glow:#b86e00}
 @media (prefers-color-scheme:light){:root:not([data-theme="dark"]){color-scheme:light;--bg:#f4f5f7;--surface:#fcfcfb;--surface-2:#eef0f3;--line:#d5dae1;--ink:#0b0b0b;--ink-2:#52514e;--muted:#6b7280;
---normal:#2a78d6;--recovery:#1baf7a;--human:#e34948;--node:#ffffff;--node-hi:#eef4fd;--glow:#b86e00}}
+--normal:#2a78d6;--recovery:#1baf7a;--human:#e34948;--act:#2a78d6;--auto:#1baf7a;--any:#eb6834;--node:#ffffff;--node-hi:#eef4fd;--glow:#b86e00}}
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font)}
 body{padding:clamp(12px,2vw,26px) 16px}
@@ -318,24 +365,28 @@ button:focus-visible,.node:focus-visible{outline:2px solid var(--glow);outline-o
 .main{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:14px;align-items:start}
 @media (max-width:1100px){.main{grid-template-columns:1fr}}
 .map{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;position:relative}
-.hint{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);background:var(--surface-2);border:1px solid var(--line);border-radius:999px;
+.hint{position:absolute;left:14px;top:12px;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;
   padding:.4rem 1rem;color:var(--ink-2);font-size:.95rem;pointer-events:none;transition:opacity .3s;white-space:nowrap}
-svg{display:block;width:100%;height:auto}
+svg{display:block;width:100%;height:auto;max-height:88vh}
 .lane-t{fill:var(--muted);font-size:14px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
 .lane{fill:var(--surface-2);opacity:.55}
 .edge{fill:none;stroke-width:2.2;opacity:0;transition:opacity .25s,stroke-width .2s}
-.edge.normal{stroke:var(--normal)} .edge.recovery{stroke:var(--recovery);stroke-dasharray:7 6} .edge.human{stroke:var(--human);stroke-width:2.8}
+.edge.act{stroke:var(--act)} .edge.auto{stroke:var(--auto);stroke-dasharray:7 5} .edge.any{stroke:var(--any);stroke-dasharray:2 4;stroke-width:2.6}
+.edge.base{opacity:.62}
+.edge.dim{opacity:.07}
+.lbl.base{opacity:.9}
+.lbl.dim{opacity:.06}
 .edge.gap{stroke:var(--muted);stroke-dasharray:2 5}
-.edge.near{opacity:.6}
+.edge.near{opacity:.95;stroke-width:3}
 .edge.path{opacity:.9;stroke-width:4}
 .edge.walked{opacity:1;stroke-width:5.5}
-.lbl{font-size:12.5px;fill:var(--ink-2);opacity:0;pointer-events:none;transition:opacity .2s;paint-order:stroke;stroke:var(--surface);stroke-width:4px}
-.lbl.on{opacity:1}
-.node rect{fill:var(--node);stroke:var(--line);stroke-width:1.5;transition:fill .2s,stroke .2s}
+.lbl{font-size:12px;fill:var(--ink-2);opacity:0;pointer-events:none;transition:opacity .2s;paint-order:stroke;stroke:var(--surface);stroke-width:4px}
+.lbl.on{opacity:1!important}
+.node rect{fill:var(--node);stroke:var(--muted);stroke-width:1.5;transition:fill .2s,stroke .2s}
 .node{transition:opacity .2s;cursor:pointer}
 .node.waits rect{stroke-width:2}
 .node:not(.waits) rect{stroke-dasharray:5 4}
-.node text{fill:var(--ink);font-size:16px;font-weight:600;pointer-events:none}
+.node text{fill:var(--ink);font-size:14.5px;font-weight:600;pointer-events:none;font-family:ui-monospace,Consolas,"SFMono-Regular",monospace}
 .node .code{fill:var(--muted);font-size:11px;font-weight:500;font-family:ui-monospace,Consolas,monospace}
 .node.focus rect,.node:hover rect{stroke:var(--glow);stroke-width:2.5}
 .node.onpath rect{fill:var(--node-hi);stroke:var(--normal);stroke-dasharray:none}
@@ -395,7 +446,7 @@ svg{display:block;width:100%;height:auto}
   <header>
     <div>
       <h1 id="title"></h1>
-      <p class="sub">Every step a call can reach, stage by stage. Hover a step to see where a call can go from there. Click it to see the real calls that pass through it, and what each one means.</p>
+      <p class="sub" id="sub"></p>
       <div class="facts" id="facts"></div>
     </div>
     <div class="tools">
@@ -405,13 +456,13 @@ svg{display:block;width:100%;height:auto}
   </header>
   <div class="main">
     <div>
-      <div class="map"><svg id="map" role="img" aria-label="Policy graph of the voice bot"></svg><div class="hint" id="hint">Hover a step to see its moves · click it to see the real calls through it</div></div>
+      <div class="map"><svg id="map" role="img" aria-label="Policy graph of the voice bot"></svg><div class="hint" id="hint">Hover a state or a transition for its full record · click a state for the real calls through it</div></div>
       <div class="caption" id="cap" aria-live="polite"></div>
       <div class="legend">
-        <span><i style="border-color:var(--normal)"></i>Normal flow</span>
-        <span><i style="border-color:var(--recovery);border-top-style:dashed"></i>Recovery (retry, clarify, explain)</span>
-        <span><i style="border-color:var(--human);border-top-width:4px"></i>Hand-over to a human</span>
-        <span>Solid box: the bot waits for the caller · dashed box: the bot acts on its own</span>
+        <span><i style="border-color:var(--act)"></i>on = a customer act (the label)</span>
+        <span><i style="border-color:var(--auto);border-top-style:dashed"></i>on = auto: the bot moves on by itself</span>
+        <span><i style="border-color:var(--any);border-top-style:dotted;border-top-width:4px"></i>on = any (its condition is in <em>when</em>)</span>
+        <span>Solid box: prompts_customer = yes · dashed box: prompts_customer = no</span>
       </div>
     </div>
     <aside class="panel" id="panel"></aside>
@@ -430,35 +481,50 @@ function moveTip(ev) { const w = tip.offsetWidth, h = tip.offsetHeight; let x = 
   tip.style.left = x + "px"; tip.style.top = y + "px"; }
 const N = Object.fromEntries(D.nodes.map(n => [n.id, n])), E = Object.fromEntries(D.edges.map(e => [e.id, e]));
 const REAL = D.paths_kind === "real";
-$("#facts").textContent = `${D.facts.states} steps · ${D.facts.moves} allowed moves · ${D.facts.rules} policy rules`
+$("#sub").textContent = `Every dialog state and every leads_to transition in the policy graph file${D.document ? ` (built from ${D.document})` : ""}, with their original names. Each arrow is labelled with what triggers it.`;
+$("#facts").textContent = `${D.facts.states} dialog states · ${D.facts.moves} transitions · ${D.facts.rules} rules`
   + (REAL ? ` · ${D.paths.reduce((a, p) => a + p.cases.length, 0)} test cases` : "");
 
-// ---- layout: one column per stage (sub-columns where the most common call has two steps in a stage)
-const spine = new Set(D.spine), happy = new Set(D.happy);
-const spineIn = {}; D.spine.forEach(id => { const st = N[id].stage; (spineIn[st] = spineIn[st] || []).push(id); });
-const units = D.stages.map(s => Math.max(1, (spineIn[s.id] || []).length));
-const W = 1680, unitW = W / units.reduce((a, b) => a + b, 0), nodeW = Math.min(178, unitW - 14), nodeH = 54, top0 = 86, rowH = 92;
-const stageX = {}, stageW = {}; let acc = 0;
-D.stages.forEach((s, i) => { stageX[s.id] = acc; stageW[s.id] = units[i] * unitW; acc += units[i] * unitW; });
-const rowsUsed = {}, pos = {};
-const ordered = [...D.nodes].sort((a, b) => (spine.has(b.id) - spine.has(a.id)) || (happy.has(b.id) - happy.has(a.id)));
-for (const n of ordered) {
-  let r, x;
-  if (spine.has(n.id)) { r = 0; x = stageX[n.stage] + spineIn[n.stage].indexOf(n.id) * unitW + (unitW - nodeW) / 2; }
-  else { r = n.id === "TRANSFER" ? 5 : (rowsUsed[n.stage] ?? 1); if (n.id !== "TRANSFER") rowsUsed[n.stage] = r + 1;
-         x = stageX[n.stage] + (stageW[n.stage] - nodeW) / 2; }
-  pos[n.id] = { x, y: top0 + r * rowH, r };
-}
-const H = top0 + (Math.max(...Object.values(pos).map(p => p.r)) + 1) * rowH + 50;
-const svg = $("#map"); svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
-const NS = "http://www.w3.org/2000/svg";
+// ---- layout: Graphviz positions when the page was built with dot, else left to right by stage (in_stage)
+const svg = $("#map"), NS = "http://www.w3.org/2000/svg";
 const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); (parent || svg).appendChild(e); return e; };
 function fit(t, max) { let size = parseFloat(getComputedStyle(t).fontSize) || 16; while (t.getComputedTextLength() > max && size > 9) { size -= .5; t.style.fontSize = size + "px"; } }
-D.stages.forEach((s, i) => {
-  if (i % 2 === 0) el("rect", { x: stageX[s.id], y: 0, width: stageW[s.id], height: H, class: "lane" });
-  const t = el("text", { x: stageX[s.id] + stageW[s.id] / 2, y: 36, "text-anchor": "middle", class: "lane-t" }); t.textContent = s.label; fit(t, stageW[s.id] - 22);
-});
-const kind = (src, dst) => (dst === "TRANSFER" || src === "TRANSFER") ? "human" : ((happy.has(src) && happy.has(dst)) ? "normal" : "recovery");
+const L = D.layout, pos = {};
+let W, H, nodeW, nodeH, unitW = 200;
+if (L) {
+  W = L.w; H = L.h; nodeW = L.node_w; nodeH = L.node_h;
+  for (const n of D.nodes) pos[n.id] = { x: L.nodes[n.id].cx - nodeW / 2, y: L.nodes[n.id].cy - nodeH / 2, r: 0 };
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+} else {
+  const spine = new Set(D.spine), happy = new Set(D.happy);
+  const spineIn = {}; D.spine.forEach(id => { const st = N[id].stage; (spineIn[st] = spineIn[st] || []).push(id); });
+  const units = D.stages.map(s => Math.max(1, (spineIn[s.id] || []).length));
+  W = 1680; unitW = W / units.reduce((a, b) => a + b, 0); nodeW = Math.min(178, unitW - 14); nodeH = 54;
+  const top0 = 86, rowH = 92, stageX = {}, stageW = {}; let acc = 0;
+  D.stages.forEach((s, i) => { stageX[s.id] = acc; stageW[s.id] = units[i] * unitW; acc += units[i] * unitW; });
+  const rowsUsed = {};
+  const ordered = [...D.nodes].sort((a, b) => (spine.has(b.id) - spine.has(a.id)) || (happy.has(b.id) - happy.has(a.id)));
+  for (const n of ordered) {
+    let r, x;
+    if (spine.has(n.id)) { r = 0; x = stageX[n.stage] + spineIn[n.stage].indexOf(n.id) * unitW + (unitW - nodeW) / 2; }
+    else { r = n.id === "TRANSFER" ? 5 : (rowsUsed[n.stage] ?? 1); if (n.id !== "TRANSFER") rowsUsed[n.stage] = r + 1;
+           x = stageX[n.stage] + (stageW[n.stage] - nodeW) / 2; }
+    pos[n.id] = { x, y: top0 + r * rowH, r };
+  }
+  H = top0 + (Math.max(...Object.values(pos).map(p => p.r)) + 1) * rowH + 50;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  D.stages.forEach((s, i) => {
+    if (i % 2 === 0) el("rect", { x: stageX[s.id], y: 0, width: stageW[s.id], height: H, class: "lane" });
+    const t = el("text", { x: stageX[s.id] + stageW[s.id] / 2, y: 36, "text-anchor": "middle", class: "lane-t" }); t.textContent = s.id; fit(t, stageW[s.id] - 22);
+  });
+}
+const defs = el("defs", {});
+for (const k of ["act", "auto", "any"]) {
+  const m = el("marker", { id: "mk-" + k, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse", markerUnits: "userSpaceOnUse" }, defs);
+  m.setAttribute("markerWidth", 11); m.setAttribute("markerHeight", 11);
+  el("path", { d: "M0,0 L10,5 L0,10 z", style: `fill:var(--${k})` }, m);
+}
+const trig = e => e.on === "any" ? "any" : (e.on === "auto" || e.on === "always") ? "auto" : "act";
 function pathFor(src, dst, k = 0, n = 1) {        // k-th of n parallel transitions between the same two steps
   const a = pos[src], b = pos[dst]; if (!a || !b) return "";
   const o = (k - (n - 1) / 2) * 16;
@@ -477,26 +543,25 @@ const edgeEl = {}, lblEl = {}, hitEl = {};
 const pairN = {}, pairK = {};
 for (const e of D.edges) { const k = e.src + ">" + e.dst; pairK[e.id] = pairN[k] = (pairN[k] ?? -1) + 1; }
 for (const e of D.edges) {
-  const d = pathFor(e.src, e.dst, pairK[e.id], pairN[e.src + ">" + e.dst] + 1); if (!d) continue;
-  const p = edgeEl[e.id] = el("path", { d, class: "edge " + kind(e.src, e.dst) }, gE);
-  const mid = p.getPointAtLength(p.getTotalLength() / 2);
-  const t = lblEl[e.id] = el("text", { x: mid.x, y: mid.y - 7, "text-anchor": "middle", class: "lbl" }, gL);
-  t.textContent = short(e.on);
+  const d = L ? L.edges[e.id].d : pathFor(e.src, e.dst, pairK[e.id], pairN[e.src + ">" + e.dst] + 1); if (!d) continue;
+  const p = edgeEl[e.id] = el("path", { d, class: "edge " + trig(e), "marker-end": `url(#mk-${trig(e)})` }, gE);
+  const mid = L ? { x: L.edges[e.id].lx, y: L.edges[e.id].ly + 4 } : (q => ({ x: q.x, y: q.y - 7 }))(p.getPointAtLength(p.getTotalLength() / 2));
+  const t = lblEl[e.id] = el("text", { x: mid.x, y: mid.y, "text-anchor": "middle", class: "lbl" }, gL);
+  t.textContent = e.on;
   const h = hitEl[e.id] = el("path", { d, class: "hit" }, gH);  // a wide invisible target, live only while the move is shown
-  h.addEventListener("mouseenter", ev => { overEdge = e.id; clearTimeout(leaveT); p.classList.add("hot"); tipEdge(ev, e); });
+  h.addEventListener("mouseenter", ev => { overEdge = e.id; clearTimeout(leaveT); p.classList.add("hot"); lblEl[e.id].classList.add("on"); tipEdge(ev, e); });
   h.addEventListener("mousemove", moveTip);
-  h.addEventListener("mouseleave", () => { overEdge = null; p.classList.remove("hot"); hideTip(); leaveSoon(); });
+  h.addEventListener("mouseleave", () => { overEdge = null; p.classList.remove("hot"); paint(); hideTip(); leaveSoon(); });
 }
 const hopKey = h => h.edge;
-let overEdge = null, overNode = null, leaveT = null;
+let overEdge = null, overNode = null, leaveT = null, hoverEdgeOwner = null;
 function leaveSoon() { clearTimeout(leaveT); leaveT = setTimeout(() => { if (!overEdge && !overNode) hover(null); }, 350); }
 const nodeEl = {};
 for (const n of D.nodes) {
   const p = pos[n.id];
   const g = el("g", { class: "node" + (n.waits ? " waits" : ""), transform: `translate(${p.x},${p.y})`, tabindex: 0, role: "button", "aria-label": n.label }, gN);
-  el("rect", { width: nodeW, height: nodeH, rx: 12 }, g);
-  const t = el("text", { x: nodeW / 2, y: 24, "text-anchor": "middle" }, g); t.textContent = n.label; fit(t, nodeW - 14);
-  const c = el("text", { x: nodeW / 2, y: 42, "text-anchor": "middle", class: "code" }, g); c.textContent = n.id; fit(c, nodeW - 14);
+  el("rect", { width: nodeW, height: nodeH, rx: 10 }, g);
+  const t = el("text", { x: nodeW / 2, y: nodeH / 2 + 5, "text-anchor": "middle" }, g); t.textContent = n.id; fit(t, nodeW - 16);
   g.addEventListener("mouseenter", ev => { overNode = n.id; clearTimeout(leaveT); hover(n.id); tipNode(ev, n); });
   g.addEventListener("mousemove", moveTip);
   g.addEventListener("mouseleave", () => { overNode = null; hideTip(); leaveSoon(); });
@@ -542,8 +607,8 @@ function tipNode(ev, n) {
   const outs = D.edges.filter(e => e.src === n.id), ins = D.edges.filter(e => e.dst === n.id);
   const through = D.paths.filter(p => p.hops.some(h => h.src === n.id || h.dst === n.id)).length;
   const row = r => `<tr><th${relDesc(r)}>${esc(r.replace(/_/g, " "))}</th><td>${own.filter(t => t.relation === r).map(t => `<div>${entity(t.tail)} ${tid(t)}</div>`).join("")}</td></tr>`;
-  tip.innerHTML = `<b class="h">${esc(n.label)} <code>${esc(n.id)}</code></b>`
-    + `<div class="m">${n.waits ? "The bot waits for the caller here" : "The bot acts on its own here"} · ${outs.length} move${outs.length === 1 ? "" : "s"} out, ${ins.length} in`
+  tip.innerHTML = `<b class="h">${esc(n.id)}</b>`
+    + `<div class="m">dialog state · stage ${esc(n.stage)} · ${n.waits ? "the bot waits for the customer" : "the bot acts on its own"} · ${outs.length} transition${outs.length === 1 ? "" : "s"} out, ${ins.length} in`
     + (through ? ` · ${through} ${REAL ? "real path" : "example route"}${through === 1 ? "" : "s"} (click)` : "") + `</div>`
     + `<div class="cols3"><div><div class="sec">In the policy graph</div><table class="kv">`
     + rels.filter(r => r !== "applies_rule").map(row).join("")
@@ -557,8 +622,8 @@ function tipEdge(ev, e) {
   const used = D.paths.filter(p => p.hops.some(h => h.edge === e.id));
   const nCases = used.reduce((a, p) => a + p.cases.length, 0);
   const other = Object.keys(q).filter(k => !["on", "when", "rules", "edges"].includes(k));
-  tip.innerHTML = `<b class="h">${esc(N[e.src].label)} → ${esc(N[e.dst].label)}</b>`
-    + `<div class="m"><code>${esc(e.src)}</code> leads_to <code>${esc(e.dst)}</code> · triple ${tid(t)} · kind ${esc(t.kind || "")}`
+  tip.innerHTML = `<b class="h">${esc(e.src)} → ${esc(e.dst)}</b>`
+    + `<div class="m">leads_to · triple ${tid(t)} · kind ${esc(t.kind || "")}`
     + (REAL ? ` · ${nCases ? `taken in ${nCases} test case${nCases === 1 ? "" : "s"}` : "no test case takes it"}` : "") + `</div>`
     + `<table class="kv"><tr><th${relDesc("leads_to")}>on</th><td>${entity(q.on || "always")}${["auto", "any", "always"].includes(q.on) ? " — " + esc(D.act_labels[q.on] || "") : ""}</td></tr>`
     + `<tr><th>when</th><td>${esc(q.when || "always")}</td></tr>`
@@ -580,7 +645,7 @@ let hoverId = null, sel = null, chosen = null, preview = null, at = -1, filter =
 const pathById = Object.fromEntries(D.paths.map(p => [p.id, p]));
 function paint() {
   const showId = preview || chosen, P = pathById[showId], walking = P && showId === chosen && !preview;
-  for (const k in edgeEl) { edgeEl[k].classList.remove("near", "path", "walked"); lblEl[k].classList.remove("on"); }
+  for (const k in edgeEl) { edgeEl[k].classList.remove("near", "path", "walked", "base", "dim"); lblEl[k].classList.remove("on", "base", "dim"); }
   for (const id in nodeEl) nodeEl[id].classList.remove("onpath", "walked", "faded", "focus");
   $("#hint").style.opacity = (hoverId || sel) ? 0 : 1;
   if (P) {
@@ -595,11 +660,17 @@ function paint() {
       nodeEl[h.dst].classList.add(done ? "walked" : "onpath");
     });
     if (walking && at < 0) nodeEl[P.hops[0].src].classList.add("walked");
+    for (const k in edgeEl) if (!["near", "path", "walked"].some(c => edgeEl[k].classList.contains(c))) { edgeEl[k].classList.add("dim"); lblEl[k].classList.add("dim"); }
   } else {
-    const f = hoverId || sel;
-    if (f) for (const e of D.edges) if (e.src === f || e.dst === f) { edgeEl[e.id].classList.add("near"); lblEl[e.id].classList.add("on"); }
+    const f = hoverEdgeOwner || hoverId || sel;
+    if (f) {
+      const nb = new Set([f]);
+      for (const e of D.edges) if (e.src === f || e.dst === f) { edgeEl[e.id].classList.add("near"); lblEl[e.id].classList.add("on"); nb.add(e.src); nb.add(e.dst); }
+        else { edgeEl[e.id].classList.add("dim"); lblEl[e.id].classList.add("dim"); }
+      for (const id in nodeEl) nodeEl[id].classList.toggle("faded", !nb.has(id));
+    } else for (const k in edgeEl) { edgeEl[k].classList.add("base"); lblEl[k].classList.add("base"); }
   }
-  for (const k in hitEl) hitEl[k].classList.toggle("live", ["near", "path", "walked"].some(c => edgeEl[k].classList.contains(c)));
+  for (const k in hitEl) hitEl[k].classList.toggle("live", !edgeEl[k].classList.contains("dim"));
   if (sel) nodeEl[sel].classList.add("focus");
   if (hoverId && !P) nodeEl[hoverId].classList.add("focus");
 }
@@ -635,9 +706,9 @@ function hopLine(h) {
 function renderPanel() {
   const P = $("#panel");
   if (!sel) {
-    P.innerHTML = `<h2>Explore real calls</h2><p class="d">Click any step on the map to see the ${REAL ? "real call paths that pass through it — the routes the policy oracle takes in our test cases" : "routes the policy allows through it"}, what each one means and how it ends.</p>`
-      + `<p class="d">Hover a path to see it on the map; click it to walk through it, step by step, with the policy rule behind every move.</p>`
-      + `<p class="d">Hover a step, or a move once it is shown, for everything the policy graph records about it: its rules, tools, limits, conditions and the source quotes.</p>`
+    P.innerHTML = `<h2>The base graph</h2><p class="d">${D.facts.states} dialog states and ${D.facts.moves} leads_to transitions, exactly as in the policy graph file. Each arrow carries its trigger: a customer act, <i>auto</i> (the bot moves on by itself) or <i>any</i>.</p>`
+      + `<p class="d">Hover a state or a transition for everything the graph records about it: stage, rules, tools, limits, conditions, workflow edges and the source quotes.</p>`
+      + `<p class="d">Click a state to see the ${REAL ? "real call paths through it — the routes the policy oracle takes in the test cases" : "routes the graph allows through it"}; click a path to walk it on the graph, transition by transition.</p>`
       + (REAL ? "" : `<p class="m">Graph-only mode: these are example routes, not test cases.</p>`)
       + (D.left_out && D.left_out.cases ? `<p class="m">Only states and transitions of the policy graph are drawn. ${D.left_out.cases} test case${D.left_out.cases === 1 ? "" : "s"} (${esc(D.left_out.case_ids.join(", "))}) take a move the graph does not have (${esc(D.left_out.moves.join("; "))}), so ${D.left_out.cases === 1 ? "it is" : "they are"} left out.</p>` : "");
     return;
@@ -646,17 +717,17 @@ function renderPanel() {
   let list = D.paths.filter(p => p.hops.some(h => h.src === sel || h.dst === sel));
   const total = list.length;
   if (filter === "human") list = list.filter(p => p.end === "TRANSFERRED"); else if (filter === "done") list = list.filter(p => p.end !== "TRANSFERRED");
-  P.innerHTML = `<div class="m">Step</div><h2>${esc(n.label)}</h2>`
+  P.innerHTML = `<div class="m">Dialog state · ${esc(n.stage)}</div><h2>${esc(n.id)}</h2>`
     + (n.desc ? `<p class="d">${esc(n.desc)} <span class="m">${esc(n.source)}</span></p>` : "")
     + (n.accepts.length ? `<p class="m">Here the caller may: ${n.accepts.map(s => esc(s.replace(/^The caller /, ""))).join(" · ")}</p>` : "")
     + `<div class="filters" role="group" aria-label="How the call ends">`
     + [["all", "Any ending"], ["done", "Completed by the bot"], ["human", "Hand-over"]].map(([k, t]) => `<button type="button" data-f="${k}" aria-pressed="${filter === k}">${t}</button>`).join("")
-    + `</div><p class="m">${list.length}${list.length !== total ? ` of ${total}` : ""} ${REAL ? "real call path" : "example route"}${list.length === 1 ? "" : "s"} through this step</p>`
-    + (list.length ? "" : `<p class="d">${total ? "None with this ending." : (REAL ? "No test case reaches this step." : "No route reaches this step.")}</p>`)
+    + `</div><p class="m">${list.length}${list.length !== total ? ` of ${total}` : ""} ${REAL ? "real call path" : "example route"}${list.length === 1 ? "" : "s"} through this state</p>`
+    + (list.length ? "" : `<p class="d">${total ? "None with this ending." : (REAL ? "No test case reaches this state." : "No route reaches this state.")}</p>`)
     + list.map(p => { const m = meaning(p);
         return `<button class="pcard" type="button" data-p="${p.id}" aria-pressed="${chosen === p.id}"><b>${esc(m.title)}</b>`
-          + `<span><i class="dot" style="background:var(${m.handed ? "--human" : "--normal"})"></i>${esc(m.ending)} · ${p.hops.length} moves${REAL ? ` · ${p.cases.length} test case${p.cases.length === 1 ? "" : "s"}` : ""}</span></button>`; }).join("")
-    + `<p class="m" style="margin-top:.8rem">Esc clears the map</p>`;
+          + `<span><i class="dot" style="background:var(${m.handed ? "--human" : "--normal"})"></i>${esc(m.ending)} · ${p.hops.length} transitions${REAL ? ` · ${p.cases.length} test case${p.cases.length === 1 ? "" : "s"}` : ""}</span></button>`; }).join("")
+    + `<p class="m" style="margin-top:.8rem">Esc goes back to the whole graph</p>`;
   P.querySelectorAll("[data-f]").forEach(b => b.onclick = () => { filter = b.dataset.f; renderPanel(); });
   P.querySelectorAll(".pcard").forEach(b => {
     b.onmouseenter = () => { preview = b.dataset.p; paint(); };
@@ -740,9 +811,10 @@ def build_page(policy: Path, title: str, cases: str, campaign: Path | None, log=
     for p in sorted(done, key=lambda p: -len(p["cases"]))[:4]:
         happy |= {h["src"] for h in p["hops"]} | {h["dst"] for h in p["hops"]}
     happy -= {"TRANSFER"}
-    data = {**graph, "title": title, "paths": paths, "paths_kind": kind, "spine": spine, "happy": sorted(happy),
+    data = {**graph, "title": title or f"{graph.get('graph_title') or 'Policy'}: state-transition graph",
+            "layout": dot_layout(graph), "paths": paths, "paths_kind": kind, "spine": spine, "happy": sorted(happy),
             "act_labels": ACT_LABELS, "reason_en": REASON_EN}
-    html = PAGE.replace("__TITLE__", title.replace("<", "&lt;")).replace(
+    html = PAGE.replace("__TITLE__", data["title"].replace("<", "&lt;")).replace(
         "__DATA__", json.dumps(data, ensure_ascii=False, default=str).replace("</", "<\\/"))
     return html, data
 
@@ -754,14 +826,15 @@ def main() -> int:
     ap.add_argument("--cases", default="auto", choices=["auto", "none"],
                     help="auto: real paths from the oracle on the base cases; none: graph-only example routes")
     ap.add_argument("--out", default=str(ROOT / "docs" / "POLICY_GRAPH_SHOWCASE.html"))
-    ap.add_argument("--title", default="How our charge-review voice bot follows policy")
+    ap.add_argument("--title", default=None, help="page title (default: the graph file's title + 'state-transition graph')")
     a = ap.parse_args()
     html, data = build_page(Path(a.policy), a.title, a.cases, Path(a.campaign) if a.campaign else None)
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
     assert all(h["edge"] for p in data["paths"] for h in p["hops"]), "a shown path uses a move outside the graph"
-    print(f"wrote {out} ({len(html) // 1024} KB): {len(data['paths'])} {data['paths_kind']} paths")
+    print(f"wrote {out} ({len(html) // 1024} KB): {len(data['nodes'])} states, {len(data['edges'])} transitions, "
+          f"layout {'graphviz' if data['layout'] else 'built-in'}; {len(data['paths'])} {data['paths_kind']} paths")
     return 0
 
 
