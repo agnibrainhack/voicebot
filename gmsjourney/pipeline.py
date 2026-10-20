@@ -505,10 +505,15 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
             f.write(json.dumps({**r, "arm": r.get("arm") or "base"}, default=str) + "\n")
     R["failed_cases"] = failed_case_records(failed, cfg.max_failed_cases_in_report)
     R["failed_total"] = len(failed)
+    with open(out / "dataset" / "case_results.jsonl", "w") as f:     # every graded run, for case_comparison.html
+        for r in base_rows + rows + llm_rows:
+            f.write(json.dumps({k: v for k, v in r.items() if k != "_plaus_scores"}, default=str) + "\n")
     R["elapsed_seconds"] = round(time.time() - t0, 1)
     (out / "report.json").write_text(json.dumps(R, indent=1, default=str))
     from .report import render_html
     (out / "report.html").write_text(render_html(R))
+    from .case_compare import write_case_comparison
+    write_case_comparison(out)
     log(f"done in {R['elapsed_seconds']} s -> {out}")
     return R
 
@@ -720,7 +725,7 @@ def _failure_modes(R: dict) -> Any:
 def _write_rows(path: Path, rows: list[dict]) -> None:
     if not rows:
         return
-    keys = sorted({k for r in rows for k in r if k not in ("transcript", "kb_detail", "_plaus_scores")})
+    keys = sorted({k for r in rows for k in r if k not in ("transcript", "kb_detail", "_plaus_scores", "signature")})
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=keys, extrasaction="ignore")
         w.writeheader()

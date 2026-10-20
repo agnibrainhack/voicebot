@@ -54,6 +54,8 @@ def score(scn: Scenario, res, limits: Limits, workflow, budget=None) -> dict[str
             row[f"c_{stage}"] = 0                     # expected but never produced
         if row.get(f"c_{stage}") == 0:
             stage_diff[stage] = {"expected": item.components[k], "actual": res.components.get(stage)}
+    # the outcome signatures compared for `correct`, kept for the expected-vs-actual page (not written to CSV)
+    row["signature"] = {"expected": _loads(item.answer), "actual": _loads(res.answer)}
     if res.answer != item.answer or stage_diff:      # what differs, for the failure report
         row["why"] = {"expected": _loads(item.answer), "actual": _loads(res.answer), "stages": stage_diff}
     viol = tr.admissibility(workflow, limits.as_dict())

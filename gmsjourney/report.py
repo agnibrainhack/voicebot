@@ -504,7 +504,8 @@ def render_html(R: dict[str, Any]) -> str:
     parts.append("<h2>12. Reading the failures</h2><p>Section 5b lists every failed run with the reasons it failed. "
                  "Every failed run is also written to <code>failures.jsonl</code> with its transcript; "
                  "<code>results_enriched.csv</code> holds one row per scenario and <code>dataset/turn_by_turn.csv</code> "
-                 "compares each turn with what the oracle expects.</p>")
+                 "compares each turn with what the oracle expects; <code>case_comparison.html</code> puts the two side by side "
+                 "for every run.</p>")
     parts.append("</main></body></html>")
     return "".join(parts)
 
@@ -691,7 +692,7 @@ def _failed_section(R: dict[str, Any]) -> str:
     res = R.get("results", {})
     smp = res.get("sample") or {}
     total = sum((res.get(k) or {}).get("n", 0) for k in ("base_level", "enriched", "enriched_llm"))
-    out = ["<h2>5b. Failed cases and why</h2>"]
+    out = ["<h2>5b. Failed cases and why</h2>", "<p><b>Expected vs actual, side by side:</b> <a href='case_comparison.html'>case_comparison.html</a> shows every run (incorrect ones first, a button shows the correct ones) with what was compared to decide correct / incorrect and the oracle's expected turns beside the bot's.</p>"]
     if smp.get("max_cases") is not None:
         out.append(f"<p class='muted'>Sample: {smp['base_cases_tested']} of {smp['base_cases_total']} base cases "
                    f"(max_cases={smp['max_cases']}), {smp['enriched_tested']} of {smp['enriched_total']} enriched scenarios.</p>")

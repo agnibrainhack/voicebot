@@ -276,6 +276,15 @@ so far (`progress=False` turns them off). The report's section 5b lists every fa
 (outcome, recorded responses, card action and stages expected vs. what the bot did, policy violations, wrong policy
 answers) and its transcript, most severe first, filterable by arm and severity.
 
+`case_comparison.html` (next to `report.html`) is the same campaign case by case, in the answer sheet's format: for
+every run the outcome signature expected by the oracle beside what the bot produced, field by field (how the call
+ended, transfer reason, responses recorded, card action completed, and the policy answer for policy-question cases -
+the comparison that decides correct / incorrect), the stage, admissibility, invariance and budget checks reported
+next to it, the reasons a run failed, and every customer turn with EXPECTED (oracle tools and acts) beside ACTUAL
+(bot tools, acts and words). Incorrect runs are shown by default; buttons show the correct ones, all, or one arm.
+It is built from `dataset/case_results.jsonl` and the turn-by-turn files, so an existing campaign folder can be
+redone without re-running the bot: `python tools/case_comparison.py --campaign output/campaign_llm_sut`.
+
 Each customer turn costs 1-4 gateway calls; replies are cached (temperature 0), so repeated runs of the same
 conversation and `mode="replay"` cost nothing. `bot.stats` / `bot.llm.report()` give calls, cache hits,
 malformed replies and tool errors. Tests: `python tests/test_llm_sut.py` (a scripted fake model, no network).
