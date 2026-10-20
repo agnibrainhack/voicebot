@@ -685,25 +685,15 @@ class PolicyKG:
         self.path = path
         self.triples: list[dict[str, Any]] = data["triples"]
         self.sha256: str = data.get("sha256") or _content_hash(data)
-        self.cleaning: dict[str, Any] | None = None       # GEODE stage 0 report (knowledge/kg_clean.py)
         self._by: dict[str, list[dict]] = defaultdict(list)
         for t in self.triples:
             self._by[t["relation"]].append(t)
 
     # ------------------------------------------------------------- io
     @classmethod
-    def load(cls, path: str | Path = KG_PATH, clean: bool = True) -> "PolicyKG":
-        """Read and validate the graph. With clean=True (the default) duplicate and contradicting triples are
-        removed first (knowledge/kg_clean.py, GEODE stage 0) and the decisions are kept in ``kg.cleaning``;
-        a graph without such triples comes back unchanged."""
+    def load(cls, path: str | Path = KG_PATH) -> "PolicyKG":
         p = Path(path)
-        data = json.loads(p.read_text(encoding="utf-8"))
-        report = None
-        if clean:
-            from .kg_clean import clean_graph
-            data, report = clean_graph(data)
-        kg = cls(data, p)
-        kg.cleaning = report
+        kg = cls(json.loads(p.read_text(encoding="utf-8")), p)
         errs = kg.validate()
         if errs:
             raise ValueError(f"{p.name}: " + "; ".join(errs[:8]))
