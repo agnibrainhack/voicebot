@@ -254,6 +254,26 @@ run_campaign(CampaignConfig(out_dir="my_bot_run", bot_factory=factory, bot_name=
 runtime monitor wraps the same tool client, so the gates watch your bot exactly as they watch the reference bot;
 `GovernanceConfig(mode="enforce")` turns DENY into a blocked call.
 
+### An LLM bot as the system under test
+
+`gmsjourney/sut/llm_bot.py` is a second SUT: a tool-using agent on the same model gateway and replay cache as
+the LLM arm (cache tag `sut`). It is given the operating procedure (`policy/charge_review_policy.md`), the tool
+API with its transfer reason codes, and the dialog-act inventory - nothing the oracle computes. Each step the
+model returns one JSON object, a tool call (made on the harness backend, so faults, gates and the trace see it)
+or the acts it says; a malformed reply is sent back once, then surfaces as an `UNKNOWN` turn (a bot defect,
+never repaired by the harness). Notebook CELL 15b runs the full campaign with it:
+
+```python
+from gmsjourney.enrich.llm import LLMSettings
+from gmsjourney.sut.llm_bot import make_llm_factory
+bot = make_llm_factory(store, settings=LLMSettings(model="gpt-41", temperature=0.0, max_tokens=900))
+run_campaign(CampaignConfig(out_dir="output/campaign_llm_sut", bot_factory=bot, bot_name="LLMBot", runs_per_base=2))
+```
+
+Each customer turn costs 1-4 gateway calls; replies are cached (temperature 0), so repeated runs of the same
+conversation and `mode="replay"` cost nothing. `bot.stats` / `bot.llm.report()` give calls, cache hits,
+malformed replies and tool errors. Tests: `python tests/test_llm_sut.py` (a scripted fake model, no network).
+
 ## Outputs (`output/campaign_out/`)
 
 | file | content |
