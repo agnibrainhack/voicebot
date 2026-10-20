@@ -26,14 +26,18 @@ FAULT_TOOLS = ["authenticate_customer", "get_review_transactions", "record_charg
 KINDS = ["error", "timeout", "stale", "plausible_wrong"]
 
 
-def probe(runner, oracle, scenarios, tools=FAULT_TOOLS, kinds=KINDS) -> list[dict[str, Any]]:
+def probe(runner, oracle, scenarios, tools=FAULT_TOOLS, kinds=KINDS, show: bool = True) -> list[dict[str, Any]]:
+    from .runner import progress_bar
     out = []
+    bar = progress_bar(len(tools) * len(kinds) * len(scenarios), "SUT · resilience (tool faults)", show)
     for tool in tools:
         for kind in kinds:
             prof = [FaultProfile(tool_pattern=tool, kind=kind, error_message=f"{tool} unavailable (injected)")]
             reached = detected = agrees = expected_loud = 0
             examples = []
             for scn in scenarios:
+                if bar is not None:
+                    bar.update(1)
                 res = runner.run(scn, faults=prof)
                 if not any(i["tool"] == tool for i in res.extras["injected"]):
                     continue
@@ -57,4 +61,6 @@ def probe(runner, oracle, scenarios, tools=FAULT_TOOLS, kinds=KINDS) -> list[dic
                             "undetectable": reached - expected_loud,
                             "detection_rate": detected / expected_loud if expected_loud else None,
                             "oracle_agreement": agrees / reached, "silent_examples": examples})
+    if bar is not None:
+        bar.close()
     return out

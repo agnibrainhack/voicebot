@@ -153,6 +153,30 @@ def test_tool_errors_and_bad_arguments_reach_the_model_not_the_harness():
     assert isinstance(bot, LLMBot)
 
 
+
+def test_sample_bases_keeps_the_category_mix_and_all_by_default():
+    from gmsjourney.pipeline import sample_bases
+    B = [SimpleNamespace(qid=f"{c}{i}", base=c) for c, n in (("a", 6), ("b", 3), ("c", 1)) for i in range(n)]
+    assert sample_bases(B, None) == B and sample_bases(B, 99) == B
+    pick = sample_bases(B, 6)
+    assert len(pick) == 6 and {b.base for b in pick} == {"a", "b", "c"}
+    assert sum(b.base == "a" for b in pick) >= sum(b.base == "b" for b in pick)
+
+
+def test_failure_reasons_read_the_graded_row():
+    from gmsjourney.report import failure_reasons, _strip
+    row = {"why": {"expected": {"end": "TRANSFERRED", "transfer_reason": "record_failed", "recorded": [], "action": None},
+                   "actual": {"end": "COMPLETED", "transfer_reason": None, "recorded": [["T1", "RECOGNIZED"]],
+                              "action": None},
+                   "stages": {"record": {"expected": "T1=RECOGNIZED:FAILED", "actual": "T1=RECOGNIZED:SUCCESS"}}},
+           "violations": ["claim_without_success:T1"],
+           "kb_detail": [{"frame": "ASK_KB(intent=fee)", "answer": "It's $0.", "correct": False, "detail": "truth=15"}]}
+    text = " | ".join(_strip(r) for r in failure_reasons(row))
+    for want in ("expected TRANSFERRED (record_failed)", "COMPLETED", "T1=RECOGNIZED", "Stage record",
+                 "claimed a response", "truth=15"):
+        assert want in text, (want, text)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

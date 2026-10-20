@@ -212,12 +212,17 @@ def show_turns(runner, oracle, scenario, validator=None, display=None):
 
 
 # ----------------------------------------------------------------------------- many scenarios
-def export_turn_by_turn(out_dir: str | Path, runner, oracle, scenarios, validator=None) -> dict[str, Any]:
+def export_turn_by_turn(out_dir: str | Path, runner, oracle, scenarios, validator=None,
+                        show: bool = True) -> dict[str, Any]:
     """dataset/turn_by_turn.csv (one row per turn per scenario) + turn_by_turn_summary.csv."""
+    from .evaluation.runner import progress_bar
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     trows, srows = [], []
+    bar = progress_bar(len(scenarios), "turn-by-turn export", show)
     for scn in scenarios:
+        if bar is not None:
+            bar.update(1)
         df, s = turn_by_turn(runner, oracle, scn, validator=validator)
         for r in df.to_dict(orient="records"):
             trows.append({"case_id": scn.sid, "base_id": scn.base.qid,
@@ -225,6 +230,9 @@ def export_turn_by_turn(out_dir: str | Path, runner, oracle, scenarios, validato
                           "arm": scn.metadata.get("arm", "base" if not scn.factor_levels else "template"), **r})
         srows.append({**s, "case_type": "base" if not scn.factor_levels else "enriched",
                       "arm": scn.metadata.get("arm", "base" if not scn.factor_levels else "template")})
+
+    if bar is not None:
+        bar.close()
 
     def write(path, rows):
         if not rows:

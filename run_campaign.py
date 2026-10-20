@@ -20,6 +20,9 @@ if __name__ == "__main__":
     ap.add_argument("--out", default="output/campaign_out")
     ap.add_argument("--profile", default="voice_full")
     ap.add_argument("--runs-per-base", type=int, default=6)
+    ap.add_argument("--max-cases", type=int, default=None,
+                    help="test only this many base cases (each with its enriched variants); default: all")
+    ap.add_argument("--no-progress", action="store_true", help="no tqdm progress bars")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--backend", default="auto", choices=["auto", "knowlytix", "builtin"])
     ap.add_argument("--kx-epochs", type=int, default=150, help="production store epochs (licence cap 200)")
@@ -65,6 +68,7 @@ if __name__ == "__main__":
                     help="policy-question turns inside LLM rows: keep template wording (default) or rewrite")
     a = ap.parse_args()
     cfg = CampaignConfig(out_dir=a.out, profile=a.profile, runs_per_base=a.runs_per_base, seed=a.seed,
+                         max_cases=a.max_cases, progress=not a.no_progress,
                          run_mutation=not a.no_mutation, run_resilience=not a.no_resilience,
                          run_power=not a.no_power, run_governance=not a.no_governance, backend=a.backend,
                          kx_epochs=a.kx_epochs, kx_geode_epochs=a.kx_geode_epochs, kx_store_dir=a.kx_store_dir,

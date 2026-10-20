@@ -84,6 +84,11 @@ class CampaignConfig:
     # (~26 such bases); an int = normal-length covering array + at most this many turn-limit bases
     max_turn_limit_cases: int | None = 2
     kb_questions: str = "standard"               # extended: more policy questions over the same facts (bases/kb.py)
+    # how many base cases the bot under test is run on (each with its enriched variants); None = all.
+    # Picked round-robin over the base categories, so a small sample still covers every kind of case.
+    max_cases: int | None = None
+    progress: bool = True                        # tqdm progress bars for the bot runs (when tqdm is installed)
+    max_failed_cases_in_report: int = 400        # failed runs listed one by one in the report (all in failures.jsonl)
     kx_dedup_mode: str = "off"                   # off | audit | accept   (knowledge/kx_store.py)
     kx_v_sft_mode: str = "ab"                    # rotation | full | ab
     # runtime checks
@@ -376,13 +381,25 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     budget = ConstraintBudget(**(cfg.budgets or {}))
     arms = {"llm": llm_realizer} if llm_realizer is not None else None
     runner = JourneyRunner(bot_factory=factory, governance=gcfg, arm_realizers=arms, budgets=budget, **rk)
-    base_scns = [Scenario(f"{b.qid}~base", b, {}, "base") for b in bases]
-    base_rows = run(base_scns, runner, oracle.limits, store.workflow, None)
-    rows = run(scenarios, runner, oracle.limits, store.workflow, validator)
-    llm_rows = run(llm_scns, runner, oracle.limits, store.workflow, llm_validator) if llm_scns else []
+    tested = sample_bases(bases, cfg.max_cases)
+    ids = {b.qid for b in tested}
+    base_scns = [Scenario(f"{b.qid}~base", b, {}, "base") for b in tested]
+    run_scns = [s for s in scenarios if s.base.qid in ids]
+    run_llm = [s for s in llm_scns if s.base.qid in ids]
+    if cfg.max_cases is not None:
+        log(f"      testing {len(tested)} of {len(bases)} base cases (max_cases={cfg.max_cases}): "
+            f"{len(base_scns)} base runs, {len(run_scns)} enriched" + (f", {len(run_llm)} LLM-arm" if llm_scns else ""))
+    pb = cfg.progress
+    base_rows = run(base_scns, runner, oracle.limits, store.workflow, None, desc="SUT · base cases", show=pb)
+    rows = run(run_scns, runner, oracle.limits, store.workflow, validator, desc="SUT · enriched (template arm)", show=pb)
+    llm_rows = run(run_llm, runner, oracle.limits, store.workflow, llm_validator,
+                   desc="SUT · enriched (LLM arm)", show=pb) if run_llm else []
     R["results"] = {"bot": cfg.bot_name, "base_level": summary(base_rows), "enriched": summary(rows),
-                    "budgets": budget.as_dict()}
-    if llm_scns:
+                    "budgets": budget.as_dict(),
+                    "sample": {"max_cases": cfg.max_cases, "base_cases_tested": len(tested),
+                               "base_cases_total": len(bases), "enriched_tested": len(run_scns),
+                               "enriched_total": len(scenarios)}}
+    if llm_rows:
         R["results"]["enriched_llm"] = summary(llm_rows)
         R["arms"] = _arm_comparison(rows, llm_rows)
         if llm_realizer is not None:
@@ -413,7 +430,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
                   and not s.base.metadata.get("kb_qid")]
     if cfg.run_resilience:
         log("[9/12] probing resilience under tool faults")
-        R["resilience"] = resilience.probe(runner, oracle, probe_scns)
+        R["resilience"] = resilience.probe(runner, oracle, probe_scns, show=cfg.progress)
 
     # 10 ------------------------------------------------------------- mutation analysis
     if cfg.run_mutation and cfg.bot_factory is None:
@@ -430,7 +447,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         suites = {"covering_base": journey_base_scns,
                   "random_base_same_size": [Scenario(f"{b.qid}~base", b, {}, "base") for b in rand],
                   "kb_bases": [s for s in base_scns if s.base.metadata.get("kb_qid")],
-                  "enriched_design": scenarios}
+                  "enriched_design": run_scns}
         R["mutation"] = mutation.mutation_analysis(store, rk, suites, oracle.limits, store.workflow, validator,
                                                    fault_scenarios=probe_scns, governance=gcfg)
 
@@ -451,9 +468,9 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     from .turn_compare import export_turn_by_turn
     diag_runner = runner if (gcfg is not None and getattr(gcfg, "mode", "observe") == "enforce") else \
         JourneyRunner(bot_factory=factory, governance=None, arm_realizers=arms, budgets=budget, **rk)
-    llm_ok = [s for s in llm_scns if (s.metadata.get("proof") or {}).get("accepted")]
-    R["turn_by_turn"] = export_turn_by_turn(out / "dataset", diag_runner, oracle, base_scns + scenarios + llm_ok,
-                                            validator=validator)
+    llm_ok = [s for s in run_llm if (s.metadata.get("proof") or {}).get("accepted")]
+    R["turn_by_turn"] = export_turn_by_turn(out / "dataset", diag_runner, oracle, base_scns + run_scns + llm_ok,
+                                            validator=validator, show=cfg.progress)
     if llm_scns:
         from .enrich.llm.export import write_llm_exports
         R["llm_exports"] = write_llm_exports(out / "dataset", llm_proofs, llm_controls,
@@ -482,16 +499,54 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
             turns = [{k: v for k, v in t.items() if k not in ("frame_obj", "read_obj")} for t in p.turns]
             f.write(json.dumps({"sid": p.sid, "base": p.qid, "levels": p.levels, "accepted": p.accepted,
                                 "signature": p.enriched_signature, "turns": turns}, default=str) + "\n")
+    failed = [r for r in base_rows + rows + llm_rows if not r["correct"] or not r["workflow_adherent"]]
     with open(out / "failures.jsonl", "w") as f:
-        for r in rows + llm_rows:
-            if not r["correct"] or not r["workflow_adherent"]:
-                f.write(json.dumps(r, default=str) + "\n")
+        for r in failed:
+            f.write(json.dumps({**r, "arm": r.get("arm") or "base"}, default=str) + "\n")
+    R["failed_cases"] = failed_case_records(failed, cfg.max_failed_cases_in_report)
+    R["failed_total"] = len(failed)
     R["elapsed_seconds"] = round(time.time() - t0, 1)
     (out / "report.json").write_text(json.dumps(R, indent=1, default=str))
     from .report import render_html
     (out / "report.html").write_text(render_html(R))
     log(f"done in {R['elapsed_seconds']} s -> {out}")
     return R
+
+
+def sample_bases(bases: list, n: int | None) -> list:
+    """n base cases spread over the base categories in proportion to their size (all when n is None):
+    the i-th case of a category of size k is placed at (i + 0.5) / k and the n earliest are taken, so a
+    small sample keeps the mix of the full suite and every category of a reasonable size is represented."""
+    if n is None or n >= len(bases):
+        return list(bases)
+    by_cat: dict[str, list] = {}
+    for b in bases:
+        by_cat.setdefault(b.base, []).append(b)
+    keyed = [((i + 0.5) / len(items), c, i, b) for c, items in sorted(by_cat.items()) for i, b in enumerate(items)]
+    keyed.sort(key=lambda t: t[:3])
+    return [t[3] for t in keyed[: max(0, n)]]
+
+
+_FAILED_KEYS = ("sid", "seed", "base", "arm", "correct", "workflow_adherent", "status", "transfer_reason",
+                "expected_transfer_reason", "severity", "risk_tier", "failure_codes", "violations", "why",
+                "kb_detail", "invariance_ok", "budget_violations", "gate_rules", "turns", "tool_sequence",
+                "tags", "transcript")
+
+
+def failed_case_records(failed: list[dict], limit: int | None = 400) -> list[dict]:
+    """Compact records of the failed runs for the report: most severe first, transcripts capped at 80 lines."""
+    from .evaluation.severity import RANK
+    order = sorted(failed, key=lambda r: (-RANK.get(r.get("severity") or "none", 0), r.get("arm") or "", r["sid"]))
+    out = []
+    for r in order[: limit if limit is not None else len(order)]:
+        rec = {k: r.get(k) for k in _FAILED_KEYS if r.get(k) is not None}
+        rec["arm"] = r.get("arm") or "base"
+        rec["stages_wrong"] = sorted(k[2:] for k, v in r.items() if k.startswith("c_") and v == 0)
+        rec["factors"] = {k[2:]: v for k, v in r.items() if k.startswith("f_")}
+        if rec.get("transcript"):
+            rec["transcript"] = rec["transcript"][:80]
+        out.append(rec)
+    return out
 
 
 def llm_pool(scenarios: list, exclude=("policy_questions", "turn_padding")) -> list:

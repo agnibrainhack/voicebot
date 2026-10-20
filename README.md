@@ -270,6 +270,12 @@ bot = make_llm_factory(store, settings=LLMSettings(model="gpt-41", temperature=0
 run_campaign(CampaignConfig(out_dir="output/campaign_llm_sut", bot_factory=bot, bot_name="LLMBot", runs_per_base=2))
 ```
 
+`max_cases=N` tests only N base cases (each with its enriched variants), picked in proportion to the base
+categories; the default `None` tests all of them. Progress bars (tqdm) show each run phase with the number correct
+so far (`progress=False` turns them off). The report's section 5b lists every failed run with the reasons it failed
+(outcome, recorded responses, card action and stages expected vs. what the bot did, policy violations, wrong policy
+answers) and its transcript, most severe first, filterable by arm and severity.
+
 Each customer turn costs 1-4 gateway calls; replies are cached (temperature 0), so repeated runs of the same
 conversation and `mode="replay"` cost nothing. `bot.stats` / `bot.llm.report()` give calls, cache hits,
 malformed replies and tool errors. Tests: `python tests/test_llm_sut.py` (a scripted fake model, no network).

@@ -20,6 +20,7 @@ Scenarios whose invariance proof failed are not run (they are reported).
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from ..core import Scenario
@@ -44,12 +45,17 @@ def score(scn: Scenario, res, limits: Limits, workflow, budget=None) -> dict[str
         "expected_transfer_reason": item.metadata.get("transfer_reason"),
         "transfer_reason": res.escalation_trigger,
     }
+    stage_diff = {}
     for stage in WORKFLOW_STAGES:
         k = f"expected_{stage}"
         if k in item.components and stage in res.components:
             row[f"c_{stage}"] = int(res.components[stage] == item.components[k])
         elif k in item.components:
             row[f"c_{stage}"] = 0                     # expected but never produced
+        if row.get(f"c_{stage}") == 0:
+            stage_diff[stage] = {"expected": item.components[k], "actual": res.components.get(stage)}
+    if res.answer != item.answer or stage_diff:      # what differs, for the failure report
+        row["why"] = {"expected": _loads(item.answer), "actual": _loads(res.answer), "stages": stage_diff}
     viol = tr.admissibility(workflow, limits.as_dict())
     proc = tr.process()
     row.update({
@@ -95,19 +101,46 @@ def score(scn: Scenario, res, limits: Limits, workflow, budget=None) -> dict[str
     return row
 
 
+def _loads(s):
+    try:
+        return json.loads(s) if isinstance(s, str) else s
+    except ValueError:
+        return s
+
+
+def progress_bar(total: int, desc: str, show: bool = True):
+    """A tqdm bar (notebook-aware) when tqdm is installed and show is True, else None."""
+    if not show or not total:
+        return None
+    try:
+        from tqdm.auto import tqdm
+    except ImportError:
+        return None
+    return tqdm(total=total, desc=desc, dynamic_ncols=True)
+
+
 def run(scenarios: list[Scenario], runner, limits: Limits, workflow, validator=None,
-        faults=None, keep_transcripts: int = 0) -> list[dict[str, Any]]:
+        faults=None, keep_transcripts: int = 0, desc: str | None = None, show: bool = True) -> list[dict[str, Any]]:
+    """Run and score every scenario; with `desc`, a progress bar (tqdm) shows runs done and accuracy so far."""
     rows = []
+    bar = progress_bar(len(scenarios), desc, show) if desc else None
     for i, scn in enumerate(scenarios):
         proof = scn.metadata.get("proof")
         if proof is not None and not proof["accepted"]:
+            if bar is not None:
+                bar.update(1)
             continue
         path = validator.base_path(scn.base) if validator else None
         res = runner.run(scn, faults=faults, oracle_path=path)
         row = score(scn, res, limits, workflow, getattr(runner, "budgets", None))
-        if i < keep_transcripts or not row["correct"]:
+        if i < keep_transcripts or not row["correct"] or not row["workflow_adherent"]:
             row["transcript"] = res.extras["transcript"]
         rows.append(row)
+        if bar is not None:
+            bar.update(1)
+            bar.set_postfix_str(f"correct {sum(r['correct'] for r in rows)}/{len(rows)}")
+    if bar is not None:
+        bar.close()
     return rows
 
 

@@ -5,6 +5,20 @@ import html
 import json
 from typing import Any
 
+CSS_FAIL = """
+.chip{display:inline-block;padding:0 7px;border-radius:9px;font-size:11px;font-weight:600;margin-right:4px;
+border:1px solid var(--border);white-space:nowrap}
+.sev-critical{background:var(--critical);color:#fff;border-color:transparent}.sev-high{color:var(--critical)}
+.sev-moderate{color:var(--warn)}.sev-low,.sev-none{color:var(--muted)}
+.fc summary{color:var(--ink)}.fc summary .muted{font-weight:400}
+.fc ul{margin:6px 0 8px 18px;padding:0}.fc li{margin:2px 0}
+.fc .tr{max-height:360px;overflow:auto;border-top:1px solid var(--grid);margin-top:6px;padding-top:4px}
+.fc .acts{color:var(--muted);font-size:11px}
+.filters{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.filters button{font:inherit;font-size:12px;border:1px solid var(--border);background:var(--surface);color:var(--ink);
+border-radius:8px;padding:2px 9px;cursor:pointer}.filters button[aria-pressed="true"]{border-color:var(--s1);color:var(--s1)}
+"""
+
 CSS = """
 :root{color-scheme:light;--page:#f9f9f7;--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#898781;
 --grid:#e1e0d9;--axis:#c3c2b7;--border:rgba(11,11,11,.10);--s1:#2a78d6;--good:#0ca30c;--goodtext:#006300;
@@ -110,7 +124,7 @@ def render_html(R: dict[str, Any]) -> str:
     s = inv["summary"]
     nc = inv["negative_controls"]
     parts = [f"<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' "
-             f"content='width=device-width,initial-scale=1'><title>Journey Test Report</title><style>{CSS}</style>"
+             f"content='width=device-width,initial-scale=1'><title>Journey Test Report</title><style>{CSS}{CSS_FAIL}</style>"
              f"</head><body><main>"]
     parts.append("<h1>Charge-review bot: GMS-grounded journey test campaign</h1>")
     parts.append(f"<p class='lede'>System under test: <b>{esc(res['bot'])}</b>. Ground truth is computed from the "
@@ -373,6 +387,8 @@ def render_html(R: dict[str, Any]) -> str:
         [[esc(c), v["n"], pct(v["accuracy"]), f"{pct(v['wilson_failure'][0])}–{pct(v['wilson_failure'][1])}"]
          for c, v in dg["per_category"].items()], {1, 2}) + "</div>")
 
+    parts.append(_failed_section(R))
+
     # 6 resilience
     if R.get("resilience"):
         parts.append("<h2>6. Resilience under tool faults</h2><div class='card'>" + table(
@@ -485,8 +501,10 @@ def render_html(R: dict[str, Any]) -> str:
                                                                            "controls the LLM gate accepted (for human audit)")],
               ["<code>dataset/arm_pairs.csv</code>", esc(f"{R['llm_exports'].get('arm_pairs', 0)} template/LLM pairs")]]
              if R.get("llm_exports") else [])) + "</div>")
-    parts.append("<h2>12. Reading the failures</h2><p>Every failed run is written to <code>failures.jsonl</code> "
-                 "with its transcript; <code>results_enriched.csv</code> holds one row per scenario.</p>")
+    parts.append("<h2>12. Reading the failures</h2><p>Section 5b lists every failed run with the reasons it failed. "
+                 "Every failed run is also written to <code>failures.jsonl</code> with its transcript; "
+                 "<code>results_enriched.csv</code> holds one row per scenario and <code>dataset/turn_by_turn.csv</code> "
+                 "compares each turn with what the oracle expects.</p>")
     parts.append("</main></body></html>")
     return "".join(parts)
 
@@ -604,3 +622,137 @@ def _release_section(R: dict[str, Any]) -> str:
             "<p class='muted'>Action-taking journeys (the correct path writes to the account) promote moderate and high "
             "failures by one level, as gmsh's tier escalation does; each tier has an accuracy floor and failure budgets "
             "(evaluation/severity.py).</p></div>")
+
+
+
+# ----------------------------------------------------------------------------- failed cases
+_VIOLATION_EN = {
+    "claim_without_success": "claimed a response or action was done although the tool did not return SUCCESS",
+    "account_tool_before_auth": "used an account tool before the customer was authenticated",
+    "submit_without_confirmation": "submitted a card action without the customer's confirmation",
+    "expedited_without_fee_disclosure": "chose expedited delivery without disclosing the fee first",
+    "tool_after_transfer": "kept calling tools after handing over to a human",
+    "auth_attempts_exceeded": "allowed more authentication attempts than the limit",
+    "transaction_limit_exceeded": "reviewed more charges than the per-session limit",
+    "turn_limit_exceeded": "ran past the conversation turn limit",
+    "edge_not_in_policy_graph": "made a tool step the policy workflow does not allow",
+}
+
+
+def _fmt(v: Any) -> str:
+    if v is None or v == [] or v == {}:
+        return "none"
+    if isinstance(v, list) and v and all(isinstance(x, list) and len(x) == 2 for x in v):
+        return ", ".join(f"{a}={b}" for a, b in v)
+    if isinstance(v, list):
+        return "/".join(str(x) for x in v)
+    return str(v)
+
+
+def failure_reasons(fc: dict[str, Any]) -> list[str]:
+    """Plain-English reasons a run failed, read off its graded row (nothing re-judged here)."""
+    out = []
+    why = fc.get("why") or {}
+    exp, act = why.get("expected") or {}, why.get("actual") or {}
+    if isinstance(exp, dict) and isinstance(act, dict):
+        if exp.get("end") != act.get("end") or exp.get("transfer_reason") != act.get("transfer_reason"):
+            e = exp.get("end") + (f" ({exp['transfer_reason']})" if exp.get("transfer_reason") else "")
+            a = (act.get("end") or "no ending") + (f" ({act['transfer_reason']})" if act.get("transfer_reason") else "")
+            out.append(f"Call outcome: expected <b>{esc(e)}</b>, the bot ended <b>{esc(a)}</b>.")
+        if exp.get("recorded") != act.get("recorded"):
+            out.append(f"Recorded responses: expected <code>{esc(_fmt(exp.get('recorded')))}</code>, "
+                       f"recorded <code>{esc(_fmt(act.get('recorded')))}</code>.")
+        if exp.get("action") != act.get("action"):
+            out.append(f"Card action: expected <code>{esc(_fmt(exp.get('action')))}</code>, "
+                       f"completed <code>{esc(_fmt(act.get('action')))}</code>.")
+    for st, d in (why.get("stages") or {}).items():
+        out.append(f"Stage <b>{esc(st)}</b>: expected <code>{esc(_fmt(d.get('expected')))}</code>, "
+                   f"got <code>{esc(_fmt(d.get('actual')))}</code>.")
+    for v in fc.get("violations") or []:
+        key, _, detail = str(v).partition(":")
+        out.append(f"Policy violation: {esc(_VIOLATION_EN.get(key, key))}" + (f" <code>{esc(detail)}</code>" if detail else "") + ".")
+    for k in fc.get("kb_detail") or []:
+        if not k.get("correct"):
+            out.append(f"Policy question <code>{esc(k.get('frame'))}</code>: the bot answered “{esc(k.get('answer'))}” "
+                       f"— {esc(k.get('detail'))}.")
+    if fc.get("invariance_ok") == 0:
+        out.append("A customer turn did not read back to its intended meaning (runtime invariance monitor).")
+    for b in fc.get("budget_violations") or []:
+        out.append(f"Budget: {esc(b)}.")
+    if not out and fc.get("failure_codes"):
+        out.append("Failure codes: " + esc(", ".join(fc["failure_codes"])) + ".")
+    return out or ["Outcome signature differs from the oracle's (see the transcript)."]
+
+
+def _failed_section(R: dict[str, Any]) -> str:
+    fcs = R.get("failed_cases")
+    if fcs is None:
+        return ""
+    res = R.get("results", {})
+    smp = res.get("sample") or {}
+    total = sum((res.get(k) or {}).get("n", 0) for k in ("base_level", "enriched", "enriched_llm"))
+    out = ["<h2>5b. Failed cases and why</h2>"]
+    if smp.get("max_cases") is not None:
+        out.append(f"<p class='muted'>Sample: {smp['base_cases_tested']} of {smp['base_cases_total']} base cases "
+                   f"(max_cases={smp['max_cases']}), {smp['enriched_tested']} of {smp['enriched_total']} enriched scenarios.</p>")
+    if not fcs:
+        out.append(f"<div class='card'><span class='ok'>No failed runs</span> in {total} runs.</div>")
+        return "".join(out)
+    by_arm: dict[str, int] = {}
+    codes: dict[str, int] = {}
+    stages: dict[str, int] = {}
+    for f in fcs:
+        by_arm[f["arm"]] = by_arm.get(f["arm"], 0) + 1
+        for c in f.get("failure_codes") or []:
+            codes[c] = codes.get(c, 0) + 1
+        for st in f.get("stages_wrong") or []:
+            stages[st] = stages.get(st, 0) + 1
+    out.append("<div class='tiles'>" + tile(str(len(fcs)), f"failed runs (of {total})") +
+               "".join(tile(str(n), f"failed · {a}") for a, n in sorted(by_arm.items())) + "</div>")
+    out.append("<div class='card'><b>What went wrong, counted over the failed runs</b>" + table(
+        ["failure code", "runs"], [[esc(c), n] for c, n in sorted(codes.items(), key=lambda kv: -kv[1])], {1}) +
+        (table(["stage graded wrong", "runs"], [[esc(st), n] for st, n in sorted(stages.items(), key=lambda kv: -kv[1])], {1})
+         if stages else "") + "</div>")
+    arms = sorted(by_arm)
+    sevs = [s for s in ("critical", "high", "moderate", "low", "none") if any((f.get("severity") or "none") == s for f in fcs)]
+    out.append("<div class='filters' id='fcf'><button type='button' data-k='all' aria-pressed='true'>all</button>" +
+               "".join(f"<button type='button' data-k='arm:{esc(a)}' aria-pressed='false'>{esc(a)}</button>" for a in arms) +
+               "".join(f"<button type='button' data-k='sev:{esc(s)}' aria-pressed='false'>{esc(s)}</button>" for s in sevs) +
+               "</div><div class='card' id='fcl'>")
+    for f in fcs:
+        sev = f.get("severity") or "none"
+        reasons = failure_reasons(f)
+        head = (f"<span class='chip sev-{esc(sev)}'>{esc(sev)}</span><code>{esc(f['sid'])}</code> "
+                f"<span class='muted'>· {esc(f['arm'])} · {esc(f.get('base'))} · {esc(_strip(reasons[0])[:150])}</span>")
+        body = ["<ul>" + "".join(f"<li>{r}</li>" for r in reasons) + "</ul>"]
+        meta = []
+        if f.get("failure_codes"):
+            meta.append("codes " + " ".join(f"<span class='chip'>{esc(c)}</span>" for c in f["failure_codes"]))
+        if f.get("factors"):
+            meta.append("factor levels <code>" + esc(", ".join(f"{k}={v}" for k, v in f["factors"].items())) + "</code>")
+        if f.get("tool_sequence"):
+            meta.append("tools <code>" + esc(f["tool_sequence"]) + "</code>")
+        if meta:
+            body.append("<p class='muted'>" + " · ".join(meta) + "</p>")
+        tr = f.get("transcript") or []
+        if tr:
+            body.append("<details><summary>transcript</summary><div class='tr'>" + "".join(
+                f"<div class='turn{' u' if t.get('role') == 'user' else ''}'><b>{'customer' if t.get('role') == 'user' else 'bot'}</b> "
+                f"{esc(t.get('text'))}" + (f" <span class='acts'>{esc(', '.join(map(str, t.get('acts') or [])))}</span>"
+                                            if t.get('acts') else "") + "</div>" for t in tr) + "</div></details>")
+        out.append(f"<details class='fc' data-arm='{esc(f['arm'])}' data-sev='{esc(sev)}'><summary>{head}</summary>"
+                   + "".join(body) + "</details>")
+    n_failed = R.get("failed_total", len(fcs))
+    out.append("</div><p class='muted'>Most severe first" +
+               (f"; the first {len(fcs)} of {n_failed} failed runs are listed" if n_failed > len(fcs) else "") +
+               ". Every failed run, with its full row, is in <code>failures.jsonl</code>.</p>")
+    out.append("""<script>(function(){var f=document.getElementById('fcf');if(!f)return;f.addEventListener('click',function(e){
+var b=e.target.closest('button');if(!b)return;f.querySelectorAll('button').forEach(function(x){x.setAttribute('aria-pressed',x===b)});
+var k=b.dataset.k;document.querySelectorAll('#fcl details.fc').forEach(function(d){var show=k==='all'||
+(k.indexOf('arm:')===0&&d.dataset.arm===k.slice(4))||(k.indexOf('sev:')===0&&d.dataset.sev===k.slice(4));d.style.display=show?'':'none';});});})();</script>""")
+    return "".join(out)
+
+
+def _strip(h: str) -> str:
+    import re
+    return html.unescape(re.sub(r"<[^>]+>", "", h))
