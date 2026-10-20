@@ -237,6 +237,29 @@ def test_policy_graph_is_valid_and_is_the_source():
     assert ("PRESENT_TXN", "accepts_act", "INFORM_DISPOSITION") in store.triples
 
 
+def test_geode_stage0_drops_planted_duplicates_and_contradictions():
+    import json as _json
+    from gmsjourney.knowledge.kg_clean import clean_graph, score_against_answers
+    from gmsjourney.knowledge.policy_kg import PolicyKG
+    clean = _json.loads(POLICY_KG.read_text())
+    same, rep = clean_graph(clean)
+    assert same == clean and rep["dropped"] == 0 and rep["flagged_groups"] == 0     # clean graph untouched
+    noisy_path = POLICY_KG.with_name("charge_review_kg_noisy.json")
+    kg = PolicyKG.load(noisy_path)                                  # cleaned on load, then validated
+    assert kg.triples == clean["triples"] and kg.sha256 == clean["sha256"]
+    answers = _json.loads(noisy_path.with_suffix(".answers.json").read_text())
+    sc = score_against_answers(kg.cleaning, answers)
+    assert sc["recall"] == 1.0 and sc["precision"] == 1.0 and sc["kept_the_original"] == sc["planted"]
+    by = kg.cleaning["by_critic"]
+    assert by["duplicate"] == 9 and by["support"] == 3 and by["grounding"] == 2 and by["provenance"] == 1
+    assert kg.cleaning["flagged_groups"] == 3                      # undecidable from the document: for review
+    try:
+        PolicyKG.load(noisy_path, clean=False)                     # without stage 0 the graph is rejected
+        raise AssertionError("noisy graph validated without cleaning")
+    except ValueError as e:
+        assert "evidence not found" in str(e) or "unknown state" in str(e)
+
+
 def test_state_aware_ontology_mapping():
     store, _oracle, _R, rd = env()
     ont = Ontology.from_store(store)

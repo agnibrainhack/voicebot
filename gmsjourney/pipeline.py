@@ -132,10 +132,11 @@ def build_gms(policy_path: str | Path = POLICY, *, backend_choice: str = "auto",
     if backend_choice == "knowlytix" and not use_kx:
         backend.require()
     info = {"selected": "knowlytix" if use_kx else "builtin", **backend.describe()}
+    cleaning = _kg_cleaning(policy_path, log)
     if not use_kx:
         log("[1/12] building the built-in knowledge store (ingest -> self-correction -> train -> calibrate)")
         b = build_store(policy_path)
-        return b.store, b.report(), info
+        return b.store, {**b.report(), "kg_cleaning": cleaning}, info
     from .knowledge.kx_store import build_kx_store, load_kx_store
     # the store is keyed by everything that changes it: the policy source, the training settings,
     # the package versions and which encoders it is warm-started from
@@ -151,7 +152,20 @@ def build_gms(policy_path: str | Path = POLICY, *, backend_choice: str = "auto",
             f"cap-trained store -> GMSJudge calibration ({sdir})")
         kb = build_kx_store(policy_path, sdir, epochs=epochs, geode_epochs=geode_epochs, seed=seed,
                             dedup_mode=dedup_mode, v_sft_mode=v_sft_mode, log=log)
-    return kb.store, {**kb.report, "store_dir": str(sdir)}, info
+    return kb.store, {**kb.report, "store_dir": str(sdir), "kg_cleaning": cleaning}, info
+
+
+def _kg_cleaning(policy_path: str | Path, log: Callable[[str], None]) -> dict[str, Any] | None:
+    """GEODE stage 0 on the policy graph (duplicates / contradictions; knowledge/kg_clean.py): every later
+    step - compiler, GEODE loop, GMS - is built from the repaired graph."""
+    if Path(policy_path).suffix.lower() != ".json":
+        return None
+    from .knowledge.policy_kg import PolicyKG
+    c = PolicyKG.load(policy_path).cleaning
+    if c and (c["dropped"] or c["flagged_groups"]):
+        log(f"[0/12] policy graph cleaned before training: {c['triples_in']} triples -> {c['triples_out']} "
+            f"({', '.join(f'{k} {v}' for k, v in c['by_action'].items())}; {c['flagged_groups']} group(s) for review)")
+    return c
 
 
 def tags_for(spec: JourneySpec) -> list[str]:

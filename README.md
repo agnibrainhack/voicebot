@@ -46,6 +46,31 @@ Rebuild it after changing the transcription or the state layer:
 (`check` validates a file). `PolicyKG.load()` is the read API; the GMS is trained on the graph, state layer
 included, and the campaign checks that the trained store carries every fact (`report.json: policy_kg.consistency`).
 
+**GEODE stage 0: duplicate and contradicting triples.** `PolicyKG.load()` first runs
+`gmsjourney/knowledge/kg_clean.py` over the triples, so the compiler, the GEODE loop and the GMS are all built from
+the repaired graph; the decisions are in `kg.cleaning` and in the build report (`build_report["kg_cleaning"]`).
+
+- **Duplicate**: same head, relation and tail after normalisation (case, spacing, `_`/`-`, numbers written as
+  text, a customer synonym resolved through the graph's own `has_alias` lexicon), with the same kind and
+  qualifiers. The copy whose quote is verbatim in its section, written in canonical form, extracted first, is kept.
+- **Contradiction**: a single-valued relation (fee, limit value, stage, yes/no reading, rule stance, transfer
+  justification, a transition per state + customer act + condition, ...) with two tails. Each alternative goes
+  through three critics: **provenance** (the quote is in the cited section), **grounding** (the tail is a known
+  node of the type the relation takes) and **support** (a figure appears in the quote). When exactly one passes,
+  the others are dropped. When the document cannot decide, because both quotes are real and both tails valid,
+  the earliest-extracted triple stays and the other is quarantined for review (listed separately, not a
+  judgement).
+
+A geometric arbiter (a provisional GMS), path-count corroboration and reading a rule's stance off its quote were
+tried and are not used: none was reliable on this graph.
+
+The clean graph passes through unchanged (same triples, same hash, same trained store). For a demonstration,
+`python tools/make_noisy_kg.py` writes `charge_review_kg_noisy.json`, the graph plus 18 planted errors (9
+duplicates, 9 contradictions), and an answer key the cleaner never reads. Set `POLICY_FILE = NOISY_POLICY` in
+CELL 2: the cell lists every dropped triple with its critic and the triple kept instead, and scores the result
+against the key. All 18 are caught, every original is kept, and the repaired graph equals the clean one. CELL 3
+then trains the GMS on it; it is a new store, so the first run trains.
+
 **State-aware meaning cards.** Every customer turn is read in the dialog state it answers. The ontology resolves
 slot values inside the slot's value set, reads a bare "yes"/"no" the way the state reads it (RECOGNIZED /
 UNRECOGNIZED after "do you recognise this charge?", CONFIRM / DENY after "shall I go ahead?", END after "anything
