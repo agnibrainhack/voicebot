@@ -14,9 +14,10 @@ Open baseline vs GMS, as in the book's runtime-monitoring demo:
 * ``PolicyGate``          symbolic policy checks compiled from the rules (R2/R3,
                           R4, R7/R24, R15, R16, R20, R26, R28, R30, R31) with every
                           limit read from the exact numeric memory, never hard-coded.
-* ``GMSPlausibilityGate`` scores the workflow transition (previous step ->
-                          proposed tool) on the store's ``enables`` relation and
-                          denies it above the calibrated theta (Appendix C).
+* GMS plausibility    forgeloop's ``GMSPlausibilityGate`` (reuse/governance.py) scores the
+                          workflow transition (previous step -> proposed tool) on the
+                          knowlytix store's ``has_enables`` relation and denies it above the
+                          calibrated theta (Appendix C).
 * ``GMSPlanGate``         whole-plan check: mean (book) and max transition distance.
 * speech gates            checks on what the bot *says*: claims without SUCCESS
                           (R13/R17), the fraud stance (R27, u-space tension),
@@ -29,7 +30,6 @@ Open baseline vs GMS, as in the book's runtime-monitoring demo:
 from __future__ import annotations
 
 import inspect
-import json
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -287,37 +287,6 @@ class PolicyGate:
 
 
 # ----------------------------------------------------------------------------- GMS gates
-class GMSPlausibilityGate:
-    """Deny a workflow transition whose geodesic score on `relation` exceeds theta.
-
-    ``safe_tools`` are escalation actions (handing the caller to a human). Denying one
-    would turn a false reject into a stranded customer, so above theta they are
-    ESCALATEd for review instead of denied - the gate never blocks a way out."""
-    name = "gms_plausibility"
-
-    def __init__(self, store, theta: float, relation: str = "enables", on_missing: str = "allow",
-                 safe_tools: frozenset[str] = frozenset({"transfer_to_human"})):
-        self.store, self.theta, self.relation, self.on_missing = store, float(theta), relation, on_missing
-        self.safe_tools = safe_tools
-
-    def score(self, prev: str, tool: str) -> float | None:
-        if self.relation not in self.store.R:
-            return None
-        return self.store.score_triple(prev, self.relation, tool)
-
-    def check(self, action, state, registry) -> GateResult:
-        prev = state.prev_node() if state is not None else "start"
-        s = self.score(prev, action.tool_name)
-        if s is None:
-            dec = {"allow": GateDecision.ALLOW, "deny": GateDecision.DENY}.get(self.on_missing, GateDecision.ESCALATE)
-            return GateResult(dec, self.name, "store has no plausibility data")
-        if s > self.theta:
-            dec = GateDecision.ESCALATE if action.tool_name in self.safe_tools else GateDecision.DENY
-            return GateResult(dec, self.name, f"plausibility {s:.3f} > theta={self.theta:.3f} for "
-                              f"({prev!r}, {self.relation!r}, {action.tool_name!r})", score=s)
-        return GateResult(GateDecision.ALLOW, self.name, f"plausibility {s:.3f}", score=s)
-
-
 @dataclass(frozen=True)
 class PlanVerdict:
     admissible: bool
@@ -504,6 +473,3 @@ def injection_flag(text: str) -> str | None:
             return p
     return None
 
-
-def args_json(args: dict) -> str:
-    return json.dumps(args, sort_keys=True, default=str)

@@ -69,8 +69,7 @@ def classifier_corpus(proofs, reader, ontology) -> dict[str, Any]:
 def goldens_from_store(store) -> dict[str, dict]:
     fee = store.lookup_enm("delivery_fee_usd", "expedited_delivery")
     std = store.lookup_enm("delivery_fee_usd", "standard_delivery")
-    dmin, dmax = (store.lookup_enm("delivery_days_min", "expedited_delivery"),
-                  store.lookup_enm("delivery_days_max", "expedited_delivery"))
+    dmax = store.lookup_enm("delivery_days_max", "expedited_delivery")
     forbid = ["is fraud", "means fraud", "guarantee", "we will refund", "full refund"]
     L = lambda k: store.lookup_enm("limit", k)
     return {

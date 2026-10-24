@@ -774,10 +774,6 @@ class PolicyKG:
     def value_set(self, name: str) -> list[str]:
         return [t["head"] for t in self.where("member_of", tail=name)]
 
-    def value_set_of(self, value: str) -> str | None:
-        v = self.tails(value, "member_of")
-        return v[0] if v else None
-
     def aliases(self, value: str) -> list[str]:
         return self.tails(value, "has_alias")
 
@@ -909,10 +905,6 @@ class PolicyKG:
         op = self.tails("opening_statement", "has_text")
         L += ["", "## 10. Required language", "", f'Required opening: "{op[0]}"' if op else "", ""]
         return "\n".join(L)
-
-    def gms_state_triples(self) -> list[tuple[str, str, str]]:
-        """The state-layer facts the GMS is trained on (in addition to the compiled policy)."""
-        return [tr for tr in self.hrt(gms_only=True) if tr[1] in GMS_STATE_RELATIONS]
 
     def entity_types(self) -> dict[str, str]:
         out = {}

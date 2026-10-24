@@ -12,45 +12,60 @@ result. In order of consequence:
 | 3 | The bases are knowledge questions ("What is the maximum number of charges?") sent to a bot whose job is a journey. | The bot is graded on a task it does not perform. | Journey bases (multi-turn content) are the core; policy questions are asked *inside* journeys, as the PDF allows. |
 | 4 | Ground truth is invented (`charge_c > charge_a`, `145.67`, `230.45`, "3 verified"). | Violates "generated, not annotated" (Ch. 1.2, 12.4); a failure cannot be blamed on the bot. | Every answer is computed: policy questions by store primitives, journeys by an oracle reading limits from exact memory. |
 | 5 | Factors that change the correct answer are used as factors (`tool_availability`, `clarity=Ambiguous`, turn-adding history, `intent_count=conflicting`, `unit_variation=EUR`). | Breaks the invariance contract; scores are wrong for those rows. | Moved to the base (`application.yaml: moved_to_base`) or excluded with a reason; invariance is proved per scenario. |
-| 6 | Wrong / non-existent APIs: `gmstest` (the real module is `knowlytix.harness.suite`), `lookup_enn`, `result.n_enn`, `scenarios['base_id']`, `scn.seed`, `scn.ground_truth`, `functionality_check(seed)`, `ToolGateway(sut, profile)`. | The notebook cannot run. | The knowlytix family, proofloop and forgeloop are called through their real public APIs (§10); the built-in implementation keeps book-compatible names (`lookup_enm`, `score_triple`, `QAItem`, `Scenario`, `SUTResult`, `resolve`, `compose`, `attribute`, `weak_link`) and is the open baseline when knowlytix is absent. |
+| 6 | Wrong / non-existent APIs: `gmstest` (the real module is `knowlytix.harness.suite`), `lookup_enn`, `result.n_enn`, `scenarios['base_id']`, `scn.seed`, `scn.ground_truth`, `functionality_check(seed)`, `ToolGateway(sut, profile)`. | The notebook cannot run. | The knowlytix family, proofloop and forgeloop are called through their real public APIs (§10); our modules keep book-compatible names (`lookup_enm`, `score_triple`, `QAItem`, `Scenario`, `SUTResult`, `resolve`, `compose`, `attribute`, `weak_link`). |
 | 7 | `attribute(...)` receives `[f for f in suite.factor_names if f in rows[0]]`, but row keys are `f_<factor>`. | Empty list: no attribution is ever computed. | Attribution reads `f_<factor>` columns. |
 | 8 | Workflow lists tools the PDF does not have (`search_policy`, `check_limit`, `mark_verified`); components are keyed `authentication`, `verification`. | `weak_link` never finds a `c_<tool>` key and returns `{}`. | Components are per workflow stage, derived from the observed tool log, identical for oracle and bot. |
 | 9 | The policy markdown diverges from the PDF: "dispute → escalate" (the PDF says record UNRECOGNIZED; it is not proof of fraud), no dispositions, no SUCCESS-gated claims, no card intent, no 30-day window, no voice rules. | Tests would enforce behaviour the business never specified. | The policy document is a structured transcription of the PDF plus your two program limits, each row with provenance. |
 | 10 | The grounding check compares `parser.parse(seed) != parser.parse(enriched)` with an undefined parser and has no negative control. | Nothing is proved; a checker that accepts everything would pass. | Four-layer proof + negative controls with measured rejection rates. |
 | 11 | Resilience counts `status in ("escalated","failed")`, but the SUT returns `terminated`/`refused`; the gateway has no executor to wrap. | Detection rate is always 0. | Faults are injected at the mock backend; detection is judged against the oracle under the same fault. |
-| 12 | Calibration is run and discarded; hand thresholds elsewhere. | Unknown false-accept rates. | Every gate reads a persisted operating point. Store gates are fit by `GMSJudge.calibrate` (knowlytix) or under a 5% false-accept ceiling (built-in); runtime gates use the Appendix C regulated point (zero false admits, then fewest false rejects) with recalibration triggers (§11). |
+| 12 | Calibration is run and discarded; hand thresholds elsewhere. | Unknown false-accept rates. | Every gate reads a persisted operating point. Store gates are fit by `GMSJudge.calibrate` (knowlytix); runtime gates use the Appendix C regulated point (zero false admits, then fewest false rejects) with recalibration triggers (§11). |
 | 13 | `from google.colab import files` at import time. | Breaks outside Colab. | Removed. |
 
 ## 2. The oracle (book Ch. 2-4)
 
-This section describes the built-in store (`--backend builtin`, the open baseline). With knowlytix installed the
-store is built, trained and calibrated by knowlytix instead (§10); the policy compiler, the exact register it is
-checked against and the policy oracle below are shared by both backends.
+The store is knowlytix's (§10). This section covers what is ours and runs before it: the policy compiler,
+the exact register the trained store is checked against, and the policy oracle.
 
 *Ingest* parses the structured policy into candidate triples and exact numeric entries, each with a source
 span. A deliberately naive prose path pairs numbers in knowledge-base sentences with the nearest entity.
 
-*Self-correction* (GEODE-style) diagnoses every candidate: schema/type critics, reconciliation of each prose
-figure against the exact register (corroborate or drop), unbound subjects, and a geometric critic for prose
-facts with no register counterpart. All 12 prose figures in the policy corroborate; an injected OCR misread
-(expedited fee $150) is dropped (`injected_misread_caught: true`).
+*Self-correction* (symbolic) diagnoses every candidate: schema/type critics, reconciliation of each prose
+figure against the exact register (corroborate or drop) and unbound subjects. A prose fact with no register
+counterpart is kept and flagged; the geometric checks are knowlytix's GEODE loop, which runs next on the
+compiled facts. All 12 prose figures in the policy corroborate; an injected OCR misread (expedited fee $150)
+is dropped (`injected_misread_caught: true`).
 
-*The store* has three layers. **Exact Numeric Memory**: every authoritative figure keyed by (category, key)
-with a SHA-256 integrity hash, read by `lookup_enm` and never parsed from text. **The graph**: 257 typed
-triples. **Geometry**: entity embeddings on the unit sphere with one orthogonal operator per relation fit by
-orthogonal Procrustes (the book's rotation mode for v-space), giving `score_triple` as a geodesic distance
-(committed 4 → 0.00, fabricated 5 → 1.39, calibrated τ 0.695). The u-space is contradiction-structured: values
-of a disjoint value set sit on a regular simplex and stance facts are polarity-signed, so `tension_energy`
-reads 0 for agreement, ~1.0–1.5 for unrelated facts and 1.73–2.0 for contradiction. `check_holonomy` composes
-relation operators and measures the length-normalised defect against the direct relation. Calibration fits
-per-relation operating points, the fuzzy-binding threshold, the holonomy threshold and the tension bands.
+*The compiled store* (`knowledge/store.py`) holds the symbolic layer: **Exact Numeric Memory** (every
+authoritative figure keyed by (category, key) with a SHA-256 integrity hash, read by `lookup_enm` and never
+parsed from text), the typed triples with provenance (530, the dialog-state layer included), the rules, the
+workflow, value sets, synonyms and the knowledge-base sentences. It carries no geometry: `KXPolicyStore`
+(`knowledge/kx_store.py`) subclasses it and answers every geometric read (score_triple, cap radii, tension,
+holonomy, the tuned encoders) from the trained knowlytix store, and every exact read from knowlytix's own
+register, cross-checked against the compiled one.
+
+*Like for like with knowlytix.* The store is built with the parameters of knowlytix's reference pipeline
+(`build_calibrated_rag_store`): `GeodeLoop(max_iters=8, residual_threshold=None, canonicalize=False)` on a
+300-epoch trainer, `GeodeEmbedLoop` with a 150-epoch trainer and `EmbedLoopConfig(max_iters=2, use_geometry=True)`,
+`EmbeddingSFTConfig(rank=8, mode="full", out_dim=d_v)`, `contradiction_sft(epochs=400)`, then `store_from_triples`.
+The reference takes the production store's `DocGMSConfig` from its caller (and defaults `ingest_mode` to
+`"regex"`); ours is `loss_mode="cap"` (the cap loss is what makes `cap_radius` the admissibility cut),
+`ingest_mode="regex"`, `train.epochs=150`. The stated differences are the encoders passed by local path (the same models), dedup (audit-only by default) and the u
+training sentences (our attribute phrasings). Every one of these is a run-time setting.
+
+At run time each geometric read is the knowlytix method itself: `score_triple` (a tail the store never trained as
+an entity is scored with `score_triple_emb` on the tuned v encoder's embedding, π/2 only when the head or relation
+is unknown), `cap_radius`, `tension_energy`, `check_holonomy`, and `is_path_consistent`, which reads
+`config.verify.tau_path`; the store ships without one, so the calibrated cut is written there, the way GMSJudge
+writes its own. A claim is grounded when `score_triple ≤ cap_radius`, the test the store is trained for and the
+one knowlytix's benchmark generators apply. knowlytix's per-head calibrated admissibility
+(`calibrate_cap_margins_per_head`, `calibrate_tension_threshold`, `admissible`, 5% FPR) is reported next to it in
+the oracle check but does not decide: on this policy the delivery relations have two heads, the per-head margins
+(0.74-0.88) come out far wider than the cap radius (0.31) and admit 3 of 12 cross-tail substitutions (for example
+a $15 fee on standard delivery). The tuned-encoder entity binding and the rule-stance check have no knowlytix
+equivalent and stay ours.
 
 The *policy oracle* is an executable reading of the policy that consumes semantic frames (never text), reads
 all limits from exact memory and records which rules fire and which workflow edges are traversed.
-
-**Encoders.** The default v/u encoders are deterministic signed feature hashing over character n-grams,
-words and a numeric block, so the store builds offline and reproducibly. `knowledge/encoders.py` also
-supports sentence-transformers (the book's Mode A) when installed.
 
 ## 3. Base cases
 
@@ -261,20 +276,13 @@ knowlytix step runs on it unchanged. Held-out gains are still real:
 
 They start from a semantically empty prior, though, so the absolute figures are lower bounds.
 
-**knowlytix `DesignMatrix`** sobol+refine is run on the same 16 factors and reported next to ours. It starves the
-middle level of every 3-level factor: its own quality report shows 11 of 43 level cells empty, giving 55%
-pairwise level coverage and marginal χ² p ≈ 1e-53. That is exactly the face-piling effect of §6. The deployed
-design stays ours, and proofloop's `balanced_design` is also compared: perfect marginals, but log φp 0.99
-against our 0.26.
+**Design.** The deployed design is ours. knowlytix `DesignMatrix` sobol+refine was compared on the same 16 factors
+and starved the middle level of every 3-level factor (11 of 43 level cells empty, 55% pairwise level coverage,
+marginal χ² p ≈ 1e-53: the face-piling effect of §6), so it is no longer run.
 
-**Attribution** uses knowlytix `DOEAnalyzer`:
-
-* per-factor logistic tests with Benjamini–Hochberg;
-* a joint model;
-* interactions;
-* the failure table.
-
-Our deviance tests are kept alongside as a cross-check. Both find noise, numeric_format and disfluency.
+**Attribution** is ours: per-factor deviance tests with Benjamini–Hochberg, a joint model, interactions and the
+failure table. (knowlytix `DOEAnalyzer` ran alongside earlier and found the same drivers - noise, numeric_format
+and disfluency; it is no longer run.)
 
 ## 11. Runtime governance (book Appendix C)
 
@@ -471,7 +479,7 @@ the LLM writes; it can never let a meaning change through.
 
 **Attribution on realised levels.** A factor counts as realised when the check detects it on at least half of the
 turns it applies to. Unrealised factors are attributed at the base level, so a failure is never credited to a factor
-the bot never received (the defect in gmsh's suite path, `UPSTREAM_GMSH_ISSUES.md` G8-G10).
+the bot never received (a defect in gmsh's suite path).
 
 **Reproducibility.** Completions are cached under the hash of (prompt version, model, temperature, messages, salt).
 The salt is the scenario seed, so a re-run with `--llm-mode replay` uses no network. Proved utterances are pinned for
@@ -484,8 +492,8 @@ counted.
   afterwards, so the loop's last retrains and its anchor check ran on a reduced set. `off` (the default) runs
   `GeodeLoop(dedup=False)`, then runs `resolve_duplicates` audit-only on the trained production store. `audit` keeps
   0.3; `accept` is stock gmsh. Anchor violations are now counted in the report.
-- **v-space SFT (`kx_v_sft_mode`).** The book uses rotation and gmsh defaults to full. `ab` trains both and keeps the
-  better held-out noisy-alias binding (a tie keeps rotation). Both scores and the choice are in the build report. The
+- **v-space SFT (`kx_v_sft_mode`).** The default is `full`, as in knowlytix's reference build; the book uses rotation.
+  `ab` trains both and keeps the better held-out noisy-alias binding (a tie keeps rotation). Both scores and the choice are in the build report. The
   u vectors are still not loaded into the GMS, as in gmsh.
 - **Operating points.** Each gate cohort also gets:
   - gmsh's P=0.5 logistic point (L2, like sklearn's default), next to the regulated zero-false-admit point;

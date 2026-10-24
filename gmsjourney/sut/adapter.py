@@ -87,10 +87,6 @@ class JourneyRunner:
     def __post_init__(self) -> None:
         self.ont = Ontology.from_store(self.store)
         self.lookback = self.store.lookup_enm("limit", "lookback_days")
-        self._geo = None
-        if hasattr(self.store, "kx"):                 # knowlytix GMSJudge via proofloop's GeometricJudge
-            from ..reuse.judge import KBGeometricJudge
-            self._geo = KBGeometricJudge(self.store)
 
     def run(self, scn: Scenario, faults: list[FaultProfile] | None = None,
             oracle_path: list | None = None) -> SUTResult:
@@ -193,10 +189,6 @@ class JourneyRunner:
             elif k == "ANSWER_KB" and last_kb is not None:
                 ans = a.get("text", text)
                 verdict = judge_kb_answer(self.store, last_kb, ans)
-                if self._geo is not None:
-                    from ..kb_truth import kb_answer
-                    verdict.update(self._geo.judge(ans, kb_answer(self.store, last_kb), verdict["correct"],
-                                                   verdict["detail"]))
                 tr.kb.append({"frame": str(last_kb), "answer": ans, **verdict})
 
 

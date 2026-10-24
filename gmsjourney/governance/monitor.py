@@ -24,11 +24,16 @@ import copy
 from dataclasses import dataclass, field
 from typing import Any
 
-from .audit import AuditEvent, AuditLogger, state_hash
-from .gates import (GateDecision, GateResult, GateState, GMSPlanGate, GMSPlausibilityGate, PolicyGate,
+import hashlib
+import json
+from .gates import (GateDecision, GateResult, GateState, GMSPlanGate, PolicyGate,
                     SpeechMonitor, SyntaxGate, ToolCall, ToolRegistry, compile_policies, completeness_check,
                     injection_flag)
 
+
+
+def state_hash(obj: Any) -> str:
+    return hashlib.sha256(json.dumps(obj, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
 @dataclass
 class GovernanceConfig:
@@ -45,14 +50,12 @@ class RuntimeMonitor:
         self.store, self.reader, self.cfg, self.run_id = store, reader, cfg, run_id
         self.registry = ToolRegistry(store)
         from ..reuse import governance as fl
-        self.engine = "forgeloop" if (fl.available() and hasattr(store, "kx")) else "built-in"
-        geo = (fl.ForgeloopPlausibilityGate(store.kx, cfg.theta) if self.engine == "forgeloop"
-               else GMSPlausibilityGate(store, cfg.theta, cfg.relation))
-        self.gates = [SyntaxGate(), PolicyGate(compile_policies(store)), geo]
+        self.engine = "forgeloop"
+        self.gates = [SyntaxGate(), PolicyGate(compile_policies(store)), fl.ForgeloopPlausibilityGate(store.kx, cfg.theta)]
         self.speech = SpeechMonitor(store)
         self.plan_gate = GMSPlanGate(store, cfg.drift_budget, cfg.relation, criterion=cfg.plan_criterion)
         self.state = GateState()
-        self.audit = fl.ForgeloopAudit(run_id) if self.engine == "forgeloop" else AuditLogger()
+        self.audit = fl.ForgeloopAudit(run_id)
         self._scores: list[float] = []
         self.events: list[dict[str, Any]] = []
         self.input_flags: list[dict[str, Any]] = []
@@ -67,10 +70,7 @@ class RuntimeMonitor:
         dec = [{"gate": r.gate_name, "decision": r.decision.value, "reason": r.reason, "rule": r.rule,
                 "score": r.score} for r in results]
         sh = state_hash([c["tool"] for c in self.state.tool_results] + [self.state.user_turns])
-        if self.engine == "forgeloop":
-            self.audit.log(self._seq, kind, sh, proposed, dec, outcome)
-        else:
-            self.audit.log(AuditEvent(self.run_id, self._seq, kind, sh, proposed, dec, outcome))
+        self.audit.log(self._seq, kind, sh, proposed, dec, outcome)
         self._scores += [r.score for r in results if r.gate_name == "gms_plausibility" and r.score is not None]
         self._seq += 1
         for r in results:

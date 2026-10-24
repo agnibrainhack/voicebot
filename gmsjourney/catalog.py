@@ -214,9 +214,6 @@ class Catalog:
             return {lv: "custom factor" for lv in sel.get("levels", self.factors[name].levels)}
         return dict(sel.get("level_aliases", {}))
 
-    def profile_factors(self, profile: str) -> list[str]:
-        return list(self.profiles[profile].factors)
-
     def expand_factors(self, tokens: list[str]) -> list[str]:
         out: list[str] = []
         for tok in tokens:

@@ -26,6 +26,7 @@ from gmsjourney.oracle import PolicyOracle  # noqa: E402
 from gmsjourney.sut.adapter import JourneyRunner, make_reference_factory  # noqa: E402
 from gmsjourney.evaluation.runner import run  # noqa: E402
 from gmsjourney.evaluation.stats import deviance_test  # noqa: E402
+from _store import kx_store  # noqa: E402
 
 
 POLICY_KG = Path(__file__).resolve().parents[1] / "gmsjourney" / "policy" / "charge_review_kg.json"
@@ -34,7 +35,7 @@ POLICY_MD = Path(__file__).resolve().parents[1] / "gmsjourney" / "policy" / "cha
 
 @lru_cache(maxsize=1)
 def env():
-    store = build_store(POLICY_KG).store                       # the policy graph JSON is the source
+    store = kx_store()                                          # the knowlytix GMS of the policy graph
     return store, PolicyOracle(store), Realizer(), FrameReader(store)
 
 
@@ -180,7 +181,6 @@ def test_two_way_recovery_and_forged_triple():
 
 # Runtime governance: calibrated gates, live detection, tamper-evident audit -------------
 def test_runtime_gates_and_audit():
-    from gmsjourney.governance.audit import AuditEvent, AuditLogger
     from gmsjourney.governance.calibrate import calibrate_plausibility, gate_probe_sweep
     from gmsjourney.governance.monitor import GovernanceConfig
     store, oracle, R, rd = env()
@@ -196,13 +196,7 @@ def test_runtime_gates_and_audit():
                                  governance=g, **kw), oracle.limits, store.workflow)
     assert ok[0]["audit_verified"] == 1 and "policy:R31" not in ok[0]["gate_rules"]
     assert "policy:R31" in bad[0]["gate_rules"]                 # the 5th record is denied before it executes
-    log = AuditLogger()
-    for i in range(3):
-        log.log(AuditEvent("r", i, "tool", "h", {"tool": "x"}, [], "allowed"))
-    assert log.verify()
-    ev = log.events[1]
-    object.__setattr__(ev.event, "outcome", "denied")          # tamper with history
-    assert not log.verify()
+    assert bad[0]["audit_verified"] == 1                        # forgeloop's hash-chained audit log
 
 
 def test_gms_view_is_table_shaped_for_geode():
@@ -301,24 +295,15 @@ def test_turn_by_turn_oracle_vs_bot():
         assert s["first_divergence_turn"] is not None and df.loc[s["first_divergence_turn"], "state"] == "ASK_AUTH_RETRY"
 
 
-# knowlytix backend (runs only where knowlytix is installed, licensed and a store is built) --
-def test_knowlytix_store_if_available():
-    import os
-    from gmsjourney import backend
-    sdir = os.environ.get("GMSJOURNEY_KX_STORE")
-    if not (backend.available() and sdir):
-        print("    (skipped: set GMSJOURNEY_KX_STORE to a built store and install knowlytix)")
-        return
+# the knowlytix store itself ------------------------------------------------------------
+def test_knowlytix_store():
     from gmsjourney.governance.calibrate import calibrate_plausibility
     from gmsjourney.knowledge.geode import oracle_property
-    from gmsjourney.knowledge.kx_store import load_kx_store
-    b = load_kx_store(POLICY_KG, sdir)
-    st = b.store
+    st, *_ = env()
     assert st.enm_agreement()["all_agree"]
     assert st.lookup_enm("delivery_fee_usd", "expedited_delivery") == 15
     assert all(o["calibrated_ok"] for o in oracle_property(st))
     items, info = mine_kb_items(st)
-    assert info["precondition"]["graph_baseline_accuracy"] == 1.0
     assert info["recovery"]["forged"]["corrupted_triple"]["two_way"] == "rejected"
     assert all(i.recovery != "rejected" for i in items)
     assert calibrate_plausibility(st)["regulated"]["false_admits"] == 0

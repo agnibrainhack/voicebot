@@ -1,5 +1,9 @@
+# Python 3.12 (knowlytix-core ships cp312 wheels). Runtime licence: KNOWLYTIX_LICENSE_KEY
+# (or ~/.knowlytix/license.key). LLM arm / LLM bot: requirements-llm.txt.
 numpy>=1.24
 scipy>=1.10
 pandas>=1.5
 pyyaml>=6.0
-# GMS backend (Python 3.12; licence via KNOWLYTIX_LICENSE_KEY) — see requirements-knowlytix.txt
+knowlytix==1.5.0
+proofloop>=0.1.5
+forgeloop>=0.1.4

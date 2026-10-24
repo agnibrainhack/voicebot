@@ -1,9 +1,33 @@
 """The GMS built, trained, calibrated and judged by knowlytix (book Ch. 2-4, 8).
 
-``build_kx_store`` runs knowlytix's GEODE pipeline - the same steps as
-``knowlytix.knowledge.geode.build_calibrated_rag_store`` - with the text encoders
-injected (``backend.resolve_encoders``), because the packaged call hard-codes
-HuggingFace encoder names for the u channel:
+``build_kx_store`` runs knowlytix's GEODE pipeline - the same steps, calls and default
+parameters as ``knowlytix.knowledge.geode.rag.build_calibrated_rag_store`` (GEODE trainer
+300 epochs, 8 rounds; embed loop: trainer 150 epochs, 2 rounds, EmbeddingSFTConfig(rank=8,
+mode="full", out_dim=d_v); contradiction SFT 400 epochs) - with three stated differences:
+
+* the text encoders are passed by name or local path (``backend.resolve_encoders``) - the
+  same models; the packaged call hard-codes HuggingFace hub names for the u channel;
+* duplicate resolution runs audit-only by default (``dedup_mode="off"``; the reference
+  lets removals stand), because on this graph every removal it proposes is a fact the
+  policy states (a dialog state applying several rules, two delivery options);
+* the u encoder is trained on per-relation phrasings rendered by the application's
+  realiser (``_attribute_phrasings``) plus the relation name for every other relation; the
+  reference default is the relation name alone.
+
+The reference takes the production store's ``DocGMSConfig`` from its caller (ingest_mode
+default "regex"); ours is ``DEFAULT_STORE_CONFIG`` (loss_mode "cap", ingest_mode "regex",
+train.epochs 150) over the DocGMSConfig defaults.
+
+At run time every geometric read is the knowlytix method: ``score_triple`` (an unstated
+tail through ``score_triple_emb`` on the tuned v encoder), ``cap_radius``,
+``tension_energy``, ``check_holonomy`` and ``is_path_consistent`` (the calibrated
+``tau_path`` is written onto ``config.verify``). Grounding is ``score_triple <= cap_radius``;
+knowlytix's per-head calibrated admissibility is reported (``admissibility``), not used to
+decide (see ``is_grounded``).
+
+Every parameter can be set at run time (``build_gms`` / ``CampaignConfig``), including any
+field of the production store's ``DocGMSConfig`` through ``store_config`` (dotted keys,
+e.g. ``{"loss_mode": "cap", "train.epochs": 200, "cap.margin": 0.3}``).
 
   1  self-correct      GeodeLoop(make_default_trainer)            propose -> train -> diagnose -> repair;
                                                                   dedup_mode: off (default: GeodeLoop(dedup=False),
@@ -15,9 +39,9 @@ HuggingFace encoder names for the u channel:
                                                                   accept (stock gmsh: removals stand)
   2  tune v            GeodeEmbedLoop + EmbeddingSFTConfig        has_alias supervision + manifold links;
                                                                   name-keyed vectors -> Mode-B warm start;
-                                                                  v_sft_mode: rotation (book) | full (gmsh
-                                                                  default) | ab (train both, keep the one with
-                                                                  the better held-out noisy-alias binding)
+                                                                  v_sft_mode: full (reference default) |
+                                                                  rotation (book) | ab (train both, keep the one
+                                                                  with the better held-out noisy-alias binding)
   3  tune u            contradiction_sft (full mode)              per-relation phrasings
   4  relevance cal.    calibrate_relevance_thresholds
   5  train store       store_from_triples (cap admissibility)     GMSExpertStore, saved
@@ -25,7 +49,7 @@ HuggingFace encoder names for the u channel:
   7  calibrate         GMSJudge.calibrate -> calibration.json     the operating points every gate reads
 
 ``KXPolicyStore`` then exposes the store through the interface the rest of
-gmsjourney uses (it subclasses the built-in ``GMSStore`` for the symbolic policy
+gmsjourney uses (it subclasses the compiled ``GMSStore`` for the symbolic policy
 facts - rules, workflow conditions, value sets - compiled from the same document),
 but every geometric or exact-numeric read is answered by knowlytix: ENM lookups,
 ``score_triple``, cap radii, tension, holonomy, the judge's calibrated cuts and
@@ -47,8 +71,8 @@ from typing import Any
 import numpy as np
 
 from .. import backend
-from .kx_view import kx_relation, kx_tail, kx_triple, render_gms_markdown
-from .store import ENMEntry, GMSStore
+from .kx_view import kx_relation, kx_triple, render_gms_markdown
+from .store import GMSStore
 
 ENM_MAP = {"limit": ("limits", "{key}"), "delivery_fee_usd": ("delivery_options", "{key}/fee_usd"),
            "delivery_days_min": ("delivery_options", "{key}/business_days_min"),
@@ -95,10 +119,32 @@ def _attribute_phrasings() -> dict[str, list[str]]:
     return out
 
 
-def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, epochs: int = 200, geode_epochs: int = 150,
-                   max_iters: int = 6, embed_max_iters: int = 2, sft_epochs: int = 60,
-                   contradiction_epochs: int = 300, encoder_mode: str | None = None, seed: int = 42,
-                   dedup_mode: str = "off", v_sft_mode: str = "ab", log=print) -> KXBuild:
+# the production store's DocGMSConfig unless overridden: cap admissibility, regex ingest
+DEFAULT_STORE_CONFIG = {"loss_mode": "cap", "ingest_mode": "regex", "train.epochs": 150}
+
+
+def store_config(store_dir: str | Path, overrides: dict | None = None):
+    """The production store's DocGMSConfig: package defaults, then DEFAULT_STORE_CONFIG, then the
+    caller's dotted-key overrides (``{"train.epochs": 200, "cap.margin": 0.3, "geometry.d_v": 256}``)."""
+    with _quiet():
+        from knowlytix.knowledge.config import DocGMSConfig
+    cfg = DocGMSConfig(store_path=str(Path(store_dir) / "kx"))
+    for key, value in {**DEFAULT_STORE_CONFIG, **(overrides or {})}.items():
+        obj, *path = [cfg] + key.split(".")
+        for part in path[:-1]:
+            obj = getattr(obj, part)
+        if not hasattr(obj, path[-1]):
+            raise KeyError(f"DocGMSConfig has no field {key!r}")
+        setattr(obj, path[-1], value)
+    cfg.train.device = "cpu"
+    return cfg
+
+
+def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, geode_epochs: int = 300,
+                   max_iters: int = 8, embed_trainer_epochs: int = 150, embed_max_iters: int = 2,
+                   sft_epochs: int | None = None, contradiction_epochs: int = 400,
+                   store_overrides: dict | None = None, encoder_mode: str | None = None, seed: int = 42,
+                   dedup_mode: str = "off", v_sft_mode: str = "full", log=print) -> KXBuild:
     if dedup_mode not in ("off", "audit", "accept"):
         raise ValueError(f"dedup_mode must be off | audit | accept, not {dedup_mode!r}")
     if v_sft_mode not in ("rotation", "full", "ab"):
@@ -107,7 +153,6 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, epochs: in
     import torch
     with _quiet():
         from knowlytix.embedding import EmbeddingSFTConfig
-        from knowlytix.knowledge.config import DocGMSConfig
         from knowlytix.core.config import EmbeddingConfig
         from knowlytix.knowledge.geode import GeodeLoop, make_default_trainer
         from knowlytix.knowledge.geode.embed_loop import EmbedLoopConfig, GeodeEmbedLoop, contradiction_sft
@@ -128,7 +173,7 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, epochs: in
 
     # 0. compile the policy (symbolic facts + the GMS view GEODE ingests)
     from .policy_kg import resolve_policy
-    compiled = build_store(policy_path, train=False)
+    compiled = build_store(policy_path)
     view = store_dir / "policy.gms.md"
     view.write_text(render_gms_markdown(compiled.store))
     md_path, _ = resolve_policy(policy_path)
@@ -138,10 +183,8 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, epochs: in
     enc = backend.resolve_encoders(corpus, encoder_mode)
     log(f"      encoders: {enc['kind']} ({enc['reason']})")
 
-    cfg = DocGMSConfig(store_path=str(store_dir / "kx"), ingest_mode="regex", loss_mode="cap")
-    cfg.train.epochs = epochs
-    cfg.train.device = "cpu"
-    cfg.train.seed = seed
+    cfg = store_config(store_dir, {"train.seed": seed, **(store_overrides or {})})
+    ingest = cfg.ingest_mode
     cfg.embedding = EmbeddingConfig(semantic_model=enc["v"], logical_model=enc["u"], warm_start=True,
                                     freeze_base=True, dim_policy="project", device="cpu")
     trainer = make_default_trainer(dev, epochs=geode_epochs)
@@ -149,8 +192,8 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, epochs: in
     # 1. GEODE self-correction
     t = time.time()
     with _quiet():
-        loop = GeodeLoop(trainer, device=dev, ingest_mode="regex", max_iters=max_iters,
-                         dedup=(dedup_mode != "off"))
+        loop = GeodeLoop(trainer, device=dev, ingest_mode=ingest, max_iters=max_iters,
+                         residual_threshold=None, canonicalize=False, dedup=(dedup_mode != "off"))
         res = loop.run(str(view))
     kept = fact_only_triples(res.triples)
     rejected = []
@@ -174,11 +217,13 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, epochs: in
     probes = _noisy_probes(names_and_aliases)
 
     def embed(mode: str):
-        sft = EmbeddingSFTConfig(rank=8, mode=mode, encoder=enc["v"], out_dim=cfg.geometry.d_v,
-                                 epochs=sft_epochs, device="cpu", seed=seed)
+        extra = {"epochs": sft_epochs} if sft_epochs is not None else {}     # else the package default (100)
+        sft = EmbeddingSFTConfig(rank=8, mode=mode, encoder=enc["v"], out_dim=cfg.geometry.d_v, device="cpu",
+                                 **extra)
         with _quiet():
-            eloop = GeodeEmbedLoop(make_default_trainer(dev, epochs=max(60, geode_epochs // 2)),
-                                   EmbedLoopConfig(sft=sft, max_iters=embed_max_iters, use_geometry=True))
+            eloop = GeodeEmbedLoop(make_default_trainer(dev, epochs=embed_trainer_epochs),
+                                   EmbedLoopConfig(sft=sft, max_iters=embed_max_iters, use_geometry=True,
+                                                   ingest_mode=ingest))
             er = eloop.run(str(view), triples=kept, eval_pairs=[(s, c.lower()) for s, c in probes])
         return er, _binding_eval(er.ft, probes, enc["v"])
 
@@ -226,7 +271,7 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, epochs: in
     # 5. production store (cap admissibility, Mode-B tuned v vectors)
     t = time.time()
     with _quiet():
-        kx = store_from_triples(str(view), kept, cfg, dev, ingest_mode="regex")
+        kx = store_from_triples(str(view), kept, cfg, dev, ingest_mode=ingest)
     timings["store_training"] = time.time() - t
     log(f"      production store trained ({timings['store_training']:.0f}s): "
         f"{kx.adapter.num_entities} entities, {len(kx.doc_graph.triples)} triples, {len(kx.doc_graph.enm)} ENM")
@@ -262,8 +307,15 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, epochs: in
                   "duplicates_flagged": res.duplicates_flagged,
                   "dedup_audit_only": dedup_audit},
         "store": {"n_entities": kx.adapter.num_entities, "n_triples": len(kx.doc_graph.triples),
-                  "n_enm": len(kx.doc_graph.enm), "loss_mode": "cap", "epochs": epochs,
-                  "geometry": {"d_v": cfg.geometry.d_v, "d_u": cfg.geometry.d_u, "m": cfg.geometry.m}},
+                  "n_enm": len(kx.doc_graph.enm), "loss_mode": cfg.loss_mode, "ingest_mode": ingest,
+                  "epochs": cfg.train.epochs,
+                  "geometry": {"d_v": cfg.geometry.d_v, "d_u": cfg.geometry.d_u, "m": cfg.geometry.m},
+                  "config_overrides": {"train.seed": seed, **(store_overrides or {})}},
+        "build_parameters": {"geode_epochs": geode_epochs, "max_iters": max_iters,
+                             "embed_trainer_epochs": embed_trainer_epochs, "embed_max_iters": embed_max_iters,
+                             "sft_epochs": sft_epochs if sft_epochs is not None else "package default",
+                             "v_sft_mode": v_sft_mode, "contradiction_epochs": contradiction_epochs,
+                             "dedup_mode": dedup_mode, "reference": "knowlytix build_calibrated_rag_store"},
         "embed_loop": {"iterations": eres.iterations, "converged": eres.converged, "mode": chosen,
                        "history": eres.history, "n_canonicals": len(eres.canonicals), **v_eval, "ab": v_ab},
         "contradiction_sft": {"relations": sorted(phrasings), **u_eval},
@@ -284,15 +336,16 @@ def load_kx_store(policy_path: str | Path, store_dir: str | Path) -> KXBuild:
     with _quiet():
         from knowlytix.embedding import FineTunedEmbedding
         from knowlytix.harness.testing.judge import GMSJudge
-        from knowlytix.knowledge.config import DocGMSConfig
         from knowlytix.knowledge.store import GMSExpertStore
     from .geode import build_store
     store_dir = Path(store_dir)
     report = json.loads((store_dir / "gms_build_report.json").read_text())
-    compiled = build_store(policy_path, train=False)
+    compiled = build_store(policy_path)
+    # the same production-store config it was built with (stores built before the overrides were
+    # recorded used DEFAULT_STORE_CONFIG)
+    cfg = store_config(store_dir, (report.get("store") or {}).get("config_overrides"))
     with _quiet():
-        kx = GMSExpertStore(DocGMSConfig(store_path=str(store_dir / "kx"), ingest_mode="regex", loss_mode="cap"),
-                            device=torch.device("cpu"))
+        kx = GMSExpertStore(cfg, device=torch.device("cpu"))
         if not kx.load():
             raise RuntimeError(f"could not load the knowlytix store at {store_dir / 'kx'}")
         judge = GMSJudge(kx)
@@ -406,6 +459,16 @@ class CachedKX:
     def check_holonomy(self, path, direct):
         return self._memo(("h", tuple(path), direct), lambda: self._kx.check_holonomy(path, direct))
 
+    def is_path_consistent(self, path, direct):
+        tau = self._kx.config.verify.tau_path
+        return self._memo(("p", tuple(path), direct, tau), lambda: self._kx.is_path_consistent(path, direct))
+
+    def score_triple_emb(self, head, rel, tail_text, encoder):
+        """Native ``score_triple_emb``; the tail vector comes from the store's tuned v encoder.
+        Memoised by the tail's text (the tuned encoder reloads its base model on each call)."""
+        return self._memo(("e", head, rel, tail_text),
+                          lambda: self._kx.score_triple_emb(head, rel, encoder.encode([tail_text])))
+
 
 class KXPolicyStore(GMSStore):
     """Symbolic policy facts from the compiler; geometry, ENM and calibration from knowlytix."""
@@ -451,16 +514,22 @@ class KXPolicyStore(GMSStore):
         return {"all_agree": all(r["agree"] for r in rows), "n": len(rows), "rows": rows}
 
     # ------------------------------------------------------------------ geometry
-    def train(self) -> "KXPolicyStore":          # the knowlytix store is already trained
-        return self
-
     def score_triple(self, head: str, relation: str, tail: str) -> float:
-        h, r, t = kx_triple(head, relation, tail)
-        with _quiet():
-            s = self.kx.score_triple(h, r, t)
+        """knowlytix ``score_triple``: geodesic distance to the head-conditioned cap centre.
+
+        A tail the store never trained as an entity (a figure the policy does not state) is
+        scored the knowlytix way, ``score_triple_emb`` on the tuned v encoder's embedding of
+        the tail text. pi/2 (the edge of the hemisphere) only when the head or the relation
+        is not in the store at all."""
+        s = self.kx_score(head, relation, tail)
+        if s is None:
+            h, r, t = kx_triple(head, relation, tail)
+            if self.v_ft is not None and self.kx.relation_exists(r) and self.kx.entity_exists(h):
+                s = self.kx.score_triple_emb(h, r, t, self.v_ft)
         return float(s) if s is not None else math.pi / 2
 
     def kx_score(self, head: str, relation: str, tail: str) -> float | None:
+        """knowlytix ``score_triple`` as is (None for anything outside the store's vocabulary)."""
         h, r, t = kx_triple(head, relation, tail)
         with _quiet():
             return self.kx.score_triple(h, r, t)
@@ -477,9 +546,41 @@ class KXPolicyStore(GMSStore):
             raise KeyError(f"no calibrated cut for {relation!r}")
         return float(g)
 
+    def is_grounded(self, head: str, relation: str, tail: str) -> bool:
+        """Inside the relation's learned cap: ``score_triple <= cap_radius``, the admissibility
+        test the store is trained for and the one the knowlytix benchmark generators apply.
+        knowlytix's per-head calibrated admissibility is reported alongside (``admissibility``):
+        on this policy its per-head margins admit cross-tail substitutions on the two-head
+        delivery relations, so it is not used to decide."""
+        return self.score_triple(head, relation, tail) <= self.tau(relation)
+
+    def admissibility(self, head: str, relation: str, tail: str) -> dict[str, Any] | None:
+        """knowlytix's layered calibrated admissibility (``knowlytix.core.graph.admissibility``:
+        per-head cap margins AND per-relation tension cut, both at 5% FPR, calibrated once).
+        None when the triple is outside the store's vocabulary."""
+        with _quiet():
+            from knowlytix.core.graph.admissibility import (admissible, calibrate_cap_margins_per_head,
+                                                            calibrate_tension_threshold)
+        model, adapter = self.kx_raw.model, self.kx_raw.adapter
+        cal = self.__dict__.get("_admissibility_cal")
+        if cal is None:
+            with _quiet():
+                cal = (calibrate_cap_margins_per_head(model, adapter, fpr_target=0.05),
+                       calibrate_tension_threshold(model, adapter, fpr_target=0.05))
+            self.__dict__["_admissibility_cal"] = cal
+        h, r, t = kx_triple(head, relation, tail)
+        e2i, r2i = adapter.entity_to_idx, adapter.relation_to_idx
+        hi, ri, ti = e2i.get(h), r2i.get(r), e2i.get(t)
+        if hi is None or ri is None or ti is None:
+            return None
+        memo = self.__dict__.setdefault("_admissible_memo", {})
+        if (hi, ri, ti) not in memo:
+            with _quiet():
+                v = admissible(model, adapter, hi, ri, ti, cap_margins=cal[0], tension_tau=cal[1])
+            memo[(hi, ri, ti)] = {k: (bool(x) if isinstance(x, bool) else float(x)) for k, x in v.items()}
+        return memo[(hi, ri, ti)]
+
     def tension_energy(self, a, b) -> float:
-        if isinstance(a, np.ndarray) or isinstance(b, np.ndarray):
-            return GMSStore.tension_energy(self, a, b)
         with _quiet():
             te = self.kx.tension_energy(str(a).lower(), str(b).lower())
         return float(te) if te is not None else math.sqrt(2)
@@ -490,7 +591,12 @@ class KXPolicyStore(GMSStore):
         return float(d) if d is not None else math.pi
 
     def is_path_consistent(self, path: list[str], direct: str) -> bool:
-        return self.check_holonomy(path, direct) <= self.calibration["holonomy"]["tau_path"]
+        """knowlytix ``is_path_consistent`` (holonomy defect <= ``config.verify.tau_path``). The
+        store ships with no tau_path; the cut written there is this store's calibrated one
+        (``calibration["holonomy"]``), the way GMSJudge writes its own. Unknown relations: False."""
+        with _quiet():
+            ok = self.kx.is_path_consistent([kx_relation(r) for r in path], kx_relation(direct))
+        return bool(ok) if ok is not None else False
 
     def stance_check(self, subject: str, predicate: str, obj: str, polarity: int) -> dict[str, Any]:
         """Value-polarity verifier. The rule is found symbolically; the verdict is read
@@ -537,18 +643,30 @@ class KXPolicyStore(GMSStore):
         conf = float(max(sc)) if hasattr(sc, "__iter__") else float(sc)
         return ({"has_fee_usd": "fee", "has_business_days_max": "delivery_time", "has_value": "limit"}.get(p, p), conf)
 
-    def fuzzy_match_entity(self, surface: str, types=None, mode: str = "lexicon"):
-        if mode == "frame" and self.v_ft is not None:
-            with _quiet():
-                preds, scores = self.v_ft.classify([surface])
-            sc = scores[0]
-            return preds[0], float(max(sc)) if hasattr(sc, "__iter__") else float(sc)
-        return GMSStore.fuzzy_match_entity(self, surface, types)
+    def fuzzy_match_entity(self, surface: str, types=None, mode: str = "frame"):
+        """Bind a surface form to an entity with the GEODE-tuned v encoder (model 1)."""
+        if self.v_ft is None:
+            return None, 0.0
+        with _quiet():
+            preds, scores = self.v_ft.classify([surface])
+        sc = scores[0]
+        return preds[0], float(max(sc)) if hasattr(sc, "__iter__") else float(sc)
 
     # ------------------------------------------------------------------ calibration view
     def calibrate(self, seed: int = 7) -> dict[str, Any]:
         self.calibration = self._calibration_view(seed)
         return self.calibration
+
+    @property
+    def calibration(self) -> dict[str, Any]:
+        return self.__dict__["calibration"]
+
+    @calibration.setter
+    def calibration(self, cal: dict[str, Any]) -> None:
+        # the holonomy cut also goes onto the store's verify config, where knowlytix's own
+        # is_path_consistent reads it
+        self.__dict__["calibration"] = cal
+        self.kx_raw.config.verify.tau_path = float(cal["holonomy"]["tau_path"])
 
     def _calibration_view(self, seed: int = 7) -> dict[str, Any]:
         """The operating points in the shape the rest of the framework reads, all taken
@@ -587,14 +705,12 @@ class KXPolicyStore(GMSStore):
             tau_contra = (max(te_same) + min(te_opp)) / 2
         if tau_ent is None:
             tau_ent = tau_contra
-        prev = getattr(self, "calibration", {}) or {}
         return {"false_accept_ceiling": 0.05, "score_triple": per_rel,
                 "holonomy": {"tau_path": float(tau_path), "positives": hp, "negatives": hn,
                              "source": "declared-composition cohort", "judge_global_cut": thr.get("holonomy")},
                 "tension": {"tau_contra": float(tau_contra), "tau_agree": float(min(tau_ent, tau_contra)),
                             "attr_match": 0.8, "same": te_same, "opposite": te_opp,
                             "source": "GMSJudge" if thr.get("tau_contra") is not None else "store cohort"},
-                "fuzzy": prev.get("fuzzy", {"tau": 0.5}),
                 "judge": {k: v for k, v in thr.items() if isinstance(v, (int, float, str, tuple, list))}}
 
     def summary(self) -> dict[str, Any]:

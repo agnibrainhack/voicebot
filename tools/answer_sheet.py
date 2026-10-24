@@ -353,7 +353,6 @@ def main() -> None:
     ap.add_argument("--campaign", default="output/campaign_llm",
                     help="campaign output dir (dataset/test_cases.csv, dataset/test_turns.csv)")
     ap.add_argument("--out", default=str(ROOT / "docs" / "ANSWER_SHEET.html"))
-    ap.add_argument("--backend", default="auto", choices=["auto", "knowlytix", "builtin"])
     ap.add_argument("--store-dir", default=None, help="knowlytix store dir (default: the build cache)")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--summaries", default="template", choices=["template", "llm"],
@@ -366,9 +365,7 @@ def main() -> None:
     a = ap.parse_args()
 
     say("[1/4] the knowledge store (reloaded from the cache when one matches)")
-    store, _build, info = build_gms(a.policy, backend_choice=a.backend, kx_store_dir=a.store_dir,
-                                    seed=a.seed, log=say)
-    say("      backend:", info.get("selected"))
+    store, _build, info = build_gms(a.policy, kx_store_dir=a.store_dir, seed=a.seed, log=say)
     oracle, reader, realizer = PolicyOracle(store), FrameReader(store), Realizer()
     kg = getattr(store, "kg", None)
     validator = InvarianceValidator(store, oracle, reader, realizer)

@@ -73,11 +73,6 @@ def _pairs(rel: dict[str, Any]) -> set[tuple]:
     return {tuple(sorted(p)) for p in itertools.combinations(items, 2)}
 
 
-def _triples(rel: dict[str, Any]) -> set[tuple]:
-    items = [(d, v) for d, v in rel.items() if v != NA]
-    return {tuple(sorted(p)) for p in itertools.combinations(items, 3)}
-
-
 class JourneyBaseGenerator:
     def __init__(self, oracle, kb_pool: list[F] | None = None, seed: int = 42,
                  max_turn_limit_cases: int | None = None):
@@ -256,13 +251,6 @@ class JourneyBaseGenerator:
         rep.boundaries_covered = sorted(b)
         rep.n_closure = len(added)
         return added
-
-    def triple_coverage(self, rows: list[JourneySpec]) -> tuple[int, int]:
-        got = set()
-        for sp in rows:
-            got |= _triples(relevant_dims(sp))
-        return len(got), 0
-
 
 # --------------------------------------------------------------------------
 # Base items

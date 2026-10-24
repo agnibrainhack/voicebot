@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..core import Scenario
-from ..knowledge.encoders import cosine
+from .textsim import surface_cosine
 from ..ontology import Ontology, SemanticFrame as F, sequence_signature
 
 MAX_RETRIES = 4
@@ -132,7 +132,7 @@ class InvarianceValidator:
                           "card": self.ont.card(frame, st), "read_card": self.ont.card(g, st),
                           "read_back": str(g), "equivalent": ok,
                           "frame_distance": self.ont.frame_distance(frame, g, st),
-                          "surface_cosine": cosine(self.store.v.encode(base_text), self.store.v.encode(text))})
+                          "surface_cosine": surface_cosine(base_text, text)})
         scn.metadata["seed_overrides"] = overrides
         return self._conclude(scn, path, states, turns, read_frames, retries)
 

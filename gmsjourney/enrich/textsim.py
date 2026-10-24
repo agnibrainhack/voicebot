@@ -1,17 +1,11 @@
-"""Embedding channels for the geometric store (book Ch. 3.1).
+"""Surface similarity of two wordings: a reported diagnostic of the invariance proof.
 
-v-space (semantic) and u-space (logical) need starting vectors. The book warm-
-starts both from sentence-transformer encoders ("Mode A"). This module provides
-
-* ``HashingEncoder`` - an offline, deterministic encoder built from signed
-  feature hashing of character n-grams and words, with a dedicated numeric block
-  so that literals such as "4" and "5" land at a measurable, graded distance.
-  Character n-grams make it robust to typos and ASR-style misspellings, which is
-  what entity binding needs.
-* ``SentenceTransformerEncoder`` - optional Mode A, used automatically when the
-  ``sentence-transformers`` package is installed and requested.
-
-Every vector is L2-normalised, so all geometry lives on the unit hypersphere.
+How far an enriched turn's wording moved from its base wording ("surface cosine") is
+reported next to every proof; it never decides anything. It is computed with a small,
+deterministic signed feature-hashing encoder (character n-grams, words, bigrams and a
+numeric block), so it is cheap enough for every turn of every scenario and gives the
+same numbers on every machine. It is not part of the GMS: the store's encoders are
+knowlytix's (knowledge/kx_store.py).
 """
 from __future__ import annotations
 
@@ -101,45 +95,12 @@ class HashingEncoder:
     def encode(self, s: str) -> np.ndarray:
         return np.asarray(self._encode_cached(str(s)))
 
-    def encode_many(self, items: list[str]) -> np.ndarray:
-        return np.stack([self.encode(x) for x in items]) if items else np.zeros((0, self.dim))
+
+_ENC = HashingEncoder(salt="v")
 
 
-class SentenceTransformerEncoder:
-    """Mode A warm start (book Ch. 3.1). Optional dependency."""
-
-    def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2"):
-        from sentence_transformers import SentenceTransformer  # type: ignore
-        self.model = SentenceTransformer(model_name)
-        self.dim = self.model.get_sentence_embedding_dimension()
-        self._cache: dict[str, np.ndarray] = {}
-
-    def encode(self, s: str) -> np.ndarray:
-        if s not in self._cache:
-            v = self.model.encode([str(s).replace("_", " ")], normalize_embeddings=True)[0]
-            self._cache[s] = np.asarray(v, dtype=float)
-        return self._cache[s]
-
-    def encode_many(self, items: list[str]) -> np.ndarray:
-        return np.stack([self.encode(x) for x in items]) if items else np.zeros((0, self.dim))
-
-
-def make_encoder(kind: str = "hashing", salt: str = "v", model: str | None = None):
-    if kind == "sentence-transformers":
-        try:
-            from ..backend import HF_V, local_encoders
-            loc = local_encoders()
-            return SentenceTransformerEncoder(model or (loc[0] if loc else HF_V))
-        except Exception:  # pragma: no cover - optional path
-            pass
-    return HashingEncoder(salt=salt)
-
-
-def geodesic(a: np.ndarray, b: np.ndarray) -> float:
-    """Great-circle distance on the unit sphere, in [0, pi]."""
-    return float(math.acos(max(-1.0, min(1.0, float(np.dot(a, b))))))
-
-
-def cosine(a: np.ndarray, b: np.ndarray) -> float:
-    na, nb = np.linalg.norm(a), np.linalg.norm(b)
-    return float(np.dot(a, b) / (na * nb)) if na and nb else 0.0
+def surface_cosine(a: str, b: str) -> float:
+    """Cosine similarity of two wordings (1.0 = same surface)."""
+    va, vb = _ENC.encode(a), _ENC.encode(b)
+    na, nb = np.linalg.norm(va), np.linalg.norm(vb)
+    return float(np.dot(va, vb) / (na * nb)) if na and nb else 0.0

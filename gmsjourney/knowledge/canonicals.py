@@ -4,8 +4,8 @@ For every canonical individual the export records what the trained store says ab
 next to what the policy graph (policy/charge_review_kg.json) states:
 
 * value sets  - each canonical value, its aliases, and how the trained GMS binds every
-                alias (``fuzzy_match_entity(alias, mode="frame")``: the tuned v encoder on
-                knowlytix, the v-space adapter on the built-in store) - agreement with the
+                alias (``fuzzy_match_entity(alias, mode="frame")``: the GEODE-tuned v encoder)
+                - agreement with the
                 graph is reported per alias; the value's membership score and the tension to
                 its disjoint siblings (u-space);
 * numbers     - every exact figure (ENM) with its unit, integrity digest and the value the
@@ -34,11 +34,10 @@ def _safe(fn, default=None):
 
 
 def export_canonicals(store, kg, backend_info: dict | None = None) -> dict[str, Any]:
-    is_kx = hasattr(store, "kx")
     meta = {"schema": "gmsjourney.gms_canonicals/1", "generated": time.strftime("%Y-%m-%dT%H:%M:%S"),
-            "backend": "knowlytix" if is_kx else "built-in", "policy_graph_sha256": kg.sha256,
+            "backend": "knowlytix", "policy_graph_sha256": kg.sha256,
             "policy_document": kg.data["source"]["document"],
-            "encoders": getattr(store, "encoders", None) or ({"kind": "hashing (built-in)"} if not is_kx else None),
+            "encoders": getattr(store, "encoders", None),
             "versions": (backend_info or {}).get("versions")}
 
     def score(h, r, t):

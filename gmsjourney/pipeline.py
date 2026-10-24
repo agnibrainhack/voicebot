@@ -1,19 +1,18 @@
 """End-to-end campaign: document -> oracle -> bases -> enrichment -> proof -> run -> diagnosis.
 
-Each step maps to the book; where a component exists in the knowlytix / proofloop /
-forgeloop packages it is used directly (backend.available()), and the built-in
-implementation is the open-core fallback:
+Each step maps to the book. The GMS and every geometric read come from knowlytix, with
+proofloop and forgeloop alongside (requirements.txt; backend.require()):
 
- 1  GMS: knowlytix GEODE loop, embed loop (v SFT), contradiction SFT (u), cap-trained
-    store, GMSJudge calibration (built-in: our compiler + Procrustes store)       Ch. 2-4
+ 1  GMS: our compiler (symbolic facts, exact numbers), then knowlytix: GEODE loop,
+    embed loop (v SFT), contradiction SFT (u), cap-trained store, GMSJudge calibration  Ch. 2-4
  2  policy-question bases; two-way admission via knowlytix QuestionGenerator;
     knowlytix production generators as the substrate self-test                     Ch. 5, nb 25
  3  journey bases: covering array + rule/edge/trigger/boundary closure            Ch. 5, 12.3
  4  catalogs (official, from proofloop) + application layer; design              Ch. 6-7
  5  invariance proof for every scenario + negative controls                       Ch. 1.2, 8.1.1
  6  runtime gates calibrated (Appendix C) with forgeloop's GMS gates              App. C, Ch. 12
- 7  run the SUT under the runtime monitor; KB answers judged by GMSJudge          Ch. 9, 12.5
- 8  attribution: knowlytix DOEAnalyzer + per-component / weak link                Ch. 10
+ 7  run the SUT under the runtime monitor; KB answers judged exactly             Ch. 9, 12.5
+ 8  attribution: deviance tests per factor, per component, weak link             Ch. 10
  9  resilience under tool faults                                                  Ch. 11
 10  mutation analysis (+ runtime-monitor catch rate)                              (beyond the book)
 11  training corpora with proofloop's emitters                                    Ch. 8
@@ -34,7 +33,7 @@ import importlib.util
 import json
 import random
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable
 
@@ -43,7 +42,7 @@ from .bases.journey import JourneyBaseGenerator, primary_category, to_item
 from .bases.kb import mine_kb_items
 from .catalog import Catalog, level_provenance_table, resolve, resolve_profile, validate
 from .core import Scenario
-from .design.doe import compare_designs, compose, per_base_dispersion, phi_p_design, power_curve
+from .design.doe import compare_designs, compose, per_base_dispersion, power_curve
 from .enrich.invariance import InvarianceValidator
 from .enrich.reader import FrameReader
 from .enrich.realizers import Realizer
@@ -75,9 +74,15 @@ class CampaignConfig:
     run_governance: bool = True
     bot_factory: Callable | None = None          # default: the reference bot
     bot_name: str = "ReferenceBot"
-    backend: str = "auto"                        # auto | knowlytix | builtin
-    kx_epochs: int = 150                         # production store epochs (licence cap 200)
-    kx_geode_epochs: int = 80                    # GEODE correction-loop trainer epochs
+    # knowlytix build (defaults: the reference build_calibrated_rag_store; knowledge/kx_store.py)
+    kx_epochs: int | None = None                 # production store epochs (None: 150; shortcut for "train.epochs")
+    kx_geode_epochs: int = 300                   # GEODE correction-loop trainer epochs
+    kx_geode_max_iters: int = 8                  # GEODE correction rounds
+    kx_embed_trainer_epochs: int = 150           # trainer inside the GEODE embed loop
+    kx_embed_max_iters: int = 2                  # embed-loop rounds
+    kx_sft_epochs: int | None = None             # v-encoder SFT epochs (None: the package default, 100)
+    kx_contradiction_epochs: int = 400           # u-encoder contradiction SFT epochs
+    kx_store_config: dict | None = None          # any DocGMSConfig field, dotted keys ({"cap.margin": 0.3, ...})
     kx_store_dir: str | None = None              # default: ~/.cache/gmsjourney/stores/<hash>
     rebuild_store: bool = False
     # 20+ turn conversations (turn-limit tests): None = turn_pressure is an ordinary covering dimension
@@ -90,7 +95,7 @@ class CampaignConfig:
     progress: bool = True                        # tqdm progress bars for the bot runs (when tqdm is installed)
     max_failed_cases_in_report: int = 400        # failed runs listed one by one in the report (all in failures.jsonl)
     kx_dedup_mode: str = "off"                   # off | audit | accept   (knowledge/kx_store.py)
-    kx_v_sft_mode: str = "ab"                    # rotation | full | ab
+    kx_v_sft_mode: str = "full"                  # full (reference) | rotation | ab (train both, keep the better)
     # runtime checks
     budgets: dict | None = None                  # ConstraintBudget fields (None = defaults)
     decision_rule: str = "strict"                # strict | quorum   (runtime gates)
@@ -123,34 +128,41 @@ class CampaignConfig:
                                                  # turn (the scenario survives) | none: reject the scenario
 
 
-def build_gms(policy_path: str | Path = POLICY, *, backend_choice: str = "auto", kx_store_dir: str | None = None,
-              rebuild: bool = False, epochs: int = 150, geode_epochs: int = 80, seed: int = 42,
-              dedup_mode: str = "off", v_sft_mode: str = "ab", log: Callable[[str], None] = print):
-    """The GMS for a policy: knowlytix (built once, then reloaded from its directory) when the
-    package is installed and licensed, else the built-in store. Returns (store, report, backend)."""
-    use_kx = backend_choice != "builtin" and backend.available()
-    if backend_choice == "knowlytix" and not use_kx:
-        backend.require()
-    info = {"selected": "knowlytix" if use_kx else "builtin", **backend.describe()}
-    if not use_kx:
-        log("[1/12] building the built-in knowledge store (ingest -> self-correction -> train -> calibrate)")
-        b = build_store(policy_path)
-        return b.store, b.report(), info
-    from .knowledge.kx_store import build_kx_store, load_kx_store
-    # the store is keyed by everything that changes it: the policy source, the training settings,
-    # the package versions and which encoders it is warm-started from
-    key = hashlib.sha256(json.dumps([Path(policy_path).read_text(), epochs, geode_epochs, seed,
-                                     info.get("versions"), backend.encoder_kind(), dedup_mode,
-                                     v_sft_mode]).encode()).hexdigest()[:16]
+def build_gms(policy_path: str | Path = POLICY, *, kx_store_dir: str | None = None, rebuild: bool = False,
+              seed: int = 42, epochs: int | None = None, geode_epochs: int = 300, max_iters: int = 8,
+              embed_trainer_epochs: int = 150, embed_max_iters: int = 2, sft_epochs: int | None = None,
+              contradiction_epochs: int = 400, dedup_mode: str = "off", v_sft_mode: str = "full",
+              store_config: dict | None = None, log: Callable[[str], None] = print):
+    """The knowlytix GMS for a policy: built once, then reloaded from its directory.
+    Requires knowlytix and a licence. Returns (store, report, backend info).
+
+    The build parameters default to knowlytix's reference build (build_calibrated_rag_store);
+    see knowledge/kx_store.py for the three stated differences. ``store_config`` sets any field of the
+    production store's DocGMSConfig (dotted keys, e.g. {"train.epochs": 200, "cap.margin": 0.3});
+    ``epochs`` is a shortcut for "train.epochs"."""
+    backend.require()
+    info = {"selected": "knowlytix", **backend.describe()}
+    from .knowledge.kx_store import DEFAULT_STORE_CONFIG, build_kx_store, load_kx_store
+    overrides = dict(store_config or {})
+    if epochs is not None:
+        overrides["train.epochs"] = epochs
+    params = {"geode_epochs": geode_epochs, "max_iters": max_iters, "embed_trainer_epochs": embed_trainer_epochs,
+              "embed_max_iters": embed_max_iters, "sft_epochs": sft_epochs,
+              "contradiction_epochs": contradiction_epochs, "dedup_mode": dedup_mode, "v_sft_mode": v_sft_mode}
+    # the store is keyed by everything that changes it: the policy source, every build parameter, the
+    # production store's config, the package versions and which encoders it is warm-started from
+    key = hashlib.sha256(json.dumps([Path(policy_path).read_text(), seed, params,
+                                     sorted({**DEFAULT_STORE_CONFIG, **overrides}.items()),
+                                     info.get("versions"), backend.encoder_kind()],
+                                    default=str).encode()).hexdigest()[:16]
     sdir = Path(kx_store_dir) if kx_store_dir else backend.CACHE / "stores" / key
     if (sdir / "gms_build_report.json").exists() and (sdir / "kx" / "model.pt").exists() and not rebuild:
         log(f"[1/12] loading the knowlytix GMS store ({sdir})")
         kb = load_kx_store(policy_path, sdir)
     else:
         log(f"[1/12] building the knowlytix GMS store: GEODE loop -> embed loop -> contradiction SFT -> "
-            f"cap-trained store -> GMSJudge calibration ({sdir})")
-        kb = build_kx_store(policy_path, sdir, epochs=epochs, geode_epochs=geode_epochs, seed=seed,
-                            dedup_mode=dedup_mode, v_sft_mode=v_sft_mode, log=log)
+            f"production store -> GMSJudge calibration ({sdir})")
+        kb = build_kx_store(policy_path, sdir, seed=seed, store_overrides=overrides, log=log, **params)
     return kb.store, {**kb.report, "store_dir": str(sdir)}, info
 
 
@@ -180,25 +192,23 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     R: dict[str, Any] = {"config": {k: v for k, v in asdict(cfg).items() if k != "bot_factory"}}
 
     # 1 -------------------------------------------------------------- store
-    store, build_report, R["backend"] = build_gms(cfg.policy_path, backend_choice=cfg.backend,
+    store, build_report, R["backend"] = build_gms(cfg.policy_path,
                                                   kx_store_dir=cfg.kx_store_dir, rebuild=cfg.rebuild_store,
-                                                  epochs=cfg.kx_epochs, geode_epochs=cfg.kx_geode_epochs,
-                                                  seed=cfg.seed, dedup_mode=cfg.kx_dedup_mode,
-                                                  v_sft_mode=cfg.kx_v_sft_mode, log=log)
-    use_kx = R["backend"]["selected"] == "knowlytix"
-    demo = build_store(cfg.policy_path, inject_misread=True, train=False)
+                                                  seed=cfg.seed, epochs=cfg.kx_epochs,
+                                                  geode_epochs=cfg.kx_geode_epochs, max_iters=cfg.kx_geode_max_iters,
+                                                  embed_trainer_epochs=cfg.kx_embed_trainer_epochs,
+                                                  embed_max_iters=cfg.kx_embed_max_iters,
+                                                  sft_epochs=cfg.kx_sft_epochs,
+                                                  contradiction_epochs=cfg.kx_contradiction_epochs,
+                                                  dedup_mode=cfg.kx_dedup_mode, v_sft_mode=cfg.kx_v_sft_mode,
+                                                  store_config=cfg.kx_store_config, log=log)
+    demo = build_store(cfg.policy_path, inject_misread=True)
     caught = any(c.fact == ("expedited_delivery", "has_fee_usd", "150") and c.action.startswith("drop")
                  for c in demo.corrections)
-    if use_kx:
-        sdir = Path(build_report["store_dir"])
-        (out / "gms_build_report.json").write_text(json.dumps(build_report, indent=1, default=str))
-        (out / "policy.gms.md").write_text((sdir / "policy.gms.md").read_text())
-        R["store"] = {**store.summary(), "store_dir": str(sdir), "build": build_report}
-    else:
-        store.save(out / "gms_store")
-        (out / "geode_build_report.json").write_text(json.dumps(build_report, indent=1, default=str))
-        R["store"] = {**store.summary(), "candidates": build_report["n_candidates"],
-                      "corrections": build_report["corrections_by_action"], "build": build_report}
+    sdir = Path(build_report["store_dir"])
+    (out / "gms_build_report.json").write_text(json.dumps(build_report, indent=1, default=str))
+    (out / "policy.gms.md").write_text((sdir / "policy.gms.md").read_text())
+    R["store"] = {**store.summary(), "store_dir": str(sdir), "build": build_report}
     (out / "store_graph.dot").write_text(to_dot(store, {"enables", "precedes", "delivered_by", "has_fee_usd"}))
     R["store"].update({
         "injected_misread_caught": caught,
@@ -226,7 +236,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     oracle = PolicyOracle(store)
 
     # 2 -------------------------------------------------------------- KB bases
-    log("[2/12] mining policy-question bases (two-way admission" + ("; knowlytix substrate generators)" if use_kx else ")"))
+    log("[2/12] mining policy-question bases (two-way admission; knowlytix substrate generators)")
     kb_items, kb_info = mine_kb_items(store, cfg.seed, extended=cfg.kb_questions == "extended")
     admitted = [k for k in kb_items if k.admission != "rejected"]
     R["kb"] = {"items": [{"qid": k.qid, "category": k.category, "frame": str(k.frame), "answer": k.answer,
@@ -267,8 +277,6 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     scenarios = compose(ls, bases, n_runs, cfg.seed, mode="embedded", assign="dispersed")
     shuffled = compose(ls, bases, n_runs, cfg.seed, mode="embedded", assign="shuffle")
     quality = compare_designs(ls, n_runs, cfg.seed)
-    if use_kx:
-        quality["knowlytix DesignMatrix sobol+refine"] = _kx_design_quality(ls, n_runs, cfg.seed)
     R["design"] = {"catalog": cat.summary(), "catalog_errors": errs, "suite": suite.summary(),
                    "official_catalogs": cat.raw.get("official_origin"), "level_provenance": level_provenance_table(cat),
                    "factors": suite.factor_names, "levels": dict(ls),
@@ -371,8 +379,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
                                                   "policy_fingerprint": policy_fingerprint(store),
                                                   "reference_scores": [],      # filled from the base-level runs
                                                   "false_reject_rate": cal["regulated"]["false_rejects"] / max(1, cal["n_admit"])},
-                           "engine": "forgeloop GMSPlausibilityGate + AuditLogger on the knowlytix store"
-                           if use_kx else "built-in gates"}
+                           "engine": "forgeloop GMSPlausibilityGate + AuditLogger on the knowlytix store"}
 
     # 7 -------------------------------------------------------------- run SUT
     log("[7/12] running the system under test (runtime monitor on)")
@@ -416,11 +423,8 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         R["governance"]["calibration_record"]["reference"] = "gate scores on the base-level runs of the bot under test"
 
     # 8 -------------------------------------------------------------- attribution
-    log("[8/12] attributing failures (" + ("knowlytix DOEAnalyzer + " if use_kx else "") + "deviance tests; per component, weak link)")
+    log("[8/12] attributing failures (deviance tests; per component, weak link)")
     R["diagnosis"] = attribution.diagnose(rows, suite.factor_names)
-    if use_kx:
-        from .reuse.attribution import kx_attribution
-        R["diagnosis"]["knowlytix"] = kx_attribution(rows, suite.factor_names)
     if llm_rows:
         # the LLM arm is attributed on the factor levels that actually reached the bot (realised levels)
         R["diagnosis_llm"] = attribution.diagnose(llm_rows, suite.factor_names)
@@ -639,20 +643,6 @@ def _state_mapping_summary(proofs, kg) -> dict[str, Any]:
             d["admissible"] += int(t.get("read_card", {}).get("admissible", True))
     return {"states": by_state, "policy_graph": kg is not None,
             "accepted_acts": {s: kg.accepted_acts(s) for s in kg.prompt_states} if kg is not None else {}}
-
-
-def _kx_design_quality(level_specs, n_runs: int, seed: int) -> dict[str, Any]:
-    from .design.doe import design_quality
-    from .knowledge.kx_store import _quiet
-    with _quiet():
-        from knowlytix.harness.graphdoe import DesignMatrix
-        dm = DesignMatrix([{"name": n, "type": "categorical", "categories": list(l)} for n, l in level_specs],
-                          method="sobol+refine", n_runs=n_runs, seed=seed)
-        rows = dm.generate().to_dict(orient="records")
-        kq = dm.quality()
-    q = design_quality(rows, level_specs)
-    q["knowlytix_quality"] = {k: v for k, v in kq.items() if isinstance(v, (int, float))}
-    return q
 
 
 def _runtime_summary(rows: list[dict], record: dict, store) -> dict[str, Any]:

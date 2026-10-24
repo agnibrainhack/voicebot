@@ -19,8 +19,7 @@ What counts as GEODE here: the two GEODE steps of the build (knowledge/kx_store.
 Left out on purpose: the deterministic checks (type checks, prose-vs-register number checks, unbound sentences,
 the exact-value anchor check, the injected "$150" misread), and everything after GEODE - the u-space contradiction
 SFT (step 3), relevance calibration (4), the GMS store training (5) and the judge calibration (7).
-knowlytix backend: public APIs only (the calls the build itself makes). Built-in backend: the built-in embed loop's
-own before/after evaluation is shown (the built-in build has no duplicate resolution).
+knowlytix public APIs only (the calls the build itself makes).
 """
 from __future__ import annotations
 
@@ -236,13 +235,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--policy", default=str(ROOT / "gmsjourney" / "policy" / "charge_review_kg.json"))
     ap.add_argument("--store-dir", default=None, help="a built knowlytix store folder (default: the campaign's store)")
-    ap.add_argument("--backend", default="auto", choices=["auto", "knowlytix", "builtin"])
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out", default=str(ROOT / "docs" / "GEODE_BEFORE_AFTER.html"))
     a = ap.parse_args()
     import importlib.util
     missing = [m for m in ("numpy", "torch", "knowlytix") if importlib.util.find_spec(m) is None]
-    if "numpy" in missing or (a.backend == "knowlytix" and missing):
+    if missing:
         print(f"This Python ({sys.executable}) is missing: {', '.join(missing)}.\n"
               "Run the script with the same Python as the campaign / notebook kernel, e.g. activate its environment "
               "first, or from a notebook cell:  !{sys.executable} tools/geode_before_after.py")
@@ -250,50 +248,38 @@ def main() -> int:
     from gmsjourney import backend
     policy = Path(a.policy)
     data: dict = {}
-    if a.backend != "builtin" and backend.available():
-        from gmsjourney.knowledge.kx_store import load_kx_store
-        from gmsjourney.pipeline import build_gms
-        if a.store_dir:
-            sdir = Path(a.store_dir).expanduser()
-            print(f"loading the store from {sdir}")
-            kb = load_kx_store(policy, sdir)
-            store, report = kb.store, kb.report
-        else:
-            store, report, _info = build_gms(policy, backend_choice="knowlytix", seed=a.seed)
-            sdir = Path(report["store_dir"])
-        print("GEODE embed loop: held-out noisy names, raw vs tuned encoder")
-        data["names"] = names_view(store, report)
-        el = report.get("embed_loop", {})
-        data["embed_history"] = el.get("history", [])
-        rb, ra = el.get("before"), el.get("after")
-        if rb is not None and (abs(rb - data["names"]["before"]) > 1e-9 or abs(ra - data["names"]["after"]) > 1e-9):
-            print(f"note: this measurement ({data['names']['before']:.3f} -> {data['names']['after']:.3f}) differs from "
-                  f"the build report ({rb:.3f} -> {ra:.3f})")
-        print("GEODE self-correction loop: from the build report")
-        data["loop"] = loop_view(report)
-        data["encoders_kind"] = report["encoders"]["kind"]
-        mode = el.get("mode") or "rotation"
-        data["meta"] = (f"knowlytix store {sdir.name} · encoders: {report['encoders']['kind']} · embed loop: "
-                        f"{el.get('iterations')} passes, {mode} mode, {el.get('n_canonicals')} entities")
-        data["method"] = ("Section 1: the build's own held-out probes (_noisy_probes: typo and ASR variants of every "
-                          "alias, seeds 101-103) and rule (nearest entity prototype), raw v encoder vs the GEODE-tuned "
-                          "encoder saved with the store (tuned_encoder/); the pass-by-pass table is the embed loop's own "
-                          "history. Section 2: the GEODE loop's output as recorded in gms_build_report.json.")
+    if not backend.available():
+        print(f"knowlytix is not available in this Python [{sys.executable}] (needs knowlytix, proofloop, forgeloop "
+              "and a licence: KNOWLYTIX_LICENSE_KEY or ~/.knowlytix/license.key).")
+        return 2
+    from gmsjourney.knowledge.kx_store import load_kx_store
+    from gmsjourney.pipeline import build_gms
+    if a.store_dir:
+        sdir = Path(a.store_dir).expanduser()
+        print(f"loading the store from {sdir}")
+        kb = load_kx_store(policy, sdir)
+        store, report = kb.store, kb.report
     else:
-        from gmsjourney.knowledge.geode import build_store
-        print("knowlytix is not available in this Python " + (f"(missing: {', '.join(missing)}) " if missing else
-              "(no licence found: KNOWLYTIX_LICENSE_KEY or ~/.knowlytix/license.key) ")
-              + f"[{sys.executable}]; showing the built-in embed loop's own evaluation instead. "
-              "Use --backend knowlytix to stop instead of falling back.")
-        b = build_store(policy, train=True)
-        el = b.training.get("embed_loop", {})
-        ev = el.get("eval") or {}
-        data["names"] = {"before": ev.get("before", 0.0), "after": ev.get("after", 0.0), "n": ev.get("n", 0),
-                         "note": "built-in embed loop, its own held-out evaluation (no per-example rows)"}
-        data["embed_history"] = []
-        data["encoders_kind"] = "built-in hashing"
-        data["meta"] = "built-in store (open baseline)"
-        data["method"] = "The built-in GeodeEmbedLoop's own held-out evaluation (knowledge/training.py)."
+        store, report, _info = build_gms(policy, seed=a.seed)
+        sdir = Path(report["store_dir"])
+    print("GEODE embed loop: held-out noisy names, raw vs tuned encoder")
+    data["names"] = names_view(store, report)
+    el = report.get("embed_loop", {})
+    data["embed_history"] = el.get("history", [])
+    rb, ra = el.get("before"), el.get("after")
+    if rb is not None and (abs(rb - data["names"]["before"]) > 1e-9 or abs(ra - data["names"]["after"]) > 1e-9):
+        print(f"note: this measurement ({data['names']['before']:.3f} -> {data['names']['after']:.3f}) differs from "
+              f"the build report ({rb:.3f} -> {ra:.3f})")
+    print("GEODE self-correction loop: from the build report")
+    data["loop"] = loop_view(report)
+    data["encoders_kind"] = report["encoders"]["kind"]
+    mode = el.get("mode") or "rotation"
+    data["meta"] = (f"knowlytix store {sdir.name} · encoders: {report['encoders']['kind']} · embed loop: "
+                    f"{el.get('iterations')} passes, {mode} mode, {el.get('n_canonicals')} entities")
+    data["method"] = ("Section 1: the build's own held-out probes (_noisy_probes: typo and ASR variants of every "
+                      "alias, seeds 101-103) and rule (nearest entity prototype), raw v encoder vs the GEODE-tuned "
+                      "encoder saved with the store (tuned_encoder/); the pass-by-pass table is the embed loop's own "
+                      "history. Section 2: the GEODE loop's output as recorded in gms_build_report.json.")
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(render(data), encoding="utf-8")

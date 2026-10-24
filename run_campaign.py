@@ -1,8 +1,7 @@
 """Run the full GMS-grounded journey test campaign.
 
-    python run_campaign.py --out output/campaign_out               # knowlytix if installed + licensed
+    python run_campaign.py --out output/campaign_out               # needs knowlytix + licence
     python run_campaign.py --out quick --runs-per-base 3 --no-mutation --no-power
-    python run_campaign.py --backend builtin                       # open baseline, no knowlytix
     python run_campaign.py --llm                                   # + the LLM enrichment arm (Microsoft gateway)
     python run_campaign.py --llm --llm-mode replay                 # LLM arm from the cache only, no network
     python run_campaign.py --decision-rule quorum                  # gmsh quorum REVIEW in the runtime gates
@@ -11,6 +10,7 @@ The knowlytix licence is read from KNOWLYTIX_LICENSE_KEY (or ~/.knowlytix/licens
 the gateway token from gcloud (or AEXP_ACCESS_TOKEN). Neither is ever written to any output.
 """
 import argparse
+import json
 
 from gmsjourney.pipeline import CampaignConfig, run_campaign
 
@@ -24,9 +24,16 @@ if __name__ == "__main__":
                     help="test only this many base cases (each with its enriched variants); default: all")
     ap.add_argument("--no-progress", action="store_true", help="no tqdm progress bars")
     ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--backend", default="auto", choices=["auto", "knowlytix", "builtin"])
-    ap.add_argument("--kx-epochs", type=int, default=150, help="production store epochs (licence cap 200)")
-    ap.add_argument("--kx-geode-epochs", type=int, default=80)
+    # knowlytix build parameters (defaults: the reference build_calibrated_rag_store)
+    ap.add_argument("--kx-epochs", type=int, default=None, help="production store epochs (default 150; licence cap 200)")
+    ap.add_argument("--kx-geode-epochs", type=int, default=300, help="GEODE correction-loop trainer epochs")
+    ap.add_argument("--kx-geode-max-iters", type=int, default=8, help="GEODE correction rounds")
+    ap.add_argument("--kx-embed-trainer-epochs", type=int, default=150, help="trainer inside the GEODE embed loop")
+    ap.add_argument("--kx-embed-max-iters", type=int, default=2, help="embed-loop rounds")
+    ap.add_argument("--kx-sft-epochs", type=int, default=None, help="v-encoder SFT epochs (default: package, 100)")
+    ap.add_argument("--kx-contradiction-epochs", type=int, default=400, help="u-encoder contradiction SFT epochs")
+    ap.add_argument("--kx-store-config", default=None,
+                    help='JSON of DocGMSConfig overrides, dotted keys, e.g. \'{"cap.margin": 0.3, "loss_mode": "point"}\'')
     ap.add_argument("--kx-store-dir", default=None, help="where the knowlytix store is built / reused")
     ap.add_argument("--rebuild-store", action="store_true")
     ap.add_argument("--no-mutation", action="store_true")
@@ -35,8 +42,8 @@ if __name__ == "__main__":
     ap.add_argument("--no-governance", action="store_true")
     ap.add_argument("--kx-dedup-mode", default="off", choices=["off", "audit", "accept"],
                     help="GEODE duplicate resolution: off (audit-only after training), audit (0.3), accept (stock gmsh)")
-    ap.add_argument("--kx-v-sft-mode", default="ab", choices=["rotation", "full", "ab"],
-                    help="v-space fine-tuning: rotation (book), full (gmsh default) or A/B both and keep the better")
+    ap.add_argument("--kx-v-sft-mode", default="full", choices=["full", "rotation", "ab"],
+                    help="v-space fine-tuning: full (reference), rotation, or A/B both and keep the better")
     ap.add_argument("--decision-rule", default="strict", choices=["strict", "quorum"])
     ap.add_argument("--max-bot-latency-ms", type=float, default=2500.0)
     ap.add_argument("--max-bot-words", type=int, default=60)
@@ -70,8 +77,13 @@ if __name__ == "__main__":
     cfg = CampaignConfig(out_dir=a.out, profile=a.profile, runs_per_base=a.runs_per_base, seed=a.seed,
                          max_cases=a.max_cases, progress=not a.no_progress,
                          run_mutation=not a.no_mutation, run_resilience=not a.no_resilience,
-                         run_power=not a.no_power, run_governance=not a.no_governance, backend=a.backend,
-                         kx_epochs=a.kx_epochs, kx_geode_epochs=a.kx_geode_epochs, kx_store_dir=a.kx_store_dir,
+                         run_power=not a.no_power, run_governance=not a.no_governance,
+                         kx_epochs=a.kx_epochs, kx_geode_epochs=a.kx_geode_epochs,
+                         kx_geode_max_iters=a.kx_geode_max_iters, kx_embed_trainer_epochs=a.kx_embed_trainer_epochs,
+                         kx_embed_max_iters=a.kx_embed_max_iters, kx_sft_epochs=a.kx_sft_epochs,
+                         kx_contradiction_epochs=a.kx_contradiction_epochs,
+                         kx_store_config=json.loads(a.kx_store_config) if a.kx_store_config else None,
+                         kx_store_dir=a.kx_store_dir,
                          rebuild_store=a.rebuild_store, kx_dedup_mode=a.kx_dedup_mode,
                          kx_v_sft_mode=a.kx_v_sft_mode, decision_rule=a.decision_rule,
                          budgets={"max_bot_latency_ms": a.max_bot_latency_ms, "max_bot_words": a.max_bot_words},

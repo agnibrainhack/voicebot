@@ -91,33 +91,12 @@ def _kx_two_way(store, truth: KBTruth) -> tuple[str, list[dict]]:
 
 
 def two_way_check(store, truth: KBTruth, seed: int = 7) -> tuple[str, list[dict]]:
-    """The admission gate: symbolic recompute AND geometric recovery of the answer triples."""
-    if truth.recover() != truth.answer:
-        return "rejected", [{"reason": "symbolic recompute disagrees"}]
-    if truth.answer_triples and hasattr(store, "kx"):
-        return _kx_two_way(store, truth)
+    """The admission gate: symbolic recompute AND knowlytix's geometric recovery of the answer triples."""
     if truth.recover() != truth.answer:
         return "rejected", [{"reason": "symbolic recompute disagrees"}]
     if not truth.answer_triples:
         return f"symbolic:{truth.symbolic_reason or 'no fact triple'}", []
-    rng = random.Random(seed)
-    detail, ok = [], True
-    for h, r, t in truth.answer_triples:
-        d, cap = store.score_triple(h, r, t), store.tau(r)
-        competitors = sorted((set(store.relation_range(r)) - set(store.tails(h, r))) |
-                             set(store.negatives_for(h, r, t, rng)))
-        comp_d = {c: store.score_triple(h, r, c) for c in competitors}
-        rank_first = all(d < x for x in comp_d.values())
-        within = d <= cap
-        ok &= rank_first and within
-        detail.append({"triple": (h, r, t), "distance": round(d, 4), "cap_radius": round(cap, 4),
-                       "rank_first": rank_first, "within_cap": within, "n_competitors": len(competitors),
-                       "nearest_competitor": round(min(comp_d.values()), 4) if comp_d else None})
-    if truth.geometric is not None:
-        agree = bool(truth.geometric())
-        ok &= agree
-        detail.append({"claim_verdict_agrees": agree})
-    return ("two_way" if ok else "rejected"), detail
+    return _kx_two_way(store, truth)
 
 
 def _generators(store, seed: int = 42) -> dict[str, list[F]]:
@@ -409,16 +388,14 @@ def mine_kb_items(store, seed: int = 42, extended: bool = False) -> tuple[list[K
               for it in items if it.admission != "rejected"]
     precondition = {"n": len(graded), "graph_baseline_accuracy": sum(graded) / max(1, len(graded))}
     mh = next((i for i in items if i.category == "multi_hop"), None)
-    recovery = {"gate": "knowlytix QuestionGenerator._validate (geometric=True)" if hasattr(store, "kx")
-                else "built-in two-way check",
+    recovery = {"gate": "knowlytix QuestionGenerator._validate (geometric=True)",
                 "stats": {c: dict(v) for c, v in recovery_stats.items()},
                 "cap_radius_read": cap_notes,
                 "forged": forged,
                 "multi_hop_ground_truth": None if mh is None else
                 {"head": mh.ground_truth[0], "hop1_value": mh.ground_truth[1], "tails": sorted(mh.ground_truth[2]),
                  "recovery": mh.recovery}}
-    if hasattr(store, "kx"):
-        recovery["knowlytix_substrate"] = kx_substrate(store)
+    recovery["knowlytix_substrate"] = kx_substrate(store)
     probes = [{"qid": i.qid, "kind": i.probe, "frame": str(i.frame), "admission": i.admission,
                "diagnostic": (i.recovery_detail or [{}])[-1]} for i in items if i.probe]
     return items, {"self_tests": self_tests, "precondition": precondition, "recovery": recovery, "extended": ext_info,

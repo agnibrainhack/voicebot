@@ -42,7 +42,7 @@ from collections import Counter
 from typing import Any
 
 from ...core import Scenario
-from ...knowledge.encoders import cosine
+from ..textsim import surface_cosine
 from ..invariance import InvarianceValidator, ProofResult
 from ..realizers import BASE_LEVELS
 from .client import CachedLLM, LLMUnavailable, parse_json_object
@@ -395,7 +395,7 @@ class LLMInvarianceValidator(InvarianceValidator):
                                   "read_back": str(g), "equivalent": True, "turn_source": "template_by_design",
                                   "reasons": [], "attempts": [],
                                   "frame_distance": self.ont.frame_distance(frame, g, st),
-                                  "surface_cosine": cosine(self.store.v.encode(base_text), self.store.v.encode(text)),
+                                  "surface_cosine": surface_cosine(base_text, text),
                                   "template_cosine": 1.0, "arm": "llm"})
                     continue
             feedback, chosen, attempts = None, None, []
@@ -456,7 +456,7 @@ class LLMInvarianceValidator(InvarianceValidator):
                                   "dual_read": str(chk.get("dual_read")) if "dual_read" in chk else None,
                                   "reasons": [], "llm_rejected_reasons": chk["reasons"], "attempts": attempts,
                                   "frame_distance": self.ont.frame_distance(frame, g, st),
-                                  "surface_cosine": cosine(self.store.v.encode(t.base_text), self.store.v.encode(text)),
+                                  "surface_cosine": surface_cosine(t.base_text, text),
                                   "template_cosine": 1.0, "arm": "llm"})
                     continue
             if attempt:
@@ -480,8 +480,8 @@ class LLMInvarianceValidator(InvarianceValidator):
                           "dual_read": str(chk.get("dual_read")) if "dual_read" in chk else None,
                           "reasons": chk["reasons"], "attempts": attempts, "factor_realisation": fr,
                           "frame_distance": self.ont.frame_distance(frame, g, st),
-                          "surface_cosine": cosine(self.store.v.encode(t.base_text), self.store.v.encode(t.final)),
-                          "template_cosine": cosine(self.store.v.encode(t.template_text), self.store.v.encode(t.final)),
+                          "surface_cosine": surface_cosine(t.base_text, t.final),
+                          "template_cosine": surface_cosine(t.template_text, t.final),
                           "turn_source": "llm", "arm": "llm"})
         scn.metadata["seed_overrides"] = overrides
         rl = {k: (sum(v) * 2 >= len(v)) for k, v in realised.items() if v}

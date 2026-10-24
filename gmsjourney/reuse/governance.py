@@ -1,22 +1,16 @@
 """forgeloop's governance pieces driving our runtime monitor.
 
-* ``forgeloop.gms_backend.GMSPlausibilityGate`` and ``GMSPlanGate`` score workflow
-  transitions on the knowlytix store's ``has_enables`` relation (they need nothing
-  but ``score_triple``); an adapter converts their results into the monitor's
-  GateResult and applies the safe-harbour rule for escalation actions.
+* ``forgeloop.gms_backend.GMSPlausibilityGate`` scores workflow transitions on the
+  knowlytix store's ``has_enables`` relation (it needs nothing but ``score_triple``); an
+  adapter converts its results into the monitor's GateResult and applies the
+  safe-harbour rule for escalation actions. (The whole-plan check is ours:
+  governance/gates.py GMSPlanGate, on the same store.)
 * ``forgeloop.audit.AuditLogger`` (SHA-256 hash chain) seals every decision.
 * ``forgeloop.governance.policies`` (PII, prompt injection) - the regex baseline.
 """
 from __future__ import annotations
 
-from typing import Any
-
 from ..governance.gates import GateDecision, GateResult
-
-
-def available() -> bool:
-    import importlib.util
-    return importlib.util.find_spec("forgeloop") is not None
 
 
 class ForgeloopPlausibilityGate:
@@ -42,13 +36,6 @@ class ForgeloopPlausibilityGate:
         if dec == GateDecision.DENY and action.tool_name in self.safe_tools:
             dec = GateDecision.ESCALATE
         return GateResult(dec, self.name, f"forgeloop: {r.reason}", score=score)
-
-
-def forgeloop_plan_verdict(kx_store, steps: list[str], drift_budget: float) -> dict[str, Any]:
-    from forgeloop.gms_backend.plan_gate import GMSPlanGate
-    v = GMSPlanGate(kx_store, drift_budget=drift_budget, relation="has_enables", start="start").validate(
-        [s.lower() for s in steps])
-    return {"admissible": v.admissible, "drift": v.drift}
 
 
 class ForgeloopAudit:

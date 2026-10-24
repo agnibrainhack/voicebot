@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import html
-import json
 from typing import Any
 
 CSS_FAIL = """
@@ -155,37 +154,32 @@ def render_html(R: dict[str, Any]) -> str:
                      f"</span>.</p>")
     ex = st["primitive_examples"]
     bk = R.get("backend", {})
-    if bk.get("selected") == "knowlytix":
-        bd = st["build"]
-        g, el, uc = bd["geode"], bd["embed_loop"], bd["contradiction_sft"]
-        vers = ", ".join(f"{k} {v}" for k, v in (bk.get("versions") or {}).items())
-        parts.append(f"<p>Built, trained, calibrated and judged by <b>knowlytix</b> ({esc(vers)}). Text encoders: "
-                     f"<b>{esc(bd['encoders']['kind'])}</b> — {esc(bd['encoders']['reason'])}. The policy was compiled "
-                     f"once and rendered as GEODE input (<code>policy.gms.md</code>); every ENM figure agrees between the "
-                     f"compiler and knowlytix's ingest: <span class='{'ok' if bd['enm_agreement']['all_agree'] else 'bad'}'>"
-                     f"{bd['enm_agreement']['n']}/{bd['enm_agreement']['n'] if bd['enm_agreement']['all_agree'] else '?'}</span>.</p>")
-        parts.append("<div class='card'>" + table(["step (knowlytix API)", "result"], [
-            ["GEODE self-correction (GeodeLoop)", f"dedup mode <b>{esc(g.get('dedup_mode', 'audit'))}</b>; converged={g['converged']} "
-             f"in {g['iterations']}/{g['max_iters']} iterations; {g['n_proposed']} proposed, {g['n_kept_fact_triples']} fact triples "
-             f"kept; {len(g['corrections'])} corrections; anchor violations <b>{g.get('n_anchor_violations', len(g.get('anchor_violations') or []))}</b>; "
-             f"dedup removals {len(g.get('duplicates_proposed') or [])}, reinstated {len(g.get('duplicates_rejected', []))}"
-             + (f"; audit-only proposals on the trained store: {len((g.get('dedup_audit_only') or {}).get('would_remove') or [])} "
-                f"remove, {len((g.get('dedup_audit_only') or {}).get('would_flag') or [])} flag"
-                if g.get('dedup_audit_only') else "")],
-            [f"v-space SFT (GeodeEmbedLoop, {esc(el.get('mode', 'rotation'))})", f"{el['iterations']} iterations, converged={el['converged']}; held-out noisy-alias "
-             f"binding {pct(el['before'])} → <b>{pct(el['after'])}</b> (n={el['n_probes']})"
-             + (" · A/B: " + ", ".join(f"{m} {pct(v['after'])}" for m, v in el['ab']['modes'].items())
-                + f" → kept <b>{esc(el['ab']['chosen'])}</b> ({esc(el['ab']['rule'])})" if el.get('ab') else "")],
-            ["u-space SFT (contradiction_sft, full)", f"held-out phrasing routing {pct(uc['before'])} → <b>{pct(uc['after'])}</b> "
-             f"over {len(uc['groups'])} relation groups"],
-            ["production store (store_from_triples, cap loss)", f"{bd['store']['n_entities']} entities, {bd['store']['n_triples']} triples, "
-             f"{bd['store']['n_enm']} ENM entries, {bd['store']['epochs']} epochs, geometry {esc(bd['store']['geometry'])}"],
-            ["calibration (GMSJudge.calibrate)", esc(bd["judge_thresholds"])],
-            ["build time", esc(bd["timings_s"])]]) + "</div>")
-    else:
-        parts.append(f"<p>Built-in store: {st['entities']} entities, {st['triples']} triples, {st['relations']} relations, "
-                     f"{st['enm_entries']} exact numeric entries. Self-correction over {st.get('candidates', '–')} candidates: "
-                     f"{esc(st.get('corrections'))}.</p>")
+    bd = st["build"]
+    g, el, uc = bd["geode"], bd["embed_loop"], bd["contradiction_sft"]
+    vers = ", ".join(f"{k} {v}" for k, v in (bk.get("versions") or {}).items())
+    parts.append(f"<p>Built, trained, calibrated and judged by <b>knowlytix</b> ({esc(vers)}). Text encoders: "
+                 f"<b>{esc(bd['encoders']['kind'])}</b> — {esc(bd['encoders']['reason'])}. The policy was compiled "
+                 f"once and rendered as GEODE input (<code>policy.gms.md</code>); every ENM figure agrees between the "
+                 f"compiler and knowlytix's ingest: <span class='{'ok' if bd['enm_agreement']['all_agree'] else 'bad'}'>"
+                 f"{bd['enm_agreement']['n']}/{bd['enm_agreement']['n'] if bd['enm_agreement']['all_agree'] else '?'}</span>.</p>")
+    parts.append("<div class='card'>" + table(["step (knowlytix API)", "result"], [
+        ["GEODE self-correction (GeodeLoop)", f"dedup mode <b>{esc(g.get('dedup_mode', 'audit'))}</b>; converged={g['converged']} "
+         f"in {g['iterations']}/{g['max_iters']} iterations; {g['n_proposed']} proposed, {g['n_kept_fact_triples']} fact triples "
+         f"kept; {len(g['corrections'])} corrections; anchor violations <b>{g.get('n_anchor_violations', len(g.get('anchor_violations') or []))}</b>; "
+         f"dedup removals {len(g.get('duplicates_proposed') or [])}, reinstated {len(g.get('duplicates_rejected', []))}"
+         + (f"; audit-only proposals on the trained store: {len((g.get('dedup_audit_only') or {}).get('would_remove') or [])} "
+            f"remove, {len((g.get('dedup_audit_only') or {}).get('would_flag') or [])} flag"
+            if g.get('dedup_audit_only') else "")],
+        [f"v-space SFT (GeodeEmbedLoop, {esc(el.get('mode', 'rotation'))})", f"{el['iterations']} iterations, converged={el['converged']}; held-out noisy-alias "
+         f"binding {pct(el['before'])} → <b>{pct(el['after'])}</b> (n={el['n_probes']})"
+         + (" · A/B: " + ", ".join(f"{m} {pct(v['after'])}" for m, v in el['ab']['modes'].items())
+            + f" → kept <b>{esc(el['ab']['chosen'])}</b> ({esc(el['ab']['rule'])})" if el.get('ab') else "")],
+        ["u-space SFT (contradiction_sft, full)", f"held-out phrasing routing {pct(uc['before'])} → <b>{pct(uc['after'])}</b> "
+         f"over {len(uc['groups'])} relation groups"],
+        ["production store (store_from_triples, cap loss)", f"{bd['store']['n_entities']} entities, {bd['store']['n_triples']} triples, "
+         f"{bd['store']['n_enm']} ENM entries, {bd['store']['epochs']} epochs, geometry {esc(bd['store']['geometry'])}"],
+        ["calibration (GMSJudge.calibrate)", esc(bd["judge_thresholds"])],
+        ["build time", esc(bd["timings_s"])]]) + "</div>")
     parts.append(f"<p>Compiler critics: injected OCR misread caught: <span class='{'ok' if st['injected_misread_caught'] else 'bad'}'>"
                  f"{'yes' if st['injected_misread_caught'] else 'no'}</span>.</p>")
     parts.append("<div class='card'>" + table(["primitive", "value"],
@@ -202,11 +196,17 @@ def render_html(R: dict[str, Any]) -> str:
     op = st.get("oracle_property") or []
     if op:
         parts.append("<h3>An oracle, not an index: true facts inside the calibrated band, cross-tail substitutions outside</h3>"
-                     "<div class='card'>" + table(["fact", "true", "score", "substituted", "score", "cut", "ok"],
+                     "<div class='card'>" + table(["fact", "true", "score", "substituted", "score", "cut", "ok",
+                                                  "knowlytix per-head admissibility"],
             [[esc(f"{o['head']} {o['relation']}"), esc(o["true"]), f"{o['score_true']:.3f}", esc(o["fabricated"]),
               f"{o['score_fabricated']:.3f}", f"{o['tau']:.3f}",
-              f"<span class='{'ok' if o['calibrated_ok'] else 'bad'}'>{'yes' if o['calibrated_ok'] else 'no'}</span>"] for o in op],
-            {2, 4, 5}) + "</div>")
+              f"<span class='{'ok' if o['calibrated_ok'] else 'bad'}'>{'yes' if o['calibrated_ok'] else 'no'}</span>",
+              "-" if o.get("native_admissible_ok") is None else
+              f"<span class='{'ok' if o['native_admissible_ok'] else 'bad'}'>"
+              f"{'yes' if o['native_admissible_ok'] else 'no'}</span>"] for o in op],
+            {2, 4, 5}) + "<p class='muted'>The cut is the relation's learned cap radius (score_triple &le; "
+            "cap_radius), which decides. knowlytix's per-head calibrated admissibility is shown for comparison: "
+            "its margins come from each head's own hard negatives, which are few on two-head relations.</p></div>")
     kb = R["kb"]
     parts.append(f"<p>Policy-question bases: {len(kb['items'])} mined; graph baseline accuracy on its own questions "
                  f"<b>{pct(kb['precondition']['graph_baseline_accuracy'])}</b>; store self-tests "
@@ -364,17 +364,6 @@ def render_html(R: dict[str, Any]) -> str:
         parts.append("<div class='card'>" + table(["interaction", "G²", "df", "p"],
                      [[esc(" × ".join(i["pair"])), f"{i['deviance']:.2f}", i["df"], pfmt(i["p_value"])] for i in dg["interactions"]],
                      {1, 2, 3}) + "</div>")
-    kxa = dg.get("knowlytix")
-    if kxa and kxa.get("logistic"):
-        parts.append("<h3>knowlytix DOEAnalyzer (GraphDOE): logistic analysis of deviance, BH-corrected</h3><div class='card'>" + table(
-            ["factor", "deviance", "p", "p (BH)", "pseudo-R²", "significant"],
-            [[esc(t.get("factor")), f"{t.get('deviance', float('nan')):.2f}", pfmt(t.get("p_value", 1.0)),
-              pfmt(t.get("p_value_adj", t.get("p_adjusted", t.get("p_value", 1.0)))), f"{t.get('pseudo_r2', float('nan')):.3f}",
-              "<span class='bad'>yes</span>" if t.get("significant_adj", t.get("significant")) else "no"]
-             for t in sorted(kxa["logistic"], key=lambda t: t.get("p_value", 1.0))], {1, 2, 3, 4}) +
-            (f"<p class='muted'>Joint model: {esc(kxa.get('joint_model'))}</p>" if kxa.get("joint_model") else "") + "</div>")
-    elif kxa and kxa.get("note"):
-        parts.append(f"<p class='muted'>knowlytix DOEAnalyzer: {esc(kxa['note'])}</p>")
     pc = dg["per_component"]
     parts.append("<h3>Per component</h3><div class='card'>" + table(
         ["component", "graded", "failures", "accuracy", "factors significant for this component"],
@@ -414,7 +403,6 @@ def render_html(R: dict[str, Any]) -> str:
                 cells.append("<span class='ok'>✓ caught</span>" if k.get("killed") else "<span class='muted'>– missed</span>")
             rows.append([f"<b>{esc(m)}</b><div class='muted'>{esc(v['description'])}</div>"] + cells)
         if "runtime_monitor_catch_rate" in mut:
-            cols_rt = True
             rows = [r + [("<span class='ok'>✓ flagged</span>" if mut["mutants"][m].get("flagged_at_runtime") else "<span class='muted'>–</span>")]
                     for r, m in zip(rows, mut["mutants"])]
             parts.append(f"<p>Runtime monitor (no oracle, gates only) flags <b>{pct(mut['runtime_monitor_catch_rate'])}</b> of the "

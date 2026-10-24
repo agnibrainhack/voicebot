@@ -40,9 +40,3 @@ def coverage(mutation: dict | None, resilience: dict | None, flagged_by_monitor:
                      "exercised": bool(p.get("mutants") or p.get("faults") or p.get("factors") or p.get("gates"))})
     return rows
 
-
-def keyword_groundedness_baseline(answer: str, evidence: dict[str, str]) -> list[dict[str, Any]]:
-    """proofloop's naive claim/evidence overlap check (the open baseline the GMS verifier replaces)."""
-    from proofloop.evaluation.groundedness import extract_claims, groundedness_report
-    return [{"claim": r.claim, "verdict": r.verdict.value, "evidence": r.evidence_id}
-            for r in groundedness_report(extract_claims(answer or ""), evidence)]

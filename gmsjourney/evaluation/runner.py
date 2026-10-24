@@ -70,7 +70,7 @@ def score(scn: Scenario, res, limits: Limits, workflow, budget=None) -> dict[str
     if tr.kb:
         row["kb_correct"] = int(all(k["correct"] for k in tr.kb))
         row["kb_detail"] = [{"frame": k["frame"], "answer": k["answer"], "correct": k["correct"],
-                             "detail": k["detail"], **{x: k[x] for x in ("geo_label", "geo_distance") if x in k}}
+                             "detail": k["detail"]}
                             for k in tr.kb]
     gov = res.extras.get("governance")
     if gov is not None:

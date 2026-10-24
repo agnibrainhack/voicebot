@@ -1,6 +1,6 @@
-"""GEODE-style build: ingest -> self-correction -> train -> calibrate (book Ch. 4).
+"""The policy compiler: ingest -> symbolic self-correction (book Ch. 4, the part before training).
 
-The loop never trusts a candidate fact on the strength of having been extracted.
+The compiler never trusts a candidate fact on the strength of having been extracted.
 
 propose   every candidate from ingest (table backbone + naive prose).
 diagnose  symbolic critics
@@ -8,23 +8,20 @@ diagnose  symbolic critics
             - numeric reconciliation of every prose candidate against the ENM
               backbone (corroborate / conflict),
             - unbound subjects (prose that never named an entity),
-            - dangling workflow endpoints and rules that reference unknown limits,
-          and a geometric critic: after a provisional training pass, any fact
-          that is not corroborated and sits outside its relation's calibrated
-          band is flagged as implausible.
+            - dangling workflow endpoints and rules that reference unknown limits.
 repair    corroborated prose is merged into the backbone fact (its span added as
-          provenance); conflicting or unbound prose is dropped; implausible
-          uncorroborated facts are dropped. Every decision is logged.
-iterate   until a pass makes no change, then train and calibrate the final store.
+          provenance); conflicting or unbound prose is dropped. Every decision is logged.
+iterate   until a pass makes no change.
 
-The result is an auditable correction log plus a store whose own generated
-questions it must answer perfectly (the precondition of Ch. 4.3, checked in
-bases/kb.py).
+Prose facts with no exact value to check against are kept and logged as ``flag``: the
+geometric checks are knowlytix's GEODE loop, which runs on the compiled facts next
+(knowledge/kx_store.py: build_kx_store). The result is the symbolic store (rules, workflow,
+value sets, the exact-number register, the dialog-state layer) and an auditable correction
+log. ``oracle_property`` checks the trained store: true figures inside each relation's cut,
+substituted figures outside.
 """
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -61,7 +58,7 @@ ENM_FOR_REL = {
 @dataclass
 class Correction:
     iteration: int
-    action: str            # corroborate | drop_conflict | drop_unbound | drop_type | drop_implausible | flag
+    action: str            # corroborate | drop_conflict | drop_unbound | drop_type | flag
     fact: tuple[str, str, str]
     reason: str
     source: dict[str, Any]
@@ -76,32 +73,6 @@ class BuildResult:
     converged: bool = False
     max_iterations: int = 0
     doc: str = ""
-    training: dict[str, Any] = field(default_factory=dict)       # store / embed loop / u-channel reports
-
-    def report(self) -> dict[str, Any]:
-        """geode_build_report.json (same fields as the book's build report, plus training)."""
-        st = self.store
-        facts = json.dumps(sorted(list(t) for t in st.triples)).encode()
-        return {"doc": self.doc, "converged": self.converged, "iterations": self.iterations,
-                "max_iters": self.max_iterations, "n_candidates": self.n_candidates,
-                "n_entities": self.n_entities, "n_triples": self.n_triples, "n_enm": self.n_enm,
-                "n_corrections": len(self.corrections), "corrections_by_action": self.correction_counts(),
-                "triples_sha256": hashlib.sha256(facts).hexdigest(),
-                "enm_integrity_ok": all(e.verify() for e in st.enm.values()),
-                "training": self.training,
-                "oracle_property": oracle_property(st)}
-
-    @property
-    def n_entities(self) -> int:
-        return len(self.store.entity_types)
-
-    @property
-    def n_triples(self) -> int:
-        return len(self.store.triples)
-
-    @property
-    def n_enm(self) -> int:
-        return len(self.store.enm)
 
     def correction_counts(self) -> dict[str, int]:
         out: dict[str, int] = {}
@@ -130,21 +101,17 @@ def _enm_value(ing: IngestResult, cand: CandidateTriple) -> str | None:
 
 
 def build_store(policy_path: str | Path, *, inject_misread: bool = False,
-                max_iterations: int = 5, v_encoder: Any = None, u_encoder: Any = None,
-                train: bool = True) -> BuildResult:
-    """Build, self-correct, train and calibrate the store from the policy markdown.
+                max_iterations: int = 5) -> BuildResult:
+    """Compile the policy into the symbolic store, with the self-correction log.
 
     inject_misread adds an OCR-style misread candidate (expedited fee "150") so the
-    critics can be seen catching it; it never reaches the final store.
-    train runs GMS training (knowledge/training.py): knowledge-graph training of the
-    v-space, the GEODE embed loop (v-space rotation SFT) and the u-space contradiction
-    SFT. train=False gives the warm-start store (encoder embeddings, Procrustes only).
+    critics can be seen catching it; it never reaches the store.
 
     policy_path may be the policy graph JSON (policy/charge_review_kg.json, the default
     source) or a structured policy markdown. From the JSON, the compiled policy is
     rendered by PolicyKG.to_markdown() and the dialog-state layer (states, accepted
-    meaning cards, transitions, per-state rules/limits/tools) is added to the graph the
-    store is trained on; the store keeps the graph as ``store.kg``.
+    meaning cards, transitions, per-state rules/limits/tools) is added to the facts;
+    the store keeps the graph as ``store.kg``.
     """
     from .policy_kg import resolve_policy
     source_path = policy_path
@@ -192,7 +159,7 @@ def build_store(policy_path: str | Path, *, inject_misread: bool = False,
             if c.source.path == "prose":
                 backbone = _enm_value(ing, c)
                 if backbone is None:
-                    survivors.append(c)       # nothing to reconcile against; geometric critic decides
+                    survivors.append(c)       # nothing to reconcile against: flagged, left to GEODE
                     continue
                 if backbone == c.tail:
                     corrections.append(Correction(it, "corroborate", c.key,
@@ -211,7 +178,6 @@ def build_store(policy_path: str | Path, *, inject_misread: bool = False,
             break
 
     # --- structural critics on the accepted graph
-    nodes = {w.src for w in ing.workflow} | {w.dst for w in ing.workflow}
     for w in ing.workflow:
         for n in (w.src, w.dst):
             if n not in ing.entity_types:
@@ -234,27 +200,11 @@ def build_store(policy_path: str | Path, *, inject_misread: bool = False,
         entry.sources.append(asdict(e.source))
         enm[k] = entry
 
-    def make_store(triples: dict) -> GMSStore:
-        return GMSStore(
-            title=ing.title, triples=list(triples), provenance=triples, enm=enm,
-            rules={r.rule_id: r for r in ing.rules}, workflow=ing.workflow,
-            value_sets=ing.value_sets, aliases=ing.aliases, entity_types=dict(ing.entity_types),
-            kb_sentences=ing.kb_sentences, required_language=ing.required_language,
-            v_encoder=v_encoder, u_encoder=u_encoder)
-
-    # --- geometric critic over prose-only facts that had no backbone to check
-    if pending:
-        provisional = make_store(accepted).train()
-        provisional.calibrate()
-        for c in pending:
-            d = provisional.score_triple(c.head, c.relation, c.tail)
-            rel_cal = provisional.calibration["score_triple"].get(c.relation)
-            if rel_cal and d > rel_cal["tau"]:
-                corrections.append(Correction(it, "drop_implausible", c.key,
-                                              f"geodesic {d:.3f} > calibrated tau {rel_cal['tau']:.3f}",
-                                              asdict(c.source)))
-            else:
-                accepted.setdefault(c.key, []).append(asdict(c.source))
+    # --- prose facts with no exact value to check: kept, left to the GEODE loop's geometric critics
+    for c in pending:
+        corrections.append(Correction(it, "flag", c.key, "no exact register value to check against; "
+                                      "left to the GEODE loop", asdict(c.source)))
+        accepted.setdefault(c.key, []).append(asdict(c.source))
 
     if kg is not None:                     # the dialog-state layer of the policy graph
         for t in kg.triples:
@@ -262,20 +212,14 @@ def build_store(policy_path: str | Path, *, inject_misread: bool = False,
             if t.get("gms") and tr[1] in GMS_STATE_RELATIONS and tr not in accepted:
                 accepted[tr] = [{"section": t["source"], "ref": t["id"], "span": t.get("evidence", ""),
                                  "path": "policy_kg"}]
-    store = make_store(accepted).train()
-    store.calibrate()
+    store = GMSStore(
+        title=ing.title, triples=list(accepted), provenance=accepted, enm=enm,
+        rules={r.rule_id: r for r in ing.rules}, workflow=ing.workflow,
+        value_sets=ing.value_sets, aliases=ing.aliases, entity_types=dict(ing.entity_types),
+        kb_sentences=ing.kb_sentences, required_language=ing.required_language)
     store.kg = kg
-    res = BuildResult(store=store, corrections=corrections, iterations=it, n_candidates=n_candidates,
-                      converged=converged, max_iterations=max_iterations, doc=Path(source_path).name)
-    if train:
-        from .training import GeodeEmbedLoop, train_store, train_u_channel
-        rep = train_store(store)
-        res.training["store"] = rep.as_dict()
-        res.training["embed_loop"] = GeodeEmbedLoop(store).run().as_dict()
-        from ..bases.kb import _generators          # KB frames the u-channel corpus is rendered from
-        frames = [f for fs in _generators(store).values() for f in fs]
-        res.training["u_channel"] = train_u_channel(store, frames).as_dict()
-    return res
+    return BuildResult(store=store, corrections=corrections, iterations=it, n_candidates=n_candidates,
+                       converged=converged, max_iterations=max_iterations, doc=Path(source_path).name)
 
 
 def to_dot(store: GMSStore, relations: set[str] | None = None) -> str:
@@ -293,7 +237,8 @@ def oracle_property(store: GMSStore) -> list[dict[str, Any]]:
     """An oracle, not an index (book Ch. 4 capstone): every ENM-backed fact scores inside
     its relation's calibrated band, and a cross-tail substitution - another entity's
     *real* figure placed on the same relation - scores outside it. Also reports the
-    book's absolute bands (true < 0.5, fabricated > 1.0) for comparison."""
+    book's absolute bands (true < 0.5, fabricated > 1.0) and knowlytix's per-head calibrated
+    admissibility (``native_admissible_ok``) for comparison."""
     rows = []
     numeric_rel = [r for r in store.by_r if r in ENM_FOR_REL or
                    (r.startswith("has_") and any(h == "charge_review_policy" for h, _, _ in store.by_r[r]))]
@@ -306,7 +251,13 @@ def oracle_property(store: GMSStore) -> list[dict[str, Any]]:
                        if hh == h and rr in numeric_rel and rr != r and x != t]
             fake = (same_rel or sibling or [v for v in all_vals if v != t])[0]
             st, sf, tau = store.score_triple(h, r, t), store.score_triple(h, r, fake), store.tau(r)
-            rows.append({"head": h, "relation": r, "true": t, "fabricated": fake,
-                         "score_true": round(st, 4), "score_fabricated": round(sf, 4), "tau": round(tau, 4),
-                         "calibrated_ok": st <= tau < sf, "book_bands_ok": st < 0.5 and sf > 1.0})
+            row = {"head": h, "relation": r, "true": t, "fabricated": fake,
+                   "score_true": round(st, 4), "score_fabricated": round(sf, 4), "tau": round(tau, 4),
+                   "calibrated_ok": st <= tau < sf, "book_bands_ok": st < 0.5 and sf > 1.0}
+            adm = getattr(store, "admissibility", None)
+            if adm is not None:                     # knowlytix's per-head calibrated admissibility, reported
+                at, af = adm(h, r, t), adm(h, r, fake)
+                row["native_admissible_ok"] = (None if at is None or af is None
+                                               else at["admissible"] and not af["admissible"])
+            rows.append(row)
     return rows

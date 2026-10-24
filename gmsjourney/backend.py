@@ -1,10 +1,9 @@
-"""Which GMS backend runs, and with which text encoders.
+"""The knowlytix backend: availability, licence and text encoders.
 
-The GMS core comes from the ``knowlytix`` package family (pip install knowlytix;
-Python 3.12). ``available()`` is the same open-core seam as ``forgeloop.gms``:
-when ``knowlytix`` is importable *and* licensed, the campaign builds, trains,
-calibrates and judges with it; otherwise it falls back to the built-in
-implementation (knowledge/store.py), so the open baseline always runs.
+The GMS comes from the ``knowlytix`` package family (pip install knowlytix; Python 3.12),
+with proofloop and forgeloop alongside (requirements.txt). It is required:
+``require()`` raises a clear error when knowlytix is not installed or no licence is
+configured; ``available()`` answers the same question without raising.
 
 Licence. knowlytix reads its runtime licence from the ``KNOWLYTIX_LICENSE_KEY``
 environment variable. This module never stores, prints or logs the key: if the
@@ -63,21 +62,22 @@ def _load_license_env() -> bool:
 
 
 def available() -> bool:
-    """True when the knowlytix family is installed and a licence is configured."""
+    """True when the knowlytix family (knowlytix, proofloop, forgeloop) is installed and a licence is configured."""
     os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
     os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
     guard_deepspeed()
-    if os.environ.get("GMSJOURNEY_BACKEND", "auto") == "builtin":
-        return False
     if importlib.util.find_spec("knowlytix") is None or importlib.util.find_spec("knowlytix.core") is None:
+        return False
+    if importlib.util.find_spec("proofloop") is None or importlib.util.find_spec("forgeloop") is None:
         return False
     return _load_license_env()
 
 
 def require() -> None:
     if not available():
-        raise ImportError("knowlytix backend unavailable: `pip install knowlytix` (Python 3.12) and set "
-                          "KNOWLYTIX_LICENSE_KEY (or ~/.knowlytix/license.key)")
+        raise ImportError("knowlytix backend unavailable: `pip install -r requirements.txt` (knowlytix, "
+                          "proofloop, forgeloop; Python 3.12) and set KNOWLYTIX_LICENSE_KEY "
+                          "(or ~/.knowlytix/license.key)")
 
 
 def describe() -> dict[str, Any]:

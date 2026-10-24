@@ -7,7 +7,8 @@ package family, and the book's open companion packages **proofloop** and **forge
 ([beyond-ship-and-pray](https://github.com/knowlytix/beyond-ship-and-pray)) supply catalogs, emitters, runtime
 gates and the audit chain. `gmsjourney` adds what those packages do not cover for a multi-turn voice bot: the
 journey oracle, covering-array bases, the realiser/reader and invariance proof, runtime policy checks, the
-reference bot and its mutants. Without knowlytix, the same pipeline runs on a built-in open baseline.
+reference bot and its mutants. knowlytix, proofloop and forgeloop are required (`requirements.txt`, Python 3.12,
+a knowlytix licence); there is no built-in fallback.
 
 ```
 policy PDF -> policy graph JSON (head/relation/tail + dialog states + per-state policy; policy/charge_review_kg.json)
@@ -20,8 +21,8 @@ policy PDF -> policy graph JSON (head/relation/tail + dialog states + per-state 
                   separately, behind extra per-turn gates and its own negative controls
    -> runtime gates calibrated (Appendix C) [forgeloop GMS gates + audit on the knowlytix store]
    -> run the bot under the runtime monitor (strict or quorum rule, numeric range attestor, per-turn latency /
-      length budgets); KB answers also judged by GMSJudge [knowlytix via proofloop]
-   -> diagnosis: DOEAnalyzer [knowlytix] + per component / weak link, severity + risk tiers + release gate,
+      length budgets); KB answers judged exactly against the register
+   -> diagnosis: deviance tests per factor + per component / weak link, severity + risk tiers + release gate,
       template-vs-LLM paired comparison, resilience, mutation analysis
    -> training corpora [proofloop emitters]
    -> exports: gms_canonicals.json (canonicals as the trained GMS holds them) + dataset/*.csv (every test case)
@@ -55,16 +56,14 @@ does not accept. The invariance proof compares (state, card) sequences.
 ## Quick start
 
 ```bash
-# knowlytix backend: Python 3.12 (knowlytix-core ships cp312 wheels) and a runtime licence
+# Python 3.12 (knowlytix-core ships cp312 wheels), knowlytix + proofloop + forgeloop, and a runtime licence
 python3.12 -m venv .venv && . .venv/bin/activate
-pip install -r requirements-knowlytix.txt
+pip install -r requirements.txt
 export KNOWLYTIX_LICENSE_KEY=...            # or put it in ~/.knowlytix/license.key; never committed, never logged
 python run_campaign.py --out output/campaign_out   # first run builds the GMS (CPU: ~10-45 min), later runs reload it (~2.5 min)
-python tests/test_selfchecks.py             # 20 self-checks (the knowlytix one runs when GMSJOURNEY_KX_STORE is set)
-python tests/test_parity_and_llm_arm.py     # 8 checks for 0.4 (LLM arm with a fake model: no key, no network)
-
-# open baseline, any Python >= 3.10, no licence
-pip install -r requirements.txt && python run_campaign.py --backend builtin --out campaign_builtin
+python tests/test_selfchecks.py             # self-checks on the campaign's knowlytix store (built once, then reloaded)
+python tests/test_parity_and_llm_arm.py     # LLM arm checks with a fake model: no gateway key, no network
+python tests/test_llm_sut.py                # the LLM bot under test, with a fake model
 
 # + the LLM enrichment arm (the Microsoft model gateway; see "Two enrichment arms")
 pip install -r requirements-llm.txt
@@ -98,17 +97,13 @@ automatically, and the embedding numbers below should improve.
 | Feasible content-level pairs covered | 523 / 523; rules 32/32 · workflow edges 21/21 · escalation triggers 11/11 |
 | Enriched scenarios proved invariant | 486 / 486 (4,428 customer turns, each read in its dialog state); 632 / 632 meaning-changing edits rejected, incl. 40 wrong-state edits |
 | Bot accuracy, base cases → enriched | 90.1% → 50.0% |
-| Factors that drive failure (DOEAnalyzer, BH) | noise (p_adj 1.6e-10), numeric_format (1.5e-4), disfluency (0.012) |
+| Factors that drive failure (BH-adjusted; this run used knowlytix DOEAnalyzer, since replaced by our deviance tests) | noise (p_adj 1.6e-10), numeric_format (1.5e-4), disfluency (0.012) |
 | Runtime gate (Appendix C) | θ = 0.882 on `enables`: AUC 1.0, 0 false admits, 0 false rejects; probe sweep 15 TP / 27 TN, no errors |
 | Runtime monitor | 0% false alarms on fully correct runs; 103 / 328 failed runs flagged live; hash chains verified; PSI 0.02 |
 | Seeded defects (16) | 100% caught by the suites (covering 75% vs random of equal size 37.5%); **16/16 flagged live by the runtime monitor** |
 | Silent failures under injected tool faults | 0 |
 | GMS canonicals | 97.4% of aliases bound by the trained GMS to the canonical value the graph states; 90.2% of the 509 trained facts inside their relation's cut |
 | Turn by turn (oracle vs bot) | 300 / 567 runs match the oracle at every turn; every wrong outcome diverges, first divergences mostly in PRESENT_TXN (139) and ASK_AUTH (115) |
-
-The built-in backend reproduces the journey-level results (same bases, 486/486 proofs, 90.1% → 50.0%, 100% of
-defects caught, 16/16 flagged live); its runtime gate separates less cleanly (θ = 0.979: 0 false admits, 1 of
-21 policy edges rejected) and it emits no training corpora (that step needs proofloop).
 
 The stand-in bot is a keyword-NLU state machine written independently of the oracle; its weaknesses are
 realistic (no typo or speech-recognition repair, a narrow knowledge-base retriever). Swap in your bot to get the
@@ -119,18 +114,40 @@ same report for it.
 | Capability | Source |
 |---|---|
 | Ingest, GEODE self-correction, store training (cap admissibility), ENM, primitives | knowlytix `knowledge.geode` (`GeodeLoop`, `store_from_triples`), `knowledge.store.GMSExpertStore` |
-| v-space SFT (rotation) and GEODE embed loop; u-space contradiction SFT (full) | knowlytix `knowledge.geode.embed_loop`, `knowlytix.embedding` |
-| Calibration, geometric judging | knowlytix `harness.testing.judge.GMSJudge` (via proofloop `GeometricJudge` for the four hallucination bands) |
+| Build parameters | knowlytix's reference build (`knowledge.geode.rag.build_calibrated_rag_store`): GEODE trainer 300 epochs × 8 rounds, embed loop 2 rounds on a 150-epoch trainer, v SFT `full` rank 8, u contradiction SFT 400 epochs, production store `DocGMSConfig` defaults. The reference takes the store's `DocGMSConfig` from its caller; ours sets `loss_mode="cap"`, `ingest_mode="regex"` (the reference default), `train.epochs=150`. Stated differences: the encoders are passed by local path (the same models), dedup runs audit-only (`--kx-dedup-mode`), u is trained on our attribute phrasings. All settable, see below |
+| Run-time geometry | knowlytix `GMSExpertStore`: `score_triple` (an unstated tail via `score_triple_emb` on the tuned v encoder), `cap_radius`, `tension_energy`, `check_holonomy`, `is_path_consistent` (with the store's calibrated `tau_path` written to `config.verify`), `lookup_enm`. Grounding is `score_triple ≤ cap_radius`; knowlytix's per-head calibrated admissibility (`core.graph.admissibility`) is reported next to it in the oracle check |
+| v-space SFT and GEODE embed loop; u-space contradiction SFT | knowlytix `knowledge.geode.embed_loop`, `knowlytix.embedding` |
+| Calibration | knowlytix `harness.testing.judge.GMSJudge` |
 | Two-way admission, substrate generators | knowlytix `benchmark.eval.generators` (`QuestionGenerator._validate`, geometric=True) |
-| Attribution | knowlytix `harness.graphdoe.DOEAnalyzer` (logistic + BH, joint model, interactions, failure table) |
-| Official base/factor catalogs and profiles | proofloop package data (vendored copy as fallback); rules of `validate_catalogs.py` |
+| Attribution | ours: deviance tests per factor with BH adjustment, joint model, interactions, per component / weak link |
+| Official base/factor catalogs and profiles | proofloop package data (a vendored copy pins the expected files); contract rules in `catalog.validate` |
 | Runtime gates, audit chain, injection baseline | forgeloop `gms_backend.GMSPlausibilityGate`, `audit.AuditLogger`, `governance.policies` |
-| Training corpora, failure-mode taxonomy, keyword groundedness baseline, balanced design | proofloop `suite.emit`, `evaluation.failure_modes`, `evaluation.groundedness`, `evaluation.doe` |
+| Training corpora, failure-mode taxonomy | proofloop `suite.emit`, `evaluation.failure_modes` |
 | Policy compiler + GMS view (`policy.gms.md`) for GEODE | ours: renders the policy as one table per relation so the regex ingest proposes typed edges (`has_enables`, `has_alias`, `has_opposite_of`) |
 | Journey oracle, covering array, realiser/reader, invariance proof, negative controls | ours (multi-turn journeys are outside the packages' single-question scope) |
 | Runtime *policy* checks (R2/R3, R4, R11, R15, R16, R20-R22, R26, R28, R30, R31) and speech checks (claims, fraud stance, ENM figures) | ours, plugged into forgeloop's gate protocol |
-| Design | ours (φp Sobol+refine with rank transform + swaps). knowlytix `DesignMatrix` sobol+refine is run on the same factors and reported alongside: at n=486 its own quality report shows 11 of 43 level cells empty (the middle level of every 3-level factor), pairwise level coverage 55%, marginal χ² p ≈ 1e-53 |
+| Design | ours (φp Sobol+refine with rank transform + swaps; knowlytix `DesignMatrix` was compared earlier and left 11 of 43 level cells empty at n=486, so it is not used) |
 | Resilience probe, mutation analysis | ours (knowlytix's `ToolGateway` installs on a knowlytix `Harness`; our bot talks to a mock backend) |
+
+### Setting the build parameters at run time
+
+Every build parameter can be set from `CampaignConfig`, `run_campaign.py` or the notebook, and all of them
+are part of the store's cache key (a changed value builds a new store; an unchanged one reloads it):
+
+| `CampaignConfig` field | CLI flag | default |
+|---|---|---|
+| `kx_geode_epochs` | `--kx-geode-epochs` | 300 |
+| `kx_geode_max_iters` | `--kx-geode-max-iters` | 8 |
+| `kx_embed_trainer_epochs` | `--kx-embed-trainer-epochs` | 150 |
+| `kx_embed_max_iters` | `--kx-embed-max-iters` | 2 |
+| `kx_sft_epochs` | `--kx-sft-epochs` | package default (100) |
+| `kx_contradiction_epochs` | `--kx-contradiction-epochs` | 400 |
+| `kx_v_sft_mode` | `--kx-v-sft-mode` | `full` |
+| `kx_dedup_mode` | `--kx-dedup-mode` | `off` (audit-only) |
+| `kx_epochs` | `--kx-epochs` | 150 (shortcut for `train.epochs`; licence cap 200) |
+| `kx_store_config` | `--kx-store-config` (JSON) | `{}`: any `DocGMSConfig` field by dotted key, e.g. `{"cap.margin": 0.3, "geometry.d_v": 256, "loss_mode": "point"}` |
+
+The overrides are saved in the build report and applied again when the store is reloaded.
 
 ## How the bot is validated, and the turn-by-turn view
 
@@ -224,12 +241,12 @@ counted. Generations are cached by content hash, so a campaign re-runs byte for 
 
 ## gmsh parity (0.4)
 
-These additions follow from the gmsh comparison (`UPSTREAM_GMSH_ISSUES.md` lists the gmsh defects to report):
+These additions follow from the gmsh comparison:
 
 | addition | where |
 |---|---|
 | GEODE `dedup=False`, so the loop's retrains and anchor check see every fact; duplicate resolution runs audit-only on the trained store; anchor violations reported. `--kx-dedup-mode audit` keeps the 0.3 behaviour; `accept` is stock gmsh. | `knowledge/kx_store.py` |
-| v-space fine-tuning A/B: rotation (book) vs full (gmsh default), keeping the better held-out noisy-alias binding (`--kx-v-sft-mode`) | `knowledge/kx_store.py` |
+| v-space fine-tuning: full (the reference default), rotation, or `ab` to train both and keep the better held-out noisy-alias binding (`--kx-v-sft-mode`) | `knowledge/kx_store.py` |
 | gmsh's P=0.5 logistic operating point next to the regulated one, k-fold held-out accuracy, bootstrap 95% intervals for θ, the plan budget and every relation's cut | `governance/calibrate.py` |
 | Quorum REVIEW (`--decision-rule quorum`). Always shadow-computed and reported: a syntax error or ≥2 blocking layers deny; one blocking layer is routed to review (escalation). | `governance/monitor.py` |
 | Numeric range attestor on every figure the bot speaks: PASS (register value), REVIEW (a register value of another quantity), FAIL (invented) | `governance/attestor.py` |
@@ -316,24 +333,27 @@ malformed replies and tool errors. Tests: `python tests/test_llm_sut.py` (a scri
 gmsjourney/
   backend.py         knowlytix availability, licence from env, encoder resolution (HF or offline stand-in)
   knowledge/         policy_kg (the policy graph: build, load, validate), kx_store (knowlytix build/load + facade),
-                     kx_view (GEODE input), canonicals (export), ingest/geode/store/training (open baseline)
+                     kx_view (GEODE input), canonicals (export), ingest + geode (the policy compiler: symbolic
+                     facts, exact numbers, correction log) + store (the compiled symbolic store, no geometry)
   export_dataset.py  dataset/*.csv
   turn_compare.py    turn by turn: oracle's expected bot response vs the bot's actual response
   policy/            charge_review_kg.json (source), charge_review_policy.md (structured transcription of the PDF)
-  reuse/             adapters: DOEAnalyzer, GMSJudge, forgeloop gates/audit, proofloop emitters/taxonomy
-  catalogs/          application.yaml (+ level_aliases), custom_factors.yaml, official/ (fallback copy)
-  governance/        gates (policy, speech, GMS), monitor (strict / quorum), attestor (numeric range), audit,
-                     calibrate (Appendix C + P=0.5, holdout, bootstrap)
+  reuse/             adapters: forgeloop plausibility gate + audit chain, proofloop emitters/taxonomy
+  catalogs/          application.yaml (+ level_aliases), custom_factors.yaml, official/ (pinned copy of proofloop's)
+  governance/        gates (policy, speech, whole-plan), monitor (strict / quorum; forgeloop per-step gate + audit),
+                     attestor (numeric range), calibrate (Appendix C + P=0.5, holdout, bootstrap)
   enrich/llm/        the LLM enrichment arm: client (Microsoft gateway, replay cache), prompts, gates,
                      realizer, extractor (independent reader), validate (separate proof + controls), export
+  enrich/            realizers, reader, invariance proof, noise, textsim (the reported surface-similarity metric)
   evaluation/        runner, attribution, stats, constraints (budgets), severity (tiers + release gate), ...
   ontology.py journey.py oracle.py kb_truth.py bases/ enrich/ design/ sut/ evaluation/ pipeline.py report.py
-run_campaign.py · validate_catalogs (python -m gmsjourney.validate_catalogs) · tests/ · notebooks/ · DESIGN.md · NOTICE
-tools/             check_llm (one-call transport preflight), gmsh_upstream_repro,
-                   answer_sheet (the case answer key), build_annotated (the core-file listing)
+run_campaign.py · tests/ · notebooks/ · DESIGN.md · NOTICE
+tools/             check_llm (one-call transport preflight), llm_rejections (why LLM turns were rejected),
+                   answer_sheet (the case answer key), build_annotated (the core-file listing), build_docs,
+                   case_comparison, graph_showcase, geode_before_after
 docs/              generated walkthroughs: EXPLAINER, INVARIANCE, ANSWER_SHEET, ANNOTATED
 output/            generated campaign runs (report, dataset/, corpora) — gitignored
-UPSTREAM_GMSH_ISSUES.md · fictional_poc_operating_procedure_gpt_readable.pdf (source document, not published)
+fictional_poc_operating_procedure_gpt_readable.pdf (source document, not published)
 ```
 
 The package, the notebook and the tools are the source; `docs/` and `output/` hold everything generated,

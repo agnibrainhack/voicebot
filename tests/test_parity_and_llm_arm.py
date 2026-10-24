@@ -28,7 +28,7 @@ from gmsjourney.enrich.reader import FrameReader  # noqa: E402
 from gmsjourney.enrich.realizers import Realizer  # noqa: E402
 from gmsjourney.journey import JourneySpec  # noqa: E402
 from gmsjourney.kb_truth import judge_kb_answer  # noqa: E402
-from gmsjourney.knowledge.geode import build_store  # noqa: E402
+from _store import kx_store  # noqa: E402
 from gmsjourney.ontology import Ontology, SemanticFrame as F  # noqa: E402
 from gmsjourney.oracle import PolicyOracle  # noqa: E402
 
@@ -37,7 +37,7 @@ POLICY_KG = Path(__file__).resolve().parents[1] / "gmsjourney" / "policy" / "cha
 
 @lru_cache(maxsize=1)
 def env():
-    store = build_store(POLICY_KG).store
+    store = kx_store()
     return store, PolicyOracle(store), Realizer(), FrameReader(store)
 
 

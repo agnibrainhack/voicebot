@@ -221,7 +221,6 @@ def plan_cohort(store, journeys: list[list[str]], seed: int = 0) -> tuple[list[l
         return all((a, b) in edges for a, b in zip(["start"] + seq, seq))
 
     pos = sorted({tuple(s) for s in journeys if s and admissible(s)})
-    rng = np.random.default_rng(seed)
     neg = set()
     for s in pos:
         s = list(s)
