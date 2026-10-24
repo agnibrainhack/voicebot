@@ -5,9 +5,9 @@ Three layers, mirroring beyond-ship-and-pray's ``proofloop.suite``:
 * ``catalogs/official/``   the book's domain-neutral base catalog (18 categories in
   5 families), factor catalog (40 factors, 10 groups, plus named factor groups)
   and profiles, vendored unmodified (Apache-2.0; see PROVENANCE.md).
-* ``catalogs/custom_factors.yaml``  factors this application adds (Ch. 6.3.2),
+* ``policy/<domain>/custom_factors.yaml``  factors this application adds (Ch. 6.3.2),
   in the official schema.
-* ``catalogs/application.yaml``  this bot's selection, level vocabulary with
+* ``policy/<domain>/application.yaml``  this bot's selection, level vocabulary with
   ``level_aliases`` back to catalog levels, exclusions with reasons, factors moved
   to the base, and how each base category reaches the bot.
 
@@ -141,8 +141,11 @@ class Catalog:
 
     @classmethod
     def load(cls, directory: str | Path | None = None) -> "Catalog":
-        d = Path(directory) if directory else CATALOG_DIR
-        off, origin = official_dir(d / "official")
+        if directory is None:                     # the active domain pack's catalog layer
+            from .domain import current
+            directory = current().catalog_dir
+        d = Path(directory)
+        off, origin = official_dir(d / "official" if (d / "official").exists() else OFFICIAL_DIR)
         app = _read(d / "application.yaml")
         overlay = app.get("bases", {}) or {}
 

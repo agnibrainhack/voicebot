@@ -11,7 +11,7 @@ reference bot and its mutants. knowlytix, proofloop and forgeloop are required (
 a knowlytix licence); there is no built-in fallback.
 
 ```
-policy PDF -> policy graph JSON (head/relation/tail + dialog states + per-state policy; policy/charge_review_kg.json)
+policy PDF -> policy graph JSON (head/relation/tail + dialog states + per-state policy; policy/charge_review/charge_review_kg.json)
    -> GMS [knowlytix]: GEODE loop -> embed loop (v SFT) -> contradiction SFT (u) -> cap-trained store -> GMSJudge calibration
    -> base cases: 27 policy questions (knowlytix's two-way generator gate, else a stated symbolic check)
                   + 4 hallucination probes (near-miss option names, an unstated fee) + journeys (covering array + closure)
@@ -30,7 +30,7 @@ policy PDF -> policy graph JSON (head/relation/tail + dialog states + per-state 
 
 ## The policy graph (the source every step reads)
 
-`gmsjourney/policy/charge_review_kg.json` is the operating procedure as 720 head / relation / tail triples. Each one
+`gmsjourney/policy/charge_review/charge_review_kg.json` is the operating procedure as 720 head / relation / tail triples. Each one
 names its PDF section (`pdf.2C`, ...) and carries an evidence quote that is a verbatim substring of that section;
 `program` marks the two limits from the business brief and `lexicon` the curated customer synonyms (not in the PDF).
 
@@ -52,6 +52,39 @@ slot values inside the slot's value set, reads a bare "yes"/"no" the way the sta
 UNRECOGNIZED after "do you recognise this charge?", CONFIRM / DENY after "shall I go ahead?", END after "anything
 else?"), treats a 4-digit number as a credential only where the state asks for one, and rejects a card the state
 does not accept. The invariance proof compares (state, card) sequences.
+
+## Domain packs: one policy graph + one config per bot
+
+Everything specific to a bot lives in one folder, `gmsjourney/policy/<domain>/`:
+
+```
+policy/charge_review/
+  charge_review_kg.json     the policy graph: facts, figures, dialog states, tools, rules, aliases
+  domain.yaml               how to test it: names graph elements and gives them roles
+  application.yaml          the enrichment catalog layer (factor selection and levels)
+  custom_factors.yaml       factors this application adds to the official catalogs
+  charge_review_policy.md   optional structured transcription of the policy
+```
+
+The graph is the single source of truth; `domain.yaml` never repeats a fact. Run a domain with
+`python run_campaign.py --domain charge_review` (or a folder path; default `$GMSJOURNEY_DOMAIN`, else
+`charge_review`), or `CampaignConfig(domain=...)`. Every campaign first lints the pack; run the lint on its own with
+`python -m gmsjourney.domain <domain>`. It checks every cross-reference against the graph and reads every phrase the
+realizer can produce back through the reader, so the generator and the instrument of the invariance proof cannot drift.
+
+| `domain.yaml` section | what it holds | read by |
+|---|---|---|
+| `domain` | id, graph file, policy root entity, channel, language | everything |
+| `lexicon` | how customers say every value and act (per aliasing level and paraphrase depth), the reader's cues and reading order, slot resolution rules, clarity / question-form / wrapper sentences, policy-question wordings, protected words, speech-recogniser confusions and repairs, negative-control swaps | realizer, reader, noise, invariance proof, u-encoder phrasings |
+| `tools` | every backend tool: role (auth / read / write / handoff), arguments, mock behaviour (attempts / list / echo), fault behaviour, API text for an LLM bot | mock backend, fault injector, gates, severity, turn comparison, LLM bot |
+| `fixtures` | backend data: items (merchants, amounts, ages), credential, eligible options | journey fixtures, simulator |
+| `figures` | every authoritative number: the graph's limits, numeric relations and their exact-memory categories, named figures | exact numeric memory, oracle limits, knowlytix register, oracle property |
+| `rules` | runtime checks as generic templates with parameters: call checks, completion checks, speech checks, spoken figures, numeric attestor families, how the bot names options | runtime monitor |
+
+Still hard-wired to this domain (next steps of the migration): the journey dimensions and user simulator and the
+oracle's control flow (to become an interpreter over the graph's state machine), the policy-question intents, the
+symbolic compiler and the GMS view (they parse this policy's tables), the LLM arm's prompt examples, and the
+reference bot with its mutants (a stand-in system under test for this domain only).
 
 ## Quick start
 
@@ -274,7 +307,7 @@ runtime monitor wraps the same tool client, so the gates watch your bot exactly 
 ### An LLM bot as the system under test
 
 `gmsjourney/sut/llm_bot.py` is a second SUT: a tool-using agent on the same model gateway and replay cache as
-the LLM arm (cache tag `sut`). It is given the operating procedure (`policy/charge_review_policy.md`), the tool
+the LLM arm (cache tag `sut`). It is given the operating procedure (`policy/charge_review/charge_review_policy.md`), the tool
 API with its transfer reason codes, and the dialog-act inventory - nothing the oracle computes. Each step the
 model returns one JSON object, a tool call (made on the harness backend, so faults, gates and the trace see it)
 or the acts it says; a malformed reply is sent back once, then surfaces as an `UNKNOWN` turn (a bot defect,
@@ -337,14 +370,18 @@ gmsjourney/
                      facts, exact numbers, correction log) + store (the compiled symbolic store, no geometry)
   export_dataset.py  dataset/*.csv
   turn_compare.py    turn by turn: oracle's expected bot response vs the bot's actual response
-  policy/            charge_review_kg.json (source), charge_review_policy.md (structured transcription of the PDF)
+  policy/<domain>/   a domain pack: the policy graph, domain.yaml, application.yaml, custom_factors.yaml
+                     (charge_review: charge_review_kg.json + charge_review_policy.md, the transcription of the PDF)
+  domain.py          loads a domain pack (domain.current()), lints it against its graph (domain_checks.py)
   reuse/             adapters: forgeloop plausibility gate + audit chain, proofloop emitters/taxonomy
-  catalogs/          application.yaml (+ level_aliases), custom_factors.yaml, official/ (pinned copy of proofloop's)
-  governance/        gates (policy, speech, whole-plan), monitor (strict / quorum; forgeloop per-step gate + audit),
+  catalogs/          official/ (pinned copy of proofloop's catalogs; the application layer lives in the domain pack)
+  governance/        rules (the check templates domain.yaml configures), gates (policy, speech, whole-plan),
+                     monitor (strict / quorum; forgeloop per-step gate + audit),
                      attestor (numeric range), calibrate (Appendix C + P=0.5, holdout, bootstrap)
   enrich/llm/        the LLM enrichment arm: client (Microsoft gateway, replay cache), prompts, gates,
                      realizer, extractor (independent reader), validate (separate proof + controls), export
-  enrich/            realizers, reader, invariance proof, noise, textsim (the reported surface-similarity metric)
+  enrich/            lexicon (the domain's wording), realizers, reader, invariance proof, noise,
+                     textsim (the reported surface-similarity metric)
   evaluation/        runner, attribution, stats, constraints (budgets), severity (tiers + release gate), ...
   ontology.py journey.py oracle.py kb_truth.py bases/ enrich/ design/ sut/ evaluation/ pipeline.py report.py
 run_campaign.py · tests/ · notebooks/ · DESIGN.md · NOTICE

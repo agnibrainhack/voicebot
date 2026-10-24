@@ -23,6 +23,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from ..sut.tools import write_tools
+
 LEVELS = ["none", "low", "moderate", "high", "critical"]
 RANK = {k: i for i, k in enumerate(LEVELS)}
 
@@ -44,13 +46,12 @@ _VIOLATION_CODE = {
     "edge_not_in_policy_graph": "PROCESS_DEVIATION",
 }
 TIER_ESCALATION = {"action_taking": {"moderate": "high", "high": "critical"}, "informational": {}}
-WRITE_TOOLS = {"record_charge_response", "submit_card_action"}
 
 
 def risk_tier(item) -> str:
     """action_taking when the correct journey writes to the account; informational otherwise."""
     tools = set(item.metadata.get("oracle_tools") or [])
-    return "action_taking" if tools & WRITE_TOOLS else "informational"
+    return "action_taking" if tools & write_tools() else "informational"
 
 
 def failure_codes(row: dict[str, Any]) -> list[str]:

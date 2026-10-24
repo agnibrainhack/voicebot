@@ -24,11 +24,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .ontology import SemanticFrame
+from .sut.tools import account_tools
 
 WORKFLOW_STAGES = ["authenticate", "retrieve", "present", "kb", "capture", "record",
                    "card_action", "transfer", "summary"]
-ACCOUNT_TOOLS = {"get_review_transactions", "record_charge_response",
-                 "get_card_action_options", "submit_card_action"}
 
 
 @dataclass
@@ -176,7 +175,7 @@ class Trace:
                 v.append(f"tool_after_transfer:{c['tool']}")
             if c["tool"] == "authenticate_customer" and (c.get("result") or {}).get("status") == "AUTHENTICATED":
                 authed = True
-            if c["tool"] in ACCOUNT_TOOLS and not authed:
+            if c["tool"] in account_tools() and not authed:
                 v.append(f"account_tool_before_auth:{c['tool']}")       # R2/R3
             if c["tool"] == "transfer_to_human":
                 transferred = True

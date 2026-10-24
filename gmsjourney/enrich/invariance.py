@@ -43,6 +43,7 @@ from typing import Any
 
 from ..core import Scenario
 from .textsim import surface_cosine
+from .lexicon import Lexicon
 from ..ontology import Ontology, SemanticFrame as F, sequence_signature
 
 MAX_RETRIES = 4
@@ -83,6 +84,7 @@ def _state_of(bot_act) -> str | None:
 class InvarianceValidator:
     def __init__(self, store, oracle, reader, realizer):
         self.store, self.oracle, self.reader, self.realizer = store, oracle, reader, realizer
+        self.lexicon = getattr(realizer, "lexicon", None) or Lexicon.current()
         self.ont = Ontology.from_store(store)
         self._paths: dict[str, list[tuple[F, dict]]] = {}
         self._states: dict[str, list[str | None]] = {}
@@ -164,9 +166,8 @@ class InvarianceValidator:
     def _mutations(self, f: F) -> list[tuple[str, F]]:
         out = []
         a = f.act
-        swap_d = {"RECOGNIZED": "UNRECOGNIZED", "UNRECOGNIZED": "RECOGNIZED", "UNSURE": "RECOGNIZED"}
-        swap_dl = {"standard_delivery": "expedited_delivery", "expedited_delivery": "standard_delivery"}
-        swap_c = {"SECURE_CARD": "REPLACE_CARD", "REPLACE_CARD": "SECURE_CARD"}
+        swaps = self.lexicon["controls"]["swaps"]           # meaning-changing value swaps (domain.yaml)
+        swap_d, swap_dl, swap_c = swaps["disposition"], swaps["delivery"], swaps["card_action"]
         sl = {k: (list(v) if isinstance(v, tuple) else v) for k, v in f.slots}
         if a == "INFORM_DISPOSITION":
             out.append(("swap_disposition", F.make(a, **{**sl, "disposition": swap_d[sl["disposition"]]})))
@@ -212,19 +213,22 @@ class InvarianceValidator:
         out = []
         act = frame.act if frame is not None else None
         cues = self.reader.cue_counts(text)
+        ctl = self.lexicon["controls"]
+        pos_re, pos, neg_re, neg = ctl["text_negation"]           # an affirmative phrase and its negation
         if cues["disposition"] != 1 or act not in (None, "INFORM_DISPOSITION"):
             pass
-        elif re.search(r"\bI recognize\b", text):
-            out.append(("text_negation", re.sub(r"\bI recognize\b", "I don't recognize", text, count=1)))
-        elif re.search(r"\bI don't recognize\b", text):
-            out.append(("text_negation", re.sub(r"\bI don't recognize\b", "I recognize", text, count=1)))
+        elif re.search(pos_re, text):
+            out.append(("text_negation", re.sub(pos_re, neg, text, count=1)))
+        elif re.search(neg_re, text):
+            out.append(("text_negation", re.sub(neg_re, pos, text, count=1)))
         m = re.search(r"\b\d{4}\b", text)
         if m and act in (None, "PROVIDE_CREDENTIAL"):
             d = m.group(0)
             out.append(("text_digit", text.replace(d, d[:2] + d[3] + d[2], 1)))
-        if cues["delivery"] == 1 and re.search(r"\bexpedited\b", text) and \
+        word_re, other = ctl["text_value_word"]                     # a value word and a different value's word
+        if cues["delivery"] == 1 and re.search(word_re, text) and \
                 (act is None or frame.get("delivery") or frame.get("entity")):
-            out.append(("text_delivery_word", re.sub(r"\bexpedited\b", "standard", text, count=1)))
+            out.append(("text_delivery_word", re.sub(word_re, other, text, count=1)))
         return out
 
     @staticmethod

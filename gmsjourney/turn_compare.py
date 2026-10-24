@@ -35,9 +35,9 @@ from typing import Any
 
 import pandas as pd
 
+from .sut.tools import key_args
+
 ACT_FIELDS = ("txn", "intent", "answer", "reason", "recorded", "action", "delivery", "fee", "disposition")
-TOOL_ARGS = {"authenticate_customer": ("credential",), "record_charge_response": ("transaction_id", "disposition"),
-             "submit_card_action": ("action", "delivery", "transaction_id"), "transfer_to_human": ("reason",)}
 
 
 # ----------------------------------------------------------------------------- rendering
@@ -66,7 +66,7 @@ def describe_act(a: dict, merchants: dict[str, tuple[str, str]] | None = None) -
 
 def describe_tool(e: dict) -> str:
     args = e.get("args") or {}
-    keep = {k: v for k, v in args.items() if k in TOOL_ARGS.get(e["tool"], tuple(args))}
+    keep = {k: v for k, v in args.items() if k in key_args().get(e["tool"], tuple(args))}
     res = e.get("result")
     status = (res.get("status") or res.get("error")) if isinstance(res, dict) else ("error" if e.get("ok") is False else res)
     a = ", ".join(f"{k}={v}" for k, v in keep.items())
@@ -104,7 +104,7 @@ def normalize_acts(acts: list[dict]) -> list[tuple]:
 
 def _tool_key(e: dict) -> tuple:
     args = e.get("args") or {}
-    return (e["tool"], tuple(sorted((k, str(v)) for k, v in args.items() if k in TOOL_ARGS.get(e["tool"], ()))))
+    return (e["tool"], tuple(sorted((k, str(v)) for k, v in args.items() if k in key_args().get(e["tool"], ()))))
 
 
 # ----------------------------------------------------------------------------- segmentation

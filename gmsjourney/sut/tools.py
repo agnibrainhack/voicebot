@@ -25,12 +25,42 @@ import random
 from dataclasses import dataclass, field
 from typing import Any
 
-TOOLS = ["authenticate_customer", "get_review_transactions", "record_charge_response",
-         "get_card_action_options", "submit_card_action", "transfer_to_human"]
+# ------------------------------------------------------------------- the tool registry
+# Every tool, its role, arguments and mock behaviour come from the domain pack
+# (domain.yaml -> tools); nothing here names a tool.
+def tool_specs() -> dict[str, dict[str, Any]]:
+    from ..domain import current
+    return current().section("tools")
 
 
-PLAUSIBLE_WRONG_TOOLS = {"record_charge_response", "submit_card_action", "authenticate_customer",
-                         "get_card_action_options"}
+def tool_names() -> list[str]:
+    return list(tool_specs())
+
+
+def tools_with_role(*roles: str) -> set[str]:
+    return {t for t, sp in tool_specs().items() if sp.get("role") in roles}
+
+
+def account_tools() -> set[str]:
+    """Tools that touch the account: only callable after the auth tool succeeded."""
+    return tools_with_role("read", "write")
+
+
+def write_tools() -> set[str]:
+    return tools_with_role("write")
+
+
+def key_args() -> dict[str, tuple[str, ...]]:
+    """The arguments that identify a call when comparing two runs (tools without any: all args)."""
+    return {t: tuple(sp["key_args"]) for t, sp in tool_specs().items() if sp.get("key_args")}
+
+
+def __getattr__(name: str):                     # backward-compatible module constants
+    if name == "TOOLS":
+        return tool_names()
+    if name == "PLAUSIBLE_WRONG_TOOLS":
+        return {t for t, sp in tool_specs().items() if sp.get("plausible_wrong")}
+    raise AttributeError(name)
 
 
 class ToolError(RuntimeError):
@@ -43,18 +73,23 @@ class ToolTimeout(ToolError):
 
 @dataclass
 class ToolEnvironment:
+    """One journey's backend: every tool is served from the fixture by its declared behaviour."""
     fixture: dict[str, Any]
     log: list[dict[str, Any]] = field(default_factory=list)
-    _auth_calls: int = 0
-    _record_calls: int = 0
+    specs: dict[str, dict[str, Any]] | None = None
+    _calls: dict[str, int] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.specs is None:
+            self.specs = tool_specs()
 
     def call(self, tool: str, **args: Any) -> Any:
-        fn = getattr(self, f"_t_{tool}", None)
-        if fn is None:
+        spec = self.specs.get(tool)
+        if spec is None:
             raise ToolError(f"unknown tool {tool}")
         entry = {"tool": tool, "args": dict(args)}
         try:
-            res = fn(**args)
+            res = self._serve(tool, spec, args)
             entry.update(result=copy.deepcopy(res), ok=True)
             return res
         except ToolError as e:
@@ -63,46 +98,39 @@ class ToolEnvironment:
         finally:
             self.log.append(entry)
 
-    # -- tool implementations ---------------------------------------------------
-    def _t_authenticate_customer(self, credential: str = "") -> dict:
-        results = self.fixture.get("auth_results", ["AUTHENTICATED"])
-        i = min(self._auth_calls, len(results) - 1)
-        self._auth_calls += 1
-        r = results[i]
-        if r == "UNAVAILABLE":
-            raise ToolError("authenticate_customer unavailable")
-        if r == "AUTHENTICATED" and credential != self.fixture.get("credential"):
-            r = "FAILED"                 # a wrong credential never authenticates
-        return {"status": r}
-
-    def _t_get_review_transactions(self) -> dict:
-        if self.fixture.get("transactions_status") == "UNAVAILABLE":
-            raise ToolError("get_review_transactions unavailable")
-        txns = copy.deepcopy(self.fixture.get("transactions", []))
-        return {"status": "TRANSACTIONS" if txns else "EMPTY", "transactions": txns}
-
-    def _t_record_charge_response(self, transaction_id: str = "", disposition: str = "") -> dict:
-        self._record_calls += 1
-        if self.fixture.get("record_status") == "UNAVAILABLE":
-            raise ToolError("record_charge_response unavailable")
-        fail_on = self.fixture.get("record_fail_on_call")
-        status = "FAILED" if fail_on is not None and self._record_calls == fail_on else "SUCCESS"
-        return {"status": status, "transaction_id": transaction_id, "disposition": disposition}
-
-    def _t_get_card_action_options(self) -> dict:
-        if self.fixture.get("card_options_status") == "UNAVAILABLE":
-            raise ToolError("get_card_action_options unavailable")
-        opts = list(self.fixture.get("card_options", []))
-        return {"status": "OPTIONS" if opts else "NONE", "options": opts}
-
-    def _t_submit_card_action(self, action: str = "", delivery: str | None = None) -> dict:
-        if self.fixture.get("submit_status") == "UNAVAILABLE":
-            raise ToolError("submit_card_action unavailable")
-        return {"status": self.fixture.get("submit_result", "SUCCESS"), "action": action,
-                "delivery": delivery}
-
-    def _t_transfer_to_human(self, reason: str = "") -> dict:
-        return {"status": "TRANSFERRED", "reason": reason}
+    # -- behaviours ---------------------------------------------------------------
+    def _serve(self, tool: str, spec: dict, args: dict) -> dict:
+        declared = spec.get("args") or {}
+        for k in args:
+            if k not in declared:          # the same failure a bad keyword would give a Python stub
+                raise TypeError(f"ToolEnvironment._t_{tool}() got an unexpected keyword argument '{k}'")
+        a = {**declared, **args}
+        n = self._calls.get(tool, 0)
+        self._calls[tool] = n + 1
+        fx = self.fixture
+        kind = spec["behaviour"]
+        if kind == "attempts":
+            results = fx.get(spec["results_field"], spec.get("default_results"))
+            r = results[min(n, len(results) - 1)]
+            if r == spec.get("unavailable"):
+                raise ToolError(f"{tool} unavailable")
+            chk = spec.get("check")
+            if chk and r == chk["success"] and a.get(chk["arg"]) != fx.get(chk["fixture"]):
+                r = chk["else"]              # a wrong credential never authenticates
+            return {"status": r}
+        if spec.get("unavailable_flag") and fx.get(spec["unavailable_flag"]) == "UNAVAILABLE":
+            raise ToolError(f"{tool} unavailable")
+        if kind == "list":
+            items = copy.deepcopy(fx.get(spec["field"], []))
+            return {"status": spec["status"]["some"] if items else spec["status"]["none"], spec["key"]: items}
+        if kind == "echo":
+            if spec.get("result_field"):
+                status = fx.get(spec["result_field"], spec["status"]["ok"])
+            else:
+                fail_on = fx.get(spec["fail_on_call_field"]) if spec.get("fail_on_call_field") else None
+                status = spec["status"]["fail"] if fail_on is not None and n + 1 == fail_on else spec["status"]["ok"]
+            return {"status": status, **{k: a[k] for k in declared}}
+        raise ValueError(f"{tool}: unknown behaviour {kind!r}")
 
 
 @dataclass(frozen=True)
@@ -140,14 +168,16 @@ class ToolGateway:
         return None
 
     def call(self, tool: str, **args: Any) -> Any:
-        prof = self._match(tool) if tool != "transfer_to_human" else None
+        specs = self.env.specs or tool_specs()
+        spec = specs.get(tool) or {}
+        prof = self._match(tool) if spec.get("role") != "handoff" else None
         if prof is None:
             res = self.env.call(tool, **args)
             self._last[tool] = copy.deepcopy(res)
             return res
         if prof.kind == "stale" and tool not in self._last:
             return self.call_passthrough(tool, args)      # nothing cached yet: behaves normally
-        if prof.kind == "plausible_wrong" and tool not in PLAUSIBLE_WRONG_TOOLS:
+        if prof.kind == "plausible_wrong" and not spec.get("plausible_wrong"):
             return self.call_passthrough(tool, args)
         self.injected.append({"tool": tool, "kind": prof.kind, "args": dict(args)})
         if prof.kind in ("error", "timeout"):
@@ -161,16 +191,13 @@ class ToolGateway:
                                  "ok": True, "injected": "stale"})
             return res
         if prof.kind == "plausible_wrong":
-            res = self.env.call(tool, **args)
-            res = copy.deepcopy(res)
-            if tool == "record_charge_response":
-                res["transaction_id"] = "T999"
-            elif tool == "submit_card_action":
-                res["action"] = "SECURE_CARD" if args.get("action") == "REPLACE_CARD" else "REPLACE_CARD"
-            elif tool == "authenticate_customer":
-                res["status"] = "AUTHENTICATED"
-            elif tool == "get_card_action_options":
-                res["options"] = ["SECURE_CARD", "REPLACE_CARD"]
+            res = copy.deepcopy(self.env.call(tool, **args))
+            pw = spec["plausible_wrong"]
+            for k, v in (pw.get("set") or {}).items():
+                res[k] = copy.deepcopy(v)
+            fl = pw.get("flip")
+            if fl:
+                res[fl["field"]] = fl["map"].get(args.get(fl["from_arg"]), fl["default"])
             self.env.log[-1]["result"] = copy.deepcopy(res)
             self.env.log[-1]["injected"] = "plausible_wrong"
             return res

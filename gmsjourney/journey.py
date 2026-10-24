@@ -21,10 +21,23 @@ from typing import Any
 
 from .ontology import SemanticFrame as F
 
-MERCHANTS = [("Amazon", "45.67"), ("Starbucks", "6.25"), ("Shell", "52.10"),
-             ("Netflix", "15.99"), ("Uber", "23.40"), ("Target", "88.05")]
-REVIEW_AGES = [3, 8, 15, 22, 27]
-CREDENTIAL = "4821"
+
+
+def _fixtures() -> dict[str, Any]:
+    """The backend data of the active domain pack (domain.yaml -> fixtures)."""
+    from .domain import current
+    return current().section("fixtures")
+
+
+def __getattr__(name: str):                       # backward-compatible module constants
+    fx = _fixtures()
+    if name == "MERCHANTS":
+        return [(r["merchant"], r["amount"]) for r in fx["items"]["records"]]
+    if name == "REVIEW_AGES":
+        return list(fx["items"]["ages"])
+    if name == "CREDENTIAL":
+        return fx["credential"]
+    raise AttributeError(name)
 
 # The content dimensions and their levels (N/A marks "irrelevant in this case").
 DIMENSIONS: dict[str, list[Any]] = {
@@ -125,20 +138,23 @@ def build_fixture(spec: JourneySpec) -> dict[str, Any]:
     auth_results = {"ok": ["AUTHENTICATED"], "retry_ok": ["FAILED", "AUTHENTICATED"],
                     "fail_twice": ["FAILED", "FAILED", "AUTHENTICATED"],
                     "unavailable": ["UNAVAILABLE"], "human_at_auth": ["AUTHENTICATED"]}[spec.auth]
+    cfg = _fixtures()
+    items, prefix = cfg["items"]["records"], cfg["items"]["id_prefix"]
+    ages = cfg["items"]["ages"]
     txns = []
     for i in range(spec.n_txn):
-        m, amt = MERCHANTS[i]
-        age = REVIEW_AGES[i]
+        m, amt = items[i]["merchant"], items[i]["amount"]
+        age = ages[i]
         if spec.window == "day30" and i == spec.n_txn - 1:
             age = 30
-        txns.append({"transaction_id": f"T{i + 1}", "merchant": m, "amount": amt, "age_days": age})
+        txns.append({"transaction_id": f"{prefix}{i + 1}", "merchant": m, "amount": amt, "age_days": age})
     if spec.window == "day31":
-        m, amt = MERCHANTS[5]
-        old = {"transaction_id": "T9", "merchant": m, "amount": amt, "age_days": 31}
+        m, amt = items[5]["merchant"], items[5]["amount"]
+        old = {"transaction_id": f"{prefix}9", "merchant": m, "amount": amt, "age_days": 31}
         txns.insert(min(1, len(txns)), old)       # placed among reviewable ones on purpose
     fx: dict[str, Any] = {
-        "credential": CREDENTIAL, "auth_results": auth_results, "transactions": txns,
-        "card_options": ["SECURE_CARD", "REPLACE_CARD"] if spec.card_options == "eligible" else [],
+        "credential": cfg["credential"], "auth_results": auth_results, "transactions": txns,
+        "card_options": list(cfg["card_options"]) if spec.card_options == "eligible" else [],
         "submit_result": "SUCCESS" if spec.submit == "ok" else "FAILED",
     }
     if spec.retrieve == "unavailable":
@@ -220,7 +236,7 @@ class UserSimulator:
         if act in ("ASK_AUTH", "ASK_AUTH_RETRY"):
             if self.spec.auth == "human_at_auth":
                 return self._emit(F.make("REQUEST_HUMAN"))
-            return self._emit(F.make("PROVIDE_CREDENTIAL", credential=CREDENTIAL))
+            return self._emit(F.make("PROVIDE_CREDENTIAL", credential=_fixtures()["credential"]))
         if act in ("PRESENT_TXN", "PROVIDE_CONTEXT", "ASK_CLARIFY", "ANSWER_KB"):
             tid = bot_act.get("txn") or bot_act.get("current_txn")
             q = self.queues.get(tid)

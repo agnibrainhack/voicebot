@@ -97,9 +97,26 @@ def _on_device(x):
     return x.to(device()) if hasattr(x, "to") else x
 
 
-ENM_MAP = {"limit": ("limits", "{key}"), "delivery_fee_usd": ("delivery_options", "{key}/fee_usd"),
-           "delivery_days_min": ("delivery_options", "{key}/business_days_min"),
-           "delivery_days_max": ("delivery_options", "{key}/business_days_max")}
+def _enm_map() -> dict[str, tuple[str, str]]:
+    """ENM category -> (knowlytix register type, key format), from domain.yaml -> figures."""
+    from ..domain import current
+    return current().kx_enm_map()
+
+
+def _attribute_names() -> dict[str, str]:
+    """u-encoder class label (a relation) -> the attribute name the runtime checks use."""
+    from ..domain import current
+    f = current().section("figures")
+    out = {r: sp["attribute"] for r, sp in (f.get("relations") or {}).items() if sp.get("attribute")}
+    if f.get("limits", {}).get("attribute"):
+        out[f["limits"].get("attribute_label", "has_value")] = f["limits"]["attribute"]
+    return out
+
+
+def __getattr__(name: str):                       # backward-compatible module constant
+    if name == "ENM_MAP":
+        return _enm_map()
+    raise AttributeError(name)
 
 
 @contextlib.contextmanager
@@ -515,9 +532,10 @@ class KXPolicyStore(GMSStore):
 
     # ------------------------------------------------------------------ exact reads
     def _kx_lookup(self, category: str, key: str):
-        if category not in ENM_MAP:
+        enm_map = _enm_map()
+        if category not in enm_map:
             return None
-        typ, fmt = ENM_MAP[category]
+        typ, fmt = enm_map[category]
         with _quiet():
             return self.kx.lookup_enm(typ, fmt.format(key=key))
 
@@ -664,7 +682,7 @@ class KXPolicyStore(GMSStore):
         p = preds[0]
         sc = scores[0]
         conf = float(max(sc)) if hasattr(sc, "__iter__") else float(sc)
-        return ({"has_fee_usd": "fee", "has_business_days_max": "delivery_time", "has_value": "limit"}.get(p, p), conf)
+        return (_attribute_names().get(p, p), conf)
 
     def fuzzy_match_entity(self, surface: str, types=None, mode: str = "frame"):
         """Bind a surface form to an entity with the GEODE-tuned v encoder (model 1)."""

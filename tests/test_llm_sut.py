@@ -32,7 +32,7 @@ from gmsjourney.sut.adapter import JourneyRunner  # noqa: E402
 from gmsjourney.sut.llm_bot import LLMBot, make_llm_factory  # noqa: E402
 from gmsjourney.sut.tools import ToolEnvironment  # noqa: E402
 
-POLICY_KG = Path(__file__).resolve().parents[1] / "gmsjourney" / "policy" / "charge_review_kg.json"
+POLICY_KG = Path(__file__).resolve().parents[1] / "gmsjourney" / "policy" / "charge_review" / "charge_review_kg.json"
 
 
 @lru_cache(maxsize=1)

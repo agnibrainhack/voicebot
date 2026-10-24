@@ -5,7 +5,7 @@ The bot is a tool-using agent on the same Microsoft model gateway and replay cac
 (``enrich/llm/client.py``, ``CachedLLM`` with its own cache tag ``sut``). It is given what a production team
 would give an LLM bot - and nothing the oracle computes:
 
-* the operating procedure (``policy/charge_review_policy.md``: limits, delivery options, tools, workflow,
+* the operating procedure (``policy/charge_review/charge_review_policy.md``: limits, delivery options, tools, workflow,
   rules, knowledge-base sentences) as its instructions;
 * the backend tools' API (names, arguments, results, and the transfer reason codes the
   ``transfer_to_human`` API takes);
@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from .reference_bot import BotTurn
@@ -35,33 +34,11 @@ from .tools import ToolError
 
 SUT_PROMPT_VERSION = "llm-sut/1"
 
-# backend API as the bot team would document it (matches sut/tools.py)
-TOOL_API = {
-    "authenticate_customer": {
-        "args": {"credential": "the last four card digits the customer said, as a 4-digit string"},
-        "returns": '{"status": "AUTHENTICATED" | "FAILED"}; raises an error when the service is unavailable'},
-    "get_review_transactions": {
-        "args": {},
-        "returns": '{"status": "TRANSACTIONS" | "EMPTY", "transactions": [{"transaction_id", "merchant", "amount", '
-                   '"age_days"}]}; raises an error when the service is unavailable'},
-    "record_charge_response": {
-        "args": {"transaction_id": "the id of the charge being reviewed",
-                 "disposition": "RECOGNIZED | UNRECOGNIZED | UNSURE"},
-        "returns": '{"status": "SUCCESS" | "FAILED", "transaction_id", "disposition"}; raises an error when the '
-                   'service is unavailable'},
-    "get_card_action_options": {
-        "args": {},
-        "returns": '{"status": "OPTIONS" | "NONE", "options": ["SECURE_CARD", "REPLACE_CARD", ...]}; raises an error '
-                   'when the service is unavailable'},
-    "submit_card_action": {
-        "args": {"action": "SECURE_CARD | REPLACE_CARD",
-                 "delivery": "standard_delivery | expedited_delivery (replacement only; omit for SECURE_CARD)"},
-        "returns": '{"status": "SUCCESS" | "FAILED", "action", "delivery"}; raises an error when the service is '
-                   'unavailable'},
-    "transfer_to_human": {
-        "args": {"reason": "one of the transfer reason codes below"},
-        "returns": '{"status": "TRANSFERRED", "reason"}'},
-}
+# backend API as the bot team would document it: the domain pack's tool entries (domain.yaml -> tools.*.api)
+def _tool_api() -> dict[str, dict[str, Any]]:
+    from .tools import tool_specs
+    return {t: sp["api"] for t, sp in tool_specs().items() if sp.get("api")}
+
 
 TRANSFER_REASONS = {
     "customer_request": "the customer asked for a person",
@@ -113,13 +90,14 @@ FIELD_HELP = {
 
 
 def default_policy_text() -> str:
-    return (Path(__file__).resolve().parents[1] / "policy" / "charge_review_policy.md").read_text(encoding="utf-8")
+    from ..domain import current
+    return current().transcription_path.read_text(encoding="utf-8")
 
 
 def build_system_prompt(policy_text: str, act_names: list[str] | None = None) -> str:
     acts = {k: v for k, v in ACTS.items() if act_names is None or k in act_names}
     tools = "\n".join(f"- {n}({', '.join(f'{a}: {d}' for a, d in s['args'].items())}) -> {s['returns']}"
-                      for n, s in TOOL_API.items())
+                      for n, s in _tool_api().items())
     reasons = "\n".join(f"- {k}: {v}" for k, v in TRANSFER_REASONS.items())
     act_lines = "\n".join(f"- {k}: {d}" + (f"  [fields: {', '.join(f)}]" if f else "") for k, (d, f) in acts.items())
     fields = "\n".join(f"- {k}: {v}" for k, v in FIELD_HELP.items())
@@ -247,7 +225,7 @@ class LLMBot:
         return BotTurn(acts[0]["text"], acts, False)
 
     def _tool(self, name: str, args: Any) -> None:
-        spec = TOOL_API.get(name)
+        spec = _tool_api().get(name)
         if spec is None or not isinstance(args, dict):
             self.stats.bad_tool_requests += 1
             self.history.append({"tool": name, "args": args, "result": {"error": f"unknown tool or bad arguments"}})

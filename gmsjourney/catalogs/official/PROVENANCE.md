@@ -14,7 +14,7 @@ These three files are copied byte for byte from the open-source companion reposi
 - Licence: Apache License 2.0, Copyright 2026 Knowlytix (see the repository's LICENSE and NOTICE)
 
 Do not edit these files. Everything specific to the charge-review voice bot lives in
-`../application.yaml` (factor selection, level vocabulary and `level_aliases` back to these
-catalog levels, the base-category overlay) and `../custom_factors.yaml` (the voice-channel
-factors the book's Ch. 6.3.2 allows an application to add). `python -m gmsjourney.validate_catalogs`
+the domain pack's `application.yaml` (gmsjourney/policy/<domain>/; factor selection, level vocabulary and `level_aliases` back to these
+catalog levels, the base-category overlay) and its `custom_factors.yaml` (the voice-channel
+factors the book's Ch. 6.3.2 allows an application to add). `gmsjourney.catalog.validate` (run by every campaign)
 checks the files against their recorded hashes and enforces the catalog contract.

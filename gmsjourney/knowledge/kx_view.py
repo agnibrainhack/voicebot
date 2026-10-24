@@ -3,7 +3,7 @@
 ``knowlytix.benchmark.ingest.ingest_markdown`` turns every wide table into typed
 triples ``(row_entity, has_<column>, cell)`` and every numeric cell into an
 integrity-hashed ENM entry ``(type=<section>, id=<row_entity>/<column>)``. The
-source policy (policy/charge_review_policy.md) mixes tables with a bulleted
+source policy (policy/charge_review/charge_review_policy.md) mixes tables with a bulleted
 workflow, a head/relation/tail domain table and multi-alias cells, which that
 parser reifies or flattens. This module renders the *same compiled facts* as one
 table per relation, so GEODE proposes the graph the policy states:

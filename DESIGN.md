@@ -177,7 +177,7 @@ to detect a level that triples the odds of failure.
 | Disputed / unrecognized charge | PDF: record UNRECOGNIZED; not proof of fraud. | Recorded, no escalation by itself (the baseline's "dispute → escalate" removed); a fraud claim is a contradicted stance. |
 | Refund amounts | Not stated. | Absence detection: the bot must not invent one. |
 
-Change any of these in `policy/charge_review_policy.md` (and, for flow changes, `oracle.py`); every expected
+Change any of these in `policy/charge_review/charge_review_policy.md` (and, for flow changes, `oracle.py`); every expected
 outcome follows.
 
 ## 9. Limitations and extensions
@@ -345,7 +345,7 @@ reported as a baseline, not relied on.
 
 ## 12. The policy graph and state-aware meaning cards
 
-**One machine-readable source.** `policy/charge_review_kg.json` holds the operating procedure as head / relation /
+**One machine-readable source.** `policy/charge_review/charge_review_kg.json` holds the operating procedure as head / relation /
 tail triples, and every later step reads it through `PolicyKG`:
 
 - GMS training (both backends);
@@ -517,3 +517,47 @@ counted.
   each fake name is reported, because a strong binding to a real option is where an embedding-driven bot would
   fabricate. The policy graph gains two ASK_KB slots (`name`, `subject`) and two intents. That is four triples; the
   rest of the graph is unchanged.
+
+## 15. Domain packs
+
+Everything specific to one bot sits in `gmsjourney/policy/<domain>/`: the policy graph, `domain.yaml`, the enrichment
+catalog layer. `gmsjourney/domain.py` loads the pack once (`domain.current()`), and every component reads it from
+there, so the ontology, enrichment, mock backend, oracle limits and runtime checks share one definition.
+
+**The graph decides what is true, the config decides how to test it.** `domain.yaml` never restates a fact. It names
+graph elements and gives them roles: which value set a slot draws from, which tool authenticates, which figure is
+disclosed before a write. Every limit and figure is read from exact numeric memory at run time.
+
+**Engines in code, wording and parameters in config.**
+- *Lexicon.* The realizer is a template engine over the lexicon, and the reader matches the lexicon's cues and applies
+  its slot rules: the final answer with a repair marker making an earlier one a correction, the latest first mention,
+  the latest last mention, and dependent slots. Negative controls take their swaps from the lexicon.
+- *Tools.* The mock backend serves every tool with one of three declared behaviours (attempts, list, echo); the fault
+  injector's plausible-wrong answers are declared per tool.
+- *Rules.* Runtime checks are a closed set of templates (`governance/rules.py`): call checks, completion checks,
+  speech checks, spoken figures and attestor families. A new policy supplies parameters and rule ids, not code.
+
+**Lint as the consistency guarantee.** `python -m gmsjourney.domain <pack>` (and every campaign, before it starts)
+checks that:
+- slots are graph value sets with exactly their members;
+- acts are accepted by some dialog state, and tools are graph tools with graph status values;
+- limits and figures exist with values;
+- rule ids are graph rules and patterns compile.
+
+It also runs a round trip: every phrase the realizer can produce, at every aliasing level and paraphrase depth, must
+read back as the meaning it was generated from. A wording change that breaks the reader therefore fails before a
+campaign starts, not as unexplained invariance rejections.
+
+**Migration.** The move to packs was made in phases, each accepted only if it reproduced the previous outputs exactly:
+- the 12-case campaign compared file by file, ignoring only timing fields;
+- a differential test of the old against the new realizer and reader on 23,750 realisations and 28,582 reads;
+- 1,500 random tool-call sequences with every fault kind;
+- the full campaign.
+
+Still domain-specific, and the next phases:
+- the journey dimensions and user simulator;
+- the oracle's control flow, to become an interpreter over the graph's state machine;
+- the policy-question intents;
+- the symbolic compiler and the GMS view, which parse this policy's tables;
+- the LLM arm's prompt examples;
+- the reference bot with its mutants.

@@ -47,12 +47,16 @@ SCHEMA: dict[str, tuple[set[str], str]] = {
     "member_of": (set(), "node"),
 }
 
-# Which ENM register entry backs a numeric relation, keyed by head type.
-ENM_FOR_REL = {
-    "has_fee_usd": "delivery_fee_usd",
-    "has_business_days_min": "delivery_days_min",
-    "has_business_days_max": "delivery_days_max",
-}
+def _enm_for_rel() -> dict[str, str]:
+    """Which ENM register entry backs a numeric relation (domain.yaml -> figures.relations)."""
+    from ..domain import current
+    return current().enm_for_relation()
+
+
+def __getattr__(name: str):                       # backward-compatible module constant
+    if name == "ENM_FOR_REL":
+        return _enm_for_rel()
+    raise AttributeError(name)
 
 
 @dataclass
@@ -87,15 +91,19 @@ def _is_number(s: str) -> bool:
 
 def _enm_value(ing: IngestResult, cand: CandidateTriple) -> str | None:
     """The authoritative backbone value for a numeric candidate, if any."""
+    from ..domain import current
+    dom = current()
     h, r = cand.head, cand.relation
-    if r in ENM_FOR_REL:
+    enm_for_rel = dom.enm_for_relation()
+    if r in enm_for_rel:
         for e in ing.enm:
-            if e.category == ENM_FOR_REL[r] and e.key == h:
+            if e.category == enm_for_rel[r] and e.key == h:
                 return e.value
-    if r.startswith("has_") and h == "charge_review_policy":
+    if r.startswith("has_") and h == dom.root:            # a limit stated on the policy root
         key = r[len("has_"):]
+        cat = dom.get("figures.limits.enm_category", "limit")
         for e in ing.enm:
-            if e.category == "limit" and e.key == key:
+            if e.category == cat and e.key == key:
                 return e.value
     return None
 
@@ -107,7 +115,7 @@ def build_store(policy_path: str | Path, *, inject_misread: bool = False,
     inject_misread adds an OCR-style misread candidate (expedited fee "150") so the
     critics can be seen catching it; it never reaches the store.
 
-    policy_path may be the policy graph JSON (policy/charge_review_kg.json, the default
+    policy_path may be the policy graph JSON (policy/charge_review/charge_review_kg.json, the default
     source) or a structured policy markdown. From the JSON, the compiled policy is
     rendered by PolicyKG.to_markdown() and the dialog-state layer (states, accepted
     meaning cards, transitions, per-state rules/limits/tools) is added to the facts;
@@ -239,9 +247,11 @@ def oracle_property(store: GMSStore) -> list[dict[str, Any]]:
     *real* figure placed on the same relation - scores outside it. Also reports the
     book's absolute bands (true < 0.5, fabricated > 1.0) and knowlytix's per-head calibrated
     admissibility (``native_admissible_ok``) for comparison."""
+    from ..domain import current
     rows = []
-    numeric_rel = [r for r in store.by_r if r in ENM_FOR_REL or
-                   (r.startswith("has_") and any(h == "charge_review_policy" for h, _, _ in store.by_r[r]))]
+    enm_for_rel, root = _enm_for_rel(), current().root
+    numeric_rel = [r for r in store.by_r if r in enm_for_rel or
+                   (r.startswith("has_") and any(h == root for h, _, _ in store.by_r[r]))]
     for r in sorted(numeric_rel):
         trs = sorted(store.by_r[r])
         all_vals = sorted({t for _, rr, t in store.triples if rr in numeric_rel})

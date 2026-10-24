@@ -16,7 +16,10 @@ from gmsjourney.pipeline import CampaignConfig, run_campaign
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--policy", default=None, help="policy graph JSON or structured policy markdown (default: gmsjourney/policy/charge_review_kg.json)")
+    ap.add_argument("--domain", default=None,
+                    help="domain pack: a name under gmsjourney/policy/ or a folder holding a policy graph and "
+                         "domain.yaml (default: $GMSJOURNEY_DOMAIN or charge_review)")
+    ap.add_argument("--policy", default=None, help="policy graph JSON or structured policy markdown (default: the domain pack's graph)")
     ap.add_argument("--out", default="output/campaign_out")
     ap.add_argument("--profile", default="voice_full")
     ap.add_argument("--runs-per-base", type=int, default=6)
@@ -74,7 +77,7 @@ if __name__ == "__main__":
     ap.add_argument("--llm-kb-turns", default="template", choices=["template", "llm"],
                     help="policy-question turns inside LLM rows: keep template wording (default) or rewrite")
     a = ap.parse_args()
-    cfg = CampaignConfig(out_dir=a.out, profile=a.profile, runs_per_base=a.runs_per_base, seed=a.seed,
+    cfg = CampaignConfig(domain=a.domain, out_dir=a.out, profile=a.profile, runs_per_base=a.runs_per_base, seed=a.seed,
                          max_cases=a.max_cases, progress=not a.no_progress,
                          run_mutation=not a.no_mutation, run_resilience=not a.no_resilience,
                          run_power=not a.no_power, run_governance=not a.no_governance,

@@ -32,7 +32,7 @@ from _store import kx_store  # noqa: E402
 from gmsjourney.ontology import Ontology, SemanticFrame as F  # noqa: E402
 from gmsjourney.oracle import PolicyOracle  # noqa: E402
 
-POLICY_KG = Path(__file__).resolve().parents[1] / "gmsjourney" / "policy" / "charge_review_kg.json"
+POLICY_KG = Path(__file__).resolve().parents[1] / "gmsjourney" / "policy" / "charge_review" / "charge_review_kg.json"
 
 
 @lru_cache(maxsize=1)

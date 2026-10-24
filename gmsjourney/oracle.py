@@ -14,7 +14,6 @@ proof (enrich/invariance.py) shows enrichment leaves unchanged.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any
 
 from .journey import JourneySpec, UserSimulator, build_fixture
@@ -32,22 +31,22 @@ class _TurnLimit(Exception):
     pass
 
 
-@dataclass
 class Limits:
-    max_transactions_per_session: int
-    lookback_days: int
-    max_auth_attempts: int
-    max_clarification_retries: int
-    max_unsure_retries: int
-    max_turns: int
-    expedited_fee: float
+    """Every limit of the policy graph plus the named figures (domain.yaml -> figures), read from
+    exact numeric memory. Attributes are the limit / figure names (``limits.max_turns``)."""
+
+    def __init__(self, **values: Any):
+        self.__dict__.update(values)
 
     @classmethod
     def from_store(cls, store) -> "Limits":
-        L = lambda k: store.lookup_enm("limit", k)
-        return cls(L("max_transactions_per_session"), L("lookback_days"), L("max_auth_attempts"),
-                   L("max_clarification_retries"), L("max_unsure_retries"), L("max_turns"),
-                   store.lookup_enm("delivery_fee_usd", "expedited_delivery"))
+        from .domain import current
+        dom = current()
+        cat = dom.get("figures.limits.enm_category", "limit")
+        vals = {k: store.lookup_enm(cat, k) for k in dom.limit_keys()}
+        for name, sp in (dom.get("figures.named") or {}).items():
+            vals[name] = store.lookup_enm(sp["enm_category"], sp["key"])
+        return cls(**vals)
 
     def as_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)

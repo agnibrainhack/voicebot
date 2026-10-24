@@ -56,13 +56,17 @@ from .ontology import Ontology
 from .oracle import PolicyOracle
 from .sut.adapter import JourneyRunner, make_reference_factory
 
-POLICY = Path(__file__).resolve().parent / "policy" / "charge_review_kg.json"          # the policy graph (source)
-POLICY_MD = Path(__file__).resolve().parent / "policy" / "charge_review_policy.md"   # its structured transcription
+from . import domain as _domain
+
+# the active domain pack ($GMSJOURNEY_DOMAIN, default charge_review): its policy graph and transcription
+POLICY = _domain.current().graph_path
+POLICY_MD = _domain.current().transcription_path
 
 
 @dataclass
 class CampaignConfig:
-    policy_path: str = str(POLICY)
+    domain: str | None = None                    # domain pack: name or folder (default $GMSJOURNEY_DOMAIN / charge_review)
+    policy_path: str = ""                        # default: the domain pack's policy graph
     out_dir: str = "output/campaign_out"
     profile: str = "voice_full"
     runs_per_base: int = 6
@@ -190,9 +194,15 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     out = Path(cfg.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     R: dict[str, Any] = {"config": {k: v for k, v in asdict(cfg).items() if k != "bot_factory"}}
+    dom = _domain.set_current(cfg.domain) if cfg.domain else _domain.current()
+    problems = _domain.lint(dom)
+    if problems:
+        raise _domain.DomainError(f"domain pack {dom.name} does not match its graph:\n  - " + "\n  - ".join(problems))
+    policy_path = cfg.policy_path or str(dom.graph_path)
+    R["domain"] = {"name": dom.name, "dir": str(dom.dir), "graph": dom.graph_path.name}
 
     # 1 -------------------------------------------------------------- store
-    store, build_report, R["backend"] = build_gms(cfg.policy_path,
+    store, build_report, R["backend"] = build_gms(policy_path,
                                                   kx_store_dir=cfg.kx_store_dir, rebuild=cfg.rebuild_store,
                                                   seed=cfg.seed, epochs=cfg.kx_epochs,
                                                   geode_epochs=cfg.kx_geode_epochs, max_iters=cfg.kx_geode_max_iters,
@@ -202,7 +212,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
                                                   contradiction_epochs=cfg.kx_contradiction_epochs,
                                                   dedup_mode=cfg.kx_dedup_mode, v_sft_mode=cfg.kx_v_sft_mode,
                                                   store_config=cfg.kx_store_config, log=log)
-    demo = build_store(cfg.policy_path, inject_misread=True)
+    demo = build_store(policy_path, inject_misread=True)
     caught = any(c.fact == ("expedited_delivery", "has_fee_usd", "150") and c.action.startswith("drop")
                  for c in demo.corrections)
     sdir = Path(build_report["store_dir"])

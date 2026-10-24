@@ -23,6 +23,7 @@ import re
 from functools import lru_cache
 
 from ..ontology import SemanticFrame as F
+from .lexicon import Lexicon
 from .noise import NUMBER_WORDS
 
 _WORD_NUM = {w: n for n, w in NUMBER_WORDS.items()}
@@ -30,42 +31,19 @@ _DIGIT_WORDS = {"zero": 0, "oh": 0, "one": 1, "won": 1, "two": 2, "to": 2, "too"
                 "four": 4, "for": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "ate": 8, "nine": 9}
 _STRICT_DIGITS = {"zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"}
 
-ASR_REPAIR = [
-    (r"\bre place\b", "replace"), (r"\bsee cure\b", "secure"), (r"\btrans action\b", "transaction"),
-    (r"\bexpedite it\b", "expedited"), (r"\ba gent\b", "agent"), (r"\bhumane\b", "human"),
-    (r"\bcart\b", "card"), (r"\brecognis(e|ed)\b", r"recogniz\1"), (r"\bunrecognised\b", "unrecognized"),
-    (r"\bfee's\b", "fee"), (r"\bfees\b", "fee"), (r"\bwrite\b", "right"), (r"\btheir\b", "there"),
-    (r"\bcharged\b", "charge"), (r"(?<!never )\bmind\b", "mine"),
-]
 FILLER_RE = re.compile(r"\b(um|uh|hmm|you know|okay so|like|so),\s*|\b(um|uh|hmm|you know|okay so)\b\s*")
 REPAIR_MARK = r"(?:\bwait\b|\bactually\b|\bi mean\b|\bsorry\b|\bon second thought\b)"
 REPORTED = re.compile(r"\b(told me|told us|said|says|according to)\b")
 
-UNSURE = r"\b(not sure|unsure|not certain|cant remember|cannot remember|dont remember|no idea|not positive|need more details)\b"
-UNREC = (r"\b(unrecognized|unauthorized|not mine|isnt mine|wasnt mine|wasnt me|not me|never made|never bought|"
-         r"never shopped|dont recognize|do not recognize|didnt make|didnt buy|did not make)\b")
-REC = (r"\b(i recognize|i do recognize|recognize (?:it|that|this|the)|is mine|was me|thats me|that was me|legit|"
-       r"i made (?:it|that|this)|i bought (?:it|that|this)|remember (?:buying|making)|thats mine|its mine|mine)\b")
-SECURE = r"\b(secure|lock|freeze|block)\b[^.?!|]{0,12}\bcard\b"
-REPLACE = r"\b(replace (?:my|the) card|new card|fresh card|reissue|another card|replace)\b"
-STANDARD = r"\b(standard|regular|normal)\b"
-EXPEDITED = r"\b(expedited|express|rush|overnight)\b"
-HUMAN = r"\b(human|real person|actual agent|an agent|representative|a person|live agent|transfer me|speak to someone)\b"
-END = r"\b(thats all|nothing else|no thanks|nothing more|all set|thats everything|im done|that will be all)\b"
-CONFIRM = r"\b(yes|yeah|yep|sure|go ahead|please do|proceed|that works|sounds good|do it|okay|ok|correct)\b"
-DENY = r"\b(no|nope|dont|cancel|stop|rather you didnt)\b"
-# hallucination probes: a fee/time question about an option the policy does not name
-OPTION_NAME = re.compile(r"\b([a-z]+(?:[ -][a-z]+)?) (?:delivery|shipping|courier)\b")
+# value / act cues, speech repairs, the domain vocabulary and near-miss words come from the
+# domain lexicon (domain.yaml -> lexicon); the lists below are language-level (English).
 NAME_STOP = set("""the a an does do is for of your my this that which whichever any pick choose use get with by via
 what whats how much long if i about on go want take cost costs fee price many business days option options would
 should and or to it its please tell me know wondering was were be have has can could will""".split())
-# qualifier words a caller may put in front of "delivery" that name no option of this policy; listed so
-# the typo repair can restore them (the reader must read a near-miss name back exactly)
-NEAR_MISS_WORDS = {"priority", "premium", "economy", "same", "day", "next", "platinum", "saver", "courier"}
-QWORD = re.compile(r"^(how|hows|what|whats|which|when|where|why|is|does|do|can|will|am|are|could|would|if|for)\b|"
-                   r"\b(i want to know|tell me|i was wondering|walk me through|is it true|am i right|can we|can you|"
-                   r"could you|do you|do i|will i|is there|is it|is a|does an|does a|how|what|whats|which|"
-                   r"i have a charge from)\b")
+_QWORD_START = r"^(how|hows|what|whats|which|when|where|why|is|does|do|can|will|am|are|could|would|if|for)\b"
+_QWORD_ANY = ["i want to know", "tell me", "i was wondering", "walk me through", "is it true", "am i right", "can we",
+              "can you", "could you", "do you", "do i", "will i", "is there", "is it", "is a", "does an", "does a",
+              "how", "what", "whats", "which"]
 
 
 # Valid English words are never "repaired" into cue words (a reader must not invent meaning).
@@ -104,28 +82,31 @@ def _osa(a: str, b: str, cap: int = 3) -> int:
 
 
 class FrameReader:
-    def __init__(self, store):
+    def __init__(self, store, lexicon: Lexicon | None = None):
         self.store = store
+        self.lx = lx = lexicon or Lexicon.current()
+        self.value_pat = lx.value_patterns                    # value -> cue regex
+        self.act_pat = lx.act_patterns                        # act -> cue regex
+        self.reading = lx.get("reading", {})
+        kbq = lx.kb
+        self.option_name = lx.option_name_regex
+        self.qword = re.compile(_QWORD_START + "|" + r"\b(" + "|".join(_QWORD_ANY + lx.get("question_cues", [])) + r")\b")
         vocab = set()
         for canon, als in store.aliases.items():
             for a in als + [canon.replace("_", " ")]:
                 vocab.update(re.findall(r"[a-z]+", a.lower().replace("'", "")))
-        for pat in (UNSURE, UNREC, REC, SECURE, REPLACE, STANDARD, EXPEDITED, HUMAN, END, CONFIRM, DENY):
+        for pat in list(self.value_pat.values()) + list(self.act_pat.values()):
             vocab.update(w for w in re.findall(r"[a-z]{4,}", pat))
-        vocab.update("""recognize recognized unrecognized transaction transactions charge charges purchase
-            expedited standard delivery shipping replace secure freeze express regular normal verification
-            verify attempts refund fraud representative person agent human business confirm confirmation
-            difference cheaper faster quickest fastest quicker sooner options review window remember certain
-            process steps unauthorized familiar proceed ahead thanks everything nothing replacement choices
-            approve arrive transfer speak details anything second thought actually expensive overall
-            dollars costs less which where option thats whats lookback tries wrong cost total
-            business quickly sooner money verify doesnt compared extra number versus going through""".split())
+        vocab.update(lx.vocabulary)
         self.domain_vocab = {w for w in vocab if len(w) >= 4}
         self.kg = getattr(store, "kg", None)                 # policy graph: dialog states
-        vocab.update(NEAR_MISS_WORDS)
+        vocab.update(kbq.get("near_miss_words", []))
         vocab.update(COMMON_WORDS)
         vocab.update(w for w in NUMBER_WORDS.values() if len(w) >= 4)
         self.vocab = {w for w in vocab if len(w) >= 4}
+        code_act = self.reading.get("code")
+        self.code_act = code_act
+        self.code_spec = lx.acts[code_act]["code"] if code_act else None
 
     # ------------------------------------------------------------ normalise
     @lru_cache(maxsize=50000)
@@ -134,7 +115,7 @@ class FrameReader:
         t = re.sub(r"(\d)\.(\d)", r"\1<dot>\2", t)
         t = t.replace("'", "")
         t = re.sub(r"\s+", " ", FILLER_RE.sub(" ", t)).strip()
-        for pat, rep in ASR_REPAIR:
+        for pat, rep in self.lx.speech_repairs:
             t = re.sub(pat, rep, t)
         t = " ".join(self._repair_token(w) for w in t.split(" "))
         t = self._numbers(t)
@@ -233,61 +214,72 @@ class FrameReader:
         return clean
 
     def cue_counts(self, text: str) -> dict[str, int]:
-        """How many decision cues an utterance carries (used to keep negative controls unambiguous)."""
+        """How many decision cues an utterance carries, per slot (used to keep negative controls
+        unambiguous). ``<slot>_values``: how many DIFFERENT values are cued ("it's mine, I made that
+        purchase" is one decision said twice, not two competing ones)."""
         j = " | ".join(c for c, _ in self.clauses(text))
-        m = self._disposition_matches(j)
-        n_std, n_exp = len(re.findall(STANDARD, j)), len(re.findall(EXPEDITED, j))
-        # *_values: how many DIFFERENT decisions are cued ("it's mine, I made that purchase" is one decision
-        # said twice, not two competing ones); the raw counts stay for the negative controls
-        return {"disposition": len(m), "delivery": n_std + n_exp,
-                "disposition_values": len({x[2] for x in m}), "delivery_values": int(n_std > 0) + int(n_exp > 0)}
+        out = {}
+        for slot in self.lx.slots:
+            m = self._matches(slot, j)
+            out[slot] = len(m)
+            out[f"{slot}_values"] = len({x[2] for x in m})
+        return out
 
     # ------------------------------------------------------------ read
     def read(self, text: str, state: str | None = None) -> F:
-        """Text -> meaning card. With the dialog state (policy graph attached), a 4-digit
-        number is read as a credential first only where the state asks for one; elsewhere
-        the other cues win and the number is a credential only if nothing else is said.
+        """Text -> meaning card. With the dialog state (policy graph attached), a code (e.g. a
+        4-digit credential) is read as such first only where the state asks for one; elsewhere
+        the other cues win and the number is a code only if nothing else is said.
         (How a bare yes/no is read in the state is the ontology's job: Ontology.canonicalize.)"""
         cl = self.clauses(text)
         joined = " | ".join(c for c, _ in cl)
-        if re.search(HUMAN, joined):
-            return F.make("REQUEST_HUMAN")
-        codes = re.findall(r"(?<![\d.$])\b(\d{4})\b(?!\.\d)", joined)
-        credential_state = (self.kg is None or state is None or state not in self.kg.prompt_states
-                            or self.kg.accepts(state, "PROVIDE_CREDENTIAL"))
-        if codes and credential_state:
-            return F.make("PROVIDE_CREDENTIAL", credential=codes[-1])
+        for act in self.reading.get("first", []):
+            if re.search(self.act_pat[act], joined):
+                return F.make(act)
+        codes = re.findall(self.code_spec["pattern"], joined) if self.code_spec else []
+        code_state = (self.kg is None or state is None or state not in self.kg.prompt_states
+                      or self.kg.accepts(state, self.code_act))
+        if codes and code_state:
+            return F.make(self.code_act, **{self.code_spec["slot"]: codes[-1]})
         f = self._read_rest(cl, joined)
         if codes and f.act == "UNCLEAR":
-            return F.make("PROVIDE_CREDENTIAL", credential=codes[-1])
+            return F.make(self.code_act, **{self.code_spec["slot"]: codes[-1]})
         return f
 
     def _read_rest(self, cl, joined: str) -> F:
         for c, q in cl:
-            if q or QWORD.search(c):
+            if q or self.qword.search(c):
                 kb = self._kb(c)
                 if kb is not None:
                     return kb
-        disp = self._disposition(joined)
-        card = self._card(joined)
-        if disp is not None:
-            d, corrected = disp
-            return F.make("INFORM_DISPOSITION", disposition=d, corrected_from=corrected, **card)
-        if card:
-            return F.make("REQUEST_CARD_ACTION", **card)
-        if re.search(END, joined):
-            return F.make("END")
-        cues = [(m.start(), "CONFIRM") for m in re.finditer(CONFIRM, joined)] + \
-               [(m.start(), "DENY") for m in re.finditer(DENY, joined)]
+        acts = self.lx.acts
+        value_acts = [a for a, sp in acts.items() if "slot" in sp]
+        request_acts = [a for a, sp in acts.items() if "slots" in sp]
+        for a in value_acts:
+            sp = acts[a]
+            v = self._pick(sp["slot"], joined)
+            if v is not None:
+                val, corrected = v
+                req = self._request_fields(acts[sp["with_request"]], joined) if sp.get("with_request") else {}
+                return F.make(a, **{sp["slot"]: val}, corrected_from=corrected, **req)
+        for a in request_acts:
+            req = self._request_fields(acts[a], joined)
+            if req:
+                return F.make(a, **req)
+        for a in self.reading.get("then", []):
+            if re.search(self.act_pat[a], joined):
+                return F.make(a)
+        cues = [(m.start(), a) for a in self.reading.get("last_cue", []) for m in re.finditer(self.act_pat[a], joined)]
         if cues:
             return F.make(max(cues)[1])
         return F.make("UNCLEAR")
 
-    @staticmethod
-    def _disposition_matches(joined: str) -> list[tuple[int, int, str]]:
+    # ------------------------------------------------------------ slot resolution
+    def _matches(self, slot: str, joined: str) -> list[tuple[int, int, str]]:
+        """Non-overlapping cue matches of a slot's values (earliest, then longest, first)."""
         found = []
-        for label, pat in (("UNSURE", UNSURE), ("UNRECOGNIZED", UNREC), ("RECOGNIZED", REC)):
-            for m in re.finditer(pat, joined):
+        for label in self.lx.slots[slot]["order"]:
+            for m in re.finditer(self.value_pat[label], joined):
                 found.append((m.start(), m.end(), label))
         found.sort(key=lambda x: (x[0], -(x[1] - x[0])))
         kept, last_end = [], -1
@@ -297,30 +289,41 @@ class FrameReader:
                 last_end = e
         return kept
 
-    def _disposition(self, joined: str) -> tuple[str, str | None] | None:
-        kept = self._disposition_matches(joined)
-        if not kept:
-            return None
-        final = kept[-1]
-        corrected = None
-        for s, e, lab in reversed(kept[:-1]):
-            if lab != final[2] and re.search(REPAIR_MARK, joined[e:final[0]]):
-                corrected = lab
-                break
-        return final[2], corrected
+    def _pick(self, slot: str, joined: str) -> tuple[str, str | None] | None:
+        """The slot's value per its rule; returns (value, corrected_from)."""
+        spec = self.lx.slots[slot]
+        rule, order = spec["pick"], spec["order"]
+        if rule == "final_with_correction":       # the latest clear answer wins (R21); a repair
+            kept = self._matches(slot, joined)    # marker makes the earlier one a correction
+            if not kept:
+                return None
+            final = kept[-1]
+            corrected = None
+            for s, e, lab in reversed(kept[:-1]):
+                if lab != final[2] and re.search(REPAIR_MARK, joined[e:final[0]]):
+                    corrected = lab
+                    break
+            return final[2], corrected
+        cands = []
+        for i, v in enumerate(order):
+            ms = list(re.finditer(self.value_pat[v], joined))
+            if ms:
+                pos = ms[0].start() if rule == "latest_first_mention" else ms[-1].start()
+                cands.append((pos, i, v))
+        return (max(cands)[2], None) if cands else None
 
-    def _card(self, joined: str) -> dict:
+    def _request_fields(self, spec: dict, joined: str) -> dict:
         out = {}
-        sec, rep = re.search(SECURE, joined), re.search(REPLACE, joined)
-        if sec and (not rep or sec.start() > rep.start()):
-            out["card_action"] = "SECURE_CARD"
-        elif rep:
-            out["card_action"] = "REPLACE_CARD"
-            st, ex = list(re.finditer(STANDARD, joined)), list(re.finditer(EXPEDITED, joined))
-            if st or ex:
-                last_st = st[-1].start() if st else -1
-                last_ex = ex[-1].start() if ex else -1
-                out["delivery"] = "standard_delivery" if last_st > last_ex else "expedited_delivery"
+        for role in ("action", "option"):
+            slot = spec["slots"][role]
+            cond = self.lx.slots[slot].get("only_if") or {}
+            if any(out.get(k) != v for k, v in cond.items()):
+                continue
+            if role == "option" and "action" in spec["slots"] and spec["slots"]["action"] not in out:
+                continue
+            v = self._pick(slot, joined)
+            if v is not None:
+                out[slot] = v[0]
         return out
 
     # ------------------------------------------------------------ KB intents
@@ -335,10 +338,9 @@ class FrameReader:
     def _kb(self, c: str) -> F | None:
         has = lambda p: re.search(p, c) is not None
         ents = set()
-        if has(STANDARD):
-            ents.add("standard_delivery")
-        if has(EXPEDITED):
-            ents.add("expedited_delivery")
+        for v in self.lx.slots[self.lx.kb["entity_slot"]]["order"]:
+            if has(self.value_pat[v]):
+                ents.add(v)
         ent = next(iter(ents)) if len(ents) == 1 else None
         money = self._money(c)
         fee_cue = has(r"\b(how much|cost|costs|fee|price|pay)\b")
@@ -380,9 +382,9 @@ class FrameReader:
             return K("cheaper")
         if not ents and (fee_cue or days_cue):
             # hallucination probes: the bot must abstain, so the meaning card must say what was asked
-            if fee_cue and re.search(SECURE, c):
+            if fee_cue and re.search(self.value_pat["SECURE_CARD"], c):
                 return K("unstated_fact", attr="fee", subject="SECURE_CARD")
-            m = OPTION_NAME.search(c)
+            m = self.option_name.search(c)
             if m:
                 words = [w for w in re.split(r"[ -]", m.group(1)) if w and w not in NAME_STOP]
                 if words:

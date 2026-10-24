@@ -212,8 +212,8 @@ _ABSTAIN = re.compile(r"(don't have|do not have|not able to|unable to|can't conf
 def _first_option(text: str) -> str | None:
     t = text.lower()
     pos = {}
-    for opt, words in (("standard_delivery", ["standard", "regular", "free delivery"]),
-                       ("expedited_delivery", ["expedited", "express", "rush", "faster option"])):
+    from .domain import current
+    for opt, words in (current().get("rules.bot_option_cues") or {}).items():
         idx = [t.find(w) for w in words if t.find(w) >= 0]
         if idx:
             pos[opt] = min(idx)

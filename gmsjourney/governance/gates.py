@@ -29,13 +29,11 @@ Open baseline vs GMS, as in the book's runtime-monitoring demo:
 """
 from __future__ import annotations
 
-import inspect
 import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable
 
-ACCOUNT_TOOLS = {"get_review_transactions", "record_charge_response", "get_card_action_options", "submit_card_action"}
 
 
 class GateDecision(str, Enum):
@@ -87,25 +85,27 @@ class GateState:
 
 # ----------------------------------------------------------------------------- registry
 class ToolRegistry:
-    """Tool names from the policy's tool table (store entity type 'tool'); argument
-    schemas from the backend contract (the mock backend's signatures); enumerated
-    argument values from the store's value sets."""
+    """Tool names from the policy's tool table (store entity type 'tool'); argument schemas
+    from the backend contract (domain.yaml -> tools.*.args: default "" = required, null =
+    optional); enumerated argument values from the store's value sets (tools.*.arg_values)."""
 
-    def __init__(self, store, backend_cls=None):
-        from ..sut.tools import ToolEnvironment
-        backend_cls = backend_cls or ToolEnvironment
+    def __init__(self, store, specs: dict[str, dict] | None = None):
+        from ..sut.tools import tool_specs
+        specs = specs if specs is not None else tool_specs()
         self.tools = sorted(t for t, ty in store.entity_types.items() if ty == "tool")
         self.args: dict[str, dict[str, bool]] = {}
         for t in self.tools:
-            fn = getattr(backend_cls, f"_t_{t}", None)
-            if fn is None:
+            if t not in specs:
                 continue
-            sig = inspect.signature(fn)          # default "" = required, default None = optional
-            self.args[t] = {n: p.default is inspect.Parameter.empty or p.default == ""
-                            for n, p in sig.parameters.items() if n != "self"}
+            self.args[t] = {n: d == "" for n, d in (specs[t].get("args") or {}).items()}
         vs = store.value_sets
-        self.enums = {"disposition": set(vs.get("disposition", [])), "action": set(vs.get("card_action", [])),
-                      "delivery": set(vs.get("delivery", [])) | {None}}
+        self.enums: dict[str, set] = {}
+        for sp in specs.values():
+            for arg, vset in (sp.get("arg_values") or {}).items():
+                optional = (sp.get("args") or {}).get(arg, "") is None
+                self.enums.setdefault(arg, set()).update(vs.get(vset, []))
+                if optional:
+                    self.enums[arg].add(None)
 
     def get(self, name: str) -> dict[str, bool]:
         if name not in self.args:
@@ -144,132 +144,17 @@ PolicyCheck = Callable[[ToolCall, GateState], GateResult]
 
 
 def compile_policies(store) -> list[PolicyCheck]:
-    """Symbolic checks for the policy's rules; every number comes from the ENM."""
-    L = lambda k: store.lookup_enm("limit", k)
-    fee = store.lookup_enm("delivery_fee_usd", "expedited_delivery")
-    A, D, E = GateDecision.ALLOW, GateDecision.DENY, GateDecision.ESCALATE
-
-    def authed(st: GateState) -> bool:
-        return any((c.get("result") or {}).get("status") == "AUTHENTICATED" for c in st.calls("authenticate_customer"))
-
-    def returned(st: GateState) -> dict[str, dict]:
-        c = st.last("get_review_transactions")
-        return {t["transaction_id"]: t for t in ((c or {}).get("result") or {}).get("transactions", [])} if c else {}
-
-    def after_transfer(a, st):
-        if st.calls("transfer_to_human"):
-            return GateResult(D, "policy", "tool call after transfer_to_human", rule="R20")
-        return GateResult(A, "policy")
-
-    def auth_before_access(a, st):
-        if a.tool_name in ACCOUNT_TOOLS and not authed(st):
-            return GateResult(D, "policy", f"{a.tool_name} before AUTHENTICATED", rule="R2/R3")
-        return GateResult(A, "policy")
-
-    def auth_attempts(a, st):
-        if a.tool_name == "authenticate_customer" and len(st.calls("authenticate_customer")) >= L("max_auth_attempts"):
-            return GateResult(D, "policy", f"attempt {len(st.calls('authenticate_customer')) + 1} > max_auth_attempts="
-                              f"{L('max_auth_attempts')}", rule="R4")
-        return GateResult(A, "policy")
-
-    def returned_only(a, st):
-        if a.tool_name == "record_charge_response":
-            tid = a.arguments.get("transaction_id")
-            got = returned(st)
-            if tid not in got:
-                return GateResult(D, "policy", f"{tid} was not returned by get_review_transactions", rule="R7/R24")
-            if got[tid].get("age_days", 0) > L("lookback_days"):
-                return GateResult(D, "policy", f"{tid} is {got[tid]['age_days']} days old > lookback_days="
-                                  f"{L('lookback_days')}", rule="R30")
-            done = {c["args"].get("transaction_id") for c in st.calls("record_charge_response")}
-            if tid not in done and len(done) >= L("max_transactions_per_session"):
-                return GateResult(D, "policy", f"transaction {len(done) + 1} > max_transactions_per_session="
-                                  f"{L('max_transactions_per_session')}", rule="R31")
-        return GateResult(A, "policy")
-
-    def disposition_from_caller(a, st):
-        """R9/R21/R22: the recorded disposition is the caller's latest clear answer."""
-        if a.tool_name != "record_charge_response":
-            return GateResult(A, "policy")
-        n_prev = len(st.calls("record_charge_response"))
-        frames = st.user_frames
-        disp = None
-        for f in reversed(frames):
-            if getattr(f, "act", None) == "INFORM_DISPOSITION":
-                disp = f.get("disposition")
-                break
-        want = a.arguments.get("disposition")
-        if disp is None:
-            return GateResult(D, "policy", f"records {want} but the caller gave no clear answer", rule="R22")
-        if disp != want and n_prev >= 0:
-            return GateResult(D, "policy", f"records {want}; the caller's latest clear answer is {disp}", rule="R21")
-        return GateResult(A, "policy")
-
-    def unsure_then_transfer(a, st):
-        """R11: once UNSURE is recorded the only next action is a transfer."""
-        c = st.last("record_charge_response")
-        if c and c["args"].get("disposition") == "UNSURE" and a.tool_name != "transfer_to_human":
-            return GateResult(D, "policy", "UNSURE was recorded; the next action must be a transfer", rule="R11")
-        return GateResult(A, "policy")
-
-    def offer_only_returned(a, st):
-        if a.tool_name == "submit_card_action":
-            c = st.last("get_card_action_options")
-            opts = ((c or {}).get("result") or {}).get("options", []) if c and c.get("ok") else []
-            if a.arguments.get("action") not in opts:
-                return GateResult(D, "policy", f"{a.arguments.get('action')} not among returned options {opts}", rule="R15")
-        return GateResult(A, "policy")
-
-    def confirm_and_disclose(a, st):
-        if a.tool_name != "submit_card_action":
-            return GateResult(A, "policy")
-        since = st.options_at if st.options_at is not None else 0
-        confirmed = [i for i, f in enumerate(st.user_frames) if i >= since and getattr(f, "act", None) == "CONFIRM"]
-        if a.arguments.get("delivery") == "expedited_delivery":
-            if st.fee_disclosed_at is None or not any(i >= st.fee_disclosed_at for i in confirmed):
-                return GateResult(D, "policy", f"expedited delivery without disclosing the ${fee} fee and a "
-                                  "confirmation after it", rule="R26")
-        if not confirmed:
-            return GateResult(E, "policy", "submit without a customer confirmation", rule="R16")
-        return GateResult(A, "policy")
-
-    def human_requested(a, st):
-        if st.human_requested and a.tool_name != "transfer_to_human":
-            return GateResult(E, "policy", "customer asked for a human; next action should be a transfer", rule="R20")
-        return GateResult(A, "policy")
-
-    def turn_limit(a, st):
-        if st.user_turns > L("max_turns") and a.tool_name != "transfer_to_human":
-            return GateResult(E, "policy", f"turn {st.user_turns} > max_turns={L('max_turns')}", rule="R28")
-        return GateResult(A, "policy")
-
-    return [after_transfer, auth_before_access, auth_attempts, returned_only, disposition_from_caller,
-            unsure_then_transfer, offer_only_returned, confirm_and_disclose, human_requested, turn_limit]
+    """The policy's call checks, compiled from domain.yaml -> rules.calls (governance/rules.py);
+    every number comes from the ENM."""
+    from .rules import compile_call_checks
+    return compile_call_checks(store)
 
 
 def completeness_check(store, st: GateState) -> list[GateResult]:
-    """End of conversation (R6/R12/R18): without a transfer, every returned reviewable
-    transaction up to the session limit must have been recorded with SUCCESS."""
-    if st.calls("transfer_to_human"):
-        return []
-    c = st.last("get_review_transactions")
-    txns = ((c or {}).get("result") or {}).get("transactions", []) if c and c.get("ok") else []
-    look = store.lookup_enm("limit", "lookback_days")
-    cap = store.lookup_enm("limit", "max_transactions_per_session")
-    due = [t["transaction_id"] for t in txns if t.get("age_days", 0) <= look][:cap]
-    ok = {x["args"].get("transaction_id") for x in st.calls("record_charge_response")
-          if (x.get("result") or {}).get("status") == "SUCCESS"}
-    missing = [t for t in due if t not in ok]
-    out = []
-    if missing:
-        out.append(GateResult(GateDecision.ESCALATE, "completeness", f"conversation ended with reviewable "
-                              f"transactions never recorded: {missing}", rule="R12/R18"))
-    unsure = [x["args"].get("transaction_id") for x in st.calls("record_charge_response")
-              if x["args"].get("disposition") == "UNSURE" and (x.get("result") or {}).get("status") == "SUCCESS"]
-    if unsure:
-        out.append(GateResult(GateDecision.ESCALATE, "completeness", f"UNSURE recorded for {unsure} but the "
-                              "conversation ended without a transfer", rule="R11"))
-    return out
+    """End of conversation (domain.yaml -> rules.completion): without a handoff, every returned
+    item due for review must have been written with success, and no terminal value left behind."""
+    from .rules import completion_results
+    return completion_results(store, st)
 
 
 class PolicyGate:
@@ -322,72 +207,80 @@ class GMSPlanGate:
 
 # ----------------------------------------------------------------------------- speech gates
 _MONEY = re.compile(r"\$\s?(\d+(?:\.\d+)?)")
-_RECORDED = re.compile(r"\b(recorded|i've noted|noted that|saved your answer)\b", re.I)
-_DONE = re.compile(r"\b(that's done|it's done|done\.|has been (replaced|secured|submitted))\b", re.I)
-_FRAUD = re.compile(r"\b(is|means|confirms|confirmed|proves?) (fraud|that it was fraud)\b", re.I)
-_NOT_FRAUD = re.compile(r"(not,? (by itself,? )?(proof|confirm|mean)|doesn'?t (mean|prove)|does not (mean|prove)|"
-                        r"isn'?t (proof|fraud)|not necessarily)", re.I)
-_CARD_NUMBER = re.compile(r"\b(?:\d[ -]?){13,19}\b")
 _DAYS = re.compile(r"\b(\d+)\s*(?:(?:to|-|–)\s*(\d+)\s*)?(?:business\s+|calendar\s+)?days?\b", re.I)
 
 
 class SpeechMonitor:
-    """Checks on bot utterances (the book's draft verifier, generalised to a voice bot)."""
+    """Checks on bot utterances (the book's draft verifier, generalised to a voice bot). The
+    checks, their patterns and the figures they compare with come from domain.yaml -> rules
+    (speech, spoken_figures); every figure is read from exact numeric memory."""
     name = "speech"
 
     def __init__(self, store):
+        from ..domain import current
+        from .rules import figure
         self.store = store
-        self.fees = {o: store.lookup_enm("delivery_fee_usd", o) for o in ("standard_delivery", "expedited_delivery")}
-        self.days = {o: (store.lookup_enm("delivery_days_min", o), store.lookup_enm("delivery_days_max", o))
-                     for o in self.fees}
-        self.limits = {k: store.lookup_enm("limit", k) for k in
-                       ("max_transactions_per_session", "lookback_days", "max_auth_attempts", "max_turns")}
+        dom = current()
+        self.cfg = dom.section("rules")
+        sf = self.cfg["spoken_figures"]
+        fee_cat = dom.get(f"figures.relations.{sf['options']['relation']}.enm_category")
+        opts = list(store.value_sets.get(sf["options"]["over"], []))
+        self.option_set = sf["options"]["over"]
+        self.fees = {o: store.lookup_enm(fee_cat, o) for o in opts}
+        dt = sf["delivery_time"]
+        self.days = {o: (store.lookup_enm(dt["min"], o), store.lookup_enm(dt["max"], o)) for o in self.fees}
+        self.window = (sf["review_window"]["limit"], figure(store, sf["review_window"]["limit"]))
+        self.cap = (re.compile(sf["cap"]["pattern"]), sf["cap"]["limit"], figure(store, sf["cap"]["limit"]))
+        self.checks = [{**c, "_re": re.compile(c["pattern"], re.I),
+                        "_unless": re.compile(c["unless"], re.I) if c.get("unless") else None}
+                       for c in self.cfg.get("speech", [])]
         from .attestor import NumericRangeAttestor
         self.attestor = NumericRangeAttestor(store)
         self.attestations: list[dict[str, Any]] = []
 
     def check(self, text: str, acts: list[dict] | None, st: GateState) -> list[GateResult]:
+        from ..sut.tools import tool_specs
         out: list[GateResult] = []
         t = text or ""
         acts = acts or []
         names = {a.get("act") for a in acts}
-        # R13: recorded claimed without a SUCCESS that echoes the request
-        if "CONFIRM_RECORDED" in names or (not acts and _RECORDED.search(t)):
-            c = st.last("record_charge_response")
-            r = (c or {}).get("result") or {}
-            ok = c is not None and c.get("ok") and r.get("status") == "SUCCESS" and \
-                r.get("transaction_id") == c["args"].get("transaction_id")
-            if not ok:
-                out.append(GateResult(GateDecision.DENY, "speech", "claims a response was recorded without a matching "
-                                      "SUCCESS", rule="R13"))
-        # R17: card action claimed without SUCCESS
-        if "ACTION_DONE" in names or (not acts and _DONE.search(t)):
-            c = st.last("submit_card_action")
-            r = (c or {}).get("result") or {}
-            ok = c is not None and c.get("ok") and r.get("status") == "SUCCESS" and r.get("action") == c["args"].get("action")
-            if not ok:
-                out.append(GateResult(GateDecision.DENY, "speech", "claims a card action completed without SUCCESS",
-                                      rule="R17"))
-        # R27: fraud stance, verified in u-space
-        if _FRAUD.search(t) and not _NOT_FRAUD.search(t):
-            chk = self.store.stance_check("unrecognized_transaction", "is_proof_of", "fraud", +1)
-            if chk["verdict"] == "contradicted":
-                out.append(GateResult(GateDecision.DENY, "speech", f"asserts fraud; contradicts the policy stance "
-                                      f"(tension {chk['energy']:.2f})", score=chk["energy"], rule="R27"))
-        # PII: never read out a full card number
-        if _CARD_NUMBER.search(t):
-            out.append(GateResult(GateDecision.ESCALATE, "speech", "utterance contains a full card number", rule="PII"))
+        for c in self.checks:
+            kind = c["check"]
+            if kind == "claim_after_success":            # a claim only after a SUCCESS echoing the request
+                if c["act"] in names or (not acts and c["_re"].search(t)):
+                    last = st.last(c["tool"])
+                    r = (last or {}).get("result") or {}
+                    ok_status = (tool_specs()[c["tool"]].get("status") or {}).get("ok")
+                    ok = last is not None and last.get("ok") and r.get("status") == ok_status and \
+                        r.get(c["echo"]) == last["args"].get(c["echo"])
+                    if not ok:
+                        out.append(GateResult(GateDecision.DENY, "speech", c["message"], rule=c["rule"]))
+            elif kind == "forbidden_stance":             # verified in u-space against the policy stance
+                if c["_re"].search(t) and not (c["_unless"] and c["_unless"].search(t)):
+                    chk = self.store.stance_check(*c["stance"], +1)
+                    if chk["verdict"] == "contradicted":
+                        out.append(GateResult(GateDecision.DENY, "speech", f"{c['message']} "
+                                              f"(tension {chk['energy']:.2f})", score=chk["energy"], rule=c["rule"]))
+            elif kind == "pii":
+                if c["_re"].search(t):
+                    out.append(GateResult(GateDecision.ESCALATE, "speech", c["message"], rule=c["rule"]))
+            else:
+                raise ValueError(f"rules.speech: unknown check {kind!r}")
         out += self._numbers(t, st)
         out += self._attest(t, st, out)
         return out
 
+    def _items(self, st: GateState) -> list[dict]:
+        it = self.cfg["spoken_figures"]["items"]
+        c = st.last(it["source"])
+        return ((c or {}).get("result") or {}).get(it["key"], []) if c else []
+
     def _attest(self, t: str, st: GateState, already: list[GateResult]) -> list[GateResult]:
         """gmsh-style three-way verdict on the figures no other speech check has flagged."""
-        c = st.last("get_review_transactions")
-        txns = ((c or {}).get("result") or {}).get("transactions", []) if c else []
+        it = self.cfg["spoken_figures"]["items"]
         flagged = " ".join(r.reason for r in already)
         out = []
-        for a in self.attestor.attest(t, {float(x["amount"]) for x in txns}):
+        for a in self.attestor.attest(t, {float(x[it["amount"]]) for x in self._items(st)}):
             self.attestations.append(a.as_dict())
             v = f"{a.value:g}"
             if a.verdict == "PASS" or re.search(rf"(?<![\d.]){re.escape(v)}(?![\d])", flagged):
@@ -399,60 +292,62 @@ class SpeechMonitor:
         return out
 
     def _numbers(self, t: str, st: GateState) -> list[GateResult]:
-        """Every figure the bot speaks is either an account fact (must match tool results,
-        R7/R24) or a policy fact (must match the ENM byte-exact)."""
+        """Every figure the bot speaks is either an account fact (must match the read tool's
+        items) or a policy fact (must match the ENM byte-exact)."""
+        sf = self.cfg["spoken_figures"]
+        it, fee, dt, rw = sf["items"], sf["fee"], sf["delivery_time"], sf["review_window"]
         out = []
-        c = st.last("get_review_transactions")
-        txns = ((c or {}).get("result") or {}).get("transactions", []) if c else []
-        account_amounts = {float(x["amount"]) for x in txns}
-        account_ages = {int(x["age_days"]) for x in txns}
-        merchants = [str(x.get("merchant", "")).lower() for x in txns]
+        txns = self._items(st)
+        account_amounts = {float(x[it["amount"]]) for x in txns}
+        account_ages = {int(x[it["age"]]) for x in txns}
+        names = [str(x.get(it["name"], "")).lower() for x in txns]
+        noun = it.get("noun", "transaction")
         for sent in re.split(r"(?<=[.?!])\s+", t):
             if not sent.strip() or not re.search(r"\d", sent):
                 continue                          # only sentences that state a figure are checked
             attr, _ = self.store.attribute_of(sent)
             from ..kb_truth import _first_option
-            opt = _first_option(sent)               # the delivery option the sentence is about, if any
+            opt = _first_option(sent)               # the option the sentence is about, if any
             if opt is None and st.user_frames:      # else the option the caller just asked about
                 f = st.user_frames[-1]
                 if getattr(f, "act", None) == "ASK_KB" and f.get("entity") in self.fees:
                     opt = f.get("entity")
+            low = sent.lower()
             for m in _MONEY.finditer(sent):
                 v = float(m.group(1))
                 if v in account_amounts:
                     continue
-                if attr == "fee" or "fee" in sent.lower() or "cost" in sent.lower():
+                if attr == fee["attribute"] or any(w in low for w in fee["cues"]):
                     allowed = {float(self.fees[opt])} if opt else {float(x) for x in self.fees.values()}
-                    if v not in allowed and not ("difference" in sent.lower() or "more than" in sent.lower()):
-                        out.append(GateResult(GateDecision.DENY, "speech", f"fee ${v:g} for {opt or 'delivery'} is not "
-                                              f"the ENM value {sorted(allowed)}", rule="ENM"))
+                    if v not in allowed and not any(w in low for w in fee["exempt_cues"]):
+                        out.append(GateResult(GateDecision.DENY, "speech", f"fee ${v:g} for {opt or self.option_set} "
+                                              f"is not the ENM value {sorted(allowed)}", rule="ENM"))
                 elif not account_amounts or v not in account_amounts:
-                    out.append(GateResult(GateDecision.DENY, "speech", f"amount ${v:g} matches no returned transaction",
+                    out.append(GateResult(GateDecision.DENY, "speech", f"amount ${v:g} matches no returned {noun}",
                                           rule="R7/R24"))
             for m in _DAYS.finditer(sent):
                 lo, hi = int(m.group(1)), int(m.group(2) or m.group(1))
-                low = sent.lower()
                 if "ago" in low[m.end():m.end() + 6]:
-                    if not any(mm and mm in low for mm in merchants):
+                    if not any(mm and mm in low for mm in names):
                         continue                 # a hypothetical ("a charge from 31 days ago"), not an account fact
                     if lo not in account_ages:
                         out.append(GateResult(GateDecision.DENY, "speech", f"age {lo} days matches no returned "
-                                              "transaction", rule="R7/R24"))
+                                              f"{noun}", rule="R7/R24"))
                     continue
-                if attr == "delivery_time" or "deliver" in low or "arrive" in low:
+                if attr == dt["attribute"] or any(w in low for w in dt["cues"]):
                     rng = [self.days[opt]] if opt else list(self.days.values())
                     ok = any(hi in d or lo in d for d in rng)
                     if not ok:
                         out.append(GateResult(GateDecision.DENY, "speech", f"{lo}-{hi} days is not a delivery time in "
                                               f"the ENM register {self.days}", rule="ENM"))
-                elif attr == "review_window" and hi != self.limits["lookback_days"]:
-                    out.append(GateResult(GateDecision.DENY, "speech", f"window {hi} days != lookback_days="
-                                          f"{self.limits['lookback_days']}", rule="ENM"))
-            m = re.search(r"up to (\d+) (charges|transactions)", sent.lower())
-            if m and int(m.group(1)) != self.limits["max_transactions_per_session"]:
+                elif attr == rw["attribute"] and hi != self.window[1]:
+                    out.append(GateResult(GateDecision.DENY, "speech", f"window {hi} days != {self.window[0]}="
+                                          f"{self.window[1]}", rule="ENM"))
+            cap_re, cap_name, cap_val = self.cap
+            m = cap_re.search(low)
+            if m and int(m.group(1)) != cap_val:
                 out.append(GateResult(GateDecision.DENY, "speech", f"says up to {m.group(1)} charges; "
-                                      f"max_transactions_per_session={self.limits['max_transactions_per_session']}",
-                                      rule="ENM"))
+                                      f"{cap_name}={cap_val}", rule="ENM"))
         return out
 
 

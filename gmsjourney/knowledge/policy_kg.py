@@ -1,6 +1,6 @@
 """The policy as one clean head / relation / tail graph, with dialog states (book Ch. 2-4).
 
-``policy/charge_review_kg.json`` is the single machine-readable source the rest of the
+``policy/charge_review/charge_review_kg.json`` is the single machine-readable source the rest of the
 pipeline reads. It is built once from the operating-procedure PDF by
 ``python -m gmsjourney.knowledge.policy_kg build`` and committed; every later step
 (GMS training, the oracle's limits, the state-aware ontology mapper, the exports) reads
@@ -42,9 +42,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-POLICY_DIR = Path(__file__).resolve().parents[1] / "policy"
+# authoring: build_kg below writes the charge-review graph into its domain pack
+POLICY_DIR = Path(__file__).resolve().parents[1] / "policy" / "charge_review"
 KG_PATH = POLICY_DIR / "charge_review_kg.json"
 TRANSCRIPTION = POLICY_DIR / "charge_review_policy.md"
+REPO_ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_ID = "gmsjourney.policy_kg/1"
 
 # --------------------------------------------------------------------------- the brief
@@ -478,7 +480,7 @@ def build_kg(transcription: str | Path = TRANSCRIPTION, pdf_path: str | Path | N
     ing = ingest_markdown(transcription)
     _, sec = _split_sections(md_text)
     if pdf_path is None:
-        cand = POLICY_DIR.parents[1] / "fictional_poc_operating_procedure_gpt_readable.pdf"
+        cand = REPO_ROOT / "fictional_poc_operating_procedure_gpt_readable.pdf"
         pdf_path = cand if cand.exists() else None
     if pdf_path is None:
         raise FileNotFoundError("the operating-procedure PDF is needed to attach evidence")
@@ -691,7 +693,10 @@ class PolicyKG:
 
     # ------------------------------------------------------------- io
     @classmethod
-    def load(cls, path: str | Path = KG_PATH) -> "PolicyKG":
+    def load(cls, path: str | Path | None = None) -> "PolicyKG":
+        if path is None:                         # the active domain pack's graph
+            from ..domain import current
+            path = current().graph_path
         p = Path(path)
         kg = cls(json.loads(p.read_text(encoding="utf-8")), p)
         errs = kg.validate()

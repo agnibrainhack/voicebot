@@ -615,7 +615,7 @@ def build_page(policy: Path, title: str | None, layout: str = "builtin", directi
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--policy", default=str(ROOT / "gmsjourney" / "policy" / "charge_review_kg.json"))
+    ap.add_argument("--policy", default=str(ROOT / "gmsjourney" / "policy" / "charge_review" / "charge_review_kg.json"))
     ap.add_argument("--out", default=str(ROOT / "docs" / "POLICY_GRAPH_SHOWCASE.html"))
     ap.add_argument("--title", default=None, help="page title (default: the file's title + ': state-transition graph')")
     ap.add_argument("--layout", default="builtin", choices=["builtin", "graphviz"],

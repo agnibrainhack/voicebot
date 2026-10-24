@@ -1,7 +1,7 @@
 """The canonical vocabulary as the *trained* GMS holds it (gms_canonicals.json).
 
 For every canonical individual the export records what the trained store says about it,
-next to what the policy graph (policy/charge_review_kg.json) states:
+next to what the policy graph (policy/charge_review/charge_review_kg.json) states:
 
 * value sets  - each canonical value, its aliases, and how the trained GMS binds every
                 alias (``fuzzy_match_entity(alias, mode="frame")``: the GEODE-tuned v encoder)
