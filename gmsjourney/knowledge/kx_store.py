@@ -62,6 +62,7 @@ import contextlib
 import io
 import json
 import math
+import os
 import random
 import time
 from dataclasses import dataclass, field
@@ -73,6 +74,28 @@ import numpy as np
 from .. import backend
 from .kx_view import kx_relation, kx_triple, render_gms_markdown
 from .store import GMSStore
+
+# ============================================================================ device
+# The one place the device is set, for building and for loading the store: "cpu", "cuda",
+# "cuda:1", "mps" or "auto" (cuda when available, else cpu). The GMSJOURNEY_DEVICE environment
+# variable overrides it without editing the file. The device is not part of the store's cache
+# key: a store built on a GPU loads on a CPU and vice versa. (knowlytix's contradiction_sft
+# takes no device argument and places itself.)
+DEVICE = "auto"
+
+
+def device() -> str:
+    d = os.environ.get("GMSJOURNEY_DEVICE") or DEVICE
+    if d == "auto":
+        import torch
+        d = "cuda" if torch.cuda.is_available() else "cpu"
+    return d
+
+
+def _on_device(x):
+    """A tensor moved to the store's device (the tuned encoder may return it on the CPU)."""
+    return x.to(device()) if hasattr(x, "to") else x
+
 
 ENM_MAP = {"limit": ("limits", "{key}"), "delivery_fee_usd": ("delivery_options", "{key}/fee_usd"),
            "delivery_days_min": ("delivery_options", "{key}/business_days_min"),
@@ -136,7 +159,7 @@ def store_config(store_dir: str | Path, overrides: dict | None = None):
         if not hasattr(obj, path[-1]):
             raise KeyError(f"DocGMSConfig has no field {key!r}")
         setattr(obj, path[-1], value)
-    cfg.train.device = "cpu"
+    cfg.train.device = device()
     return cfg
 
 
@@ -168,7 +191,7 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, geode_epoc
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    dev = torch.device("cpu")
+    dev = torch.device(device())
     timings: dict[str, float] = {}
 
     # 0. compile the policy (symbolic facts + the GMS view GEODE ingests)
@@ -186,7 +209,7 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, geode_epoc
     cfg = store_config(store_dir, {"train.seed": seed, **(store_overrides or {})})
     ingest = cfg.ingest_mode
     cfg.embedding = EmbeddingConfig(semantic_model=enc["v"], logical_model=enc["u"], warm_start=True,
-                                    freeze_base=True, dim_policy="project", device="cpu")
+                                    freeze_base=True, dim_policy="project", device=device())
     trainer = make_default_trainer(dev, epochs=geode_epochs)
 
     # 1. GEODE self-correction
@@ -218,7 +241,7 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, geode_epoc
 
     def embed(mode: str):
         extra = {"epochs": sft_epochs} if sft_epochs is not None else {}     # else the package default (100)
-        sft = EmbeddingSFTConfig(rank=8, mode=mode, encoder=enc["v"], out_dim=cfg.geometry.d_v, device="cpu",
+        sft = EmbeddingSFTConfig(rank=8, mode=mode, encoder=enc["v"], out_dim=cfg.geometry.d_v, device=device(),
                                  **extra)
         with _quiet():
             eloop = GeodeEmbedLoop(make_default_trainer(dev, epochs=embed_trainer_epochs),
@@ -345,7 +368,7 @@ def load_kx_store(policy_path: str | Path, store_dir: str | Path) -> KXBuild:
     # recorded used DEFAULT_STORE_CONFIG)
     cfg = store_config(store_dir, (report.get("store") or {}).get("config_overrides"))
     with _quiet():
-        kx = GMSExpertStore(cfg, device=torch.device("cpu"))
+        kx = GMSExpertStore(cfg, device=torch.device(device()))
         if not kx.load():
             raise RuntimeError(f"could not load the knowlytix store at {store_dir / 'kx'}")
         judge = GMSJudge(kx)
@@ -391,8 +414,8 @@ def _binding_eval(ft, probes, base_encoder: str) -> dict[str, Any]:
     after = float(np.mean([p == g for p, g in zip(preds, gold)]))
     # raw encoder: prototype = encoded humanized canonical name
     with _quiet():
-        P = encode_texts([lab.replace("_", " ") for lab in labels], base_encoder, "cpu").numpy()
-        X = encode_texts(texts, base_encoder, "cpu").numpy()
+        P = encode_texts([lab.replace("_", " ") for lab in labels], base_encoder, device()).cpu().numpy()
+        X = encode_texts(texts, base_encoder, device()).cpu().numpy()
     raw = [labels[int(np.argmax(P @ x))] for x in X]
     before = float(np.mean([p == g for p, g in zip(raw, gold)]))
     return {"before": before, "after": after, "n_probes": len(probes),
@@ -412,8 +435,8 @@ def _routing_eval(phrasings: dict[str, list[str]], base_encoder: str, epochs: in
         with _quiet():
             ft = contradiction_sft(tr, base_model=base_encoder, epochs=epochs)
             preds, _ = ft.classify([x for x, _ in te])
-            cen = {g: encode_texts(p, base_encoder, "cpu").numpy().mean(0) for g, p in tr.items()}
-            X = encode_texts([x for x, _ in te], base_encoder, "cpu").numpy()
+            cen = {g: encode_texts(p, base_encoder, device()).cpu().numpy().mean(0) for g, p in tr.items()}
+            X = encode_texts([x for x, _ in te], base_encoder, device()).cpu().numpy()
         names = list(cen)
         C = np.stack([cen[g] / np.linalg.norm(cen[g]) for g in names])
         raw = [names[int(np.argmax(C @ x))] for x in X]
@@ -467,7 +490,7 @@ class CachedKX:
         """Native ``score_triple_emb``; the tail vector comes from the store's tuned v encoder.
         Memoised by the tail's text (the tuned encoder reloads its base model on each call)."""
         return self._memo(("e", head, rel, tail_text),
-                          lambda: self._kx.score_triple_emb(head, rel, encoder.encode([tail_text])))
+                          lambda: self._kx.score_triple_emb(head, rel, _on_device(encoder.encode([tail_text]))))
 
 
 class KXPolicyStore(GMSStore):

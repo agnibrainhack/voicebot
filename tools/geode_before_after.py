@@ -39,7 +39,7 @@ E = lambda s: html.escape(str(s), quote=True)
 def names_view(store, report: dict) -> dict:
     """Held-out noisy aliases: raw-encoder guess vs GEODE-tuned-encoder guess, per example."""
     import numpy as np
-    from gmsjourney.knowledge.kx_store import _noisy_probes, _quiet
+    from gmsjourney.knowledge.kx_store import _noisy_probes, _quiet, device
     with _quiet():
         from knowlytix.core.graph.encoders import encode_texts
     pairs = [(c, a) for c, als in store.aliases.items() for a in als]
@@ -50,8 +50,8 @@ def names_view(store, report: dict) -> dict:
     texts, gold = [p for p, _ in probes], [c.lower() for _, c in probes]
     with _quiet():
         after, _ = ft.classify(texts)
-        P = encode_texts([lab.replace("_", " ") for lab in labels], report["encoders"]["v"], "cpu").numpy()
-        X = encode_texts(texts, report["encoders"]["v"], "cpu").numpy()
+        P = encode_texts([lab.replace("_", " ") for lab in labels], report["encoders"]["v"], device()).cpu().numpy()
+        X = encode_texts(texts, report["encoders"]["v"], device()).cpu().numpy()
     before = [labels[int(np.argmax(P @ x))] for x in X]
     rows = [{"text": t, "alias": s, "gold": g, "before": b, "after": a}
             for t, s, g, b, a in zip(texts, source_alias, gold, before, after)]
