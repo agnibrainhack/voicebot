@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -85,9 +86,12 @@ class PolicyGraph:
         self.rules: dict[str, dict[str, Any]] = {}
         for rid, r in (data.get("rules") or {}).items():
             if isinstance(r, list):
-                self.rules[rid] = {"stance": r[0], "text": r[1], "check": (r[2] if len(r) > 2 else None)}
+                check, states = _split_statement(r[2] if len(r) > 2 else None)
+                self.rules[rid] = {"stance": r[0], "text": r[1], "check": check, "states": states}
             else:
-                self.rules[rid] = {"stance": r["stance"], "text": r["text"], "check": r.get("check")}
+                check, states = _split_statement(r.get("check"))
+                self.rules[rid] = {"stance": r["stance"], "text": r["text"], "check": check,
+                                   "states": r.get("states") or states}
         self.sha256 = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
     @classmethod
@@ -471,6 +475,9 @@ class PolicyGraph:
             for c in (cs if isinstance(cs, list) else [cs] if cs else []):
                 if not any(k in c for k in CHECK_KINDS):
                     errs.append(f"rules.{rid}: check has none of {CHECK_KINDS}")
+            st = r.get("states")
+            if st is not None and not (isinstance(st, list) and len(st) == 3 and all(isinstance(x, str) and x for x in st)):
+                errs.append(f"rules.{rid}: states must be [subject, predicate, object]")
         for a, slots in acts.items():
             for sl, vs in slots.items():
                 if vs not in self.values and vs not in ("credential_code", "text"):
@@ -754,22 +761,54 @@ def to_triples(g: PolicyGraph) -> list[dict[str, Any]]:
     return out
 
 
+def _split_statement(cs):
+    """A rule's third element: its machine checks, with an optional ``{"states": [s, p, o]}``
+    entry (the fact the rule states) taken out. Returns (checks in the same shape, statement)."""
+    if not cs:
+        return None, None
+    items = cs if isinstance(cs, list) else [cs]
+    checks, states = [], None
+    for c in items:
+        if isinstance(c, dict) and "states" in c:
+            states = list(c["states"])
+            c = {k: v for k, v in c.items() if k != "states"}
+            if not c:
+                continue
+        checks.append(c)
+    if isinstance(cs, list):
+        return (checks or None), states
+    return (checks[0] if checks else None), states
+
+
+_STOP = {"a", "an", "the", "and", "or", "of", "to", "for", "with", "it", "its", "that", "this", "be", "is", "are"}
+
+
+def statement_slug(text: str, words: int = 8) -> str:
+    """The object of a rule that states no triple of its own: its wording, as an entity name."""
+    toks = [t for t in re.findall(r"[a-z0-9]+", text.lower()) if t not in _STOP]
+    return "_".join(toks[:words]) or "rule"
+
+
 def rule_reification(g: PolicyGraph, rid: str) -> tuple[str, str, str]:
-    """(subject, predicate, object) a rule states: from its check when it has one, else from the
-    states that apply it."""
+    """(subject, predicate, object): the fact a rule states, which the contradiction primitive
+    compares (two rules contradict only when they state the same fact with opposite stances).
+
+    In order: the rule's declared ``states`` triple; the fact its machine check constrains; the
+    escalation it justifies; else ``bot states <its wording>``. Two different rules never share a
+    triple merely because they apply in the same dialog state."""
     r = g.rules[rid]
-    c = r.get("check") or {}
+    if r.get("states"):
+        return tuple(r["states"])
+    cs = r.get("check")
+    c = (cs[0] if isinstance(cs, list) else cs) or {}
     kind = next((k for k in c if k in CHECK_KINDS), None)
     if kind:
         obj = c[kind] if isinstance(c[kind], str) else (c.get("tool") or c.get("act") or g.root)
         return "bot", kind, obj
-    states = [s for s, sp in g.states.items() if rid in sp.get("rules", [])]
     reasons = [k for k, v in (g.transfers.get("reasons") or {}).items() if v == rid]
     if reasons:
         return "bot", "transfers_on", reasons[0]
-    if states:
-        return "bot", "applies_in", states[0]
-    return "bot", "follows", g.root
+    return "bot", "states", statement_slug(r["text"])
 
 
 # ============================================================================ the graph as PolicyKG

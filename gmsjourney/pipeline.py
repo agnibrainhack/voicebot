@@ -97,6 +97,7 @@ class CampaignConfig:
     # Picked round-robin over the base categories, so a small sample still covers every kind of case.
     max_cases: int | None = None
     progress: bool = True                        # tqdm progress bars for the bot runs (when tqdm is installed)
+    allow_failed_self_tests: bool = False        # graph packs: run on even if the store fails its self-tests
     max_failed_cases_in_report: int = 400        # failed runs listed one by one in the report (all in failures.jsonl)
     kx_dedup_mode: str = "off"                   # off | audit | accept   (knowledge/kx_store.py)
     kx_v_sft_mode: str = "full"                  # full (reference) | rotation | ab (train both, keep the better)

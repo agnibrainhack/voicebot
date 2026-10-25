@@ -183,11 +183,17 @@ def convert(src: Path = SRC) -> dict:
         text = next((x["evidence"] for x in T if x["head"] == t and x["relation"] == "is_a"), "")
         tools[t] = {**sp, "ok": ok, "fail": fail, "text": text}
     stance = {t["head"]: t["tail"] for t in T if t["relation"] == "has_stance"}
+    # the fact each rule states (v1: the triple qualified by the rule), carried over for the rules
+    # that have no machine check, so the contradiction primitive compares what the rules say
+    statement = {(t.get("qualifiers") or {}).get("rule"): [t["head"], t["relation"], t["tail"]]
+                 for t in T if (t.get("qualifiers") or {}).get("rule") and t["kind"] != "trajectory"}
     rules = {}
     for rid in sorted(stance, key=lambda r: int(r[1:])):
         r = [stance[rid], tails(rid, "has_text")[0]]
         if rid in CHECKS:
             r.append(CHECKS[rid])
+        elif statement.get(rid) and rid not in TRANSFERS["reasons"].values():   # an escalation rule states
+            r.append({"states": statement[rid]})                                 # its graph transfer reason
         rules[rid] = r
     facts = [[t["head"], t["relation"], t["tail"]] for t in T if t["kind"] == "domain"
              and t["relation"] in ("has_session", "reviews", "governed_by", "subject_to", "has_disposition", "limited_by",

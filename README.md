@@ -106,14 +106,14 @@ policy/supplementary_card/
 | `values` | value sets: members with customer synonyms and attributes (`annual_fee_usd: 95`, `allowed: "no"`) |
 | `acts` | what a customer turn can mean and its slots (optional slots, slots that need another, updates) |
 | `tools` | role (auth / read / write / handoff), arguments, success and failure statuses, the echoed field, what it returns |
-| `rules` | stance, wording and an optional machine check (`requires_auth`, `confirm_before`, `disclose_before`, ...) |
+| `rules` | stance, wording, an optional machine check (`requires_auth`, `confirm_before`, `disclose_before`, ...) and, for a rule with no check, the fact it states (`{"states": ["bot", "guess", "ambiguous_response"]}`; else its wording). The contradiction primitive compares these facts |
 | `states` | the machine: ask states (`on` customer act), call states (`on` tool status, `UNAVAILABLE`, `ECHO_MISMATCH`), say states, loops over returned items (`each`, `where`, `cap`, `@next`), the end |
 | `transfers`, `global` | transfer reasons and their rules; what applies at every prompt: a request for a person, a policy question, an unclear answer, the turn limit |
 
 Mined from it: the store and the knowlytix GMS view; the tools, figures, rule checks and stages; policy questions from
 the figures; journeys (every path with at most two deviations from the default, a coverage closure one deviation
 deeper, and failure perturbations over every prompt); the expected behaviour (an interpreter over the machine); the
-trace scoring; a reference bot and its defects. Two packs run on it:
+trace scoring; a reference bot and its defects; the store's stance and path-consistency cuts (fitted on the pack's own opposites - must/must_not and every prompt's yes/no reading - and on the compositions its facts close; a cohort that does not separate is refused, and the campaign stops when the store fails its self-tests). Two packs run on it:
 
 - `charge_review_graph`: the charge-review policy converted from the v1 graph (`tools/convert_charge_review_v2.py`).
   Replaying 487 v1 cases (covering array, policy-question bases, 400 random journeys) with the same customer turns and

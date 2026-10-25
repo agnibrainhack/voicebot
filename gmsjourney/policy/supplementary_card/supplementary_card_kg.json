@@ -60,13 +60,13 @@
   "transfer_to_human": {"stage": "handoff", "role": "handoff", "args": {"reason": "transfer_reason"}, "ok": "TRANSFERRED", "text": "Hands the call to a human representative."}
  },
  "rules": {
-  "R1": ["must", "Play the required opening statement before anything else."],
+  "R1": ["must", "Play the required opening statement before anything else.", {"states": ["bot", "play_before_anything", "opening_statement"]}],
   "R2": ["must_not", "Discuss the account or call an account tool before authentication succeeds.", {"requires_auth": true}],
-  "R3": ["must", "Verify the caller with authenticate_customer using the last four digits of the primary card."],
+  "R3": ["must", "Verify the caller with authenticate_customer using the last four digits of the primary card.", {"states": ["bot", "verify_caller_with", "authenticate_customer"]}],
   "R4": ["must", "After max_auth_attempts failed attempts, transfer to a human.", {"max_calls": "authenticate_customer", "limit": "max_auth_attempts"}],
   "R5": ["must", "If authentication is unavailable, transfer to a human."],
   "R6": ["must", "Right after authentication, check eligibility; take an application only for an eligible account.", {"requires_status": "submit_supplementary_application", "needs": "check_supplementary_eligibility", "status": "ELIGIBLE"}],
-  "R7": ["must", "For an eligible account, ask for the applicant's relationship and age."],
+  "R7": ["must", "For an eligible account, ask for the applicant's relationship and age.", {"states": ["bot", "ask_when_eligible", "relationship_and_age"]}],
   "R8": ["must", "If the account is not eligible, tell the customer the reason the eligibility check gave and take no application.", {"say_result": "EXPLAIN_INELIGIBLE", "field": "reason", "tool": "check_supplementary_eligibility"}],
   "R9": ["must", "If the eligibility check refers the account, transfer to a human for manual review."],
   "R10": ["must", "If the eligibility check is unavailable, transfer to a human."],
@@ -74,16 +74,16 @@
   "R12": ["must_not", "Take an application for an applicant younger than min_applicant_age.", {"requires_slot": "submit_supplementary_application", "slot": "age_band", "values": ["ADULT"]}],
   "R13": ["must", "Before submitting a card with an annual fee, state the fee and get a clear confirmation after it.", {"disclose_before": "submit_supplementary_application", "arg": "card_product", "attr": "requires_fee_confirmation", "values": ["yes"], "act": "DISCLOSE_FEE"}],
   "R14": ["must", "Read back the relationship and card choice; submit only after the customer clearly confirms.", {"confirm_before": "submit_supplementary_application", "act": "CONFIRM"}],
-  "R15": ["must", "If the customer declines, submit nothing, acknowledge it and offer other help."],
+  "R15": ["must", "If the customer declines, submit nothing, acknowledge it and offer other help.", {"states": ["bot", "on_decline_submit", "nothing"]}],
   "R16": ["must_not", "Say the application was submitted unless the submit tool returned SUBMITTED for the same card.", {"claim_needs_success": "CONFIRM_SUBMITTED", "tool": "submit_supplementary_application"}],
   "R17": ["must", "If the submission is declined or the submit tool is unavailable, transfer to a human."],
-  "R18": ["must", "Treat a submission that echoes a different card than requested as a failure."],
+  "R18": ["must", "Treat a submission that echoes a different card than requested as a failure.", {"states": ["bot", "treat_echo_mismatch_as", "submission_failure"]}],
   "R19": ["must", "If the customer asks for a human at any point, transfer.", {"handoff_when_requested": true}],
-  "R20": ["may", "Answer general policy questions from the knowledge base, then return to the pending question."],
+  "R20": ["may", "Answer general policy questions from the knowledge base, then return to the pending question.", {"states": ["bot", "answer_policy_questions_from", "knowledge_base"]}],
   "R21": ["must", "If an answer is unclear, ask one short clarification; if it is still unclear, transfer."],
   "R22": ["must", "If the conversation reaches max_turns before the application is complete, transfer.", {"turn_limit": "max_turns"}],
   "R23": ["must_not", "Call any tool after transfer_to_human.", {"no_call_after_handoff": true}],
-  "R24": ["must", "Use the exact policy figures for fees, delivery times and limits."]
+  "R24": ["must", "Use the exact policy figures for fees, delivery times and limits.", {"states": ["bot", "use_exact_figures_for", "fees_delivery_and_limits"]}]
  },
  "transfers": {
   "state": "TRANSFER",

@@ -102,6 +102,13 @@ def run_graph_campaign(cfg, log: Callable[[str], None] = print) -> dict[str, Any
     # 2 -------------------------------------------------------------- policy questions
     log("[2/12] mining policy-question bases from the graph's figures (two-way admission)")
     kb_items, kb_info = mine_kb_items(store, cfg.seed)
+    if not kb_info["self_tests"]["passed"]:
+        msg = ("the store failed its self-tests (book Ch. 4.3), so nothing can be scored against it: "
+               + json.dumps(kb_info["self_tests"], default=str)[:1500])
+        if not getattr(cfg, "allow_failed_self_tests", False):
+            (out / "self_tests_failed.json").write_text(json.dumps(kb_info["self_tests"], indent=1, default=str))
+            raise RuntimeError(msg)
+        log("      WARNING: " + msg[:300] + " (continuing: allow_failed_self_tests=True)")
     admitted = [k for k in kb_items if k.admission != "rejected"]
     R["kb"] = {"items": [{"qid": k.qid, "category": k.category, "frame": str(k.frame), "answer": k.answer,
                           "primitive": k.primitive, "admission": k.admission, "recovery": k.recovery,

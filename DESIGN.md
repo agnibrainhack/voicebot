@@ -592,6 +592,16 @@ limit) is declared once.
 - *Store:* the graph expands to triples (546 for the supplementary card, 9,000+ lines of v1 JSON become ~150 for it);
   numbers go to the exact register; knowledge-base prose is reconciled against it (a planted misread is dropped); the
   GMS view has one table per value set with numbers.
+- *Rules as facts:* each rule is reified as the fact it states - its declared `states` triple, else what its machine
+  check constrains, else the escalation it justifies, else its wording - never as the dialog state that applies it, so
+  two different rules applied in one state are not compared as one fact by the contradiction primitive.
+- *Store self-tests (book Ch. 4.3):* the stance cuts are fitted on the pack's own opposites (must/must_not and every
+  prompt's yes/no reading; agreement = each with itself): GMSJudge's three-way cuts when it can fit them, else the
+  cohort's zero-error band (agree / uncertain / contradict, never collapsed into one cut), else refused as degenerate.
+  The path-consistency cut is fitted on the compositions the pack's facts close (a chain r1..rk whose every instance a
+  direct relation also asserts) against the same chain with unrelated relations; a pack with none has nothing for
+  holonomy to certify and reports it not applicable. The policy must contain no contradiction, a planted reversal
+  must be caught and every mined composition certified, or the campaign stops (`allow_failed_self_tests` overrides).
 - *Journeys:* the oracle runs in explore mode; every decision the script does not make yet (a tool's next result, the
   customer's next answer in a prompt) branches. Paths deviate from the default at most twice; a value-only deviation is
   taken alone; a closure one deviation deeper keeps paths that reach a new edge, state, rule or transfer reason;

@@ -176,6 +176,65 @@ def test_base_journey_review_passes_and_catches_a_wrong_expectation():
     print(f"ok test_base_journey_review_passes_and_catches_a_wrong_expectation {dom.name}")
 
 
+def test_rules_state_distinct_facts_and_contradiction_calibration_comes_from_the_graph():
+    """Two rules share a fact only if they state the same thing (a planted reversal does); the
+    stance and path cuts are fitted on the pack's own opposites and compositions, and a cohort
+    that does not separate is refused rather than collapsed."""
+    from collections import defaultdict
+    from gmsjourney.graph.model import PolicyGraph, rule_reification
+    from gmsjourney.knowledge.kx_store import KXPolicyStore
+    dom, store, *_ = env(_pack())
+    g = dom.graph
+    by = defaultdict(set)
+    for rid, r in g.rules.items():
+        by[rule_reification(g, rid)].add(r["stance"])
+    assert not [k for k, v in by.items() if len(v) > 1], "rules with opposite stances share a fact"
+    bad = PolicyGraph({**g.data, "rules": {**g.data["rules"], "RX": ["must", "x", {"states": ["bot", "x"]}]}})
+    assert any("RX" in e for e in bad.validate())
+
+    class FakeKX:                                  # u-space / holonomy reads, scripted
+        def __init__(self, opp, same=0.0, comp=None):
+            self.opp, self.same, self.comp = opp, same, comp or {}
+
+        def tension_energy(self, a, b):
+            return self.same if a == b else self.opp
+
+        def check_holonomy(self, path, direct):          # knowlytix names carry a has_ prefix
+            bare = lambda r: r[4:] if r.startswith("has_") else r
+            return self.comp.get((tuple(map(bare, path)), bare(direct)), 5.0)
+
+    def kx_store(fake):
+        st = KXPolicyStore.__new__(KXPolicyStore)
+        st.__dict__.update(store.__dict__)
+        st.kx = fake
+        return st
+
+    st = kx_store(FakeKX(opp=1.2, same=0.01))
+    t = st._tension_from_graph({})
+    assert t["status"] == "ok" and t["tau_agree"] < t["tau_contra"], t           # three bands, not one cut
+    st.__dict__["calibration"] = {"tension": t, "holonomy": {"status": "not_applicable"}}
+    rid, r = next((k, v) for k, v in st.rules.items() if v.stance == "must")
+    assert st.find_contradictions() == []
+    from gmsjourney.knowledge.ingest import Rule
+    planted = {**st.rules, f"{rid}x": Rule(f"{rid}x", "must_not", r.subject, r.predicate, r.obj, "x", r.source)}
+    assert [(c["a"], c["b"]) for c in st.find_contradictions(planted)] == [(rid, f"{rid}x")]
+    t = kx_store(FakeKX(opp=0.01, same=0.5))._tension_from_graph({})
+    assert t["status"] == "degenerate" and t["tau_contra"] is None, t             # refused, never collapsed
+    st.__dict__["calibration"]["tension"] = t
+    try:
+        st.find_contradictions()
+        raise AssertionError("a degenerate tension calibration must not be used")
+    except RuntimeError:
+        pass
+    assert st.stance_check(r.subject, r.predicate, r.obj, +1)["verdict"] == "unavailable"
+    h = kx_store(FakeKX(opp=1.0, comp={(("precedes", "precedes"), "precedes_two"): 0.1}))._holonomy_from_graph()
+    if "precedes_two" in store.by_r:                                                # charge review carries v1's
+        assert h["status"] == "ok" and any(p["direct"] == "precedes_two" for p in h["positives"]), h
+    else:
+        assert h["status"] == "not_applicable" and h["tau_path"] is None, h
+    print(f"ok test_rules_state_distinct_facts_and_contradiction_calibration_comes_from_the_graph {dom.name}")
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 or os.environ.get("GMSJOURNEY_DOMAIN") in PACKS:
         if len(sys.argv) > 1:
