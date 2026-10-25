@@ -1,16 +1,27 @@
 """The policy oracle: expected behaviour, computed rather than annotated (Ch. 12.4).
 
-``PolicyOracle`` is an executable reading of the policy graph. It reads every
-limit from the exact numeric register (lookup_enm), the opening line and rules
-from the store, and the admissible transitions from the store's `enables`
-edges; it then plays the journey against the user simulator on the same backend
-fixture the bot will face. The resulting ``Trace`` is the ground truth: outcome
-signature, per-stage decisions, which rules fired and which workflow edges
-were traversed.
+``PolicyOracle`` is an executable reading of the policy. It walks the journey the domain
+pack prescribes (domain.yaml -> flow) as a sequence of service-bot patterns:
 
-The oracle consumes semantic frames only. It never reads text, so its answer
-depends on what the customer *meant*, which is exactly what the invariance
-proof (enrich/invariance.py) shows enrichment leaves unchanged.
+  authenticate   ask for the credential, call the auth tool, retry up to a limit
+  fetch          call the read tool, keep the items inside the review window
+  per item       present it, capture the caller's answer (clarify / unsure retries),
+                 write it with the write tool, confirm it, and run the follow-up action
+                 (options -> disclose a figure -> confirm -> submit) once when the
+                 answer calls for it; past the per-session cap, explain the limit
+  finish         summarise what was written, ask whether anything else is needed, end
+  handoff        any time: a request for a person, a failed or unavailable tool, a
+                 retry limit or the turn limit hands over (with a summary first)
+
+Every act name, tool, argument, rule id and limit comes from the domain pack, and every
+limit and figure is read from the exact numeric register (lookup_enm). The oracle plays the
+journey against the user simulator on the same backend fixture the bot will face; the
+resulting ``Trace`` is the ground truth: outcome signature, per-stage decisions, which rules
+fired and which workflow edges were traversed.
+
+The oracle consumes semantic frames only. It never reads text, so its answer depends on what
+the customer *meant*, which is exactly what the invariance proof (enrich/invariance.py) shows
+enrichment leaves unchanged.
 """
 from __future__ import annotations
 
@@ -19,7 +30,7 @@ from typing import Any
 from .journey import JourneySpec, UserSimulator, build_fixture
 from .kb_truth import kb_answer
 from .ontology import SemanticFrame
-from .sut.tools import ToolEnvironment, ToolError, ToolGateway
+from .sut.tools import ToolEnvironment, ToolError
 from .trace import Trace
 
 
@@ -54,11 +65,23 @@ class Limits:
 
 class PolicyOracle:
     def __init__(self, store):
+        from .domain import current
+        dom = current()
         self.store = store
+        self.flow = dom.section("flow")
+        self.tools = dom.section("tools")
+        items = dom.get("fixtures.items") or {}
+        self.id_field, self.age_field = items.get("id_field"), items.get("age_field")
         self.limits = Limits.from_store(store)
-        self.opening = store.required_language.get("opening", "")
+        self.opening = store.required_language.get(self.flow["opening"]["text_from"], "")
 
-    # ------------------------------------------------------------------ public
+    def L(self, name: str) -> Any:
+        return getattr(self.limits, name)
+
+    def _ok(self, tool: str) -> str:
+        sp = self.tools[tool]
+        return sp["check"]["success"] if sp.get("check") else sp["status"]["ok"]
+
     def run(self, spec: JourneySpec, fixture: dict[str, Any] | None = None,
             frames_override: list[SemanticFrame] | None = None,
             gateway_factory=None) -> Trace:
@@ -67,7 +90,7 @@ class PolicyOracle:
         fixture = fixture or build_fixture(spec)
         env = ToolEnvironment(fixture)
         tools = gateway_factory(env) if gateway_factory else env
-        sim = UserSimulator(spec, fixture, self.limits.lookback_days)
+        sim = UserSimulator(spec, fixture, self.L(self.flow["fetch"]["window"]["limit"]))
         replay = list(frames_override) if frames_override is not None else None
         tr = Trace()
         self._tr, self._tools, self._sim, self._replay = tr, tools, sim, replay
@@ -85,7 +108,7 @@ class PolicyOracle:
 
     def _ask(self, *acts: dict[str, Any]) -> SemanticFrame:
         """Emit bot acts that expect a reply; return the customer's frame."""
-        if self._tr.turns >= self.limits.max_turns:
+        if self._tr.turns >= self.L(self.flow["turn_limit"]["limit"]):
             raise _TurnLimit()
         self._bot(*acts)
         if self._replay is not None:
@@ -93,7 +116,7 @@ class PolicyOracle:
         else:
             frame = self._sim.respond(acts[-1])
         if frame is None:
-            self._tr.notes.append("customer_silent")
+            self._tr.notes.append(self.flow["silent_note"])
             self._tr.ended = True
             raise _Stop()
         self._tr.turns += 1
@@ -112,218 +135,247 @@ class PolicyOracle:
         return res
 
     def _transfer(self, reason: str, rule: str) -> None:
+        h = self.flow["handoff"]
         self._tr.rules_fired.add(rule)
         acts = []
         rec = self._recorded_claims()
         if rec:
-            self._tr.rules_fired.add("R19")
-            acts.append({"act": "SUMMARIZE", "recorded": rec})
-        acts.append({"act": "TRANSFER", "reason": reason})
+            self._tr.rules_fired.add(h["summary"]["rule"])
+            acts.append({"act": h["summary"]["act"], h["summary"]["field"]: rec})
+        acts.append({"act": h["act"], "reason": reason})
         self._bot(*acts)
+        arg = next(iter(self.tools[h["tool"]].get("args") or {"reason": ""}))
         try:
-            self._call("transfer_to_human", reason=reason)
+            self._call(h["tool"], **{arg: reason})
         except ToolError:
             pass
         raise _Stop()
+
+    def _give_up(self, spec: dict[str, str]) -> None:
+        self._transfer(spec["reason"], spec["rule"])
 
     def _recorded_claims(self) -> dict[str, str]:
         return dict(self._tr.claims_recorded)
 
     def _answer_kb(self, frame: SemanticFrame) -> dict[str, Any]:
+        q = self.flow["question"]
         truth = kb_answer(self.store, frame)
         self._tr.kb.append({"frame": frame, "answer": truth.answer, "correct": True})
-        self._tr.rules_fired.update({"R25"} | ({"R27"} if frame.get("intent") == "fraud" else set()))
-        return {"act": "ANSWER_KB", "intent": frame.get("intent"), "answer": truth.answer}
+        self._tr.rules_fired.update(set(q["rules"]) | set((q.get("intent_rules") or {}).get(frame.get("intent"), [])))
+        return {"act": q["answer"], "intent": frame.get("intent"), "answer": truth.answer}
+
+    def _is_human(self, f) -> bool:
+        return f.act == self.flow["human"]["act"]
+
+    def _to_human(self) -> None:
+        self._transfer(self.flow["human"]["reason"], self.flow["human"]["rule"])
+
+    def _is_question(self, f) -> bool:
+        return f.act == self.flow["question"]["act"]
 
     # ----------------------------------------------------------------- journey
     def _journey(self) -> None:
         try:
             self._authenticate()
-            txns = self._retrieve()
-            self._review(txns)
+            items = self._fetch()
+            self._per_item(items)
         except _TurnLimit:
             if self._phase == "finish":
+                fin = self.flow["finish"]
                 self._tr.ended = True
-                self._bot({"act": "SUMMARIZE", "recorded": self._recorded_claims()}, {"act": "END"})
+                self._bot({"act": fin["summary"]["act"], fin["summary"]["field"]: self._recorded_claims()},
+                          {"act": fin["end"]})
                 raise _Stop()
-            self._transfer("turn_limit", "R28")
+            tl = self.flow["turn_limit"]
+            self._transfer(tl["reason"], tl["rule"])
 
     def _authenticate(self) -> None:
-        tr = self._tr
-        tr.rules_fired.update({"R1", "R2"})
+        tr, A, cl = self._tr, self.flow["authenticate"], self.flow["clarify"]
+        op = self.flow["opening"]
+        tr.rules_fired.update(op["rules"])
         attempts, unclear = 0, 0
-        acts: tuple = ({"act": "OPENING", "text": self.opening}, {"act": "ASK_AUTH"})
+        acts: tuple = ({"act": op["act"], "text": self.opening}, {"act": A["ask"]})
         while True:
             f = self._ask(*acts)
-            if f.act == "REQUEST_HUMAN":
-                self._transfer("customer_request", "R20")
-            if f.act == "ASK_KB":
-                acts = (self._answer_kb(f), {"act": "ASK_AUTH"})
+            if self._is_human(f):
+                self._to_human()
+            if self._is_question(f):
+                acts = (self._answer_kb(f), {"act": A["ask"]})
                 continue
-            if f.act != "PROVIDE_CREDENTIAL":
+            if f.act != A["act"]:
                 unclear += 1
-                if unclear > self.limits.max_clarification_retries:
-                    self._transfer("ambiguity_persists", "R23")
-                tr.rules_fired.add("R22")
-                acts = ({"act": "ASK_CLARIFY"}, {"act": "ASK_AUTH"})
+                if unclear > self.L(cl["limit"]):
+                    self._give_up(cl["give_up"])
+                tr.rules_fired.add(cl["rule"])
+                acts = ({"act": cl["act"]}, {"act": A["ask"]})
                 continue
             try:
-                res = self._call("authenticate_customer", credential=f.get("credential"))
+                res = self._call(A["tool"], **{arg: f.get(slot) for arg, slot in A["args"].items()})
             except ToolError:
-                self._transfer("auth_unavailable", "R5")
-            if res.get("status") == "AUTHENTICATED":
-                tr.rules_fired.add("R3")
+                self._give_up(A["unavailable"])
+            if res.get("status") == self._ok(A["tool"]):
+                tr.rules_fired.update(A["success_rules"])
                 return
             attempts += 1
-            if attempts >= self.limits.max_auth_attempts:
-                self._transfer("auth_failed", "R4")
-            acts = ({"act": "ASK_AUTH_RETRY"},)
+            if attempts >= self.L(A["limit"]):
+                self._give_up(A["exhausted"])
+            acts = ({"act": A["retry"]},)
 
-    def _retrieve(self) -> list[dict[str, Any]]:
-        tr = self._tr
+    def _fetch(self) -> list[dict[str, Any]]:
+        tr, Fe = self._tr, self.flow["fetch"]
         try:
-            res = self._call("get_review_transactions")
+            res = self._call(Fe["tool"])
         except ToolError:
-            self._transfer("retrieve_unavailable", "R14")
-        txns = res.get("transactions", [])
-        tr.rules_fired.update({"R7", "R24"})
-        within = [t for t in txns if t["age_days"] <= self.limits.lookback_days]
-        if len(within) != len(txns) or any(t["age_days"] == self.limits.lookback_days for t in txns):
-            tr.rules_fired.add("R30")
+            self._give_up(Fe["unavailable"])
+        items = res.get(self.tools[Fe["tool"]]["key"], [])
+        tr.rules_fired.update(Fe["rules"])
+        look = self.L(Fe["window"]["limit"])
+        within = [t for t in items if t[self.age_field] <= look]
+        if len(within) != len(items) or any(t[self.age_field] == look for t in items):
+            tr.rules_fired.add(Fe["window"]["rule"])
         if not within:
-            tr.rules_fired.add("R8")
+            tr.rules_fired.add(Fe["empty"]["rule"])
             self._phase = "finish"
-            f = self._ask({"act": "EXPLAIN_NO_TXNS"}, {"act": "ASK_MORE_HELP"})
-            while f.act == "ASK_KB":
-                f = self._ask(self._answer_kb(f), {"act": "ASK_MORE_HELP"})
-            if f.act == "REQUEST_HUMAN":
-                self._transfer("customer_request", "R20")
-            tr.ended = True
-            self._bot({"act": "END"})
-            raise _Stop()
+            more = self.flow["finish"]["more_help"]
+            f = self._ask({"act": Fe["empty"]["act"]}, {"act": more})
+            self._finish_reply(f)
         return within
 
-    def _review(self, within: list[dict[str, Any]]) -> None:
-        tr, L = self._tr, self.limits
-        to_review = within[: L.max_transactions_per_session]
-        more = len(within) > L.max_transactions_per_session
-        prefix: list[dict[str, Any]] = []
-        card_done = False
-        for idx, txn in enumerate(to_review):
-            tid = txn["transaction_id"]
-            tr.presented.append(tid)
-            tr.rules_fired.add("R6")
-            final, card = self._capture(tid, prefix)
-            prefix = []
-            # record before advancing (R12); claim only on SUCCESS with matching echo (R13, R33)
-            try:
-                res = self._call("record_charge_response", transaction_id=tid, disposition=final)
-            except ToolError:
-                self._transfer("record_failed", "R14")
-            tr.rules_fired.add("R12")
-            if res.get("status") != "SUCCESS" or res.get("transaction_id") != tid:
-                tr.rules_fired.update({"R13", "R33"} if res.get("transaction_id") != tid else {"R13"})
-                self._transfer("record_failed", "R14")
-            tr.claims_recorded[tid] = final
-            prefix.append({"act": "CONFIRM_RECORDED", "txn": tid, "disposition": final})
-            if final == "UNSURE":
-                self._transfer("unsure_twice", "R11")
-            if final == "UNRECOGNIZED" and card and not card_done:
-                card_done = True
-                prefix = self._card_action(card, prefix, remaining=idx < len(to_review) - 1)
-        if more:
-            tr.rules_fired.add("R31")
-            self._bot(*prefix, {"act": "EXPLAIN_LIMIT"})
-            self._transfer("transaction_limit", "R31")
-        self._phase = "finish"
-        tr.rules_fired.add("R19")
-        f = self._ask(*prefix, {"act": "SUMMARIZE", "recorded": self._recorded_claims()},
-                      {"act": "ASK_MORE_HELP"})
-        while f.act == "ASK_KB":
-            f = self._ask(self._answer_kb(f), {"act": "ASK_MORE_HELP"})
-        if f.act == "REQUEST_HUMAN":
-            self._transfer("customer_request", "R20")
-        tr.ended = True
-        self._bot({"act": "END"})
+    def _finish_reply(self, f) -> None:
+        """The caller's reply to 'anything else?': answer questions, hand over on request, end."""
+        more = self.flow["finish"]["more_help"]
+        while self._is_question(f):
+            f = self._ask(self._answer_kb(f), {"act": more})
+        if self._is_human(f):
+            self._to_human()
+        self._tr.ended = True
+        self._bot({"act": self.flow["finish"]["end"]})
         raise _Stop()
 
+    def _per_item(self, within: list[dict[str, Any]]) -> None:
+        tr, P = self._tr, self.flow["per_item"]
+        W, FU = P["write"], P.get("follow_up")
+        cap = self.L(P["cap"]["limit"])
+        to_review = within[:cap]
+        more = len(within) > cap
+        prefix: list[dict[str, Any]] = []
+        follow_done = False
+        for idx, item in enumerate(to_review):
+            tid = item[self.id_field]
+            tr.presented.append(tid)
+            tr.rules_fired.add(P["present"]["rule"])
+            final, request = self._capture(tid, prefix)
+            prefix = []
+            # write before advancing; claim only on success with a matching echo
+            try:
+                res = self._call(W["tool"], **{W["args"]["item"]: tid, W["args"]["value"]: final})
+            except ToolError:
+                self._give_up(W["failed"])
+            tr.rules_fired.add(W["rule"])
+            if res.get("status") != self._ok(W["tool"]) or res.get(W["echo"]) != tid:
+                tr.rules_fired.update(W["failed"]["echo_mismatch_rules"] if res.get(W["echo"]) != tid
+                                      else W["failed"]["rules"])
+                self._give_up(W["failed"])
+            tr.claims_recorded[tid] = final
+            prefix.append({"act": W["confirm"]["act"], W["confirm"]["item_field"]: tid,
+                           W["confirm"]["value_field"]: final})
+            if final == W["terminal"]["value"]:
+                self._give_up(W["terminal"])
+            if FU and final == FU["when_value"] and request and not follow_done:
+                follow_done = True
+                prefix = self._follow_up(request, prefix, remaining=idx < len(to_review) - 1)
+        if more:
+            tr.rules_fired.add(P["cap"]["rule"])
+            self._bot(*prefix, {"act": P["cap"]["act"]})
+            self._give_up(P["cap"])
+        self._phase = "finish"
+        fin = self.flow["finish"]
+        tr.rules_fired.add(fin["summary"]["rule"])
+        f = self._ask(*prefix, {"act": fin["summary"]["act"], fin["summary"]["field"]: self._recorded_claims()},
+                      {"act": fin["more_help"]})
+        self._finish_reply(f)
+
     def _capture(self, tid: str, prefix: list[dict[str, Any]]) -> tuple[str, dict[str, Any]]:
-        tr, L = self._tr, self.limits
+        tr, P, cl = self._tr, self.flow["per_item"], self.flow["clarify"]
+        C, pres = P["capture"], P["present"]
         unsure, unclear = 0, 0
-        acts = (*prefix, {"act": "PRESENT_TXN", "txn": tid})
+        acts = (*prefix, {"act": pres["act"], pres["field"]: tid})
         while True:
             f = self._ask(*acts)
-            if f.act == "ASK_KB":
-                acts = (self._answer_kb(f), {"act": "PRESENT_TXN", "txn": tid})
+            if self._is_question(f):
+                acts = (self._answer_kb(f), {"act": pres["act"], pres["field"]: tid})
                 continue
-            if f.act == "REQUEST_HUMAN":
-                self._transfer("customer_request", "R20")
-            if f.act == "INFORM_DISPOSITION":
-                d = f.get("disposition")
+            if self._is_human(f):
+                self._to_human()
+            if f.act == C["act"]:
+                d = f.get(C["slot"])
                 if f.get("corrected_from"):
-                    tr.rules_fired.add("R21")
-                if d in ("RECOGNIZED", "UNRECOGNIZED"):
-                    tr.rules_fired.add("R9")
-                    card = {k: f.get(k) for k in ("card_action", "delivery") if f.get(k)}
-                    return d, card
-                if d == "UNSURE":
+                    tr.rules_fired.add(C["correction_rule"])
+                if d in C["clear"]:
+                    tr.rules_fired.add(C["clear_rule"])
+                    request = {k: f.get(k) for k in C["request_slots"] if f.get(k)}
+                    return d, request
+                U = C["unsure"]
+                if d == U["value"]:
                     unsure += 1
-                    tr.rules_fired.add("R10")
-                    if unsure > L.max_unsure_retries:
-                        return "UNSURE", {}
-                    acts = ({"act": "PROVIDE_CONTEXT", "txn": tid},)
+                    tr.rules_fired.add(U["rule"])
+                    if unsure > self.L(U["limit"]):
+                        return U["value"], {}
+                    acts = ({"act": U["act"], pres["field"]: tid},)
                     continue
             unclear += 1
-            tr.rules_fired.add("R22")
-            if unclear > L.max_clarification_retries:
-                self._transfer("ambiguity_persists", "R23")
-            acts = ({"act": "ASK_CLARIFY", "txn": tid},)
+            tr.rules_fired.add(cl["rule"])
+            if unclear > self.L(cl["limit"]):
+                self._give_up(cl["give_up"])
+            acts = ({"act": cl["act"], pres["field"]: tid},)
 
-    def _card_action(self, card: dict[str, Any], prefix: list[dict[str, Any]], remaining: bool) -> list[dict[str, Any]]:
-        tr = self._tr
+    def _follow_up(self, request: dict[str, Any], prefix: list[dict[str, Any]], remaining: bool) -> list[dict[str, Any]]:
+        tr, FU = self._tr, self.flow["per_item"]["follow_up"]
+        O, D, C, S = FU["options"], FU["disclose"], FU["confirm"], FU["submit"]
         try:
-            res = self._call("get_card_action_options")
+            res = self._call(O["tool"])
         except ToolError:
-            self._transfer("card_options_unavailable", "R32")
-        action, delivery = card.get("card_action"), card.get("delivery")
-        tr.rules_fired.add("R15")
-        if action not in res.get("options", []):
-            return prefix + [{"act": "INFORM_NO_CARD_ACTION"}]
+            self._give_up(O["unavailable"])
+        action, option = request.get(FU["action_slot"]), request.get(FU["option_slot"])
+        tr.rules_fired.add(O["rule"])
+        if action not in res.get(O["key"], []):
+            return prefix + [{"act": FU["not_offered"]["act"]}]
         unclear = 0
         while True:
             acts = list(prefix)
-            if action == "REPLACE_CARD" and delivery == "expedited_delivery":
-                tr.rules_fired.add("R26")
-                acts.append({"act": "DISCLOSE_FEE", "fee": self.limits.expedited_fee, "delivery": delivery})
-            acts.append({"act": "CONFIRM_ACTION", "action": action, "delivery": delivery})
+            if all({FU["action_slot"]: action, FU["option_slot"]: option}.get(k) == v for k, v in D["when"].items()):
+                tr.rules_fired.add(D["rule"])
+                acts.append({"act": D["act"], D["figure_field"]: self.L(D["figure"]), D["option_field"]: option})
+            acts.append({"act": C["act"], C["action_field"]: action, C["option_field"]: option})
             prefix = []
             f = self._ask(*acts)
-            if f.act == "CONFIRM":
+            if f.act == C["accept"]:
                 break
-            if f.act == "REQUEST_CARD_ACTION":
-                action = f.get("card_action") or action
-                delivery = f.get("delivery") or delivery
+            if f.act == C["change"]:
+                action = f.get(FU["action_slot"]) or action
+                option = f.get(FU["option_slot"]) or option
                 continue
-            if f.act == "DENY":
-                return [{"act": "ACK_DECLINED"}]
-            if f.act == "REQUEST_HUMAN":
-                self._transfer("customer_request", "R20")
-            if f.act == "ASK_KB":
+            if f.act == C["decline"]:
+                return [{"act": FU["declined"]["act"]}]
+            if self._is_human(f):
+                self._to_human()
+            if self._is_question(f):
                 prefix = [self._answer_kb(f)]
                 continue
             unclear += 1
-            if unclear > self.limits.max_clarification_retries:
-                self._transfer("ambiguity_persists", "R23")
-        tr.rules_fired.add("R16")
+            if unclear > self.L(C["limit"]):
+                self._give_up(self.flow["clarify"]["give_up"])
+        tr.rules_fired.add(S["rule"])
         try:
-            res = self._call("submit_card_action", action=action, delivery=delivery)
+            res = self._call(S["tool"], **{S["args"]["action"]: action, S["args"]["option"]: option})
         except ToolError:
-            self._transfer("submit_failed", "R29")
-        if res.get("status") != "SUCCESS" or res.get("action") != action:
-            tr.rules_fired.add("R17")
-            self._transfer("submit_failed", "R29")
-        tr.rules_fired.add("R17")
+            self._give_up(S["failed"])
+        if res.get("status") != self._ok(S["tool"]) or res.get(S["echo"]) != action:
+            tr.rules_fired.add(S["done_rule"])
+            self._give_up(S["failed"])
+        tr.rules_fired.add(S["done_rule"])
         if remaining:
-            tr.rules_fired.add("R18")
-        tr.claims_actions.append((action, delivery))
-        return [{"act": "ACTION_DONE", "action": action, "delivery": delivery}]
+            tr.rules_fired.add(S["remaining_rule"])
+        tr.claims_actions.append((action, option))
+        done = FU["done"]
+        return [{"act": done["act"], done["action_field"]: action, done["option_field"]: option}]

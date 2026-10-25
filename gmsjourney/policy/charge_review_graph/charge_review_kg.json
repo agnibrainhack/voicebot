@@ -1,0 +1,149 @@
+{
+ "schema": "gmsjourney.policy_graph/2",
+ "id": "charge_review",
+ "title": "Charge Review Voice-Bot Policy",
+ "root": "charge_review_policy",
+ "source": {"document": "fictional_poc_operating_procedure_gpt_readable.pdf", "converted_from": "charge_review_kg.json", "v1_sha256": "86b8a6b18758b0f47252d35df6c99598c2b8de7f479e98ea198c8dc89838c5a5"},
+ "opening": "Before I review account-specific charges, I need to authenticate you.",
+ "knowledge": [
+  "A standard replacement card normally arrives in 5-7 business days.",
+  "Standard replacement delivery fee is $0.",
+  "Expedited replacement delivery is available for a $15 fee and normally arrives in 2 business days.",
+  "Before selecting expedited delivery, the bot must tell the customer the $15 fee and obtain a clear confirmation.",
+  "The bot may review up to 4 recent transactions in one self-service session.",
+  "Recent-transaction review covers transactions from the previous 30 calendar days.",
+  "An unrecognized transaction is a customer-reported concern; it is not, by itself, proof of fraud.",
+  "If the bot cannot complete a required servicing action, the customer may be transferred to a human representative."
+ ],
+ "limits": {
+  "max_transactions_per_session": {"value": 4, "unit": "transactions", "text": "The bot may review up to 4 recent transactions in one self-service session."},
+  "lookback_days": {"value": 30, "unit": "calendar_days", "text": "Recent-transaction review covers transactions from the previous 30 calendar days."},
+  "max_auth_attempts": {"value": 2, "unit": "attempts", "text": "At most 2 incorrect authentication attempts are allowed; after the 2nd failure the bot transfers to a human."},
+  "max_clarification_retries": {"value": 1, "unit": "retries", "text": "If a response is ambiguous the bot asks one short clarification and makes only one additional attempt.", "internal": true},
+  "max_unsure_retries": {"value": 1, "unit": "retries", "text": "If the customer is unsure the bot provides transaction context and asks once more.", "internal": true},
+  "max_turns": {"value": 20, "unit": "user_turns", "text": "A conversation may run for at most 20 customer turns; at the limit the bot summarizes and transfers.", "internal": true}
+ },
+ "values": {
+  "disposition": {
+   "RECOGNIZED": {"aliases": ["recognized", "mine", "i made it", "legit", "that's me", "i know it"]},
+   "UNRECOGNIZED": {"aliases": ["unrecognized", "not mine", "don't recognize", "never made", "not me", "unauthorized"]},
+   "UNSURE": {"aliases": ["unsure", "not sure", "don't know", "can't remember", "maybe"]}
+  },
+  "card_action": {
+   "SECURE_CARD": {"aliases": ["secure", "lock", "freeze", "block"]},
+   "REPLACE_CARD": {"aliases": ["replace", "new card", "reissue", "send another card"]}
+  },
+  "delivery": {
+   "standard_delivery": {"aliases": ["standard", "regular", "normal shipping", "free delivery"], "fee_usd": 0, "business_days_min": 5, "business_days_max": 7, "requires_fee_confirmation": "no"},
+   "expedited_delivery": {"aliases": ["expedited", "express", "rush", "fast shipping", "overnight"], "fee_usd": 15, "business_days_min": 2, "business_days_max": 2, "requires_fee_confirmation": "yes"}
+  }
+ },
+ "acts": {
+  "PROVIDE_CREDENTIAL": {"credential": "credential_code"},
+  "INFORM_DISPOSITION": {"disposition": "disposition", "card_action": {"set": "card_action", "optional": true}, "delivery": {"set": "delivery", "optional": true, "with": {"card_action": ["REPLACE_CARD"]}}, "corrected_from": {"set": "disposition", "optional": true, "correction_of": "disposition"}},
+  "REQUEST_CARD_ACTION": {"card_action": "card_action", "delivery": {"set": "delivery", "optional": true, "with": {"card_action": ["REPLACE_CARD"]}}, "_update": true},
+  "CONFIRM": {},
+  "DENY": {},
+  "END": {}
+ },
+ "tools": {
+  "authenticate_customer": {"role": "auth", "stage": "authenticate", "args": {"credential": "credential_code"}, "check": {"arg": "credential", "fixture": "credential"}, "ok": "AUTHENTICATED", "fail": ["FAILED"], "text": "authenticate_customer | Before account-specific servicing | AUTHENTICATED / FAILED | Continue only on AUTHENTICATED."},
+  "get_review_transactions": {"role": "read", "stage": "retrieve", "returns": {"transactions": {"items": "transaction", "id": "transaction_id", "age": "age_days"}}, "ok": "TRANSACTIONS", "fail": ["EMPTY"], "text": "get_review_transactions | After authentication | transaction_id, merchant, amount, date | Read only returned data; review one at a time."},
+  "record_charge_response": {"role": "write", "stage": "record", "args": {"transaction_id": "transaction_id", "disposition": "disposition"}, "echo": "transaction_id", "ok": "SUCCESS", "fail": ["FAILED"], "text": "record_charge_response | After customer gives a clear disposition | SUCCESS / FAILED | Advance only after SUCCESS; otherwise transfer."},
+  "get_card_action_options": {"role": "read", "stage": "card_action", "returns": {"options": {"subset_of": "card_action"}}, "ok": "OPTIONS", "fail": ["NONE"], "text": "get_card_action_options | If customer also asks to secure/replace card | Eligible actions or NONE | Offer only returned options."},
+  "submit_card_action": {"role": "write", "stage": "card_action", "args": {"action": "card_action", "delivery": "delivery"}, "echo": "action", "ok": "SUCCESS", "fail": ["FAILED"], "text": "submit_card_action | After customer confirms an eligible action | SUCCESS / FAILED | Claim completion only after SUCCESS."},
+  "transfer_to_human": {"role": "handoff", "stage": "transfer", "args": {"reason": "transfer_reason"}, "ok": "TRANSFERRED", "fail": [], "text": "transfer_to_human | On customer request or failed self-service | TRANSFERRED | End automated servicing."}
+ },
+ "rules": {
+  "R1": ["must", "Play the required opening statement and explain that authentication is needed."],
+  "R2": ["must", "Account-specific information is discussed only after authentication.", {"requires_auth": true}],
+  "R3": ["must", "Continue only on AUTHENTICATED."],
+  "R4": ["must", "After the 2nd failed authentication attempt, transfer to a human.", {"max_calls": "authenticate_customer", "limit": "max_auth_attempts"}],
+  "R5": ["must", "If the authentication tool is unavailable, transfer to a human."],
+  "R6": ["must", "Present one transaction at a time using merchant, amount and date."],
+  "R7": ["must", "Read only returned data; never invent transaction details."],
+  "R8": ["must", "If no transactions are returned, explain there are no charges and ask whether other help is needed."],
+  "R9": ["must", "A clear answer maps to RECOGNIZED or UNRECOGNIZED."],
+  "R10": ["must", "If unsure, provide transaction context and ask once more."],
+  "R11": ["must", "If still unsure, record UNSURE and transfer.", {"terminal_value": "record_charge_response", "arg": "disposition", "value": "UNSURE"}],
+  "R12": ["must", "Call record_charge_response for the current transaction before advancing."],
+  "R13": ["must_not", "Never claim a response was recorded unless the API returns SUCCESS.", {"claim_needs_success": "CONFIRM_RECORDED", "tool": "record_charge_response"}],
+  "R14": ["must", "If recording does not return SUCCESS, transfer."],
+  "R15": ["must", "Offer only card actions returned by get_card_action_options.", {"offered_only": "submit_card_action", "arg": "action", "source": "get_card_action_options", "field": "options"}],
+  "R16": ["must", "Confirm the requested action before submitting it.", {"confirm_before": "submit_card_action", "act": "CONFIRM"}],
+  "R17": ["must_not", "Describe a card action as completed only after SUCCESS.", {"claim_needs_success": "ACTION_DONE", "tool": "submit_card_action"}],
+  "R18": ["must_not", "The card-action intent must not erase the charge-review intent."],
+  "R19": ["must", "Summarize only recorded responses and actions that actually completed."],
+  "R20": ["must", "If the customer requests a human at any point, transfer.", [{"handoff_when_requested": true}, {"no_call_after_handoff": true}]],
+  "R21": ["must", "If the customer changes an answer before it is submitted, use the latest clear answer.", {"value_from_caller": "record_charge_response", "arg": "disposition", "act": "INFORM_DISPOSITION", "slot": "disposition"}],
+  "R22": ["must_not", "Do not guess when a response is ambiguous."],
+  "R23": ["must", "If information is still unclear after one retry, transfer."],
+  "R24": ["must", "Account-specific facts and action status come from APIs."],
+  "R25": ["may", "General policy questions may be answered from the knowledge base."],
+  "R26": ["must", "Before selecting expedited delivery, tell the customer the $15 fee and obtain clear confirmation.", {"disclose_before": "submit_card_action", "arg": "delivery", "attr": "requires_fee_confirmation", "values": ["yes"], "act": "DISCLOSE_FEE"}],
+  "R27": ["must_not", "An unrecognized transaction is a customer-reported concern; it is not, by itself, proof of fraud.", {"forbidden_stance": ["unrecognized_transaction", "is_proof_of", "fraud"], "pattern": "\\b(is|means|confirms|confirmed|proves?) (fraud|that it was fraud)\\b"}],
+  "R28": ["must", "When the 20-turn limit is reached before the journey completes, summarize and transfer.", {"turn_limit": "max_turns"}],
+  "R29": ["must", "If submit_card_action fails, transfer; do not claim completion."],
+  "R30": ["must", "Only transactions from the previous 30 calendar days are reviewed.", {"item_window": "record_charge_response", "arg": "transaction_id", "source": "get_review_transactions", "field": "transactions", "age": "age_days", "limit": "lookback_days"}],
+  "R31": ["must", "Review at most 4 transactions; if more remain, explain the limit and transfer for the rest.", {"max_distinct": "record_charge_response", "arg": "transaction_id", "limit": "max_transactions_per_session"}],
+  "R32": ["must", "If get_card_action_options is unavailable after a card request, transfer; never invent options."],
+  "R33": ["must", "Treat a tool SUCCESS whose echoed transaction or action differs from the request as a failure."]
+ },
+ "facts": [
+  ["customer", "has_session", "review_session"],
+  ["review_session", "reviews", "transaction"],
+  ["transaction", "governed_by", "charge_review_policy"],
+  ["customer", "subject_to", "charge_review_policy"],
+  ["transaction", "has_disposition", "disposition"],
+  ["review_session", "limited_by", "max_transactions_per_session"],
+  ["review_session", "limited_by", "max_turns"],
+  ["review_session", "limited_by", "max_auth_attempts"],
+  ["replace_card", "delivered_by", "standard_delivery"],
+  ["replace_card", "delivered_by", "expedited_delivery"],
+  ["authenticate_customer", "precedes", "get_review_transactions"],
+  ["get_review_transactions", "precedes", "record_charge_response"],
+  ["record_charge_response", "precedes", "get_card_action_options"],
+  ["get_card_action_options", "precedes", "submit_card_action"],
+  ["authenticate_customer", "precedes_two", "record_charge_response"],
+  ["get_review_transactions", "precedes_two", "get_card_action_options"],
+  ["record_charge_response", "precedes_two", "submit_card_action"]
+ ],
+ "transfers": {
+  "state": "TRANSFER",
+  "tool": "transfer_to_human",
+  "arg": "reason",
+  "then": "END",
+  "summary": {"act": "SUMMARIZE", "field": "recorded", "rule": "R19", "value": {"$writes": "record_charge_response", "key": "transaction_id", "value": "disposition"}},
+  "reasons": {"auth_failed": "R4", "auth_unavailable": "R5", "retrieve_unavailable": "R14", "record_failed": "R14", "unsure_twice": "R11", "ambiguity_persists": "R23", "customer_request": "R20", "transaction_limit": "R31", "card_options_unavailable": "R32", "submit_failed": "R29", "turn_limit": "R28"}
+ },
+ "global": {
+  "human": {"act": "REQUEST_HUMAN", "then": "!customer_request"},
+  "question": {"act": "ASK_KB", "answer": "ANSWER_KB", "rule": "R25"},
+  "unclear": {"act": "UNCLEAR", "clarify": "ASK_CLARIFY", "limit": "max_clarification_retries", "rule": "R22", "else": "!ambiguity_persists"},
+  "turn_limit": {"limit": "max_turns", "rule": "R28", "else": "!turn_limit", "wrap_up": "END"}
+ },
+ "states": {
+  "OPENING": {"stage": "opening", "say": {"text": "$opening"}, "rules": ["R1"], "go": "ASK_AUTH"},
+  "ASK_AUTH": {"stage": "authenticate", "rules": ["R1", "R2"], "yes": "UNCLEAR", "no": "UNCLEAR", "on": {"PROVIDE_CREDENTIAL": "AUTHENTICATE"}},
+  "ASK_AUTH_RETRY": {"stage": "authenticate", "rules": ["R3"], "yes": "UNCLEAR", "no": "UNCLEAR", "on": {"PROVIDE_CREDENTIAL": "AUTHENTICATE"}},
+  "AUTHENTICATE": {"stage": "authenticate", "call": "authenticate_customer", "args": {"credential": "$credential"}, "rules": ["R3"], "on": {"AUTHENTICATED": "FETCH", "FAILED": {"below": "max_auth_attempts", "then": "ASK_AUTH_RETRY", "else": "!auth_failed"}, "UNAVAILABLE": "!auth_unavailable"}},
+  "FETCH": {"stage": "retrieve", "call": "get_review_transactions", "rules": ["R7", "R24"], "on": {"TRANSACTIONS": "REVIEW", "EMPTY": "EXPLAIN_NO_TXNS", "UNAVAILABLE": "!retrieve_unavailable"}},
+  "REVIEW": {"stage": "retrieve", "each": "$get_review_transactions.transactions", "as": "txn", "where": {"age_days": {"max": "lookback_days"}}, "cap": "max_transactions_per_session", "rules": ["R30"], "do": "PRESENT_TXN", "empty": "EXPLAIN_NO_TXNS", "over_cap": "EXPLAIN_LIMIT", "done": "SUMMARIZE"},
+  "PRESENT_TXN": {"stage": "capture", "say": {"txn": "$txn.transaction_id"}, "rules": ["R6", "R9", "R21", "R22"], "yes": "RECOGNIZED", "no": "UNRECOGNIZED", "on": {"INFORM_DISPOSITION": [{"if": {"disposition": ["UNSURE"]}, "then": {"count": "unsure", "upto": "max_unsure_retries", "then": "PROVIDE_CONTEXT", "else": "RECORD"}}, "RECORD"]}},
+  "PROVIDE_CONTEXT": {"stage": "capture", "say": {"txn": "$txn.transaction_id"}, "rules": ["R10"], "yes": "RECOGNIZED", "no": "UNRECOGNIZED", "on": {"INFORM_DISPOSITION": [{"if": {"disposition": ["UNSURE"]}, "then": {"count": "unsure", "upto": "max_unsure_retries", "then": "PROVIDE_CONTEXT", "else": "RECORD"}}, "RECORD"]}},
+  "RECORD": {"stage": "record", "call": "record_charge_response", "args": {"transaction_id": "$txn.transaction_id", "disposition": "$disposition"}, "rules": ["R12", "R33"], "on": {"SUCCESS": "CONFIRM_RECORDED", "FAILED": "!record_failed", "UNAVAILABLE": "!record_failed", "ECHO_MISMATCH": "!record_failed"}},
+  "CONFIRM_RECORDED": {"stage": "record", "say": {"txn": "$txn.transaction_id", "disposition": "$disposition"}, "claims": "record_charge_response", "rules": ["R13"], "go": [{"if": {"disposition": ["UNSURE"]}, "then": "!unsure_twice"}, {"if": {"disposition": ["UNRECOGNIZED"], "card_action": {"not": [null]}, "#get_card_action_options": [0]}, "then": "CARD_OPTIONS"}, "@next"]},
+  "CARD_OPTIONS": {"stage": "card_action", "call": "get_card_action_options", "rules": ["R15", "R18"], "on": {"OPTIONS": [{"if": [{"card_action": {"in": "$get_card_action_options.options"}}, {"card_action": ["REPLACE_CARD"], "delivery.requires_fee_confirmation": ["yes"]}], "then": "DISCLOSE_FEE"}, {"if": {"card_action": {"in": "$get_card_action_options.options"}}, "then": "CONFIRM_ACTION"}, "INFORM_NO_CARD_ACTION"], "NONE": "INFORM_NO_CARD_ACTION", "UNAVAILABLE": "!card_options_unavailable"}},
+  "DISCLOSE_FEE": {"stage": "card_action", "say": {"fee": "$delivery.fee_usd", "delivery": "$delivery"}, "rules": ["R26"], "go": "CONFIRM_ACTION"},
+  "CONFIRM_ACTION": {"stage": "card_action", "say": {"action": "$card_action", "delivery": "$delivery"}, "rules": ["R16"], "yes": "CONFIRM", "no": "DENY", "on": {"CONFIRM": "SUBMIT", "DENY": "ACK_DECLINED", "REQUEST_CARD_ACTION": [{"if": {"card_action": ["REPLACE_CARD"], "delivery.requires_fee_confirmation": ["yes"]}, "then": "DISCLOSE_FEE"}, "CONFIRM_ACTION"]}},
+  "SUBMIT": {"stage": "card_action", "call": "submit_card_action", "args": {"action": "$card_action", "delivery": "$delivery"}, "rules": ["R16", "R33"], "on": {"SUCCESS": "ACTION_DONE", "FAILED": "!submit_failed", "UNAVAILABLE": "!submit_failed", "ECHO_MISMATCH": "!submit_failed"}},
+  "ACTION_DONE": {"stage": "card_action", "say": {"action": "$card_action", "delivery": "$delivery"}, "claims": "submit_card_action", "rules": ["R17", "R18"], "go": "@next"},
+  "ACK_DECLINED": {"stage": "card_action", "say": {}, "rules": ["R18"], "go": "@next"},
+  "INFORM_NO_CARD_ACTION": {"stage": "card_action", "say": {}, "rules": ["R15"], "go": "@next"},
+  "EXPLAIN_LIMIT": {"stage": "retrieve", "say": {}, "rules": ["R31"], "go": "!transaction_limit"},
+  "EXPLAIN_NO_TXNS": {"stage": "retrieve", "say": {}, "outcome": true, "rules": ["R8"], "go": "ASK_MORE_HELP"},
+  "SUMMARIZE": {"stage": "finish", "say": {"recorded": {"$writes": "record_charge_response", "key": "transaction_id", "value": "disposition"}}, "rules": ["R19"], "go": "ASK_MORE_HELP"},
+  "ASK_MORE_HELP": {"stage": "finish", "yes": "UNCLEAR", "no": "END", "on": {"END": "END", "CONFIRM": "END", "DENY": "END", "UNCLEAR": "END"}},
+  "END": {"stage": "end", "end": true}
+ }
+}

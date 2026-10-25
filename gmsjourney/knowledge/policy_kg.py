@@ -956,6 +956,17 @@ def resolve_policy(path: str | Path) -> tuple[Path, PolicyKG | None]:
     p = Path(path)
     if p.suffix.lower() != ".json":
         return p, None
+    from ..graph.model import PolicyGraph, graph_kg, is_v2
+    if is_v2(p):
+        g = PolicyGraph.load(p)
+        kg = graph_kg(g)
+        from ..backend import CACHE
+        out = CACHE / "policy" / f"{p.stem}.{g.sha256[:16]}.md"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        text = kg.to_markdown()
+        if not out.exists() or out.read_text() != text:
+            out.write_text(text)
+        return out, kg
     kg = PolicyKG.load(p)
     from ..backend import CACHE
     out = CACHE / "policy" / f"{p.stem}.{kg.sha256[:16]}.md"

@@ -20,6 +20,8 @@ LOW       BUDGET_EXCEEDED (latency / length / tool calls), TOOL_LOOP, RUNTIME_IN
 """
 from __future__ import annotations
 
+import re
+
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -37,6 +39,7 @@ CODE_SEVERITY = {
     "PROCESS_DEVIATION": "moderate", "TURN_LIMIT_EXCEEDED": "moderate", "ESCALATION_INAPPROPRIATE": "moderate",
     "UNCLEAN_TERMINATION": "moderate", "STAGE_INCORRECT": "moderate",
     "BUDGET_EXCEEDED": "low", "TOOL_LOOP": "low", "RUNTIME_INVARIANCE": "low",
+    "POLICY_RULE_BROKEN": "critical", "LIMIT_EXCEEDED": "high", "WRONG_STATEMENT": "high",
 }
 _VIOLATION_CODE = {
     "claim_without_success": "CLAIM_WITHOUT_SUCCESS", "account_tool_before_auth": "ACCOUNT_TOOL_BEFORE_AUTH",
@@ -54,10 +57,28 @@ def risk_tier(item) -> str:
     return "action_taking" if tools & write_tools() else "informational"
 
 
+def _graph_code(what: str) -> str:
+    """The code of a compact policy graph's rule violation (``<rule>:<what>``, graph/trace.py)."""
+    head = what.split(":")[0]
+    if head in _VIOLATION_CODE:
+        return _VIOLATION_CODE[head]
+    if "without_confirmation" in what or what.endswith("_without_CONFIRM"):
+        return "SUBMIT_WITHOUT_CONFIRMATION"
+    if "_without_DISCLOSE" in what:
+        return "FEE_NOT_DISCLOSED"
+    if what.endswith("_exceeded"):
+        return "LIMIT_EXCEEDED"
+    if what.endswith("_mismatch"):
+        return "WRONG_STATEMENT"
+    return "POLICY_RULE_BROKEN"
+
+
 def failure_codes(row: dict[str, Any]) -> list[str]:
     codes: list[str] = []
     for v in row.get("violations") or []:
         c = _VIOLATION_CODE.get(str(v).split(":")[0])
+        if not c and re.match(r"^R\d+[a-z]?:", str(v)):
+            c = _graph_code(str(v).split(":", 1)[1])
         if c:
             codes.append(c)
     if row.get("c_record") == 0:

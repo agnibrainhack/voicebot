@@ -1,0 +1,355 @@
+# Base-case factors for charge_review_graph, drafted from charge_review_kg.json.
+# Rename, merge, drop or add levels; the first level of each factor is its default.
+# Level scripts: tools {tool: [results]}, says {PROMPT: [frames]}, before: true, pad.
+# Run `python -m gmsjourney.graph.factors check <pack>` after editing.
+
+strength: 2
+closure_budget: 3
+factors:
+  authenticate_customer:
+    anchor: {tool: authenticate_customer}
+    description: authenticate_customer | Before account-specific servicing | AUTHENTICATED / FAILED | Continue only on AUTHENTICATED.
+    levels:
+      ok: {}
+      unavailable:
+        tools:
+          authenticate_customer: [UNAVAILABLE]
+      retry_authenticated:
+        tools:
+          authenticate_customer: [FAILED, AUTHENTICATED]
+      failed_2x:
+        tools:
+          authenticate_customer: [FAILED, FAILED]
+  get_review_transactions:
+    anchor: {tool: get_review_transactions}
+    description: get_review_transactions | After authentication | transaction_id, merchant, amount, date | Read only returned data; review one
+      at a time.
+    levels:
+      ok: {}
+      '2':
+        tools:
+          get_review_transactions:
+          - status: TRANSACTIONS
+            transactions:
+            - {transaction_id: T1, merchant: Amazon, amount: '45.67', age_days: 3}
+            - {transaction_id: T2, merchant: Starbucks, amount: '6.25', age_days: 8}
+      '4':
+        tools:
+          get_review_transactions:
+          - status: TRANSACTIONS
+            transactions:
+            - {transaction_id: T1, merchant: Amazon, amount: '45.67', age_days: 3}
+            - {transaction_id: T2, merchant: Starbucks, amount: '6.25', age_days: 8}
+            - {transaction_id: T3, merchant: Shell, amount: '52.10', age_days: 15}
+            - {transaction_id: T4, merchant: Netflix, amount: '15.99', age_days: 22}
+      '5':
+        tools:
+          get_review_transactions:
+          - status: TRANSACTIONS
+            transactions:
+            - {transaction_id: T1, merchant: Amazon, amount: '45.67', age_days: 3}
+            - {transaction_id: T2, merchant: Starbucks, amount: '6.25', age_days: 8}
+            - {transaction_id: T3, merchant: Shell, amount: '52.10', age_days: 15}
+            - {transaction_id: T4, merchant: Netflix, amount: '15.99', age_days: 22}
+            - {transaction_id: T5, merchant: Uber, amount: '23.40', age_days: 27}
+      '30':
+        tools:
+          get_review_transactions:
+          - status: TRANSACTIONS
+            transactions:
+            - {transaction_id: T1, merchant: Amazon, amount: '45.67', age_days: 30}
+      '31':
+        tools:
+          get_review_transactions:
+          - status: TRANSACTIONS
+            transactions:
+            - {transaction_id: T1, merchant: Amazon, amount: '45.67', age_days: 3}
+            - {transaction_id: T2, merchant: Starbucks, amount: '6.25', age_days: 31}
+      empty:
+        tools:
+          get_review_transactions:
+          - status: EMPTY
+            transactions: []
+      unavailable:
+        tools:
+          get_review_transactions: [UNAVAILABLE]
+  record_charge_response:
+    anchor: {tool: record_charge_response}
+    description: record_charge_response | After customer gives a clear disposition | SUCCESS / FAILED | Advance only after SUCCESS; otherwise
+      transfer.
+    levels:
+      ok: {}
+      failed:
+        tools:
+          record_charge_response: [FAILED]
+      unavailable:
+        tools:
+          record_charge_response: [UNAVAILABLE]
+  get_card_action_options:
+    anchor: {tool: get_card_action_options}
+    description: get_card_action_options | If customer also asks to secure/replace card | Eligible actions or NONE | Offer only returned options.
+    levels:
+      ok: {}
+      secure_card:
+        tools:
+          get_card_action_options:
+          - status: OPTIONS
+            options: [SECURE_CARD]
+      replace_card:
+        tools:
+          get_card_action_options:
+          - status: OPTIONS
+            options: [REPLACE_CARD]
+      none:
+        tools:
+          get_card_action_options:
+          - status: NONE
+            options: []
+      unavailable:
+        tools:
+          get_card_action_options: [UNAVAILABLE]
+  submit_card_action:
+    anchor: {tool: submit_card_action}
+    description: submit_card_action | After customer confirms an eligible action | SUCCESS / FAILED | Claim completion only after SUCCESS.
+    levels:
+      ok: {}
+      failed:
+        tools:
+          submit_card_action: [FAILED]
+      unavailable:
+        tools:
+          submit_card_action: [UNAVAILABLE]
+      echo_mismatch_secure_card:
+        tools:
+          submit_card_action:
+          - {status: SUCCESS, action: SECURE_CARD}
+  present_txn_disposition:
+    anchor: {state: PRESENT_TXN}
+    description: disposition the customer gives at PRESENT_TXN
+    levels:
+      recognized: {}
+      unrecognized:
+        answer:
+          PRESENT_TXN: {disposition: UNRECOGNIZED}
+      unsure:
+        answer:
+          PRESENT_TXN: {disposition: UNSURE}
+  present_txn_card_action:
+    anchor: {state: PRESENT_TXN}
+    description: card_action the customer adds at PRESENT_TXN
+    levels:
+      none: {}
+      secure_card:
+        answer:
+          PRESENT_TXN: {card_action: SECURE_CARD}
+      replace_card:
+        answer:
+          PRESENT_TXN: {card_action: REPLACE_CARD}
+  present_txn_delivery:
+    anchor: {state: PRESENT_TXN}
+    description: delivery the customer adds at PRESENT_TXN
+    levels:
+      none: {}
+      standard_delivery:
+        answer:
+          PRESENT_TXN: {card_action: REPLACE_CARD, delivery: standard_delivery}
+      expedited_delivery:
+        answer:
+          PRESENT_TXN: {card_action: REPLACE_CARD, delivery: expedited_delivery}
+  present_txn_correction:
+    anchor: {state: PRESENT_TXN}
+    description: the customer corrects disposition within the answer at PRESENT_TXN
+    levels:
+      none: {}
+      corrected:
+        answer:
+          PRESENT_TXN: {corrected_from: '@other'}
+  provide_context_disposition:
+    anchor: {state: PROVIDE_CONTEXT}
+    description: disposition the customer gives at PROVIDE_CONTEXT
+    levels:
+      recognized: {}
+      unrecognized:
+        answer:
+          PROVIDE_CONTEXT: {disposition: UNRECOGNIZED}
+      unsure:
+        answer:
+          PROVIDE_CONTEXT: {disposition: UNSURE}
+  provide_context_card_action:
+    anchor: {state: PROVIDE_CONTEXT}
+    description: card_action the customer adds at PROVIDE_CONTEXT
+    levels:
+      none: {}
+      secure_card:
+        answer:
+          PROVIDE_CONTEXT: {card_action: SECURE_CARD}
+      replace_card:
+        answer:
+          PROVIDE_CONTEXT: {card_action: REPLACE_CARD}
+  provide_context_delivery:
+    anchor: {state: PROVIDE_CONTEXT}
+    description: delivery the customer adds at PROVIDE_CONTEXT
+    levels:
+      none: {}
+      standard_delivery:
+        answer:
+          PROVIDE_CONTEXT: {card_action: REPLACE_CARD, delivery: standard_delivery}
+      expedited_delivery:
+        answer:
+          PROVIDE_CONTEXT: {card_action: REPLACE_CARD, delivery: expedited_delivery}
+  provide_context_correction:
+    anchor: {state: PROVIDE_CONTEXT}
+    description: the customer corrects disposition within the answer at PROVIDE_CONTEXT
+    levels:
+      none: {}
+      corrected:
+        answer:
+          PROVIDE_CONTEXT: {corrected_from: '@other'}
+  confirm_action:
+    anchor: {state: CONFIRM_ACTION}
+    description: what the customer does at CONFIRM_ACTION
+    levels:
+      confirm: {}
+      deny:
+        says:
+          CONFIRM_ACTION: [DENY]
+      request_card_action_secure_card:
+        says:
+          CONFIRM_ACTION: [REQUEST_CARD_ACTION(card_action=SECURE_CARD)]
+      request_card_action_replace_card:
+        says:
+          CONFIRM_ACTION: [REQUEST_CARD_ACTION(card_action=REPLACE_CARD)]
+  ask_more_help:
+    anchor: {state: ASK_MORE_HELP}
+    description: what the customer does at ASK_MORE_HELP
+    levels:
+      end: {}
+      confirm:
+        says:
+          ASK_MORE_HELP: [CONFIRM]
+      deny:
+        says:
+          ASK_MORE_HELP: [DENY]
+      unclear:
+        says:
+          ASK_MORE_HELP: [UNCLEAR]
+  human_request:
+    anchor: {}
+    description: the customer asks for a person at a prompt
+    levels:
+      none: {}
+      at_ask_auth:
+        says:
+          ASK_AUTH: [REQUEST_HUMAN]
+        before: true
+      at_ask_auth_retry:
+        says:
+          ASK_AUTH_RETRY: [REQUEST_HUMAN]
+        before: true
+      at_present_txn:
+        says:
+          PRESENT_TXN: [REQUEST_HUMAN]
+        before: true
+      at_provide_context:
+        says:
+          PROVIDE_CONTEXT: [REQUEST_HUMAN]
+        before: true
+      at_confirm_action:
+        says:
+          CONFIRM_ACTION: [REQUEST_HUMAN]
+        before: true
+      at_ask_more_help:
+        says:
+          ASK_MORE_HELP: [REQUEST_HUMAN]
+        before: true
+  unclear_answer:
+    anchor: {}
+    description: an answer that carries no decision, once (recovered) or past the clarification limit
+    levels:
+      none: {}
+      once_at_ask_auth:
+        says:
+          ASK_AUTH: [UNCLEAR]
+        before: true
+      persists_at_ask_auth:
+        says:
+          ASK_AUTH: [UNCLEAR, UNCLEAR]
+        before: true
+      once_at_ask_auth_retry:
+        says:
+          ASK_AUTH_RETRY: [UNCLEAR]
+        before: true
+      persists_at_ask_auth_retry:
+        says:
+          ASK_AUTH_RETRY: [UNCLEAR, UNCLEAR]
+        before: true
+      once_at_present_txn:
+        says:
+          PRESENT_TXN: [UNCLEAR]
+        before: true
+      persists_at_present_txn:
+        says:
+          PRESENT_TXN: [UNCLEAR, UNCLEAR]
+        before: true
+      once_at_provide_context:
+        says:
+          PROVIDE_CONTEXT: [UNCLEAR]
+        before: true
+      persists_at_provide_context:
+        says:
+          PROVIDE_CONTEXT: [UNCLEAR, UNCLEAR]
+        before: true
+      once_at_confirm_action:
+        says:
+          CONFIRM_ACTION: [UNCLEAR]
+        before: true
+      persists_at_confirm_action:
+        says:
+          CONFIRM_ACTION: [UNCLEAR, UNCLEAR]
+        before: true
+      once_at_ask_more_help:
+        says:
+          ASK_MORE_HELP: [UNCLEAR]
+        before: true
+      persists_at_ask_more_help:
+        says:
+          ASK_MORE_HELP: [UNCLEAR, UNCLEAR]
+        before: true
+  policy_question:
+    anchor: {}
+    description: a policy question asked before answering a prompt
+    levels:
+      none: {}
+      at_ask_auth:
+        says:
+          ASK_AUTH: [ASK_KB]
+        before: true
+      at_ask_auth_retry:
+        says:
+          ASK_AUTH_RETRY: [ASK_KB]
+        before: true
+      at_present_txn:
+        says:
+          PRESENT_TXN: [ASK_KB]
+        before: true
+      at_provide_context:
+        says:
+          PROVIDE_CONTEXT: [ASK_KB]
+        before: true
+      at_confirm_action:
+        says:
+          CONFIRM_ACTION: [ASK_KB]
+        before: true
+      at_ask_more_help:
+        says:
+          ASK_MORE_HELP: [ASK_KB]
+        before: true
+  turn_pressure:
+    anchor: {}
+    description: the conversation runs into the turn limit
+    levels:
+      normal: {}
+      at_limit:
+        pad: {state: ASK_AUTH_RETRY, to: limit}
+      over_limit:
+        pad: {state: ASK_AUTH_RETRY, to: over}

@@ -159,6 +159,27 @@ def _attribute_phrasings() -> dict[str, list[str]]:
     return out
 
 
+def _graph():
+    from ..domain import current
+    return current().graph
+
+
+def _render_view(store) -> str:
+    g = _graph()
+    if g is not None:
+        from ..graph.compile import render_gms_view
+        return render_gms_view(store, g)
+    return render_gms_markdown(store)
+
+
+def _phrasings() -> dict[str, list[str]]:
+    g = _graph()
+    if g is not None:
+        from ..graph.compile import attribute_phrasings
+        return attribute_phrasings(g)
+    return _attribute_phrasings()
+
+
 # the production store's DocGMSConfig unless overridden: cap admissibility, regex ingest
 DEFAULT_STORE_CONFIG = {"loss_mode": "cap", "ingest_mode": "regex", "train.epochs": 150}
 
@@ -215,10 +236,10 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, geode_epoc
     from .policy_kg import resolve_policy
     compiled = build_store(policy_path)
     view = store_dir / "policy.gms.md"
-    view.write_text(render_gms_markdown(compiled.store))
+    view.write_text(_render_view(compiled.store))
     md_path, _ = resolve_policy(policy_path)
     corpus = Path(md_path).read_text().splitlines() + view.read_text().splitlines()
-    for rel, ph in _attribute_phrasings().items():
+    for rel, ph in _phrasings().items():
         corpus += ph
     enc = backend.resolve_encoders(corpus, encoder_mode)
     log(f"      encoders: {enc['kind']} ({enc['reason']})")
@@ -291,7 +312,7 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, geode_epoc
 
     # 3. tune u: contradiction SFT over per-relation phrasings (full mode)
     t = time.time()
-    phrasings = _attribute_phrasings()
+    phrasings = _phrasings()
     content_rels = sorted({r for _h, r, _t in kept if r.startswith("has_") and r != "has_alias"})
     for r in content_rels:
         phrasings.setdefault(r, [(r[4:] if r.startswith("has_") else r).replace("_", " ")])
@@ -537,7 +558,10 @@ class KXPolicyStore(GMSStore):
             return None
         typ, fmt = enm_map[category]
         with _quiet():
-            return self.kx.lookup_enm(typ, fmt.format(key=key))
+            v = self.kx.lookup_enm(typ, fmt.format(key=key))
+            if v is None and key != key.lower():          # the ingest may lower-case row entities
+                v = self.kx.lookup_enm(typ, fmt.format(key=key.lower()))
+            return v
 
     def lookup_enm(self, category: str, key: str) -> int | float:
         """Exact read from knowlytix's integrity-checked ENM register."""
@@ -577,7 +601,7 @@ class KXPolicyStore(GMSStore):
 
     def tau(self, relation: str) -> float:
         """The relation's learned cap radius; else the judge's calibrated geodesic cut."""
-        rel = "has_value" if relation.startswith("has_") and relation[4:] in _LIMITS else relation
+        rel = "has_value" if relation.startswith("has_") and relation[4:] in _limit_names() else relation
         with _quiet():
             rho = self.kx.cap_radius(kx_relation(rel) if rel != "has_value" else rel)
         if rho is not None:
@@ -764,3 +788,8 @@ class KXPolicyStore(GMSStore):
 
 _LIMITS = {"max_transactions_per_session", "lookback_days", "max_auth_attempts", "max_clarification_retries",
            "max_unsure_retries", "max_turns"}
+
+
+def _limit_names() -> set[str]:
+    g = _graph()
+    return set(g.limits) if g is not None else _LIMITS

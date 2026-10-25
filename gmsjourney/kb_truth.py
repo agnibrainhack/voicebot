@@ -43,6 +43,10 @@ def _days(store, opt: str) -> tuple[int, int]:
 def kb_answer(store, frame: SemanticFrame) -> KBTruth:
     """Answer from the store's primitives, with the fact triples that carry the answer
     (for the two-way check) or the reason none exists."""
+    from .domain import current
+    if current().graph is not None:                 # a compact policy graph: questions mined from its figures
+        from .graph.kb import kb_answer as graph_kb_answer
+        return graph_kb_answer(store, frame)
     intent = frame.get("intent")
     P = "charge_review_policy"
     if intent == "value":

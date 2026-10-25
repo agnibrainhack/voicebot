@@ -78,6 +78,7 @@ class ToolEnvironment:
     log: list[dict[str, Any]] = field(default_factory=list)
     specs: dict[str, dict[str, Any]] | None = None
     _calls: dict[str, int] = field(default_factory=dict)
+    explore: bool = False             # graph packs: an unscripted call asks the journey miner for a choice
 
     def __post_init__(self) -> None:
         if self.specs is None:
@@ -109,6 +110,22 @@ class ToolEnvironment:
         self._calls[tool] = n + 1
         fx = self.fixture
         kind = spec["behaviour"]
+        if kind == "script":                 # a graph pack: the n-th call returns the n-th scripted result
+            results = fx.get(spec["results_field"])
+            if self.explore and (results is None or n >= len(results)):
+                from ..graph.machine import NeedChoice
+                raise NeedChoice("tool", tool, n)
+            results = results or spec.get("default_results")
+            r = copy.deepcopy(results[min(n, len(results) - 1)])
+            r = {"status": r} if isinstance(r, str) else r
+            if r.get("status") == spec.get("unavailable"):
+                raise ToolError(f"{tool} unavailable")
+            chk = spec.get("check")
+            if chk and r.get("status") == chk["success"] and a.get(chk["arg"]) != fx.get(chk["fixture"]):
+                r["status"] = chk["else"]        # a wrong credential never authenticates
+            if spec.get("echo") and r.get("status") == spec["status"]["ok"]:
+                r.setdefault(spec["echo"], a.get(spec["echo"]))
+            return r
         if kind == "attempts":
             results = fx.get(spec["results_field"], spec.get("default_results"))
             r = results[min(n, len(results) - 1)]

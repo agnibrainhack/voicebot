@@ -98,6 +98,10 @@ class FrameReader:
         for pat in list(self.value_pat.values()) + list(self.act_pat.values()):
             vocab.update(w for w in re.findall(r"[a-z]{4,}", pat))
         vocab.update(lx.vocabulary)
+        if kbq.get("engine") == "generic":            # the policy-question cue words are domain words too
+            for spec in list((kbq.get("attributes") or {}).values()) + list((kbq.get("limits") or {}).values()):
+                for cue in spec.get("cues", []):
+                    vocab.update(w for w in re.findall(r"[a-z]{4,}", cue))
         self.domain_vocab = {w for w in vocab if len(w) >= 4}
         self.kg = getattr(store, "kg", None)                 # policy graph: dialog states
         vocab.update(kbq.get("near_miss_words", []))
@@ -336,6 +340,8 @@ class FrameReader:
         return vals
 
     def _kb(self, c: str) -> F | None:
+        if self.lx.kb.get("engine") == "generic":
+            return self._kb_generic(c)
         has = lambda p: re.search(p, c) is not None
         ents = set()
         for v in self.lx.slots[self.lx.kb["entity_slot"]]["order"]:
@@ -397,4 +403,26 @@ class FrameReader:
             return K("value", attr="fee", entity=ent)
         if ent and days_cue:
             return K("value", attr="days", entity=ent)
+        return None
+
+    def _kb_generic(self, c: str) -> F | None:
+        """A policy question read with the lexicon's cues (kb_questions: attributes, limits,
+        entity_slots): a limit asked about, or one attribute of one named entity."""
+        kbq = self.lx.kb
+        has = lambda cues: any(re.search(r"\b(" + x + r")\b", c) for x in cues)
+        ents = {v for slot in kbq.get("entity_slots", []) for v in self.lx.slots[slot]["order"]
+                if re.search(self.value_pat[v], c)}
+        K = lambda intent, **kw: F.make("ASK_KB", intent=intent, **kw)
+        if not ents:
+            for key, spec in (kbq.get("limits") or {}).items():
+                if has(spec["cues"]):
+                    return K("limit", key=key)
+            return None
+        if len(ents) != 1:
+            return None
+        ent = next(iter(ents))
+        rest = re.sub(self.value_pat[ent], " ", c)       # the entity's own name never names the attribute
+        for attr, spec in (kbq.get("attributes") or {}).items():
+            if any(re.search(r"\b(" + x + r")\b", rest) for x in spec["cues"]):
+                return K("value", attr=attr, entity=ent)
         return None

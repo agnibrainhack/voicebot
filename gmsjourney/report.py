@@ -654,6 +654,12 @@ def failure_reasons(fc: dict[str, Any]) -> list[str]:
         if exp.get("action") != act.get("action"):
             out.append(f"Card action: expected <code>{esc(_fmt(exp.get('action')))}</code>, "
                        f"completed <code>{esc(_fmt(act.get('action')))}</code>.")
+        if "writes" in exp and exp.get("writes") != act.get("writes"):          # a compact policy graph's outcome
+            out.append(f"Writes that succeeded: expected <code>{esc(exp.get('writes'))}</code>, "
+                       f"got <code>{esc(act.get('writes'))}</code>.")
+        if "told" in exp and exp.get("told") != act.get("told"):
+            out.append(f"What the customer had to be told: expected <code>{esc(exp.get('told'))}</code>, "
+                       f"the bot said <code>{esc(act.get('told'))}</code>.")
     for st, d in (why.get("stages") or {}).items():
         out.append(f"Stage <b>{esc(st)}</b>: expected <code>{esc(_fmt(d.get('expected')))}</code>, "
                    f"got <code>{esc(_fmt(d.get('actual')))}</code>.")

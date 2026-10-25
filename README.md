@@ -80,11 +80,73 @@ realizer can produce back through the reader, so the generator and the instrumen
 | `fixtures` | backend data: items (merchants, amounts, ages), credential, eligible options | journey fixtures, simulator |
 | `figures` | every authoritative number: the graph's limits, numeric relations and their exact-memory categories, named figures | exact numeric memory, oracle limits, knowlytix register, oracle property |
 | `rules` | runtime checks as generic templates with parameters: call checks, completion checks, speech checks, spoken figures, numeric attestor families, how the bot names options | runtime monitor |
+| `journey` | the content dimensions with their levels and defaults, invalid combinations, which dimensions are relevant to a case (add / if / stop steps), how a case becomes a fixture, what the simulated customer says per dimension level, padding questions, boundary levels, categories and tags | base generator, fixtures, user simulator |
+| `flow` | the oracle as a chain of flow patterns (authenticate, fetch, per item: capture / write / follow-up, finish, handoff, turn limit), each naming its dialog states, tools, rules and limits; the workflow nodes and stage names used in scoring | oracle, trace scoring, weak-link analysis, gate probe |
 
-Still hard-wired to this domain (next steps of the migration): the journey dimensions and user simulator and the
-oracle's control flow (to become an interpreter over the graph's state machine), the policy-question intents, the
-symbolic compiler and the GMS view (they parse this policy's tables), the LLM arm's prompt examples, and the
-reference bot with its mutants (a stand-in system under test for this domain only).
+Still hard-wired to this domain (next steps of the migration): the policy-question intents, the symbolic compiler
+and the GMS view (they parse this policy's tables), the LLM arm's prompt examples, and the reference bot with its
+mutants (a stand-in system under test for this domain only). The compact policy graphs below remove all of these.
+
+## Compact policy graphs: everything mined from the graph
+
+A pack whose graph uses schema `gmsjourney.policy_graph/2` runs on the workflow-agnostic engine
+(`gmsjourney/graph/`). The graph states the policy *and* the dialog as a state machine with machine-readable branches,
+so a new workflow needs a graph and its customer wording, and no code:
+
+```
+policy/supplementary_card/
+  supplementary_card_kg.json   limits, value sets (synonyms, attributes), acts, tools, rules, the state machine
+  domain.yaml                  the customer wording (lexicon) and backend records; every other section is mined
+  application.yaml, custom_factors.yaml
+```
+
+| graph section | holds |
+|---|---|
+| `limits` | every figure with its unit and wording (`internal` = not a customer question) |
+| `values` | value sets: members with customer synonyms and attributes (`annual_fee_usd: 95`, `allowed: "no"`) |
+| `acts` | what a customer turn can mean and its slots (optional slots, slots that need another, updates) |
+| `tools` | role (auth / read / write / handoff), arguments, success and failure statuses, the echoed field, what it returns |
+| `rules` | stance, wording and an optional machine check (`requires_auth`, `confirm_before`, `disclose_before`, ...) |
+| `states` | the machine: ask states (`on` customer act), call states (`on` tool status, `UNAVAILABLE`, `ECHO_MISMATCH`), say states, loops over returned items (`each`, `where`, `cap`, `@next`), the end |
+| `transfers`, `global` | transfer reasons and their rules; what applies at every prompt: a request for a person, a policy question, an unclear answer, the turn limit |
+
+Mined from it: the store and the knowlytix GMS view; the tools, figures, rule checks and stages; policy questions from
+the figures; journeys (every path with at most two deviations from the default, a coverage closure one deviation
+deeper, and failure perturbations over every prompt); the expected behaviour (an interpreter over the machine); the
+trace scoring; a reference bot and its defects. Two packs run on it:
+
+- `charge_review_graph`: the charge-review policy converted from the v1 graph (`tools/convert_charge_review_v2.py`).
+  Replaying 487 v1 cases (covering array, policy-question bases, 400 random journeys) with the same customer turns and
+  tool results gives the same outcome on the graph oracle in every case.
+- `supplementary_card`: a supplementary-card application (authenticate, eligibility check, relationship, age, card
+  choice with fee disclosure, confirm, submit), written directly as a compact graph.
+
+**Base-case factors.** You choose the dimensions of the base cases; the graph decides the truth. A pack's
+`base_factors.yaml` declares factors and levels in the graph's own terms (what a tool returns on its n-th call, what
+the customer says at a prompt or one slot of it, an interruption before an answer, the turn limit).
+`python -m gmsjourney.graph.factors draft <pack>` writes a starting file from the graph's decision points (tool
+outcomes, one factor per slot of each prompt's answer, a request for a person / an unclear answer / a policy question
+at each prompt, turn pressure); rename, merge, drop or add levels, then `... factors check <pack>`. The campaign builds
+a covering array of strength 2 (`strength: 3` for three-way) over the factors. The oracle decides relevance: a level
+whose decision point is never reached in a case is N/A there, a pair counts as covered only where both levels are
+reached, and pairs that need another factor to become reachable get that factor (their witness). Pairs the policy
+never allows together are reported as such. A closure adds cases from the oracle's exploration for any state, edge,
+rule or transfer reason the array misses. Without the file, the suite is mined (every path within two deviations
+of the default, plus perturbations).
+
+```bash
+python -m gmsjourney.graph.factors draft charge_review_graph     # then edit base_factors.yaml
+python run_campaign.py --domain charge_review_graph --out output/charge_graph
+python run_campaign.py --domain supplementary_card --out output/supp_card
+python tests/test_graph_engine.py          # both packs, symbolic store, no licence needed
+```
+
+In the notebook, the "Any policy graph" section (cells G1-G6) does the same: pick `PACK`, lint, draft and check the
+factors, preview the covering array and closure in seconds on the symbolic store, run the whole campaign in one
+call, inspect one base case, and G6 runs every pack (v1 and graph) one after the other into one table.
+
+Not yet on the graph engine: the 12 charge-specific policy-question kinds (faster, cheaper, fraud, ...; the graph
+engine asks about figures and limits), the LLM enrichment arm and the training corpora.
 
 ## Quick start
 

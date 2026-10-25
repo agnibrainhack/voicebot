@@ -536,6 +536,11 @@ disclosed before a write. Every limit and figure is read from exact numeric memo
   injector's plausible-wrong answers are declared per tool.
 - *Rules.* Runtime checks are a closed set of templates (`governance/rules.py`): call checks, completion checks,
   speech checks, spoken figures and attestor families. A new policy supplies parameters and rule ids, not code.
+- *Journey.* Dimensions, defaults, invalid combinations, relevance, fixtures and the simulated customer's answers are
+  declared; conditions are a small language (`{dim: [levels]}`, `{dim: {not: [...]}}`, `{any: [...]}`, `{not: ...}`).
+- *Flow.* The oracle is an interpreter over a fixed set of flow patterns: authenticate, fetch, per item (capture,
+  write, follow-up), finish, handoff and turn limit. The config names the dialog state, tool, rule and limit for each
+  step; trace scoring reads its stage names and workflow nodes from the same section.
 
 **Lint as the consistency guarantee.** `python -m gmsjourney.domain <pack>` (and every campaign, before it starts)
 checks that:
@@ -543,6 +548,11 @@ checks that:
 - acts are accepted by some dialog state, and tools are graph tools with graph status values;
 - limits and figures exist with values;
 - rule ids are graph rules and patterns compile.
+- every dialog state, rule, tool, limit and workflow node named by `flow` exists in the graph, and each pattern's tool
+  has the right role;
+- journey conditions only use declared dimensions and levels, every dimension has a default and is relevant somewhere,
+  and the fixture has enough items for the largest item count;
+- no key or level was read by YAML as a boolean (an unquoted `yes` / `no`).
 
 It also runs a round trip: every phrase the realizer can produce, at every aliasing level and paraphrase depth, must
 read back as the meaning it was generated from. A wording change that breaks the reader therefore fails before a
@@ -554,10 +564,57 @@ campaign starts, not as unexplained invariance rejections.
 - 1,500 random tool-call sequences with every fault kind;
 - the full campaign.
 
-Still domain-specific, and the next phases:
-- the journey dimensions and user simulator;
-- the oracle's control flow, to become an interpreter over the graph's state machine;
+The journey and flow phase was accepted the same way, plus a dump of 5,783 entries (journeys, oracle traces including
+fault runs, scores, simulator turns and validity) compared old against new.
+
+Still domain-specific on the v1 engine:
 - the policy-question intents;
 - the symbolic compiler and the GMS view, which parse this policy's tables;
 - the LLM arm's prompt examples;
 - the reference bot with its mutants.
+
+## 16. Compact policy graphs and the workflow-agnostic engine
+
+The flow patterns of §15 put a shape on every workflow: authenticate, fetch, per item, finish. A policy with a
+different shape (an eligibility decision, a form) needed new patterns. Schema `gmsjourney.policy_graph/2` removes the
+shape: the graph carries the dialog as a state machine whose branches are machine-readable, and `gmsjourney/graph/`
+mines everything else from it.
+
+**The machine.** Ask states map customer acts to targets; call states map tool statuses to targets (UNAVAILABLE when
+the call raises, ECHO_MISMATCH when a success echoes another value); say states move on; each-states loop over the
+items a tool returned, with a window filter and a cap. A target is a state, `!reason` (transfer), a list of guarded
+alternatives, a call counter against a limit or a named counter per loop item. Guards test captured slots, attributes
+of their values, membership in a returned list and call counts. Field values are resolved at run time, numbers from
+exact memory. What applies at every prompt (a request for a person, a policy question, an unclear answer, the turn
+limit) is declared once.
+
+**What is mined.**
+- *Store:* the graph expands to triples (546 for the supplementary card, 9,000+ lines of v1 JSON become ~150 for it);
+  numbers go to the exact register; knowledge-base prose is reconciled against it (a planted misread is dropped); the
+  GMS view has one table per value set with numbers.
+- *Journeys:* the oracle runs in explore mode; every decision the script does not make yet (a tool's next result, the
+  customer's next answer in a prompt) branches. Paths deviate from the default at most twice; a value-only deviation is
+  taken alone; a closure one deviation deeper keeps paths that reach a new edge, state, rule or transfer reason;
+  failure perturbations are laid over every prompt. Paths with the same behaviour are kept once.
+- *Scoring:* the outcome is the end, the transfer reason, every write that truly succeeded and every outcome act; per
+  stage the tool statuses and outcome acts; `said` (what the bot told the customer); claims backed by success;
+  admissibility from the machine-checkable rules.
+- *Runtime monitor:* call checks compiled from the same rules, a speech monitor over the bot's acts.
+- *Reference bot and defects:* the same interpreter driven one turn at a time with a keyword reader; defects mined from
+  the graph (a failure treated as success, a skipped disclosure or confirmation, an ignored guard, an off-by-one limit,
+  a wrong reason, an ignored request for a person). A surviving defect that behaves exactly like the reference bot on
+  every mined journey is reported as equivalent.
+
+**Base-case factors (`base_factors.yaml`).** Mined paths answer "what can happen"; a test designer also wants to
+say which dimensions matter and how they combine. A factor is a named decision point (a tool's results, a slot of a
+prompt's answer, an interruption at a prompt, turn pressure); a level is a script fragment in the graph's terms.
+Levels combine into one script per case; the oracle plays it, and a level is relevant only if its script was
+consumed. The covering array is built on that: the feasible universe is every t-tuple of levels that some case makes
+all relevant (each tuple gets a witness, using enabler levels of other factors where its decision point is downstream
+of them); cases are filled AETG-style with the oracle scoring each candidate level, then compacted (reverse delete).
+A closure adds explored paths for any graph item the array misses. For charge review the drafted 19 factors / 84
+levels give 1,905 feasible pairs, all covered by 205 cases plus 1 closure case (the mined suite had 278).
+
+**Acceptance for the conversion.** The charge-review graph was converted mechanically for its facts, and its state
+machine restated once. 487 v1 base cases replayed through the graph oracle with the same turns and tool results give
+the same outcome in every case.

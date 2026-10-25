@@ -112,6 +112,10 @@ def kx_triple(h: str, r: str, t: str) -> tuple[str, str, str]:
 
     Limits are stored as (charge_review_policy, has_<limit>, v) in the compiled
     graph and as (<limit>, has_value, v) in the GMS view."""
+    from ..domain import current
+    g = current().graph
+    if g is not None:
+        return _kx_triple_graph(g, h, r, t)
     if h == "charge_review_policy" and r.startswith("has_") and r[4:] in _LIMIT_KEYS:
         return r[4:], "has_value", kx_tail(t)
     return " ".join(h.split()).lower(), kx_relation(r), kx_tail(t)
@@ -119,3 +123,18 @@ def kx_triple(h: str, r: str, t: str) -> tuple[str, str, str]:
 
 _LIMIT_KEYS = {"max_transactions_per_session", "lookback_days", "max_auth_attempts",
                "max_clarification_retries", "max_unsure_retries", "max_turns"}
+
+
+def _kx_triple_graph(g, h: str, r: str, t: str) -> tuple[str, str, str]:
+    """kx_triple for a compact policy graph (graph/compile.py render_gms_view)."""
+    if h == g.root and r.startswith("has_") and r[4:] in g.limits:
+        return r[4:], "has_value", kx_tail(t)
+    from ..graph.compile import yes_no_words
+    vs = g.member_set(h)
+    if vs is not None and str(t) in ("yes", "no"):
+        for a in g.attributes(vs):
+            from ..graph.model import attr_relation
+            if attr_relation(a) == r:
+                col, yes, no = yes_no_words(a)
+                return " ".join(h.split()).lower(), f"has_{col}", yes if str(t) == "yes" else no
+    return " ".join(h.split()).lower(), kx_relation(r), kx_tail(t)

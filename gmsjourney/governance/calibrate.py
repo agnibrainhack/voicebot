@@ -354,8 +354,10 @@ def gate_probe_sweep(store, theta: float, relation: str = "enables") -> dict[str
     """Book 12.5.1: every (previous step, proposed tool) pair through the geometric gate,
     compared with the policy graph. Escalation actions are safe-harboured (never denied)."""
     edges = {(w.src, w.dst) for w in store.workflow}
-    tools = sorted({w.dst for w in store.workflow} - {"summarize", "end"})
-    prevs = ["start"] + tools
+    from ..domain import current
+    wf = current().get("flow.workflow")
+    tools = sorted({w.dst for w in store.workflow} - {wf["summary"], wf["end"]})
+    prevs = [wf["start"]] + tools
     rows, conf = [], {"tp": 0, "fp": 0, "tn": 0, "fn": 0}
     for p in prevs:
         for t in tools:

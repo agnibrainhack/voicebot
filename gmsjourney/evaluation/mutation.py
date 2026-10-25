@@ -22,7 +22,8 @@ from .runner import run
 
 
 def _ok(r: dict) -> bool:
-    return bool(r["correct"] and r["workflow_adherent"] and r.get("c_summary", 1))
+    return bool(r["correct"] and r["workflow_adherent"] and r.get("c_summary", 1) and r.get("c_claims", 1)
+                and r.get("c_said", 1))
 
 
 def mutation_analysis(store, runner_kwargs: dict, suites: dict[str, list], limits, workflow, validator,
@@ -30,7 +31,8 @@ def mutation_analysis(store, runner_kwargs: dict, suites: dict[str, list], limit
                       fault_plan: tuple = (("record_charge_response", "error"), ("record_charge_response", "plausible_wrong"),
                                            ("get_card_action_options", "error"), ("submit_card_action", "error"),
                                            ("submit_card_action", "plausible_wrong"), ("get_review_transactions", "error")),
-                      mutants: dict[str, str] = MUTATIONS, governance=None) -> dict[str, Any]:
+                      mutants: dict[str, str] = MUTATIONS, governance=None,
+                      runner_cls=JourneyRunner, factory=make_reference_factory) -> dict[str, Any]:
     """governance: a GovernanceConfig; when given, every run is also watched by the runtime
     monitor and a mutant counts as *flagged at runtime* when the monitor raises an alarm
     (deny/escalate) on a scenario where it raised none of that kind for the reference bot -
@@ -38,7 +40,7 @@ def mutation_analysis(store, runner_kwargs: dict, suites: dict[str, list], limit
     runner_kwargs = dict(runner_kwargs)
     if governance is not None:
         runner_kwargs["governance"] = governance
-    ref = JourneyRunner(bot_factory=make_reference_factory(store), **runner_kwargs)
+    ref = runner_cls(bot_factory=factory(store), **runner_kwargs)
     ref_rows = {name: {r["sid"]: r for r in run(scns, ref, limits, workflow, validator)} for name, scns in suites.items()}
     ref_fault = {}
     for tool, kind in (fault_plan if fault_scenarios else ()):
@@ -48,7 +50,7 @@ def mutation_analysis(store, runner_kwargs: dict, suites: dict[str, list], limit
 
     results: dict[str, Any] = {}
     for m, desc in mutants.items():
-        runner = JourneyRunner(bot_factory=make_reference_factory(store, frozenset({m})), **runner_kwargs)
+        runner = runner_cls(bot_factory=factory(store, frozenset({m})), **runner_kwargs)
         entry: dict[str, Any] = {"description": desc, "killed_by": {}}
         for name, scns in suites.items():
             rows = {r["sid"]: r for r in run(scns, runner, limits, workflow, validator)}

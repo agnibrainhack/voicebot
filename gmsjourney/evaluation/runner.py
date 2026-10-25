@@ -25,8 +25,13 @@ from typing import Any
 
 from ..core import Scenario
 from ..oracle import Limits
-from ..trace import WORKFLOW_STAGES
 from .constraints import check_constraints
+
+
+def _stages() -> list[str]:
+    """The workflow stages a run is scored on, in order (domain.yaml -> flow.stages)."""
+    from ..domain import current
+    return list(current().get("flow.stages"))
 from .severity import classify, risk_tier
 
 
@@ -46,7 +51,7 @@ def score(scn: Scenario, res, limits: Limits, workflow, budget=None) -> dict[str
         "transfer_reason": res.escalation_trigger,
     }
     stage_diff = {}
-    for stage in WORKFLOW_STAGES:
+    for stage in _stages():
         k = f"expected_{stage}"
         if k in item.components and stage in res.components:
             row[f"c_{stage}"] = int(res.components[stage] == item.components[k])
@@ -156,15 +161,16 @@ def summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     kb = [r["kb_correct"] for r in rows if "kb_correct" in r]
     if kb:
         out["kb_accuracy"] = sum(kb) / len(kb)
-    for stage in WORKFLOW_STAGES:
+    for stage in _stages():
         vals = [r[f"c_{stage}"] for r in rows if f"c_{stage}" in r]
         if vals:
             out[f"component_{stage}"] = sum(vals) / len(vals)
     return out
 
 
-def weak_link(rows: list[dict[str, Any]], order: list[str] = WORKFLOW_STAGES) -> dict[str, int]:
+def weak_link(rows: list[dict[str, Any]], order: list[str] | None = None) -> dict[str, int]:
     """Charge each failed run to the first stage, in workflow order, that erred (Ch. 10.7)."""
+    order = order if order is not None else _stages()
     counts: dict[str, int] = {}
     for r in rows:
         if r["correct"] and r["workflow_adherent"]:

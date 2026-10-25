@@ -121,6 +121,10 @@ def build_store(policy_path: str | Path, *, inject_misread: bool = False,
     meaning cards, transitions, per-state rules/limits/tools) is added to the facts;
     the store keeps the graph as ``store.kg``.
     """
+    from ..graph.model import is_v2
+    if is_v2(policy_path):                       # a compact policy graph (graph/compile.py)
+        from ..graph.compile import compile_graph
+        return compile_graph(policy_path, inject_misread=inject_misread)
     from .policy_kg import resolve_policy
     source_path = policy_path
     policy_path, kg = resolve_policy(policy_path)

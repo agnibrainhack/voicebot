@@ -33,21 +33,31 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..core import QAItem
-from ..journey import DIMENSIONS, NA, JourneySpec, build_fixture, is_valid, relevant_dims
+from .. import journey as JM
+from ..journey import NA, JourneySpec, build_fixture, holds, is_valid, relevant_dims
 from ..ontology import SemanticFrame as F
 
-PADDING_POOL = [
-    F.make("ASK_KB", intent="value", attr="fee", entity="standard_delivery"),
-    F.make("ASK_KB", intent="value", attr="days", entity="expedited_delivery"),
-    F.make("ASK_KB", intent="limit", key="lookback_days"),
-    F.make("ASK_KB", intent="value", attr="fee", entity="expedited_delivery"),
-    F.make("ASK_KB", intent="value", attr="days", entity="standard_delivery"),
-    F.make("ASK_KB", intent="limit", key="max_transactions_per_session"),
-]
-# rules / edges only reachable by tool faults or by the KB pathway
-FAULT_ONLY = {"R33"}
-BOUNDARIES = {"n_txn=4", "n_txn=5", "window=day30", "window=day31", "auth=fail_twice",
-              "turn_pressure=at_limit", "turn_pressure=over_limit"}
+# the domain's journey model (domain.yaml -> journey)
+def _dims() -> dict[str, list[Any]]:
+    return JM.model().dimensions
+
+
+def _turn() -> dict[str, str]:
+    """The turn-pressure dimension: its name and its normal / at_limit / over_limit levels."""
+    return JM.model().cfg["turn_dim"]
+
+
+def __getattr__(name: str):                       # backward-compatible module constants
+    if name.startswith("__"):
+        raise AttributeError(name)
+    cfg = JM.model().cfg
+    if name == "PADDING_POOL":
+        return [JM.model().frame(f) for f in cfg.get("padding", [])]
+    if name == "FAULT_ONLY":
+        return set(cfg.get("fault_only_rules", []))
+    if name == "BOUNDARIES":
+        return set(cfg.get("boundaries", []))
+    raise AttributeError(name)
 
 
 @dataclass
@@ -87,12 +97,19 @@ class JourneyBaseGenerator:
         self._kb_i = 0
         self._long_oracle = copy.copy(oracle)
         self._long_oracle.limits = copy.copy(oracle.limits)
-        self._long_oracle.limits.max_turns = 10_000
+        setattr(self._long_oracle.limits, _turn()["limit"], 10_000)
+
+    def _turn_limit(self) -> int:
+        return getattr(self.oracle.limits, _turn()["limit"])
+
+    @staticmethod
+    def _turn_limit_reason() -> str:
+        return _turn()["reason"]
 
     # -------------------------------------------------------------- specs
     def random_spec(self, fixed: dict[str, Any] | None = None) -> JourneySpec:
         for _ in range(200):
-            d = {k: self.rng.choice(v) for k, v in DIMENSIONS.items()}
+            d = {k: self.rng.choice(v) for k, v in _dims().items()}
             d.update(fixed or {})
             spec = JourneySpec(**d)
             if is_valid(spec):
@@ -103,38 +120,43 @@ class JourneyBaseGenerator:
         """Attach KB questions and turn padding; return None if the turn target is infeasible."""
         rel = relevant_dims(spec)
         default = JourneySpec()
-        spec = spec.with_(**{d: getattr(default, d) for d in DIMENSIONS if rel[d] == NA})   # canonical form
+        spec = spec.with_(**{d: getattr(default, d) for d in _dims() if rel[d] == NA})   # canonical form
         kb: list[F] = []
-        if rel.get("kb_mid") == "ask" and self.kb_pool:
+        q = JM.model().cfg["question_dim"]
+        if rel.get(q["name"]) == q["ask"] and self.kb_pool:
             kb.append(self.kb_pool[self._kb_i % len(self.kb_pool)])
             self._kb_i += 1
         spec = spec.with_(kb_frames=tuple(kb), extra_kb=0)
-        tp = rel.get("turn_pressure", NA)
-        if tp in (NA, "normal"):
-            if tp == NA and spec.turn_pressure != "normal":
-                spec = spec.with_(turn_pressure="normal")
+        T = _turn()
+        tp = rel.get(T["name"], NA)
+        if tp in (NA, T["normal"]):
+            if tp == NA and getattr(spec, T["name"]) != T["normal"]:
+                spec = spec.with_(**{T["name"]: T["normal"]})
             return spec
         natural = self._long_oracle.run(spec).turns
-        target = self.oracle.limits.max_turns + (0 if tp == "at_limit" else 1)
+        target = self._turn_limit() + (0 if tp == T["at_limit"] else 1)
         extra = target - natural
         if extra < 0:
             return None
-        pad = tuple(PADDING_POOL[i % len(PADDING_POOL)] for i in range(extra))
+        pool = [JM.model().frame(f) for f in JM.model().cfg.get("padding", [])]
+        pad = tuple(pool[i % len(pool)] for i in range(extra))
         spec = spec.with_(kb_frames=tuple(kb) + pad, extra_kb=extra)
         tr = self.oracle.run(spec)
-        if tp == "at_limit" and (tr.turns != target or tr.transfer_reason == "turn_limit"):
+        reason = self._turn_limit_reason()
+        if tp == T["at_limit"] and (tr.turns != target or tr.transfer_reason == reason):
             return None
-        if tp == "over_limit" and tr.transfer_reason != "turn_limit":
+        if tp == T["over_limit"] and tr.transfer_reason != reason:
             return None
         return spec
 
     # -------------------------------------------------------------- feasibility
     def feasible_pairs(self, tries: int = 150) -> tuple[set[tuple], set[tuple]]:
         allp = set()
-        dims = list(DIMENSIONS)
+        D = _dims()
+        dims = list(D)
         for a, b in itertools.combinations(dims, 2):
-            for va in DIMENSIONS[a]:
-                for vb in DIMENSIONS[b]:
+            for va in D[a]:
+                for vb in D[b]:
                     allp.add(tuple(sorted([(a, va), (b, vb)])))
         feasible = set()
         for p in sorted(allp, key=str):
@@ -150,12 +172,13 @@ class JourneyBaseGenerator:
     # -------------------------------------------------------------- covering
     def covering(self, candidates: int = 40, max_rows: int = 200) -> tuple[list[JourneySpec], CoverageReport]:
         if self.max_turn_limit_cases is not None:          # pairs over normal-length conversations only
-            saved = DIMENSIONS["turn_pressure"]
-            DIMENSIONS["turn_pressure"] = ["normal"]
+            T, D = _turn(), _dims()
+            saved = D[T["name"]]
+            D[T["name"]] = [T["normal"]]
             try:
                 return self._covering(candidates, max_rows)
             finally:
-                DIMENSIONS["turn_pressure"] = saved
+                D[T["name"]] = saved
         return self._covering(candidates, max_rows)
 
     def _covering(self, candidates: int = 40, max_rows: int = 200) -> tuple[list[JourneySpec], CoverageReport]:
@@ -169,12 +192,12 @@ class JourneyBaseGenerator:
                 seed_pair = self.rng.choice(sorted(uncovered, key=str))
                 spec = self.random_spec(dict(seed_pair))
                 gain = len(_pairs(relevant_dims(spec)) & uncovered)
-                dims = list(DIMENSIONS)
+                dims = list(_dims())
                 self.rng.shuffle(dims)
                 for d in dims:                     # hill-climb one dimension at a time
                     if d in dict(seed_pair):
                         continue
-                    for v in DIMENSIONS[d]:
+                    for v in _dims()[d]:
                         cand = spec.with_(**{d: v})
                         if not is_valid(cand):
                             continue
@@ -188,7 +211,7 @@ class JourneyBaseGenerator:
                 continue
             fin = self.finalize(best)
             if fin is None:                        # turn target infeasible: fall back to normal
-                fin = self.finalize(best.with_(turn_pressure="normal"))
+                fin = self.finalize(best.with_(**{_turn()["name"]: _turn()["normal"]}))
             if fin is None:
                 stall += 1
                 continue
@@ -206,7 +229,9 @@ class JourneyBaseGenerator:
     # -------------------------------------------------------------- closure
     def closure(self, rows: list[JourneySpec], store, rep: CoverageReport,
                 extra_traces: list = (), budget: int = 4000) -> list[JourneySpec]:
-        all_rules = set(store.rules) - FAULT_ONLY
+        cfg = JM.model().cfg
+        boundaries = set(cfg.get("boundaries", []))
+        all_rules = set(store.rules) - set(cfg.get("fault_only_rules", []))
         all_edges = {w.wid for w in store.workflow}
         all_triggers = {t for t, ty in store.entity_types.items() if ty == "escalation_trigger"}
 
@@ -219,7 +244,7 @@ class JourneyBaseGenerator:
                 if tr.transfer_reason:
                     t.add(tr.transfer_reason)
                 rel = relevant_dims(sp)
-                b |= {f"{k}={v}" for k, v in rel.items() if f"{k}={v}" in BOUNDARIES}
+                b |= {f"{k}={v}" for k, v in rel.items() if f"{k}={v}" in boundaries}
             for tr in traces:
                 r |= tr.rules_fired
                 e |= tr.edges(store.workflow)[0]
@@ -229,16 +254,17 @@ class JourneyBaseGenerator:
         added: list[JourneySpec] = []
         tries = 0
         cap = self.max_turn_limit_cases
-        padded = lambda sp: sp.turn_pressure in ("at_limit", "over_limit")
+        T = _turn()
+        padded = lambda sp: getattr(sp, T["name"]) in (T["at_limit"], T["over_limit"])
         n_padded = sum(padded(s) for s in rows)
-        while ((all_rules - r) or (all_edges - e) or (all_triggers - t) or (BOUNDARIES - b)) and tries < budget:
+        while ((all_rules - r) or (all_edges - e) or (all_triggers - t) or (boundaries - b)) and tries < budget:
             tries += 1
-            fixed = {"turn_pressure": "normal"} if cap is not None and n_padded >= cap else None
+            fixed = {T["name"]: T["normal"]} if cap is not None and n_padded >= cap else None
             spec = self.finalize(self.random_spec(fixed))
             if spec is None:
                 continue
             r2, e2, t2, b2 = goals([spec])
-            if cap is not None and padded(spec) and not ({x for x in b2 - b if x.startswith("turn_pressure")}
+            if cap is not None and padded(spec) and not ({x for x in b2 - b if x.startswith(T["name"])}
                                                         or ((all_rules - r) & r2)):
                 continue                       # a long conversation only for a boundary or rule nothing else reaches
             n_padded += int(padded(spec))
@@ -256,20 +282,20 @@ class JourneyBaseGenerator:
 # Base items
 # --------------------------------------------------------------------------
 def primary_category(spec: JourneySpec) -> str:
-    """Map a journey to the base category its distinguishing content exercises."""
+    """The base category a journey's distinguishing content exercises (domain.yaml ->
+    journey.categories, first match, read on the relevant dimensions)."""
     rel = relevant_dims(spec)
-    if rel["auth"] in ("unavailable",) or rel.get("retrieve") == "unavailable" or rel.get("record") == "fail_first" \
-            or rel.get("card_options") == "unavailable" or rel.get("submit") == "fail":
-        return "recovery"
-    if rel.get("disposition") in ("ambiguous_resolved", "ambiguous_twice", "unsure_twice", "unsure_resolved"):
-        return "recovery"
-    if rel["auth"] in ("fail_twice", "retry_ok"):
-        return "conditional_rule"
-    if rel.get("n_txn") in (4, 5) or rel.get("window") in ("day30", "day31") or rel.get("turn_pressure") in ("at_limit", "over_limit"):
-        return "boundary"
-    if rel["auth"] == "human_at_auth" or rel.get("human_mid") == "yes" or rel.get("card_intent") not in (NA, "none"):
-        return "governance_policy"
-    return "procedural_ordering"
+    for c in JM.model().cfg["categories"]:
+        if holds(c.get("when"), rel):
+            return c["category"]
+    raise ValueError("journey.categories: no category matched (add a final one without 'when')")
+
+
+def tags_for(spec: JourneySpec) -> list[str]:
+    """Every base category a journey exercises (domain.yaml -> journey.tags), plus its primary one."""
+    rel = relevant_dims(spec)
+    tags = {primary_category(spec)} | {t["tag"] for t in JM.model().cfg.get("tags", []) if holds(t.get("when"), rel)}
+    return sorted(tags)
 
 
 def to_item(spec: JourneySpec, oracle, qid: str, category: str | None = None, kb_item=None) -> QAItem:

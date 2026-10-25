@@ -1,0 +1,246 @@
+# Base-case factors for supplementary_card, drafted from supplementary_card_kg.json.
+# Rename, merge, drop or add levels; the first level of each factor is its default.
+# Level scripts: tools {tool: [results]}, says {PROMPT: [frames]}, before: true, pad.
+# Run `python -m gmsjourney.graph.factors check <pack>` after editing.
+
+strength: 2
+closure_budget: 3
+factors:
+  authenticate_customer:
+    anchor: {tool: authenticate_customer}
+    description: Verifies the caller from the last four digits of the primary card.
+    levels:
+      ok: {}
+      unavailable:
+        tools:
+          authenticate_customer: [UNAVAILABLE]
+      retry_authenticated:
+        tools:
+          authenticate_customer: [FAILED, AUTHENTICATED]
+      failed_2x:
+        tools:
+          authenticate_customer: [FAILED, FAILED]
+  check_supplementary_eligibility:
+    anchor: {tool: check_supplementary_eligibility}
+    description: Says whether the account can take another supplementary card, and why not.
+    levels:
+      ok: {}
+      not_eligible_account_too_new:
+        tools:
+          check_supplementary_eligibility:
+          - {status: NOT_ELIGIBLE, reason: ACCOUNT_TOO_NEW}
+      not_eligible_card_limit_reached:
+        tools:
+          check_supplementary_eligibility:
+          - {status: NOT_ELIGIBLE, reason: CARD_LIMIT_REACHED}
+      not_eligible_account_past_due:
+        tools:
+          check_supplementary_eligibility:
+          - {status: NOT_ELIGIBLE, reason: ACCOUNT_PAST_DUE}
+      refer:
+        tools:
+          check_supplementary_eligibility: [REFER]
+      unavailable:
+        tools:
+          check_supplementary_eligibility: [UNAVAILABLE]
+  submit_supplementary_application:
+    anchor: {tool: submit_supplementary_application}
+    description: Submits the application; echoes the card product and returns a reference.
+    levels:
+      ok: {}
+      declined:
+        tools:
+          submit_supplementary_application: [DECLINED]
+      unavailable:
+        tools:
+          submit_supplementary_application: [UNAVAILABLE]
+      echo_mismatch_standard_supp:
+        tools:
+          submit_supplementary_application:
+          - {status: SUBMITTED, reference: SUP-10427, card_product: STANDARD_SUPP}
+  ask_relationship_relationship:
+    anchor: {state: ASK_RELATIONSHIP}
+    description: relationship the customer gives at ASK_RELATIONSHIP
+    levels:
+      spouse: {}
+      domestic_partner:
+        answer:
+          ASK_RELATIONSHIP: {relationship: DOMESTIC_PARTNER}
+      child:
+        answer:
+          ASK_RELATIONSHIP: {relationship: CHILD}
+      parent:
+        answer:
+          ASK_RELATIONSHIP: {relationship: PARENT}
+      sibling:
+        answer:
+          ASK_RELATIONSHIP: {relationship: SIBLING}
+      friend:
+        answer:
+          ASK_RELATIONSHIP: {relationship: FRIEND}
+  ask_applicant_age_age_band:
+    anchor: {state: ASK_APPLICANT_AGE}
+    description: age_band the customer gives at ASK_APPLICANT_AGE
+    levels:
+      adult: {}
+      minor:
+        answer:
+          ASK_APPLICANT_AGE: {age_band: MINOR}
+  ask_card_choice_card_product:
+    anchor: {state: ASK_CARD_CHOICE}
+    description: card_product the customer gives at ASK_CARD_CHOICE
+    levels:
+      standard_supp: {}
+      premium_supp:
+        answer:
+          ASK_CARD_CHOICE: {card_product: PREMIUM_SUPP}
+  confirm_application:
+    anchor: {state: CONFIRM_APPLICATION}
+    description: what the customer does at CONFIRM_APPLICATION
+    levels:
+      confirm: {}
+      deny:
+        says:
+          CONFIRM_APPLICATION: [DENY]
+      choose_card_standard_supp:
+        says:
+          CONFIRM_APPLICATION: [CHOOSE_CARD(card_product=STANDARD_SUPP)]
+      choose_card_premium_supp:
+        says:
+          CONFIRM_APPLICATION: [CHOOSE_CARD(card_product=PREMIUM_SUPP)]
+  human_request:
+    anchor: {}
+    description: the customer asks for a person at a prompt
+    levels:
+      none: {}
+      at_ask_auth:
+        says:
+          ASK_AUTH: [REQUEST_HUMAN]
+        before: true
+      at_ask_auth_retry:
+        says:
+          ASK_AUTH_RETRY: [REQUEST_HUMAN]
+        before: true
+      at_ask_relationship:
+        says:
+          ASK_RELATIONSHIP: [REQUEST_HUMAN]
+        before: true
+      at_ask_applicant_age:
+        says:
+          ASK_APPLICANT_AGE: [REQUEST_HUMAN]
+        before: true
+      at_ask_card_choice:
+        says:
+          ASK_CARD_CHOICE: [REQUEST_HUMAN]
+        before: true
+      at_confirm_application:
+        says:
+          CONFIRM_APPLICATION: [REQUEST_HUMAN]
+        before: true
+      at_ask_more_help:
+        says:
+          ASK_MORE_HELP: [REQUEST_HUMAN]
+        before: true
+  unclear_answer:
+    anchor: {}
+    description: an answer that carries no decision, once (recovered) or past the clarification limit
+    levels:
+      none: {}
+      once_at_ask_auth:
+        says:
+          ASK_AUTH: [UNCLEAR]
+        before: true
+      persists_at_ask_auth:
+        says:
+          ASK_AUTH: [UNCLEAR, UNCLEAR]
+        before: true
+      once_at_ask_auth_retry:
+        says:
+          ASK_AUTH_RETRY: [UNCLEAR]
+        before: true
+      persists_at_ask_auth_retry:
+        says:
+          ASK_AUTH_RETRY: [UNCLEAR, UNCLEAR]
+        before: true
+      once_at_ask_relationship:
+        says:
+          ASK_RELATIONSHIP: [UNCLEAR]
+        before: true
+      persists_at_ask_relationship:
+        says:
+          ASK_RELATIONSHIP: [UNCLEAR, UNCLEAR]
+        before: true
+      once_at_ask_applicant_age:
+        says:
+          ASK_APPLICANT_AGE: [UNCLEAR]
+        before: true
+      persists_at_ask_applicant_age:
+        says:
+          ASK_APPLICANT_AGE: [UNCLEAR, UNCLEAR]
+        before: true
+      once_at_ask_card_choice:
+        says:
+          ASK_CARD_CHOICE: [UNCLEAR]
+        before: true
+      persists_at_ask_card_choice:
+        says:
+          ASK_CARD_CHOICE: [UNCLEAR, UNCLEAR]
+        before: true
+      once_at_confirm_application:
+        says:
+          CONFIRM_APPLICATION: [UNCLEAR]
+        before: true
+      persists_at_confirm_application:
+        says:
+          CONFIRM_APPLICATION: [UNCLEAR, UNCLEAR]
+        before: true
+      once_at_ask_more_help:
+        says:
+          ASK_MORE_HELP: [UNCLEAR]
+        before: true
+      persists_at_ask_more_help:
+        says:
+          ASK_MORE_HELP: [UNCLEAR, UNCLEAR]
+        before: true
+  policy_question:
+    anchor: {}
+    description: a policy question asked before answering a prompt
+    levels:
+      none: {}
+      at_ask_auth:
+        says:
+          ASK_AUTH: [ASK_KB]
+        before: true
+      at_ask_auth_retry:
+        says:
+          ASK_AUTH_RETRY: [ASK_KB]
+        before: true
+      at_ask_relationship:
+        says:
+          ASK_RELATIONSHIP: [ASK_KB]
+        before: true
+      at_ask_applicant_age:
+        says:
+          ASK_APPLICANT_AGE: [ASK_KB]
+        before: true
+      at_ask_card_choice:
+        says:
+          ASK_CARD_CHOICE: [ASK_KB]
+        before: true
+      at_confirm_application:
+        says:
+          CONFIRM_APPLICATION: [ASK_KB]
+        before: true
+      at_ask_more_help:
+        says:
+          ASK_MORE_HELP: [ASK_KB]
+        before: true
+  turn_pressure:
+    anchor: {}
+    description: the conversation runs into the turn limit
+    levels:
+      normal: {}
+      at_limit:
+        pad: {state: ASK_AUTH_RETRY, to: limit}
+      over_limit:
+        pad: {state: ASK_AUTH_RETRY, to: over}

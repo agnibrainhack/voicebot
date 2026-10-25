@@ -438,6 +438,8 @@ fixtures:
   credential: "4821"
   items:                                  # the reviewable items, in presentation order
     id_prefix: T
+    id_field: transaction_id
+    age_field: age_days
     records:
       - {merchant: Amazon, amount: "45.67"}
       - {merchant: Starbucks, amount: "6.25"}
@@ -573,3 +575,226 @@ rules:
   bot_option_cues:
     standard_delivery: [standard, regular, free delivery]
     expedited_delivery: [expedited, express, rush, faster option]
+
+# ---------------------------------------------------------------------------------------------
+# journey: what a base case IS, before any presentation factor. Every dimension changes the
+# correct behaviour of the bot (a knob that moves the answer is a base, not a factor).
+# Conditions below are {dimension: [levels]} (all must hold), {dimension: {not: [levels]}},
+# {any: [conditions]}, {not: condition}.
+journey:
+  dimensions:                              # covering-array dimensions and their levels
+    auth: [ok, retry_ok, fail_twice, unavailable, human_at_auth]
+    retrieve: [ok, unavailable]
+    n_txn: [0, 1, 2, 4, 5]
+    window: [none, day30, day31]
+    disposition: [all_recognized, mixed, unsure_resolved, unsure_twice, ambiguous_resolved, ambiguous_twice, correction]
+    record: [ok, fail_first]
+    card_intent: [none, secure, replace_standard, replace_expedited]
+    card_options: [eligible, none, unavailable]
+    expedited_confirm: [confirm, switch_standard]
+    submit: [ok, fail]
+    human_mid: ["no", "yes"]
+    kb_mid: [none, ask]
+    turn_pressure: [normal, at_limit, over_limit]
+  defaults: {auth: ok, retrieve: ok, n_txn: 1, window: none, disposition: all_recognized, record: ok,
+             card_intent: none, card_options: eligible, expedited_confirm: confirm, submit: ok, human_mid: "no",
+             kb_mid: none, turn_pressure: normal}
+  # special dimensions the generator treats specially
+  item_count: n_txn                       # how many items the backend returns
+  question_dim: {name: kb_mid, ask: ask}  # attach a policy question before the first answer
+  turn_dim: {name: turn_pressure, normal: normal, at_limit: at_limit, over_limit: over_limit,
+             limit: max_turns, reason: turn_limit}   # pad to exactly the limit / one over it
+
+  invalid:                                # combinations that cannot happen
+    - {n_txn: [0], window: [day30]}                                               # day30 would make an item reviewable
+    - {card_intent: {not: [none]}, disposition: {not: [mixed, ambiguous_resolved]}} # a card request rides on an UNRECOGNIZED report
+    - {human_mid: ["yes"], n_txn: [0]}
+
+  # which dimensions can influence the answer of a case (the rest are N/A): walk the steps in
+  # order, adding dimensions ('add', only when 'if' holds) and stopping when 'stop' holds
+  relevance:
+    - {add: [auth], stop: {auth: [fail_twice, unavailable, human_at_auth]}}
+    - {add: [retrieve], stop: {retrieve: [unavailable]}}
+    - {add: [n_txn, window], stop: {n_txn: [0]}}
+    - {add: [disposition, record, kb_mid, turn_pressure]}
+    - add: [human_mid]
+      if: {any: [{not: {any: [{record: [fail_first]}, {disposition: [unsure_twice, ambiguous_twice]}]}}, {n_txn: [1]}]}
+    - stop: {any: [{record: [fail_first]}, {disposition: [unsure_twice, ambiguous_twice]}]}
+    - {add: [card_intent], stop: {card_intent: [none]}}
+    - {add: [card_options]}
+    - {add: [expedited_confirm], if: {card_options: [eligible], card_intent: [replace_expedited]}}
+    - {add: [submit], if: {card_options: [eligible]}}
+
+  # the backend fixture of a case: entries set by each dimension's level, in this order
+  fixture:
+    - {set: {credential: {fixture: credential}}}
+    - dimension: auth
+      levels: {ok: {auth_results: [AUTHENTICATED]}, retry_ok: {auth_results: [FAILED, AUTHENTICATED]},
+               fail_twice: {auth_results: [FAILED, FAILED, AUTHENTICATED]}, unavailable: {auth_results: [UNAVAILABLE]},
+               human_at_auth: {auth_results: [AUTHENTICATED]}}
+    - items: {field: transactions, count: n_txn, window: window,
+              window_levels: {day30: {last_age: 30}, day31: {extra: {record: 5, id: 9, age: 31, insert_at: 1}}}}
+    - dimension: card_options
+      levels: {eligible: {card_options: {fixture: card_options}}, none: {card_options: []}, unavailable: {card_options: []}}
+    - dimension: submit
+      levels: {ok: {submit_result: SUCCESS}, fail: {submit_result: FAILED}}
+    - dimension: retrieve
+      levels: {unavailable: {transactions_status: UNAVAILABLE}}
+    - dimension: record
+      levels: {fail_first: {record_fail_on_call: 1}}
+    - dimension: card_options
+      levels: {unavailable: {card_options_status: UNAVAILABLE}}
+
+  # the simulated customer: what they say to each bot act, given the case
+  customer:
+    credential: {act: PROVIDE_CREDENTIAL, slot: credential}       # value: fixtures.credential
+    asks:
+      credential: [ASK_AUTH, ASK_AUTH_RETRY]
+      item: [PRESENT_TXN, PROVIDE_CONTEXT, ASK_CLARIFY, ANSWER_KB]   # the item is in the act's txn (or current_txn)
+      confirm: [CONFIRM_ACTION, DISCLOSE_FEE]
+      wrap_up: [ASK_MORE_HELP, EXPLAIN_NO_TXNS]
+    human: {act: REQUEST_HUMAN}
+    at_credential_human: {auth: [human_at_auth]}                  # ask for a person instead of the credential
+    human_mid: {when: {human_mid: ["yes"]}, item: 1}             # before this item's answer (clamped to the last)
+    item_field: txn
+    item_field_alt: current_txn
+    # the answers about the first item, per disposition level; later items: 'later'
+    answers:
+      dimension: disposition
+      later: [{act: INFORM_DISPOSITION, disposition: RECOGNIZED}]
+      unscripted: {act: INFORM_DISPOSITION, disposition: RECOGNIZED}
+      exhausted: {repeat_last: INFORM_DISPOSITION, else: {act: UNCLEAR}}
+      levels:
+        all_recognized: [{act: INFORM_DISPOSITION, disposition: RECOGNIZED}]
+        mixed: [{act: INFORM_DISPOSITION, disposition: UNRECOGNIZED, with_request: true}]
+        unsure_resolved: [{act: INFORM_DISPOSITION, disposition: UNSURE}, {act: INFORM_DISPOSITION, disposition: RECOGNIZED}]
+        unsure_twice: [{act: INFORM_DISPOSITION, disposition: UNSURE}, {act: INFORM_DISPOSITION, disposition: UNSURE}]
+        ambiguous_resolved: [{act: UNCLEAR}, {act: INFORM_DISPOSITION, disposition: UNRECOGNIZED, with_request: true}]
+        ambiguous_twice: [{act: UNCLEAR}, {act: UNCLEAR}]
+        correction: [{act: INFORM_DISPOSITION, disposition: RECOGNIZED, corrected_from: UNRECOGNIZED}]
+    # the follow-up request that rides on an answer, per card_intent level
+    request:
+      dimension: card_intent
+      levels: {secure: {card_action: SECURE_CARD}, replace_standard: {card_action: REPLACE_CARD, delivery: standard_delivery},
+               replace_expedited: {card_action: REPLACE_CARD, delivery: expedited_delivery}}
+    confirm: {act: CONFIRM}
+    switch:                                    # once, when asked to confirm this option
+      when: {expedited_confirm: [switch_standard]}
+      if_bot: {delivery: expedited_delivery}
+      say: {act: REQUEST_CARD_ACTION, card_action: REPLACE_CARD, delivery: standard_delivery}
+    wrap_up: {act: END}
+
+  # policy questions used to pad a conversation to an exact turn count (turn-limit cases)
+  padding:
+    - {act: ASK_KB, intent: value, attr: fee, entity: standard_delivery}
+    - {act: ASK_KB, intent: value, attr: days, entity: expedited_delivery}
+    - {act: ASK_KB, intent: limit, key: lookback_days}
+    - {act: ASK_KB, intent: value, attr: fee, entity: expedited_delivery}
+    - {act: ASK_KB, intent: value, attr: days, entity: standard_delivery}
+    - {act: ASK_KB, intent: limit, key: max_transactions_per_session}
+  fault_only_rules: [R33]                  # reachable only through tool faults (left to the resilience probe)
+  boundaries: ["n_txn=4", "n_txn=5", "window=day30", "window=day31", "auth=fail_twice",
+               "turn_pressure=at_limit", "turn_pressure=over_limit"]
+
+  # the base category of a case (first match), and its tags (every match)
+  categories:
+    - {category: recovery, when: {any: [{auth: [unavailable]}, {retrieve: [unavailable]}, {record: [fail_first]},
+                                        {card_options: [unavailable]}, {submit: [fail]}]}}
+    - {category: recovery, when: {disposition: [ambiguous_resolved, ambiguous_twice, unsure_twice, unsure_resolved]}}
+    - {category: conditional_rule, when: {auth: [fail_twice, retry_ok]}}
+    - {category: boundary, when: {any: [{n_txn: [4, 5]}, {window: [day30, day31]}, {turn_pressure: [at_limit, over_limit]}]}}
+    - {category: governance_policy, when: {any: [{auth: [human_at_auth]}, {human_mid: ["yes"]},
+                                                  {card_intent: {not: [N/A, none]}}]}}
+    - {category: procedural_ordering}
+  tags:
+    - {tag: procedural_ordering}
+    - {tag: conditional_rule, when: {any: [{auth: [retry_ok, fail_twice]},
+                                           {disposition: [unsure_resolved, unsure_twice, ambiguous_resolved, ambiguous_twice]}]}}
+    - {tag: boundary, when: {any: [{n_txn: [4, 5]}, {window: [day30, day31]}, {turn_pressure: [at_limit, over_limit]},
+                                   {auth: [fail_twice]}]}}
+    - {tag: recovery, when: {any: [{auth: [unavailable]}, {retrieve: [unavailable]}, {record: [fail_first]},
+                                   {card_options: [unavailable]}, {submit: [fail]},
+                                   {disposition: [ambiguous_resolved, ambiguous_twice, unsure_twice]}]}}
+    - {tag: governance_policy, when: {any: [{auth: [human_at_auth]}, {human_mid: ["yes"]},
+                                            {card_intent: {not: [N/A, none]}}, {record: [fail_first]}]}}
+
+# ---------------------------------------------------------------------------------------------
+# flow: the journey the policy prescribes, as a sequence of service-bot patterns. The oracle
+# walks them (authenticate -> fetch items -> per item: present, capture, write, follow-up ->
+# finish); the outcome scoring reads the same section. Acts are the graph's dialog states,
+# rules its rule ids; every limit and figure is read from exact numeric memory.
+flow:
+  opening: {act: OPENING, text_from: opening, rules: [R1, R2]}     # required language of the store
+  turn_limit: {limit: max_turns, reason: turn_limit, rule: R28}
+  handoff:
+    tool: transfer_to_human
+    act: TRANSFER
+    summary: {act: SUMMARIZE, field: recorded, rule: R19}            # said first when anything was recorded
+  question: {act: ASK_KB, answer: ANSWER_KB, rules: [R25], intent_rules: {fraud: [R27]}}
+  human: {act: REQUEST_HUMAN, reason: customer_request, rule: R20}
+  clarify: {act: ASK_CLARIFY, limit: max_clarification_retries, rule: R22, give_up: {reason: ambiguity_persists, rule: R23}}
+  silent_note: customer_silent
+
+  authenticate:
+    ask: ASK_AUTH
+    retry: ASK_AUTH_RETRY
+    act: PROVIDE_CREDENTIAL
+    tool: authenticate_customer
+    args: {credential: credential}                                   # tool argument <- frame slot
+    limit: max_auth_attempts
+    unavailable: {reason: auth_unavailable, rule: R5}
+    exhausted: {reason: auth_failed, rule: R4}
+    success_rules: [R3]
+
+  fetch:
+    tool: get_review_transactions
+    unavailable: {reason: retrieve_unavailable, rule: R14}
+    rules: [R7, R24]
+    window: {limit: lookback_days, rule: R30}                        # items older than the limit are not reviewed
+    empty: {act: EXPLAIN_NO_TXNS, rule: R8}
+
+  per_item:
+    cap: {limit: max_transactions_per_session, act: EXPLAIN_LIMIT, reason: transaction_limit, rule: R31}
+    present: {act: PRESENT_TXN, field: txn, rule: R6}
+    capture:
+      act: INFORM_DISPOSITION
+      slot: disposition
+      clear: [RECOGNIZED, UNRECOGNIZED]
+      clear_rule: R9
+      correction_rule: R21
+      unsure: {value: UNSURE, limit: max_unsure_retries, act: PROVIDE_CONTEXT, rule: R10}
+      request_slots: [card_action, delivery]                          # a follow-up request riding on the answer
+    write:
+      tool: record_charge_response
+      args: {item: transaction_id, value: disposition}               # what goes in which argument
+      echo: transaction_id
+      rule: R12
+      failed: {reason: record_failed, rule: R14, rules: [R13], echo_mismatch_rules: [R13, R33]}
+      confirm: {act: CONFIRM_RECORDED, item_field: txn, value_field: disposition}
+      terminal: {value: UNSURE, reason: unsure_twice, rule: R11}
+    follow_up:
+      when_value: UNRECOGNIZED                                       # once per conversation
+      action_slot: card_action
+      option_slot: delivery
+      options: {tool: get_card_action_options, key: options, rule: R15, unavailable: {reason: card_options_unavailable, rule: R32}}
+      not_offered: {act: INFORM_NO_CARD_ACTION}
+      disclose: {when: {card_action: REPLACE_CARD, delivery: expedited_delivery}, act: DISCLOSE_FEE,
+                 figure: expedited_fee, figure_field: fee, option_field: delivery, rule: R26}
+      confirm: {act: CONFIRM_ACTION, action_field: action, option_field: delivery, accept: CONFIRM, decline: DENY,
+                change: REQUEST_CARD_ACTION, limit: max_clarification_retries}
+      declined: {act: ACK_DECLINED}
+      submit: {tool: submit_card_action, args: {action: action, option: delivery}, echo: action, rule: R16, done_rule: R17,
+               remaining_rule: R18, failed: {reason: submit_failed, rule: R29}}
+      done: {act: ACTION_DONE, action_field: action, option_field: delivery}
+
+  finish:
+    summary: {act: SUMMARIZE, field: recorded, rule: R19}
+    more_help: ASK_MORE_HELP
+    end: END
+
+  # the graph's workflow (enables edges): its start, summary and end nodes
+  workflow: {start: start, summary: summarize, end: end}
+  # the per-stage components a run is scored on: pattern -> stage name, and their order
+  stage_names: {authenticate: authenticate, fetch: retrieve, present: present, question: kb, capture: capture,
+                write: record, follow_up: card_action, handoff: transfer, summary: summary}
+  stages: [authenticate, retrieve, present, kb, capture, record, card_action, transfer, summary]

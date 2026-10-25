@@ -1,0 +1,121 @@
+{
+ "schema": "gmsjourney.policy_graph/2",
+ "id": "supplementary_card",
+ "title": "Supplementary Card Application Voice-Bot Policy",
+ "root": "supplementary_card_policy",
+ "source": {"document": "supplementary_card_policy.md", "note": "fictional proof-of-concept procedure written for this pack"},
+ "opening": "This call may be recorded. I can help you add a supplementary card to your account once I have verified you.",
+ "credential_hint": "the last four digits of the primary card",
+ "knowledge": [
+  "A supplementary card can be added for a family member: a spouse, a domestic partner, a child, a parent or a sibling.",
+  "The applicant must be at least 18 years old.",
+  "An account can carry at most 4 supplementary cards.",
+  "The standard supplementary card has no annual fee and arrives in 7 business days.",
+  "The premium supplementary card has an annual fee of $95 and arrives in 5 business days.",
+  "The primary card holder is responsible for all charges on supplementary cards."
+ ],
+ "limits": {
+  "max_auth_attempts": {"value": 2, "unit": "attempts", "text": "At most 2 authentication attempts; then transfer."},
+  "max_clarification_retries": {"value": 1, "unit": "retries", "text": "One short clarification per question; then transfer.", "internal": true},
+  "max_turns": {"value": 20, "unit": "turns", "text": "Transfer if the conversation reaches 20 customer turns before the application is complete.", "internal": true},
+  "min_applicant_age": {"value": 18, "unit": "years", "text": "The applicant must be at least 18 years old."},
+  "max_supplementary_cards": {"value": 4, "unit": "cards", "text": "An account can carry at most 4 supplementary cards."}
+ },
+ "values": {
+  "relationship": {
+   "SPOUSE": {"aliases": ["my spouse", "my wife", "my husband"], "allowed": "yes"},
+   "DOMESTIC_PARTNER": {"aliases": ["my partner", "my domestic partner", "my girlfriend", "my boyfriend"], "allowed": "yes"},
+   "CHILD": {"aliases": ["my child", "my son", "my daughter"], "allowed": "yes"},
+   "PARENT": {"aliases": ["my parent", "my mother", "my father", "my mom", "my dad"], "allowed": "yes"},
+   "SIBLING": {"aliases": ["my sibling", "my sister", "my brother"], "allowed": "yes"},
+   "FRIEND": {"aliases": ["a friend", "my friend", "my roommate", "a colleague"], "allowed": "no"}
+  },
+  "age_band": {
+   "ADULT": {"aliases": ["over eighteen", "an adult", "over 18"]},
+   "MINOR": {"aliases": ["under eighteen", "a minor", "under 18"]}
+  },
+  "card_product": {
+   "STANDARD_SUPP": {"aliases": ["the standard card", "the no-fee card", "the basic card"], "annual_fee_usd": 0, "delivery_business_days": 7, "requires_fee_confirmation": "no"},
+   "PREMIUM_SUPP": {"aliases": ["the premium card", "the metal card", "the premium one"], "annual_fee_usd": 95, "delivery_business_days": 5, "requires_fee_confirmation": "yes"}
+  },
+  "ineligible_reason": {
+   "ACCOUNT_TOO_NEW": {"aliases": ["the account is too new"]},
+   "CARD_LIMIT_REACHED": {"aliases": ["the account already has the maximum number of supplementary cards"]},
+   "ACCOUNT_PAST_DUE": {"aliases": ["the account has a past-due balance"]}
+  }
+ },
+ "acts": {
+  "PROVIDE_CREDENTIAL": {"credential": "credential_code"},
+  "INFORM_RELATIONSHIP": {"relationship": "relationship"},
+  "INFORM_AGE": {"age_band": "age_band"},
+  "CHOOSE_CARD": {"card_product": "card_product"},
+  "CONFIRM": {},
+  "DENY": {},
+  "END": {}
+ },
+ "tools": {
+  "authenticate_customer": {"stage": "authentication", "role": "auth", "args": {"credential": "credential_code"}, "ok": "AUTHENTICATED", "fail": ["FAILED"], "check": {"arg": "credential", "fixture": "credential"}, "text": "Verifies the caller from the last four digits of the primary card."},
+  "check_supplementary_eligibility": {"stage": "eligibility", "role": "read", "ok": "ELIGIBLE", "fail": ["NOT_ELIGIBLE", "REFER"], "returns": {"reason": "ineligible_reason"}, "text": "Says whether the account can take another supplementary card, and why not."},
+  "submit_supplementary_application": {"stage": "application", "role": "write", "args": {"relationship": "relationship", "card_product": "card_product"}, "ok": "SUBMITTED", "fail": ["DECLINED"], "echo": "card_product", "returns": {"reference": "text"}, "text": "Submits the application; echoes the card product and returns a reference."},
+  "transfer_to_human": {"stage": "handoff", "role": "handoff", "args": {"reason": "transfer_reason"}, "ok": "TRANSFERRED", "text": "Hands the call to a human representative."}
+ },
+ "rules": {
+  "R1": ["must", "Play the required opening statement before anything else."],
+  "R2": ["must_not", "Discuss the account or call an account tool before authentication succeeds.", {"requires_auth": true}],
+  "R3": ["must", "Verify the caller with authenticate_customer using the last four digits of the primary card."],
+  "R4": ["must", "After max_auth_attempts failed attempts, transfer to a human.", {"max_calls": "authenticate_customer", "limit": "max_auth_attempts"}],
+  "R5": ["must", "If authentication is unavailable, transfer to a human."],
+  "R6": ["must", "Right after authentication, check eligibility; take an application only for an eligible account.", {"requires_status": "submit_supplementary_application", "needs": "check_supplementary_eligibility", "status": "ELIGIBLE"}],
+  "R7": ["must", "For an eligible account, ask for the applicant's relationship and age."],
+  "R8": ["must", "If the account is not eligible, tell the customer the reason the eligibility check gave and take no application.", {"say_result": "EXPLAIN_INELIGIBLE", "field": "reason", "tool": "check_supplementary_eligibility"}],
+  "R9": ["must", "If the eligibility check refers the account, transfer to a human for manual review."],
+  "R10": ["must", "If the eligibility check is unavailable, transfer to a human."],
+  "R11": ["must_not", "Take an application for someone who is not a family member.", {"value_allowed": "submit_supplementary_application", "arg": "relationship", "attr": "allowed", "values": ["yes"]}],
+  "R12": ["must_not", "Take an application for an applicant younger than min_applicant_age.", {"requires_slot": "submit_supplementary_application", "slot": "age_band", "values": ["ADULT"]}],
+  "R13": ["must", "Before submitting a card with an annual fee, state the fee and get a clear confirmation after it.", {"disclose_before": "submit_supplementary_application", "arg": "card_product", "attr": "requires_fee_confirmation", "values": ["yes"], "act": "DISCLOSE_FEE"}],
+  "R14": ["must", "Read back the relationship and card choice; submit only after the customer clearly confirms.", {"confirm_before": "submit_supplementary_application", "act": "CONFIRM"}],
+  "R15": ["must", "If the customer declines, submit nothing, acknowledge it and offer other help."],
+  "R16": ["must_not", "Say the application was submitted unless the submit tool returned SUBMITTED for the same card.", {"claim_needs_success": "CONFIRM_SUBMITTED", "tool": "submit_supplementary_application"}],
+  "R17": ["must", "If the submission is declined or the submit tool is unavailable, transfer to a human."],
+  "R18": ["must", "Treat a submission that echoes a different card than requested as a failure."],
+  "R19": ["must", "If the customer asks for a human at any point, transfer.", {"handoff_when_requested": true}],
+  "R20": ["may", "Answer general policy questions from the knowledge base, then return to the pending question."],
+  "R21": ["must", "If an answer is unclear, ask one short clarification; if it is still unclear, transfer."],
+  "R22": ["must", "If the conversation reaches max_turns before the application is complete, transfer.", {"turn_limit": "max_turns"}],
+  "R23": ["must_not", "Call any tool after transfer_to_human.", {"no_call_after_handoff": true}],
+  "R24": ["must", "Use the exact policy figures for fees, delivery times and limits."]
+ },
+ "transfers": {
+  "state": "TRANSFER",
+  "tool": "transfer_to_human",
+  "arg": "reason",
+  "then": "END",
+  "reasons": {"auth_failed": "R4", "auth_unavailable": "R5", "manual_review": "R9", "eligibility_unavailable": "R10", "submit_failed": "R17", "customer_requested_human": "R19", "ambiguity_persists": "R21", "turn_limit": "R22"}
+ },
+ "global": {
+  "human": {"act": "REQUEST_HUMAN", "then": "!customer_requested_human"},
+  "question": {"act": "ASK_KB", "answer": "ANSWER_KB", "rule": "R20"},
+  "unclear": {"act": "UNCLEAR", "clarify": "ASK_CLARIFY", "limit": "max_clarification_retries", "rule": "R21", "else": "!ambiguity_persists"},
+  "turn_limit": {"limit": "max_turns", "rule": "R22", "else": "!turn_limit", "wrap_up": "END"}
+ },
+ "states": {
+  "OPENING": {"stage": "opening", "say": {"text": "$opening"}, "rules": ["R1"], "go": "ASK_AUTH"},
+  "ASK_AUTH": {"stage": "authentication", "on": {"PROVIDE_CREDENTIAL": "AUTHENTICATE"}, "rules": ["R2", "R3"]},
+  "ASK_AUTH_RETRY": {"stage": "authentication", "on": {"PROVIDE_CREDENTIAL": "AUTHENTICATE"}, "rules": ["R3"]},
+  "AUTHENTICATE": {"stage": "authentication", "call": "authenticate_customer", "args": {"credential": "$credential"}, "rules": ["R3"], "on": {"AUTHENTICATED": "CHECK_ELIGIBILITY", "FAILED": {"below": "max_auth_attempts", "then": "ASK_AUTH_RETRY", "else": "!auth_failed"}, "UNAVAILABLE": "!auth_unavailable"}},
+  "CHECK_ELIGIBILITY": {"stage": "eligibility", "call": "check_supplementary_eligibility", "rules": ["R6"], "on": {"ELIGIBLE": "ASK_RELATIONSHIP", "NOT_ELIGIBLE": "EXPLAIN_INELIGIBLE", "REFER": "!manual_review", "UNAVAILABLE": "!eligibility_unavailable"}},
+  "EXPLAIN_INELIGIBLE": {"stage": "eligibility", "say": {"reason": "$check_supplementary_eligibility.reason"}, "outcome": true, "rules": ["R8"], "go": "ASK_MORE_HELP"},
+  "ASK_RELATIONSHIP": {"stage": "applicant", "rules": ["R7"], "on": {"INFORM_RELATIONSHIP": [{"if": {"relationship.allowed": ["no"]}, "then": "EXPLAIN_RELATIONSHIP"}, "ASK_APPLICANT_AGE"]}},
+  "EXPLAIN_RELATIONSHIP": {"stage": "applicant", "say": {"relationship": "$relationship"}, "outcome": true, "rules": ["R11"], "go": "ASK_MORE_HELP"},
+  "ASK_APPLICANT_AGE": {"stage": "applicant", "rules": ["R7"], "on": {"INFORM_AGE": [{"if": {"age_band": ["MINOR"]}, "then": "EXPLAIN_AGE_LIMIT"}, "ASK_CARD_CHOICE"]}},
+  "EXPLAIN_AGE_LIMIT": {"stage": "applicant", "say": {"min_age": "$min_applicant_age"}, "outcome": true, "rules": ["R12"], "go": "ASK_MORE_HELP"},
+  "ASK_CARD_CHOICE": {"stage": "card", "on": {"CHOOSE_CARD": [{"if": {"card_product.requires_fee_confirmation": ["yes"]}, "then": "DISCLOSE_FEE"}, "CONFIRM_APPLICATION"]}},
+  "DISCLOSE_FEE": {"stage": "card", "say": {"card_product": "$card_product", "fee": "$card_product.annual_fee_usd"}, "rules": ["R13", "R24"], "go": "CONFIRM_APPLICATION"},
+  "CONFIRM_APPLICATION": {"stage": "confirmation", "say": {"relationship": "$relationship", "card_product": "$card_product"}, "rules": ["R14"], "yes": "CONFIRM", "no": "DENY", "on": {"CONFIRM": "SUBMIT", "DENY": "ACK_DECLINED", "CHOOSE_CARD": [{"if": {"card_product.requires_fee_confirmation": ["yes"]}, "then": "DISCLOSE_FEE"}, "CONFIRM_APPLICATION"]}},
+  "SUBMIT": {"stage": "application", "call": "submit_supplementary_application", "args": {"relationship": "$relationship", "card_product": "$card_product"}, "rules": ["R14", "R18"], "on": {"SUBMITTED": "CONFIRM_SUBMITTED", "DECLINED": "!submit_failed", "UNAVAILABLE": "!submit_failed", "ECHO_MISMATCH": "!submit_failed"}},
+  "CONFIRM_SUBMITTED": {"stage": "application", "say": {"card_product": "$card_product", "reference": "$submit_supplementary_application.reference", "delivery_days": "$card_product.delivery_business_days"}, "claims": "submit_supplementary_application", "rules": ["R16", "R24"], "go": "ASK_MORE_HELP"},
+  "ACK_DECLINED": {"stage": "confirmation", "say": {}, "outcome": true, "rules": ["R15"], "go": "ASK_MORE_HELP"},
+  "ASK_MORE_HELP": {"stage": "wrap_up", "yes": "UNCLEAR", "no": "END", "on": {"END": "END"}},
+  "END": {"stage": "wrap_up", "end": true}
+ }
+}

@@ -17,6 +17,13 @@ def check(fn):
     return fn
 
 
+def patterns_only(fn):
+    """A check of a hand-written section; for a graph pack (engine graph) that section is mined
+    from the graph, so the check does not apply."""
+    fn.engines = ("patterns",)
+    return fn
+
+
 def _value_sets(kg) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for t in kg.triples:
@@ -133,6 +140,7 @@ def lexicon_round_trip(dom: Domain, kg) -> list[str]:
 
 
 @check
+@patterns_only
 def tools_match_graph(dom: Domain, kg) -> list[str]:
     tools = dom.section("tools")
     if not tools:
@@ -165,6 +173,7 @@ def tools_match_graph(dom: Domain, kg) -> list[str]:
 
 
 @check
+@patterns_only
 def figures_match_graph(dom: Domain, kg) -> list[str]:
     f = dom.section("figures")
     if not f:
@@ -193,6 +202,7 @@ def figures_match_graph(dom: Domain, kg) -> list[str]:
 
 
 @check
+@patterns_only
 def fixtures_match_graph(dom: Domain, kg) -> list[str]:
     fx = dom.section("fixtures")
     if not fx:
@@ -209,6 +219,7 @@ def fixtures_match_graph(dom: Domain, kg) -> list[str]:
 
 
 @check
+@patterns_only
 def rules_match_graph(dom: Domain, kg) -> list[str]:
     r = dom.section("rules")
     if not r:
@@ -252,4 +263,150 @@ def rules_match_graph(dom: Domain, kg) -> list[str]:
     walk(r.get("speech"), "speech")
     if not any(sp.get("role") == "handoff" for sp in tools.values()):
         errs.append("rules: the call checks need a handoff tool (tools.*.role: handoff)")
+    return errs
+
+
+@check
+def no_boolean_keys(dom: Domain, kg) -> list[str]:
+    """YAML reads unquoted yes / no / on / off as booleans: as a key or a level that is always a mistake."""
+    errs = []
+
+    def walk(x, path):
+        if isinstance(x, dict):
+            for k, v in x.items():
+                if isinstance(k, bool):
+                    errs.append(f"{path}: key {k!r} was read as a boolean; quote it (\"yes\" / \"no\")")
+                walk(v, f"{path}.{k}")
+        elif isinstance(x, list):
+            for i, v in enumerate(x):
+                if isinstance(v, bool) and path.startswith("journey"):
+                    errs.append(f"{path}[{i}]: level {v!r} was read as a boolean; quote it")
+                walk(v, f"{path}[{i}]")
+    walk(dom.config, "")
+    return [e.lstrip(".") for e in errs]
+
+
+def _states(kg) -> set[str]:
+    return {t["head"] for t in kg.triples if t["relation"] == "leads_to"} | \
+           {t["tail"] for t in kg.triples if t["relation"] == "leads_to"}
+
+
+@check
+@patterns_only
+def flow_matches_graph(dom: Domain, kg) -> list[str]:
+    fl = dom.section("flow")
+    if not fl:
+        return ["flow section missing"]
+    errs = []
+    states, acts = _states(kg), _dialog_acts(kg)
+    rules = {t["head"] for t in kg.triples if t["relation"] == "is_a" and t["tail"] == "rule"}
+    tools = dom.section("tools")
+    figures = set(dom.limit_keys()) | set(dom.get("figures.named") or {})
+    roles = {t: sp.get("role") for t, sp in tools.items()}
+
+    def walk(x, path):
+        if isinstance(x, dict):
+            for k, v in x.items():
+                p = f"{path}.{k}"
+                if k == "act" and isinstance(v, str) and v not in states and v not in acts:
+                    errs.append(f"flow{p}: {v!r} is neither a dialog state nor a customer act of the graph")
+                elif k in ("ask", "retry", "more_help", "end", "answer") and isinstance(v, str) and v not in states:
+                    errs.append(f"flow{p}: {v!r} is not a dialog state of the graph")
+                elif k in ("rule", "clear_rule", "correction_rule", "done_rule", "remaining_rule") and v not in rules:
+                    errs.append(f"flow{p}: {v!r} is not a rule of the graph")
+                elif k in ("rules", "success_rules", "echo_mismatch_rules"):
+                    errs.extend(f"flow{p}: {r!r} is not a rule of the graph" for r in v if r not in rules)
+                elif k == "tool" and v not in tools:
+                    errs.append(f"flow{p}: {v!r} is not a tool")
+                elif k in ("limit", "figure") and v not in figures:
+                    errs.append(f"flow{p}: {v!r} is not a limit or named figure")
+                walk(v, p)
+        elif isinstance(x, list):
+            for i, v in enumerate(x):
+                walk(v, f"{path}[{i}]")
+    walk({k: v for k, v in fl.items() if k not in ("workflow", "stage_names", "stages")}, "")
+    for pat, role in (("authenticate", "auth"), ("fetch", "read"), ("handoff", "handoff")):
+        t = (fl.get(pat) or {}).get("tool")
+        if t and roles.get(t) != role:
+            errs.append(f"flow.{pat}.tool: {t} has role {roles.get(t)!r}, expected {role!r}")
+    w = (fl.get("per_item") or {}).get("write", {}).get("tool")
+    if w and roles.get(w) != "write":
+        errs.append(f"flow.per_item.write.tool: {w} has role {roles.get(w)!r}, expected 'write'")
+    names = set((fl.get("stage_names") or {}).values())
+    if set(fl.get("stages", [])) != names:
+        errs.append(f"flow.stages and flow.stage_names disagree: {sorted(set(fl.get('stages', [])) ^ names)}")
+    wf = fl.get("workflow") or {}
+    nodes = {t["head"] for t in kg.triples if t["relation"] == "enables"} | \
+            {t["tail"] for t in kg.triples if t["relation"] == "enables"}
+    for k in ("start", "summary", "end"):
+        if wf.get(k) not in nodes:
+            errs.append(f"flow.workflow.{k}: {wf.get(k)!r} is not a workflow node (enables) of the graph")
+    return errs
+
+
+@check
+@patterns_only
+def journey_is_consistent(dom: Domain, kg) -> list[str]:
+    j = dom.section("journey")
+    if not j:
+        return ["journey section missing"]
+    errs = []
+    dims = j.get("dimensions") or {}
+    for d in dims:
+        if d not in (j.get("defaults") or {}):
+            errs.append(f"journey.defaults: no default for {d}")
+    for d, v in (j.get("defaults") or {}).items():
+        if d not in dims:
+            errs.append(f"journey.defaults: {d} is not a dimension")
+
+    def cond(c, where):
+        if not c:
+            return
+        for k, v in c.items():
+            if k == "any":
+                for x in v:
+                    cond(x, where)
+            elif k == "not":
+                cond(v, where)
+            elif k not in dims:
+                errs.append(f"journey.{where}: {k!r} is not a dimension")
+            else:
+                levels = v["not"] if isinstance(v, dict) else v
+                for lv in levels:
+                    if lv not in dims[k] and lv != "N/A":
+                        errs.append(f"journey.{where}: {k}={lv!r} is not a level")
+    for i, c in enumerate(j.get("invalid", [])):
+        cond(c, f"invalid[{i}]")
+    for i, st in enumerate(j.get("relevance", [])):
+        cond(st.get("if"), f"relevance[{i}].if")
+        cond(st.get("stop"), f"relevance[{i}].stop")
+        for d in st.get("add", []):
+            if d not in dims:
+                errs.append(f"journey.relevance[{i}].add: {d!r} is not a dimension")
+    added = {d for st in j.get("relevance", []) for d in st.get("add", [])}
+    for d in set(dims) - added:
+        errs.append(f"journey.relevance: dimension {d} is never relevant")
+    for key in ("categories", "tags"):
+        for i, c in enumerate(j.get(key, [])):
+            cond(c.get("when"), f"{key}[{i}]")
+    if j.get("categories") and j["categories"][-1].get("when"):
+        errs.append("journey.categories: the last category needs no 'when' (the fallback)")
+    for b in j.get("boundaries", []):
+        d, _, lv = b.partition("=")
+        if d not in dims or not any(str(x) == lv for x in dims[d]):
+            errs.append(f"journey.boundaries: {b!r} is not a dimension=level")
+    items = (dom.get("fixtures.items") or {})
+    count_dim = j.get("item_count")
+    if count_dim in dims and max(dims[count_dim]) > len(items.get("ages", [])):
+        errs.append(f"fixtures.items: {count_dim} goes up to {max(dims[count_dim])} but only "
+                    f"{len(items.get('ages', []))} ages are given")
+    for st in j.get("fixture", []):
+        if "dimension" in st:
+            for lv in st["levels"]:
+                if lv not in dims.get(st["dimension"], []):
+                    errs.append(f"journey.fixture: {st['dimension']}={lv!r} is not a level")
+    acts = _dialog_acts(kg)
+    for i, f in enumerate(j.get("padding", [])):
+        if f.get("act") not in acts:
+            errs.append(f"journey.padding[{i}]: {f.get('act')!r} is not a customer act")
     return errs

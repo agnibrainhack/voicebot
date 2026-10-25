@@ -72,6 +72,18 @@ class Domain:
     def root(self) -> str:
         return self.section("domain")["root"]
 
+    @property
+    def engine(self) -> str:
+        """``graph`` for a compact policy graph (schema v2, graph/model.py): the dialog, journeys,
+        checks and scoring are mined from the graph. ``patterns`` for a v1 graph driven by the
+        flow patterns of domain.yaml."""
+        return "graph" if self.graph is not None else "patterns"
+
+    @property
+    def graph(self):
+        """The compact policy graph (graph.model.PolicyGraph) of a v2 pack, else None."""
+        return self.__dict__.get("_graph")
+
     # ------------------------------------------------------------------ figures
     def limit_keys(self) -> list[str]:
         """The graph's limits, in graph order (is_a <figures.limits.class>)."""
@@ -94,8 +106,12 @@ class Domain:
     @property
     def kg(self):
         if "_kg" not in self.__dict__:
-            from .knowledge.policy_kg import PolicyKG
-            self.__dict__["_kg"] = PolicyKG.load(self.graph_path)
+            if self.graph is not None:
+                from .graph.model import graph_kg
+                self.__dict__["_kg"] = graph_kg(self.graph)
+            else:
+                from .knowledge.policy_kg import PolicyKG
+                self.__dict__["_kg"] = PolicyKG.load(self.graph_path)
         return self.__dict__["_kg"]
 
     def __repr__(self) -> str:
@@ -128,7 +144,17 @@ def load(spec: str | Path | None = None) -> Domain:
     if not cfg_path.exists():
         raise DomainError(f"{d} has no {CONFIG_FILE}")
     config = yaml.safe_load(cfg_path.read_text()) or {}
+    gfile = (config.get("domain") or {}).get("graph")
+    graph = None
+    if gfile:
+        from .graph.model import PolicyGraph, deep_merge, derive_config, is_v2
+        if is_v2(d / gfile):
+            # a compact policy graph: every section it implies is mined from it, domain.yaml on top
+            graph = PolicyGraph.load(d / gfile)
+            config = deep_merge(derive_config(graph, gfile), config)
     dom = Domain(name=(config.get("domain") or {}).get("id", d.name), dir=d, config=config)
+    if graph is not None:
+        dom.__dict__["_graph"] = graph
     if not dom.graph_path.exists():
         raise DomainError(f"{cfg_path}: graph {dom.graph_path.name} not found")
     return dom
@@ -174,7 +200,8 @@ def lint(dom: Domain | None = None) -> list[str]:
         errs.append("application.yaml (enrichment catalog layer) not found in the domain folder")
     from .domain_checks import CHECKS
     for chk in CHECKS:
-        errs += chk(dom, kg)
+        if dom.engine in getattr(chk, "engines", ("patterns", "graph")):
+            errs += chk(dom, kg)
     return errs
 
 

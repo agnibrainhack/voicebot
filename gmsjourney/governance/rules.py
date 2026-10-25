@@ -191,11 +191,55 @@ def compile_call_checks(store, specs: list[dict] | None = None) -> list[CallChec
                     return GateResult(E, "policy", f"turn {st.user_turns} > {sp['limit']}={L}", rule=rule)
                 return GateResult(A, "policy")
 
+        elif kind.startswith("graph_"):                  # a compact policy graph's checks (graph/model.py)
+            chk = _graph_check(kind, sp, rule)
+
         else:
             raise ValueError(f"rules.calls: unknown check {kind!r}")
         chk.__name__ = kind
         out.append(chk)
     return out
+
+
+def _graph_check(kind: str, sp: dict, rule: str | None) -> CallCheck:
+    """Call checks of a compact policy graph's machine-checkable rules (the same rules the trace's
+    admissibility scores): requires_status, value_allowed, requires_slot, confirm_before,
+    disclose_before. The monitor sees the caller's frames and the bot's acts, never the oracle."""
+    from ..domain import current
+    g = current().graph
+    k = kind[len("graph_"):]
+    tool = sp[k]
+
+    def chk(a, st, sp=sp, rule=rule):
+        if a.tool_name != tool:
+            return GateResult(A, "policy")
+        if k == "requires_status":
+            c = st.last(sp["needs"])
+            if not c or (c.get("result") or {}).get("status") != sp["status"]:
+                return GateResult(D, "policy", f"{tool} without {sp['needs']} {sp['status']}", rule=rule)
+        elif k == "value_allowed":
+            v = a.arguments.get(sp["arg"])
+            if g.attr(v, sp["attr"]) not in sp["values"]:
+                return GateResult(D, "policy", f"{tool} for {v}: {sp['attr']} is {g.attr(v, sp['attr'])}", rule=rule)
+        elif k == "requires_slot":
+            said = [f.get(sp["slot"]) for f in st.user_frames if getattr(f, "get", None) and f.get(sp["slot"]) is not None]
+            if not said or said[-1] not in sp["values"]:
+                return GateResult(D, "policy", f"{tool} without the caller saying {sp['slot']} in {sp['values']}", rule=rule)
+        elif k == "confirm_before":
+            last = st.user_frames[-1] if st.user_frames else None
+            if getattr(last, "act", None) != sp["act"]:
+                return GateResult(E, "policy", f"{tool} without a caller {sp['act']} just before", rule=rule)
+        elif k == "disclose_before":
+            v = a.arguments.get(sp["arg"])
+            if g.attr(v, sp["attr"]) in sp["values"]:
+                acts = getattr(st, "bot_acts", [])
+                said = [i for i, x in acts if x.get("act") == sp["act"] and x.get(sp["arg"], v) == v]
+                conf = [i for i, f in enumerate(st.user_frames) if said and i >= said[-1] and getattr(f, "act", None) == "CONFIRM"]
+                if not said or not conf:
+                    return GateResult(D, "policy", f"{tool} for {v} without {sp['act']} and a confirmation after it",
+                                      rule=rule)
+        return GateResult(A, "policy")
+    return chk
 
 
 # ---------------------------------------------------------------------- completion checks

@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import backend
-from .bases.journey import JourneyBaseGenerator, primary_category, to_item
+from .bases.journey import JourneyBaseGenerator, tags_for, to_item
 from .bases.kb import mine_kb_items
 from .catalog import Catalog, level_provenance_table, resolve, resolve_profile, validate
 from .core import Scenario
@@ -50,7 +50,7 @@ from .evaluation import attribution, mutation, resilience
 from .evaluation.constraints import ConstraintBudget
 from .evaluation.runner import run, summary
 from .evaluation.severity import release_gate
-from .journey import NA, JourneySpec, relevant_dims
+from .journey import NA, JourneySpec
 from .knowledge.geode import build_store, oracle_property, to_dot
 from .ontology import Ontology
 from .oracle import PolicyOracle
@@ -155,7 +155,15 @@ def build_gms(policy_path: str | Path = POLICY, *, kx_store_dir: str | None = No
               "contradiction_epochs": contradiction_epochs, "dedup_mode": dedup_mode, "v_sft_mode": v_sft_mode}
     # the store is keyed by everything that changes it: the policy source, every build parameter, the
     # production store's config, the package versions and which encoders it is warm-started from
-    key = hashlib.sha256(json.dumps([Path(policy_path).read_text(), seed, params,
+    from .graph.model import is_v2
+    source = Path(policy_path).read_text()
+    if is_v2(policy_path):
+        # a compact graph: the store is keyed by what it is trained on (the GMS view of the compiled facts), so an
+        # edit to the dialog alone reuses the store and an edit to any fact, figure or synonym retrains it
+        from .graph.compile import compile_graph, render_gms_view
+        from .graph.model import PolicyGraph
+        source = render_gms_view(compile_graph(policy_path).store, PolicyGraph.load(policy_path))
+    key = hashlib.sha256(json.dumps([source, seed, params,
                                      sorted({**DEFAULT_STORE_CONFIG, **overrides}.items()),
                                      info.get("versions"), backend.encoder_kind()],
                                     default=str).encode()).hexdigest()[:16]
@@ -170,25 +178,6 @@ def build_gms(policy_path: str | Path = POLICY, *, kx_store_dir: str | None = No
     return kb.store, {**kb.report, "store_dir": str(sdir)}, info
 
 
-def tags_for(spec: JourneySpec) -> list[str]:
-    rel = relevant_dims(spec)
-    tags = {primary_category(spec), "procedural_ordering"}
-    if rel["auth"] in ("retry_ok", "fail_twice") or rel.get("disposition") in ("unsure_resolved", "unsure_twice",
-                                                                                 "ambiguous_resolved", "ambiguous_twice"):
-        tags.add("conditional_rule")
-    if rel.get("n_txn") in (4, 5) or rel.get("window") in ("day30", "day31") or \
-            rel.get("turn_pressure") in ("at_limit", "over_limit") or rel["auth"] == "fail_twice":
-        tags.add("boundary")
-    if rel["auth"] in ("unavailable",) or rel.get("retrieve") == "unavailable" or rel.get("record") == "fail_first" or \
-            rel.get("card_options") == "unavailable" or rel.get("submit") == "fail" or \
-            rel.get("disposition") in ("ambiguous_resolved", "ambiguous_twice", "unsure_twice"):
-        tags.add("recovery")
-    if rel["auth"] == "human_at_auth" or rel.get("human_mid") == "yes" or rel.get("card_intent") not in (NA, "none") \
-            or rel.get("record") == "fail_first":
-        tags.add("governance_policy")
-    return sorted(tags)
-
-
 def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dict[str, Any]:
     t0 = time.time()
     out = Path(cfg.out_dir)
@@ -199,6 +188,9 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     if problems:
         raise _domain.DomainError(f"domain pack {dom.name} does not match its graph:\n  - " + "\n  - ".join(problems))
     policy_path = cfg.policy_path or str(dom.graph_path)
+    if dom.engine == "graph":                    # a compact policy graph: everything is mined from it
+        from .graph.campaign import run_graph_campaign
+        return run_graph_campaign(cfg, log)
     R["domain"] = {"name": dom.name, "dir": str(dom.dir), "graph": dom.graph_path.name}
 
     # 1 -------------------------------------------------------------- store
@@ -440,7 +432,9 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         R["diagnosis_llm"] = attribution.diagnose(llm_rows, suite.factor_names)
 
     # 9 -------------------------------------------------------------- resilience
-    probe_scns = [s for s in base_scns if s.base.metadata["relevant"].get("n_txn") not in (NA, 0)
+    from .journey import model as _journey_model
+    item_dim = _journey_model().cfg["item_count"]                 # cases where items reach the bot
+    probe_scns = [s for s in base_scns if s.base.metadata["relevant"].get(item_dim) not in (NA, 0)
                   and not s.base.metadata.get("kb_qid")]
     if cfg.run_resilience:
         log("[9/12] probing resilience under tool faults")
