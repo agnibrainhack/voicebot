@@ -10,16 +10,22 @@ factors:
     anchor: {tool: authenticate_customer}
     description: Verifies the caller from the last four digits of the primary card.
     levels:
-      ok: {}
+      ok:
+        expect:
+          end: ENDED
+          transfer: null
+          writes: [submit_supplementary_application]
       unavailable:
         tools:
           authenticate_customer: [UNAVAILABLE]
+        expect: {transfer: auth_unavailable, no_writes: true}
       retry_authenticated:
         tools:
           authenticate_customer: [FAILED, AUTHENTICATED]
       failed_2x:
         tools:
           authenticate_customer: [FAILED, FAILED]
+        expect: {transfer: auth_failed, no_writes: true}
   check_supplementary_eligibility:
     anchor: {tool: check_supplementary_eligibility}
     description: Says whether the account can take another supplementary card, and why not.
@@ -37,9 +43,14 @@ factors:
         tools:
           check_supplementary_eligibility:
           - {status: NOT_ELIGIBLE, reason: ACCOUNT_PAST_DUE}
+        expect:
+          tells: [EXPLAIN_INELIGIBLE]
+          no_writes: true
+          transfer: null
       refer:
         tools:
           check_supplementary_eligibility: [REFER]
+        expect: {transfer: manual_review, no_writes: true}
       unavailable:
         tools:
           check_supplementary_eligibility: [UNAVAILABLE]
@@ -54,10 +65,11 @@ factors:
       unavailable:
         tools:
           submit_supplementary_application: [UNAVAILABLE]
-      echo_mismatch_standard_supp:
+      echo_mismatch:
         tools:
           submit_supplementary_application:
-          - {status: SUBMITTED, reference: SUP-10427, card_product: STANDARD_SUPP}
+          - {status: SUBMITTED, card_product: '@other'}
+        expect: {transfer: submit_failed, no_writes: true}
   ask_relationship_relationship:
     anchor: {state: ASK_RELATIONSHIP}
     description: relationship the customer gives at ASK_RELATIONSHIP
@@ -78,6 +90,9 @@ factors:
       friend:
         answer:
           ASK_RELATIONSHIP: {relationship: FRIEND}
+        expect:
+          tells: [EXPLAIN_RELATIONSHIP]
+          no_writes: true
   ask_applicant_age_age_band:
     anchor: {state: ASK_APPLICANT_AGE}
     description: age_band the customer gives at ASK_APPLICANT_AGE
@@ -86,6 +101,9 @@ factors:
       minor:
         answer:
           ASK_APPLICANT_AGE: {age_band: MINOR}
+        expect:
+          tells: [EXPLAIN_AGE_LIMIT]
+          no_writes: true
   ask_card_choice_card_product:
     anchor: {state: ASK_CARD_CHOICE}
     description: card_product the customer gives at ASK_CARD_CHOICE

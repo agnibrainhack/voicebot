@@ -5,7 +5,8 @@ A level is a small script in the graph's own terms:
 
   tools:   {tool: [result, ...]}        what the tool returns on its 1st, 2nd, ... call (a status, or a
                                         result object such as {status: NOT_ELIGIBLE, reason: ...});
-                                        the last result repeats for later calls
+                                        the last result repeats for later calls; "@other" as the echoed
+                                        field = a value other than the one the bot sent
   says:    {PROMPT_STATE: [frame, ...]} what the customer means on the 1st, 2nd, ... visit of that
                                         prompt, written ACT(slot=VALUE, ...) (ASK_KB = a policy question
                                         drawn from the mined pool)
@@ -30,8 +31,13 @@ combination as covered only where all its levels are relevant, then closes it on
 from the oracle's exploration are added for any state, workflow edge, rule or transfer reason the
 array misses. The ledger reports feasible / covered / infeasible combinations and the closure.
 
-``python -m gmsjourney.graph.factors draft <pack>`` writes a starting base_factors.yaml mined from the
-graph's decision points, to rename, merge, prune or extend.
+A level may also carry ``expect``: the outcome the policy owner expects when that level happens with
+every other factor at its default (end, transfer, writes, no_writes, tells, never_tells). ``review``
+plays each level and reports where the graph disagrees, next to the coverage checks; ``apply_edits``
+changes the file from a list of edits (drop, rename, add, expect, default, strength).
+
+``python -m gmsjourney.graph.factors draft|check|review <pack>``: write a starting base_factors.yaml
+mined from the graph's decision points, check it, or run every base-journey check on it.
 """
 from __future__ import annotations
 
@@ -450,8 +456,11 @@ def draft(oracle) -> dict[str, Any]:
         if t in facs or g.tools[t]["role"] == "handoff":
             continue
         lv: dict[str, Any] = {"ok": {}}
+        echo = g.tools[t].get("echo")
         for res, w, lab in _tool_options(t, {}, oracle.L)[1:]:
             key = _slug(lab.split("=", 1)[-1] if "=" in lab else lab.split(":", 1)[-1])
+            if echo and lab.startswith(f"{t}=ECHO_MISMATCH"):     # whatever the bot sent, a different value comes back
+                key, res = "echo_mismatch", {**res, echo: "@other"}
             lv[key] = {"tools": {t: [res if len(res) > 1 else res["status"]]}}
         retry = next((v for v in s["on"].values() if isinstance(v, dict) and "below" in v), None)
         if retry:                                       # a retried tool: its failure only as a sequence
@@ -533,10 +542,218 @@ def _slug(s: str) -> str:
     return s or "x"
 
 
+# ============================================================================ review and edits
+END_VALUES = ("ENDED", "TRANSFERRED", "INCOMPLETE")      # how a conversation ends
+EXPECT_KEYS = ("end", "transfer", "writes", "no_writes", "tells", "never_tells")
+
+
+def outcome(tr) -> dict[str, Any]:
+    """What a played case comes to, in the terms an ``expect`` block uses."""
+    return {"end": tr.end_state, "transfer": tr.transfer_reason or None,
+            "writes": [t for t, _ in tr.writes()], "tells": sorted({a["act"] for a in tr.told})}
+
+
+def expect_problems(exp: dict[str, Any], out: dict[str, Any]) -> list[str]:
+    """Where a played case departs from a level's ``expect`` block (empty = as expected)."""
+    bad = []
+    if "end" in exp and out["end"] != exp["end"]:
+        bad.append(f"ends at {out['end']}, expected {exp['end']}")
+    if "transfer" in exp and out["transfer"] != exp["transfer"]:
+        bad.append(f"transfer {out['transfer']!r}, expected {exp['transfer']!r}")
+    for t in exp.get("writes") or []:
+        if t not in out["writes"]:
+            bad.append(f"{t} never succeeds")
+    if exp.get("no_writes") and out["writes"]:
+        bad.append(f"writes {out['writes']}, expected none")
+    for a in exp.get("tells") or []:
+        if a not in out["tells"]:
+            bad.append(f"never says {a}")
+    for a in exp.get("never_tells") or []:
+        if a in out["tells"]:
+            bad.append(f"says {a}")
+    return bad
+
+
+def _check_expect(cfg: dict[str, Any]) -> list[str]:
+    g = _graph()
+    errs = []
+    for name, fac in (cfg.get("factors") or {}).items():
+        for lv, spec in (fac.get("levels") or {}).items():
+            exp = (spec or {}).get("expect")
+            if exp is None:
+                continue
+            where = f"base_factors.{name}.{lv}.expect"
+            for k in exp:
+                if k not in EXPECT_KEYS:
+                    errs.append(f"{where}: unknown key {k!r} (use {', '.join(EXPECT_KEYS)})")
+            if exp.get("end") and exp["end"] not in END_VALUES:
+                errs.append(f"{where}.end: {exp['end']!r} is not one of {', '.join(END_VALUES)}")
+            if exp.get("transfer") and exp["transfer"] not in g.transfers["reasons"]:
+                errs.append(f"{where}.transfer: {exp['transfer']!r} is not a transfer reason")
+            for t in exp.get("writes") or []:
+                if t not in g.tools:
+                    errs.append(f"{where}.writes: {t!r} is not a tool")
+    return errs
+
+
+def representative(cfg: dict[str, Any], cases: list["Case"], fac: str, lv: str, oracle, kb_pool) -> "Case | None":
+    """The case that shows what one level does: that level with every other factor at its default, or,
+    when the level is not reached that way, the array case reaching it with the fewest other changes."""
+    facs = cfg["factors"]
+    default = {f: next(iter(facs[f]["levels"])) for f in facs}
+
+    def play(extra: dict[str, str]):
+        c = Case(cfg, {**default, **extra, fac: lv}, kb_pool)
+        if not c.ok:
+            return None
+        c.build(oracle)
+        c.rel = c.relevant(oracle)
+        return c if c.rel.get(fac) else None
+
+    c = play({})
+    if c:
+        return c
+    hits = [x for x in cases if x.levels.get(fac) == lv and x.rel.get(fac)]
+    best = min(hits, key=lambda x: sum(x.levels[f] != default[f] for f in facs), default=None)
+    if best is None:
+        return None
+    moved = [(f, best.levels[f]) for f in facs if f != fac and best.levels[f] != default[f]]
+    for k in (1, 2, 3):                      # the fewest of that case's other changes that still reach the level
+        for sub in combinations(moved, k):
+            c = play(dict(sub))
+            if c:
+                return c
+    return best
+
+
+def review(oracle, cfg: dict[str, Any], kb_pool: list[F]) -> dict[str, Any]:
+    """Every check the base journeys must pass, and what each level leads to, for a person to read."""
+    lim = oracle.limits.as_dict()
+    errs = check(cfg) + _check_expect(cfg)
+    if errs:
+        return {"ok": False, "checks": [{"check": "factor file is valid", "ok": False, "detail": errs}],
+                "levels": [], "cases": [], "ledger": {}, "closure": {}}
+    cases, led = generate(oracle, cfg, kb_pool)
+    extra, cl = closure(oracle, cases, cfg.get("closure_budget", 3))
+    wf = oracle.store.workflow if hasattr(oracle, "store") else None
+    facs = cfg["factors"]
+    default = {f: next(iter(facs[f]["levels"])) for f in facs}
+    rows, unmet = [], []
+    for f in facs:
+        for lv, spec in facs[f]["levels"].items():
+            rep = representative(cfg, cases, f, lv, oracle, kb_pool)
+            out = outcome(rep.trace) if rep else {}
+            exp = (spec or {}).get("expect")
+            bad = expect_problems(exp, out) if (exp is not None and rep) else []
+            if exp is not None and rep is None:
+                bad = ["the level is never reached, so its expectation cannot be checked"]
+            if bad:
+                unmet.append(f"{f}={lv}: " + "; ".join(bad))
+            rows.append({"factor": f, "level": lv, "default": lv == default[f],
+                         "needs": ", ".join(f"{k}={v}" for k, v in (rep.levels.items() if rep else [])
+                                            if k != f and v != default[k]),
+                         **{k: (", ".join(v) if isinstance(v, list) else v) for k, v in out.items()},
+                         "expected": "" if exp is None else ("as expected" if not bad else "; ".join(bad))})
+    inadm = [(c, c.trace.admissibility(wf, lim)) for c in cases] if wf is not None else []
+    inadm = [(c, a) for c, a in inadm if a]
+    n_exp = sum(1 for f in facs for s in facs[f]["levels"].values() if (s or {}).get("expect") is not None)
+    checks = [
+        {"check": "factor file is valid", "ok": True, "detail": []},
+        {"check": "every level is reached in some case", "ok": not led["never_relevant_levels"],
+         "detail": led["never_relevant_levels"]},
+        {"check": f"every feasible {led['strength']}-way combination is covered", "ok": led["covered"] == led["feasible"],
+         "detail": led["uncovered"]},
+        {"check": "every state, edge, rule and transfer reason is reached", "ok": cl["covered_items"] == cl["reachable_items"],
+         "detail": cl.get("unreached", [])},
+        {"check": "the oracle obeys every rule in every case", "ok": not inadm,
+         "detail": [f"{dict(c.levels)}: {a}" for c, a in inadm[:10]]},
+        {"check": f"every level's expectation holds ({n_exp} levels declare one)", "ok": not unmet, "detail": unmet},
+    ]
+    return {"ok": all(c["ok"] for c in checks), "checks": checks, "levels": rows, "cases": cases,
+            "ledger": led, "closure": cl}
+
+
+def apply_edits(dom, edits: list[dict[str, Any]], dry_run: bool = False) -> tuple[dict[str, Any], list[str]]:
+    """Apply edits to a pack's base_factors.yaml (a copy is kept as base_factors.yaml.bak).
+
+      {"drop_level": "factor.level"}            {"drop_factor": "factor"}
+      {"rename_level": "factor.old", "to": "new"}
+      {"set_level": "factor.level", "script": {...}}      add or replace a level (tools / says / answer / ...)
+      {"expect": "factor.level", "outcome": {...}}       the outcome the policy owner expects (None removes it)
+      {"default": "factor.level"}                        make a level the factor's default (first)
+      {"set": "strength" | "closure_budget", "value": n}
+
+    Returns the new config and its problems; nothing is written when there are problems or on dry_run."""
+    import copy
+    p = dom.dir / FILE
+    cfg = copy.deepcopy(load(dom) or {"strength": 2, "closure_budget": 3, "factors": {}})
+    facs = cfg.setdefault("factors", {})
+    errs: list[str] = []
+
+    def split(ref):
+        f, _, lv = str(ref).partition(".")
+        if f not in facs:
+            errs.append(f"{ref}: no factor {f!r}")
+            return None, None
+        return f, lv
+
+    for e in edits:
+        if "drop_factor" in e:
+            facs.pop(e["drop_factor"], None) if e["drop_factor"] in facs else errs.append(f"no factor {e['drop_factor']!r}")
+        elif "drop_level" in e:
+            f, lv = split(e["drop_level"])
+            if f and lv in facs[f]["levels"]:
+                if len(facs[f]["levels"]) == 1:
+                    errs.append(f"{e['drop_level']}: the only level (drop the factor instead)")
+                else:
+                    del facs[f]["levels"][lv]
+            elif f:
+                errs.append(f"{e['drop_level']}: no such level")
+        elif "rename_level" in e:
+            f, lv = split(e["rename_level"])
+            if f and lv in facs[f]["levels"]:
+                facs[f]["levels"] = {(e["to"] if k == lv else k): v for k, v in facs[f]["levels"].items()}
+            elif f:
+                errs.append(f"{e['rename_level']}: no such level")
+        elif "set_level" in e:
+            f, lv = split(e["set_level"])
+            if f:
+                facs[f]["levels"][lv] = e.get("script") or {}
+        elif "expect" in e:
+            f, lv = split(e["expect"])
+            if f and lv in facs[f]["levels"]:
+                spec = facs[f]["levels"][lv] = dict(facs[f]["levels"][lv] or {})
+                if e.get("outcome") is None:
+                    spec.pop("expect", None)
+                else:
+                    spec["expect"] = e["outcome"]
+            elif f:
+                errs.append(f"{e['expect']}: no such level")
+        elif "default" in e:
+            f, lv = split(e["default"])
+            if f and lv in facs[f]["levels"]:
+                lvs = facs[f]["levels"]
+                facs[f]["levels"] = {lv: lvs[lv], **{k: v for k, v in lvs.items() if k != lv}}
+            elif f:
+                errs.append(f"{e['default']}: no such level")
+        elif e.get("set") in ("strength", "closure_budget"):
+            cfg[e["set"]] = int(e["value"])
+        else:
+            errs.append(f"unknown edit {e}")
+    errs += check(cfg) + _check_expect(cfg)
+    if not errs and not dry_run:
+        if p.exists():
+            (dom.dir / (FILE + ".bak")).write_text(p.read_text())
+        head = "".join(l for l in (p.read_text().splitlines(True) if p.exists() else []) if l.startswith("#"))
+        p.write_text((head + "\n" if head else "") +
+                     yaml.safe_dump(cfg, sort_keys=False, width=140, allow_unicode=True, default_flow_style=None))
+    return cfg, errs
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
     ap = argparse.ArgumentParser(description="Draft or check base_factors.yaml for a compact policy graph pack.")
-    ap.add_argument("command", choices=["draft", "check"])
+    ap.add_argument("command", choices=["draft", "check", "review"])
     ap.add_argument("domain")
     ap.add_argument("--force", action="store_true", help="overwrite an existing base_factors.yaml")
     a = ap.parse_args(argv)
@@ -559,7 +776,15 @@ def main(argv: list[str] | None = None) -> int:
         p.write_text(head + yaml.safe_dump(d, sort_keys=False, width=140, allow_unicode=True, default_flow_style=None))
         print(f"wrote {p} ({len(d['factors'])} factors, {sum(len(f['levels']) for f in d['factors'].values())} levels)")
         return 0
-    errs = check(load(dom) or {})
+    if a.command == "review":
+        from .kb import kb_frames
+        r = review(oracle, load(dom) or {}, kb_frames(dom.graph))
+        for c in r["checks"]:
+            print(("PASS " if c["ok"] else "FAIL ") + c["check"])
+            for d in (c["detail"] or [])[:10] if not c["ok"] else []:
+                print("     -", d)
+        return 0 if r["ok"] else 1
+    errs = check(load(dom) or {}) + _check_expect(load(dom) or {})
     print(f"{p.name}: " + ("clean" if not errs else f"{len(errs)} problem(s)"))
     for e in errs:
         print("  -", e)

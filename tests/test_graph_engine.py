@@ -157,6 +157,25 @@ def test_lexicon_reads_back_policy_questions():
     print(f"ok test_lexicon_reads_back_policy_questions {dom.name}")
 
 
+def test_base_journey_review_passes_and_catches_a_wrong_expectation():
+    from gmsjourney.graph import factors as FA
+    from gmsjourney.graph.kb import kb_frames
+    dom, store, oracle, *_ = env(_pack())
+    pool = kb_frames(dom.graph)
+    r = FA.review(oracle, FA.load(dom), pool)
+    assert r["ok"], [c for c in r["checks"] if not c["ok"]]
+    lv = "authenticate_customer.unavailable"
+    cfg, errs = FA.apply_edits(dom, [{"expect": lv, "outcome": {"transfer": None, "writes": [dom.graph.transfers["tool"]]}}],
+                               dry_run=True)
+    assert not errs, errs
+    bad = FA.review(oracle, cfg, pool)
+    assert not bad["ok"] and any(lv.replace(".", "=") in d for d in bad["checks"][-1]["detail"]), bad["checks"][-1]
+    _, errs = FA.apply_edits(dom, [{"drop_level": "authenticate_customer.nope"}, {"expect": lv, "outcome": {"bogus": 1}}],
+                             dry_run=True)
+    assert len(errs) == 2, errs
+    print(f"ok test_base_journey_review_passes_and_catches_a_wrong_expectation {dom.name}")
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 or os.environ.get("GMSJOURNEY_DOMAIN") in PACKS:
         if len(sys.argv) > 1:

@@ -124,7 +124,12 @@ class ToolEnvironment:
             if chk and r.get("status") == chk["success"] and a.get(chk["arg"]) != fx.get(chk["fixture"]):
                 r["status"] = chk["else"]        # a wrong credential never authenticates
             if spec.get("echo") and r.get("status") == spec["status"]["ok"]:
-                r.setdefault(spec["echo"], a.get(spec["echo"]))
+                e = spec["echo"]
+                if r.get(e) == "@other":         # echo a value other than the one sent (a mismatch, whatever was sent)
+                    from ..domain import current
+                    vs = (spec.get("arg_values") or {}).get(e)
+                    r[e] = next((m for m in current().graph.members(vs) if m != a.get(e)), None) if vs else None
+                r.setdefault(e, a.get(e))
             return r
         if kind == "attempts":
             results = fx.get(spec["results_field"], spec.get("default_results"))

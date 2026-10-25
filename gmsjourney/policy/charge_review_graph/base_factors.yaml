@@ -10,16 +10,22 @@ factors:
     anchor: {tool: authenticate_customer}
     description: authenticate_customer | Before account-specific servicing | AUTHENTICATED / FAILED | Continue only on AUTHENTICATED.
     levels:
-      ok: {}
+      ok:
+        expect:
+          end: ENDED
+          transfer: null
+          writes: [record_charge_response]
       unavailable:
         tools:
           authenticate_customer: [UNAVAILABLE]
+        expect: {transfer: auth_unavailable, no_writes: true}
       retry_authenticated:
         tools:
           authenticate_customer: [FAILED, AUTHENTICATED]
       failed_2x:
         tools:
           authenticate_customer: [FAILED, FAILED]
+        expect: {transfer: auth_failed, no_writes: true}
   get_review_transactions:
     anchor: {tool: get_review_transactions}
     description: get_review_transactions | After authentication | transaction_id, merchant, amount, date | Read only returned data; review one
@@ -52,6 +58,7 @@ factors:
             - {transaction_id: T3, merchant: Shell, amount: '52.10', age_days: 15}
             - {transaction_id: T4, merchant: Netflix, amount: '15.99', age_days: 22}
             - {transaction_id: T5, merchant: Uber, amount: '23.40', age_days: 27}
+        expect: {transfer: transaction_limit}
       '30':
         tools:
           get_review_transactions:
@@ -70,6 +77,9 @@ factors:
           get_review_transactions:
           - status: EMPTY
             transactions: []
+        expect:
+          tells: [EXPLAIN_NO_TXNS]
+          no_writes: true
       unavailable:
         tools:
           get_review_transactions: [UNAVAILABLE]
@@ -82,6 +92,7 @@ factors:
       failed:
         tools:
           record_charge_response: [FAILED]
+        expect: {transfer: record_failed}
       unavailable:
         tools:
           record_charge_response: [UNAVAILABLE]
@@ -112,17 +123,20 @@ factors:
     anchor: {tool: submit_card_action}
     description: submit_card_action | After customer confirms an eligible action | SUCCESS / FAILED | Claim completion only after SUCCESS.
     levels:
-      ok: {}
+      ok:
+        expect:
+          writes: [record_charge_response, submit_card_action]
       failed:
         tools:
           submit_card_action: [FAILED]
       unavailable:
         tools:
           submit_card_action: [UNAVAILABLE]
-      echo_mismatch_secure_card:
+      echo_mismatch:
         tools:
           submit_card_action:
-          - {status: SUCCESS, action: SECURE_CARD}
+          - {status: SUCCESS, action: '@other'}
+        expect: {transfer: submit_failed}
   present_txn_disposition:
     anchor: {state: PRESENT_TXN}
     description: disposition the customer gives at PRESENT_TXN
@@ -250,6 +264,7 @@ factors:
         says:
           PRESENT_TXN: [REQUEST_HUMAN]
         before: true
+        expect: {transfer: customer_request, no_writes: true}
       at_provide_context:
         says:
           PROVIDE_CONTEXT: [REQUEST_HUMAN]
@@ -291,6 +306,7 @@ factors:
         says:
           PRESENT_TXN: [UNCLEAR, UNCLEAR]
         before: true
+        expect: {transfer: ambiguity_persists}
       once_at_provide_context:
         says:
           PROVIDE_CONTEXT: [UNCLEAR]
@@ -353,3 +369,4 @@ factors:
         pad: {state: ASK_AUTH_RETRY, to: limit}
       over_limit:
         pad: {state: ASK_AUTH_RETRY, to: over}
+        expect: {transfer: turn_limit}
