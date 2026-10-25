@@ -228,7 +228,7 @@ class LLMBot:
         spec = _tool_api().get(name)
         if spec is None or not isinstance(args, dict):
             self.stats.bad_tool_requests += 1
-            self.history.append({"tool": name, "args": args, "result": {"error": f"unknown tool or bad arguments"}})
+            self.history.append({"tool": name, "args": args, "result": {"error": "unknown tool or bad arguments"}})
             return
         clean = {k: (None if v in ("", "null") else v) for k, v in args.items() if k in spec["args"]}
         clean = {k: v for k, v in clean.items() if v is not None or k == "delivery"}

@@ -127,7 +127,7 @@ the customer says at a prompt or one slot of it, an interruption before an answe
 `python -m gmsjourney.graph.factors draft <pack>` writes a starting file from the graph's decision points (tool
 outcomes, one factor per slot of each prompt's answer, a request for a person / an unclear answer / a policy question
 at each prompt, turn pressure); rename, merge, drop or add levels, then `... factors check <pack>`. A level can carry
-`expect` (end, transfer, writes, no_writes, tells, never_tells): the outcome the policy owner signed off. `... factors review <pack>` runs every base-journey check (valid file, every level reached, every feasible pair covered, the graph closed, the oracle within every rule, every expectation held) and exits non-zero on a failure; notebook cell G3b does the same, shows what each level leads to, and applies edits (`factors.apply_edits`). The campaign builds
+`expect` (end, transfer, writes, no_writes, tells, never_tells): the outcome the policy owner signed off. `... factors review <pack>` runs every base-journey check (valid file, every level reached, every feasible pair covered, the graph closed, the oracle within every rule, every expectation held) and exits non-zero on a failure; notebook cell G3 does the same, shows what each level leads to, and applies edits (`factors.apply_edits`). The campaign builds
 a covering array of strength 2 (`strength: 3` for three-way) over the factors. The oracle decides relevance: a level
 whose decision point is never reached in a case is N/A there, a pair counts as covered only where both levels are
 reached, and pairs that need another factor to become reachable get that factor (their witness). Pairs the policy
@@ -143,9 +143,8 @@ python tests/test_graph_engine.py          # both packs, symbolic store, no lice
 ```
 
 In the notebook, the "Any policy graph" section (cells G1-G6) does the same: pick `PACK`, lint, draft and check the
-factors, preview the covering array and closure in seconds on the symbolic store, validate the base journeys and
-apply edits (G3b), run the whole campaign in one
-call, inspect one base case, and G6 runs every pack (v1 and graph) one after the other into one table.
+factors, preview and validate the base journeys and apply edits on the symbolic store (G3), run the whole campaign
+in one call, inspect one base case, and G6 runs every pack (v1 and graph) one after the other into one table.
 
 Not yet on the graph engine: the 12 charge-specific policy-question kinds (faster, cheaper, fraud, ...; the graph
 engine asks about figures and limits), the LLM enrichment arm and the training corpora.

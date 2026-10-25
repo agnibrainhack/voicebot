@@ -225,7 +225,7 @@ def _verdict_table(row: dict, summ: dict) -> str:
             lines.append(f'<tr class="sub"><td>Stage {E(st)}</td><td colspan="2"></td>'
                          f'<td class="m {"ok" if ok else "no"}">{"✓ match" if ok else "✗ differs"}</td></tr>')
     viol = row.get("violations") or []
-    lines.append(f'<tr class="sub"><td>Workflow admissibility</td><td colspan="2">'
+    lines.append('<tr class="sub"><td>Workflow admissibility</td><td colspan="2">'
                  + (", ".join(f"<code>{E(v)}</code>" for v in viol) if viol else "no policy violation")
                  + f'</td><td class="m {"no" if viol else "ok"}">{"✗ violations" if viol else "✓ admissible"}</td></tr>')
     if "invariance_ok" in row:

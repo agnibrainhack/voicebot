@@ -20,7 +20,6 @@ each base receives a spread of the factor space rather than a random clump.
 from __future__ import annotations
 
 import itertools
-import math
 import random
 import warnings
 from typing import Any, Callable

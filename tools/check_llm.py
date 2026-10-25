@@ -39,7 +39,7 @@ def main() -> int:
     print(f"model     : {s.model}")
     print(f"use case  : {s.use_case_id}")
     print(f"CA bundle : {s.ca_bundle}  (exists: {Path(s.ca_bundle).exists() if s.ca_bundle else False})")
-    print(f"credential: $" + s.access_token_env + " or `" + s.token_cmd + "`")
+    print("credential: $" + s.access_token_env + " or `" + s.token_cmd + "`")
     try:
         model = make_chat_model(s)
     except LLMUnavailable as e:

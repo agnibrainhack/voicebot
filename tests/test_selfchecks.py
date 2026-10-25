@@ -78,7 +78,7 @@ def test_covering_array_covers_all_feasible_pairs():
     gen = JourneyBaseGenerator(oracle, seed=3)
     rows, rep = gen.covering()
     assert rep.pairs_covered == rep.pairs_required
-    extra = gen.closure(rows, store, rep)
+    gen.closure(rows, store, rep)
     assert not rep.edges_missing and not rep.triggers_missing
 
 

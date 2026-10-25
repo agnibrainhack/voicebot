@@ -424,9 +424,15 @@ def _product(lists: list[list]) -> list[tuple]:
     return out
 
 
+def structural_items(tr, workflow) -> set[tuple]:
+    """The graph items a conversation reaches: workflow edges, states, rules fired, its transfer reason."""
+    hit, _ = tr.edges(workflow)
+    return ({("edge", e) for e in hit} | {("state", s) for s in tr.visited} | {("rule", r) for r in tr.rules_fired} |
+            ({("reason", tr.transfer_reason)} if tr.transfer_reason else set()))
+
+
 def closure(oracle, cases: list[Case], budget: int = 3) -> tuple[list[tuple[GraphSpec, Any]], dict[str, Any]]:
     """Cases from the oracle's exploration for every state, edge, rule or transfer reason the array misses."""
-    from .coverage import structural_items
     from .journeys import mine_paths
     wf = oracle.store.workflow
     have = set().union(*(structural_items(c.trace, wf) for c in cases))

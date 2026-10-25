@@ -38,10 +38,6 @@ def _graph():
     return current().graph
 
 
-def _frame_key(f: F) -> str:
-    return f.canonical()
-
-
 # ============================================================================ spec
 class GraphSpec:
     """One mined base case. Immutable; compared and hashed by content."""
