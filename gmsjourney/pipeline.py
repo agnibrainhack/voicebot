@@ -564,6 +564,9 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     with open(out / "dataset" / "case_results.jsonl", "w") as f:     # every graded run, for case_comparison.html
         for r in base_rows + rows + llm_rows:
             f.write(json.dumps({k: v for k, v in r.items() if k != "_plaus_scores"}, default=str) + "\n")
+    # bot validation: what the bot did and what it said, by what each test case contained (bot_validation.html)
+    from .bot_validation import write_bot_validation
+    R["bot_validation"] = write_bot_validation(out, R, json.loads(json.dumps(base_rows + rows + llm_rows, default=str)))
     R["elapsed_seconds"] = round(time.time() - t0, 1)
     (out / "report.json").write_text(json.dumps(R, indent=1, default=str))
     from .report import render_html
@@ -769,7 +772,8 @@ def _failure_modes(R: dict) -> Any:
 def _write_rows(path: Path, rows: list[dict]) -> None:
     if not rows:
         return
-    keys = sorted({k for r in rows for k in r if k not in ("transcript", "kb_detail", "_plaus_scores", "signature")})
+    keys = sorted({k for r in rows for k in r if k not in ("transcript", "kb_detail", "_plaus_scores", "signature",
+                                                          "speech_turns")})
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=keys, extrasaction="ignore")
         w.writeheader()

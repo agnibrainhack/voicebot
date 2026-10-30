@@ -125,11 +125,12 @@ def _speech_section(R: dict[str, Any]) -> str:
     out = ["<h2>5a. What the bot said</h2>",
            "<p>Every bot utterance is read on its own, without its act labels, and every fact it states is checked "
            "where its truth lives: charges against what the tool returned, &ldquo;recorded&rdquo; and "
-           "&ldquo;done&rdquo; against the writes that truly succeeded, figures against the GMS exact register (with "
-           "the trained geometry's distance alongside), stances against the GMS stance check. The words are also "
-           "compared with the act labels, and each act must say what the policy requires it to say. "
-           f"Gate: <b>{esc(sp['gate'])}</b> (fail = a run is correct only if what the bot said is grounded, faithful "
-           "and complete).</p>"]
+           "&ldquo;done&rdquo; against the writes that truly succeeded, policy figures against the GMS exact register "
+           "(with the GMS geometry and knowlytix's own reading reported alongside, below), stances against the GMS "
+           "stance check. The words are also compared with the act labels, and each act must say what the policy "
+           f"requires it to say. Gate: <b>{esc(sp['gate'])}</b> (fail = a run is correct only if what the bot said is "
+           "grounded, faithful and complete). Every response, case by case and by the factors each case contained: "
+           "<a href='bot_validation.html'>bot_validation.html</a>.</p>"]
     parts = [("base cases", sp["base_level"]), ("enriched (template arm)", sp["enriched"])]
     if sp.get("enriched_llm"):
         parts.append(("enriched (LLM arm)", sp["enriched_llm"]))
@@ -141,6 +142,14 @@ def _speech_section(R: dict[str, Any]) -> str:
           p["supported"], p["contradicted"], p["unsupported"], p["unverifiable"], p["unfaithful"], p["missing"], p["flow"],
           f"{p['knowlytix_agree']}/{p['knowlytix_checked']}"] for n, p in parts],
         set(range(1, 13))) + "</div>")
+    bv = R.get("bot_validation") or {}
+    if bv.get("truth_basis") or (bv.get("gms") or {}).get("kinds"):
+        from .bot_validation import GMS_NOTE, basis_table_html, gms_table_html
+        out.append("<h3>Where each claim's truth was read</h3><div class='card'>"
+                   + basis_table_html(bv.get("truth_basis") or []) + "</div>")
+        if (bv.get("gms") or {}).get("kinds"):
+            out.append(f"<h3>Checked against the GMS</h3><p class='muted'>{esc(GMS_NOTE)}</p><div class='card'>"
+                       + gms_table_html(bv["gms"]["kinds"]) + "</div>")
     ex = []
     for n, p in parts:
         for k, e in list(p["examples"].items())[:8]:

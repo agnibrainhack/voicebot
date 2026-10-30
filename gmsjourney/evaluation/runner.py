@@ -42,6 +42,32 @@ from .severity import classify, risk_tier
 SPEECH_GATE = "fail"
 
 
+def response_cards(speech_turns: list[dict[str, Any]], transcript: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The bot's responses that said something checkable, one compact card each, for the reports.
+
+    Input   the speech check's per-turn reports (``extras["speech"]["turns"]``, one per bot turn) and the run's
+            transcript (``[{role, text, ...}]``, used for what the customer said just before each response)
+    Output  ``[{turn, where, customer, text, acts, ok, flow_ok, claims, findings}]`` for every turn with a
+            claim or a finding. Each claim keeps its words, the value they give, its verdict, where the truth was
+            read (``basis``: tool result / successful write / what the customer said / GMS exact register /
+            GMS stance check / policy text), the true value, and for policy figures the GMS reading (distance
+            vs the relation's cap) and knowlytix's.
+    """
+    from ..speech.verify import turn_where
+    before: dict[int, str] = {}
+    k, last_user = -1, None
+    for e in transcript:
+        if e.get("role") == "user":
+            last_user = e.get("text")
+        elif e.get("role") == "bot":
+            k += 1
+            before[k] = last_user
+    return [{"turn": t["turn"], "where": turn_where(t["turn"]), "customer": before.get(t["turn"]), "text": t["text"],
+             "acts": t["acts"], "ok": t["ok"], "flow_ok": t["flow_ok"], "claims": t["claims"],
+             "findings": t["findings"]}
+            for t in speech_turns if t["claims"] or t["findings"]]
+
+
 def score(scn: Scenario, res, limits: Limits, workflow, budget=None) -> dict[str, Any]:
     tr = res.extras["trace"]
     item = scn.base
@@ -109,6 +135,7 @@ def score(scn: Scenario, res, limits: Limits, workflow, budget=None) -> dict[str
         row.update(sp["summary"])
         if sp["problems"]:
             row["speech_problems"] = sp["problems"]
+        row["speech_turns"] = response_cards(sp["turns"], res.extras.get("transcript") or [])
         row["outcome_correct"] = row["correct"]          # the outcome alone, before the speech gate
         row["speech_gate"] = SPEECH_GATE
         if SPEECH_GATE in ("fail", "strict"):

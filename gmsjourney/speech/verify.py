@@ -67,9 +67,38 @@ class ClaimVerdict:
         """True for contradicted and unsupported (the customer was told something false or baseless)."""
         return self.status in FAILING
 
+    @property
+    def basis(self) -> str:
+        """Where the truth of this claim was read, as one of a few plain kinds (for reports):
+
+          tool result             what a tool returned (a charge's merchant, amount, date; the options offered)
+          successful write        a write that truly succeeded ("recorded", "done", the summary's records)
+          what the customer said  the customer's own answer, said back
+          GMS exact register      a policy figure (fee, delivery days, limit), from the GMS register
+          GMS stance check        a rule's stance (R27: not proof of fraud), from the GMS stance check
+          policy text             the required opening statement, word for word
+          nothing to check        an unverifiable mention (never a failure)
+        """
+        f, mode = self.claim.field, self.claim.mode
+        if self.status == "unverifiable":
+            return "nothing to check"
+        if f in ("merchant", "amount", "date", "age_days"):
+            return "tool result"
+        if f == "disposition":
+            return "successful write" if mode == "recorded" else "what the customer said"
+        if f in ("action", "delivery"):
+            return "tool result" if mode == "offered" else "successful write"
+        if f in ("fee", "delivery_days", "limit"):
+            return "GMS exact register"
+        if f == "stance":
+            return "GMS stance check"
+        if f == "recorded_count":
+            return "successful write"
+        return "policy text" if f == "opening" else "other"
+
     def as_dict(self) -> dict[str, Any]:
-        """A JSON-ready view: the claim's fields plus status, truth, source, why (and geometry if any)."""
-        return {**self.claim.as_dict(), "status": self.status,
+        """A JSON-ready view: the claim's fields plus status, basis, truth, source, why (and geometry if any)."""
+        return {**self.claim.as_dict(), "status": self.status, "basis": self.basis,
                 "truth": list(self.truth) if isinstance(self.truth, tuple) else self.truth,
                 "source": self.source, "why": self.why, **({"geometry": self.geometry} if self.geometry else {})}
 
@@ -316,7 +345,7 @@ class UtteranceVerifier:
         a, b = rng[option]
         ok = a <= lo and hi <= b
         return ClaimVerdict(cl, "supported" if ok else "contradicted", (a, b), f"exact register delivery_days/{option}",
-                            "" if ok else f"{option} takes {a}-{b} business days",
+                            "" if ok else f"{option} takes {a if a == b else f'{a}-{b}'} business days",
                             self._geometry(option, "has_business_days_max", hi))
 
     def _corroborated(self, v: ClaimVerdict) -> ClaimVerdict:
@@ -532,8 +561,7 @@ class ConversationChecker:
         """Every failing claim and finding, with the turn and words, for failure reports."""
         out = []
         for r in self.reports:
-            # bot turn 0 is the opening; bot turn n answers customer turn n-1 (the turn-by-turn table's numbering)
-            where = "the opening" if r.turn == 0 else f"the reply to customer turn {r.turn - 1}"
+            where = turn_where(r.turn)
             for v in r.verdicts:
                 if v.failed:
                     out.append({"turn": r.turn, "where": where, "kind": v.status, "field": v.claim.field,
@@ -548,6 +576,12 @@ class ConversationChecker:
 
 
 # ------------------------------------------------------------------ helpers
+def turn_where(turn: int) -> str:
+    """A bot turn in the turn-by-turn table's numbering: bot turn 0 is the opening, bot turn n answers
+    customer turn n-1."""
+    return "the opening" if turn == 0 else f"the reply to customer turn {turn - 1}"
+
+
 def spec_source(contract: SpeechContract, act: str) -> str | None:
     """The PDF section that says what ``act`` must say (pdf.2B ...): the rule a finding cites."""
     spec = contract.acts.get(act)

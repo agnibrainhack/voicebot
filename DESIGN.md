@@ -608,6 +608,29 @@ The word defects are then flagged live as well as graded, and the audit records 
   edited turn must be flagged (section 5a of the report).
 - **Mutants:** four word-only mutants have the reference bot's exact outcome, and only this check kills them.
 
+**Reporting** (`gmsjourney/bot_validation.py` -> `bot_validation.html`). Each run has two verdicts:
+
+- **did the right thing**: the outcome, the semantic check;
+- **said it right**: `c_speech`, the response check.
+
+The page splits runs by four dimensions only:
+
+- the type of enrichment (none / template / LLM);
+- the base-case category;
+- the DOE factors, from the official catalogs (`origin: official`);
+- the enrichment factors this bot's application layer adds (`origin: custom`).
+
+Each factor table shows the three rates per level. Factors the deviance test finds significant come first. Below
+that, the page has four detail views:
+
+- the stage where the semantic check failed;
+- every claim by where its truth was read (session or GMS);
+- the GMS-checked figures, with the register verdict, the GMS distance vs cap and knowlytix's reading;
+- response cards, which show the failing responses with their case's factor levels.
+
+The cards are kept per run (`speech_turns` in `dataset/case_results.jsonl`), so the page can be rebuilt without a
+rerun.
+
 **Assumptions to confirm.**
 
 - PDF section 2B ("present one transaction at a time using merchant, amount and date") is read as: all three are

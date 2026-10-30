@@ -273,7 +273,9 @@ conversation and leaves the labels, tools and outcome untouched:
 - "this means fraud";
 - a summary that drops a recorded answer.
 
-The report's section 5a shows the detection rate for each control. Four word-only mutants
+The report's section 5a shows the detection rate for each control, the claims by where their truth was read, and the
+policy figures checked against the GMS (register verdict, GMS distance vs cap, knowlytix). `bot_validation.html` has
+the full view by factor and response by response (notebook CELL 11d shows the same for the runs of CELL 11). Four word-only mutants
 (`says_wrong_fee`, `misstates_recorded_answer`, `names_wrong_amount`, `summary_omits`) have the same outcome as the
 reference bot and are killed only by this check.
 
@@ -423,6 +425,9 @@ malformed replies and tool errors. Tests: `python tests/test_llm_sut.py` (a scri
 | file | content |
 |---|---|
 | `report.html` / `report.json` | the campaign report / every number in it |
+| `bot_validation.html` | what the bot did and what it said. Every run is shown with two verdicts: did the right thing (the outcome) and said it right (every claim grounded). Runs are split by type of enrichment, base category, DOE factors and enrichment factors. Each claim shows where its truth was read and how it fared against the GMS. Response cards show the failing responses, each with its case's factor levels. Rebuild it from the files with `python -m gmsjourney.bot_validation output/campaign_out` |
+| `case_comparison.html` | every case, expected vs actual, turn by turn, with the speech verdict |
+| `dataset/case_results.jsonl` | every graded run, including `speech_turns`: one response card per bot turn with its claims, verdicts, truth, where it was read, and the GMS reading |
 | `gms_build_report.json` | knowlytix build: GEODE diagnostics, embed loop and SFT evaluations, judge thresholds, ENM agreement, timings |
 | `policy.gms.md` | the GEODE input rendered from the policy |
 | `results_enriched.csv`, `results_base_level.csv` | one row per scenario (`f_<factor>`, `correct`, `c_<stage>`, gate alarms, ...) |
