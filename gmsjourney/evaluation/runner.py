@@ -15,7 +15,12 @@ One row per scenario:
   bot_latency_ms_max/_p95, bot_words_max, within_budget, budget_violations
                               per-turn constraint budgets (evaluation/constraints.py; not part of `correct`),
   risk_tier, severity, failure_codes
-                              gmsh-style severity with risk-tier escalation (evaluation/severity.py).
+                              gmsh-style severity with risk-tier escalation (evaluation/severity.py),
+  c_speech, speech_*          what the bot SAID, read on its own and checked (gmsjourney/speech):
+                              claims supported / contradicted / unsupported / unverifiable, words that
+                              contradict the act labels, required information not said; c_flow and
+                              speech_flow: acts where the dialog-state graph does not allow them.
+                              SPEECH_GATE decides whether ``correct`` requires them.
 Scenarios whose invariance proof failed are not run (they are reported).
 """
 from __future__ import annotations
@@ -28,6 +33,13 @@ from ..oracle import Limits
 from ..trace import WORKFLOW_STAGES
 from .constraints import check_constraints
 from .severity import classify, risk_tier
+
+# How what the bot said enters ``correct``:
+#   "report"  speech columns only; correct is the outcome as before
+#   "fail"    correct also requires c_speech: no contradicted or unsupported claim, words that say what
+#             the act labels claim, and every piece of information the policy requires (the default)
+#   "strict"  as "fail", and every act where the dialog-state graph allows it (c_flow)
+SPEECH_GATE = "fail"
 
 
 def score(scn: Scenario, res, limits: Limits, workflow, budget=None) -> dict[str, Any]:
@@ -92,6 +104,15 @@ def score(scn: Scenario, res, limits: Limits, workflow, budget=None) -> dict[str
     if item.metadata.get("kb_qid"):
         # for a policy-question base case the answer to that question IS the outcome
         row["correct"] = int(row["correct"] and row.get("kb_correct", 0))
+    sp = res.extras.get("speech")
+    if sp is not None:
+        row.update(sp["summary"])
+        if sp["problems"]:
+            row["speech_problems"] = sp["problems"]
+        row["outcome_correct"] = row["correct"]          # the outcome alone, before the speech gate
+        row["speech_gate"] = SPEECH_GATE
+        if SPEECH_GATE in ("fail", "strict"):
+            row["correct"] = int(row["correct"] and row["c_speech"] and (SPEECH_GATE != "strict" or row["c_flow"]))
     if scn.metadata.get("unrealised_factors"):
         row["unrealised_factors"] = list(scn.metadata["unrealised_factors"])
     row.update(check_constraints(res.extras.get("bot_turn_stats", []), proc["tool_calls"],
@@ -156,6 +177,14 @@ def summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     kb = [r["kb_correct"] for r in rows if "kb_correct" in r]
     if kb:
         out["kb_accuracy"] = sum(kb) / len(kb)
+    sp = [r for r in rows if "c_speech" in r]
+    if sp:
+        out["speech_grounded"] = sum(r["c_speech"] for r in sp) / len(sp)
+        out["speech_flow"] = sum(r["c_flow"] for r in sp) / len(sp)
+        out["outcome_accuracy"] = sum(r["outcome_correct"] for r in sp) / len(sp)
+        claims = sum(r["speech_claims"] for r in sp)
+        out["speech_claims"] = claims
+        out["speech_claims_supported"] = sum(r["speech_supported"] for r in sp) / max(1, claims)
     for stage in WORKFLOW_STAGES:
         vals = [r[f"c_{stage}"] for r in rows if f"c_{stage}" in r]
         if vals:

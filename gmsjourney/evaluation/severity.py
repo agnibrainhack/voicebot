@@ -17,6 +17,15 @@ HIGH      OUTCOME_INCORRECT, ESCALATION_MISSED, AUTH_ATTEMPTS_EXCEEDED (R4),
 MODERATE  PROCESS_DEVIATION (edge not in the policy graph), TURN_LIMIT_EXCEEDED (R28),
           ESCALATION_INAPPROPRIATE, UNCLEAN_TERMINATION, STAGE_INCORRECT
 LOW       BUDGET_EXCEEDED (latency / length / tool calls), TOOL_LOOP, RUNTIME_INVARIANCE
+
+What the bot said (gmsjourney/speech):
+CRITICAL  SPEECH_CONTRADICTED (it told the customer something false: the wrong fee, the opposite of
+          what was recorded), SPEECH_UNSUPPORTED (it stated something nothing backs: "recorded" or
+          "done" without a success, a charge no tool returned)
+HIGH      SPEECH_UNFAITHFUL (its words say something other than its act labels)
+MODERATE  SPEECH_MISSING (it left out what the policy requires it to say: the date of a charge, the
+          fee before an expedited confirmation, the summary of what was recorded)
+LOW       SPEECH_FLOW (an act where the dialog-state graph does not allow it)
 """
 from __future__ import annotations
 
@@ -35,6 +44,8 @@ CODE_SEVERITY = {
     "PROCESS_DEVIATION": "moderate", "TURN_LIMIT_EXCEEDED": "moderate", "ESCALATION_INAPPROPRIATE": "moderate",
     "UNCLEAN_TERMINATION": "moderate", "STAGE_INCORRECT": "moderate",
     "BUDGET_EXCEEDED": "low", "TOOL_LOOP": "low", "RUNTIME_INVARIANCE": "low",
+    "SPEECH_CONTRADICTED": "critical", "SPEECH_UNSUPPORTED": "critical", "SPEECH_UNFAITHFUL": "high",
+    "SPEECH_MISSING": "moderate", "SPEECH_FLOW": "low",
 }
 _VIOLATION_CODE = {
     "claim_without_success": "CLAIM_WITHOUT_SUCCESS", "account_tool_before_auth": "ACCOUNT_TOOL_BEFORE_AUTH",
@@ -86,6 +97,11 @@ def failure_codes(row: dict[str, Any]) -> list[str]:
         codes.append("TOOL_LOOP")
     if row.get("invariance_ok") == 0:
         codes.append("RUNTIME_INVARIANCE")
+    for k, code in (("speech_contradicted", "SPEECH_CONTRADICTED"), ("speech_unsupported", "SPEECH_UNSUPPORTED"),
+                    ("speech_unfaithful", "SPEECH_UNFAITHFUL"), ("speech_missing", "SPEECH_MISSING"),
+                    ("speech_flow", "SPEECH_FLOW")):
+        if row.get(k):
+            codes.append(code)
     return sorted(set(codes))
 
 

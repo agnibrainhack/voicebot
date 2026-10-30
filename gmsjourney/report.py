@@ -117,6 +117,49 @@ def pfmt(p: float) -> str:
     return f"{p:.1e}" if p < 1e-3 else f"{p:.4f}"
 
 
+def _speech_section(R: dict[str, Any]) -> str:
+    """5a. What the bot said: every utterance read on its own and checked (gmsjourney/speech)."""
+    sp = R.get("speech")
+    if not sp:
+        return ""
+    out = ["<h2>5a. What the bot said</h2>",
+           "<p>Every bot utterance is read on its own, without its act labels, and every fact it states is checked "
+           "where its truth lives: charges against what the tool returned, &ldquo;recorded&rdquo; and "
+           "&ldquo;done&rdquo; against the writes that truly succeeded, figures against the GMS exact register (with "
+           "the trained geometry's distance alongside), stances against the GMS stance check. The words are also "
+           "compared with the act labels, and each act must say what the policy requires it to say. "
+           f"Gate: <b>{esc(sp['gate'])}</b> (fail = a run is correct only if what the bot said is grounded, faithful "
+           "and complete).</p>"]
+    parts = [("base cases", sp["base_level"]), ("enriched (template arm)", sp["enriched"])]
+    if sp.get("enriched_llm"):
+        parts.append(("enriched (LLM arm)", sp["enriched_llm"]))
+    out.append("<div class='card'>" + table(
+        ["", "runs", "words grounded", "outcome right, words wrong", "claims", "supported", "contradicted",
+         "unsupported", "unverifiable", "unfaithful to label", "required but not said", "out of place (flow)",
+         "knowlytix agrees"],
+        [[esc(n), p["runs"], pct(p["grounded_runs"] / max(1, p["runs"])), p["outcome_right_words_wrong"], p["claims"],
+          p["supported"], p["contradicted"], p["unsupported"], p["unverifiable"], p["unfaithful"], p["missing"], p["flow"],
+          f"{p['knowlytix_agree']}/{p['knowlytix_checked']}"] for n, p in parts],
+        set(range(1, 13))) + "</div>")
+    ex = []
+    for n, p in parts:
+        for k, e in list(p["examples"].items())[:8]:
+            ex.append([esc(n), esc(k), p["problems"][k], esc(e.get("sentence") or e.get("why", "")),
+                       esc(e.get("why", "")), esc(e.get("sid"))])
+    if ex:
+        out.append("<h3>Problems found, by kind (one example each)</h3><div class='card'>" + table(
+            ["runs", "problem", "count", "words", "why", "example run"], ex, {2}) + "</div>")
+    ctl = sp.get("controls")
+    if ctl:
+        out.append("<h3>Checking the check: word-only negative controls</h3><p class='muted'>Each control edits only "
+                   "the words of one act in a real reference-bot conversation (labels, tools and outcome unchanged) so "
+                   "that they become false, incomplete or unfaithful; the check must flag that turn.</p>"
+                   "<div class='card'>" + table(["control", "applied", "flagged", "detection"],
+                   [[esc(k), v["applied"], v["detected"], pct(v["detection_rate"])] for k, v in ctl["controls"].items()],
+                   {1, 2, 3}) + "</div>")
+    return "\n".join(out)
+
+
 def render_html(R: dict[str, Any]) -> str:
     st, cov, inv, des = R["store"], R["coverage"], R["invariance"], R["design"]
     res, dg = R["results"], R["diagnosis"]
@@ -137,6 +180,8 @@ def render_html(R: dict[str, Any]) -> str:
                  tile(pct(nc["_overall"]["detection_rate"]), "meaning-changing edits rejected") +
                  tile(pct(res["base_level"]["accuracy"]), "bot accuracy, base cases") +
                  tile(pct(res["enriched"]["accuracy"]), "bot accuracy, enriched") +
+                 (tile(pct(res["base_level"].get("speech_grounded")), "base runs whose words are grounded")
+                  if "speech_grounded" in res["base_level"] else "") +
                  (tile(pct(mut["mutation_score"]["all_suites_combined"]), "seeded defects caught") if mut else "") +
                  "</div>")
 
@@ -376,6 +421,7 @@ def render_html(R: dict[str, Any]) -> str:
         [[esc(c), v["n"], pct(v["accuracy"]), f"{pct(v['wilson_failure'][0])}–{pct(v['wilson_failure'][1])}"]
          for c, v in dg["per_category"].items()], {1, 2}) + "</div>")
 
+    parts.append(_speech_section(R))
     parts.append(_failed_section(R))
 
     # 6 resilience
@@ -666,6 +712,13 @@ def failure_reasons(fc: dict[str, Any]) -> list[str]:
                        f"— {esc(k.get('detail'))}.")
     if fc.get("invariance_ok") == 0:
         out.append("A customer turn did not read back to its intended meaning (runtime invariance monitor).")
+    for p in fc.get("speech_problems") or []:
+        if p["kind"] in ("contradicted", "unsupported"):
+            out.append(f"The bot said “{esc(p.get('sentence'))}”: {esc(p['kind'])} — {esc(p.get('why'))} "
+                       f"({esc(p.get('where') or 'turn ' + str(p.get('turn')))}).")
+        else:
+            out.append(f"What the bot said in {esc(p.get('where') or 'turn ' + str(p.get('turn')))}: {esc(p.get('why'))}"
+                       + (f" ({esc(p['rule'])})" if p.get("rule") else "") + ".")
     for b in fc.get("budget_violations") or []:
         out.append(f"Budget: {esc(b)}.")
     if not out and fc.get("failure_codes"):

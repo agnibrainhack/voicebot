@@ -191,6 +191,25 @@ def _col(kind: str, tools: str, acts: str, words: str = "") -> str:
             + (f'<div class="words">“{E(words)}”</div>' if words else "") + "</div>")
 
 
+def _speech_rows(row: dict) -> list[str]:
+    """The speech check's verdict on the bot's words (gmsjourney/speech), as table rows: one for the words,
+    one for the flow (part of the verdict only under --speech-gate strict)."""
+    ok, flow = bool(int(row.get("c_speech", 1))), bool(int(row.get("c_flow", 1)))
+    n, good = row.get("speech_claims", 0), row.get("speech_supported", 0)
+    probs = [p for p in (row.get("speech_problems") or []) if p.get("kind") != "not_allowed_here"]
+    detail = ("; ".join(f"{p.get('where') or 'turn ' + str(p.get('turn'))}, {p.get('kind')}: "
+                        + (f"“{p.get('words')}” ({p.get('why')})" if p.get("words") else str(p.get("why")))
+                        for p in probs[:3]) if probs
+              else f"{good} of {n} claims supported, nothing missing")
+    flow_probs = [p for p in (row.get("speech_problems") or []) if p.get("kind") == "not_allowed_here"]
+    out = [f'<tr><td>What the customer heard (every claim grounded)</td><td colspan="2" class="small">{E(detail)}</td>'
+           f'<td class="m {"ok" if ok else "no"}">{"✓ grounded" if ok else "✗ not grounded"}</td></tr>']
+    out.append(f'<tr class="sub"><td>Speech flow (each act a graph transition)</td><td colspan="2" class="small">'
+               f'{E("; ".join(str(p.get("why", "")) for p in flow_probs[:2]) or "every act follows the graph")}</td>'
+               f'<td class="m {"ok" if flow else "no"}">{"✓" if flow else "✗"}</td></tr>')
+    return out
+
+
 def _verdict_table(row: dict, summ: dict) -> str:
     sig = row.get("signature") or row.get("why") or {}
     exp = sig.get("expected") if row else _j(summ.get("expected_outcome"))
@@ -211,10 +230,16 @@ def _verdict_table(row: dict, summ: dict) -> str:
             lines.append(f'<tr><td>Policy answer to <code>{E(k.get("frame"))}</code></td>'
                          f'<td class="small">{E(k.get("detail"))}</td><td>“{E(k.get("answer"))}”</td>'
                          f'<td class="m {"ok" if ok else "no"}">{"✓ correct" if ok else "✗ wrong"}</td></tr>')
+    gate = row.get("speech_gate")
+    speech_rows = _speech_rows(row) if "c_speech" in row else []
+    if gate in ("fail", "strict"):
+        lines += speech_rows
     lines.append('<tr class="grp"><td colspan="4">Also checked, reported next to the verdict (not part of it)</td></tr>')
+    if gate not in ("fail", "strict"):
+        lines += speech_rows
     stages = (row.get("why") or {}).get("stages") or {}
     wrong = set(_j(summ.get("stages_wrong")) or []) | set(stages)
-    graded = sorted(k[2:] for k in row if k.startswith("c_"))
+    graded = sorted(k[2:] for k in row if k.startswith("c_") and k not in ("c_speech", "c_flow"))
     for st in graded:
         if st in stages:
             d = stages[st]

@@ -104,6 +104,27 @@ class RuntimeMonitor:
         if res:
             self._seal("speech", {"text": text}, res, "flagged")
 
+    def on_speech(self, report) -> None:
+        """Seal the speech check's verdict on one bot turn (gmsjourney/speech, a ``TurnReport``) into the audit,
+        as the gate ``speech_grounding``.
+
+        Input   the turn's report (None or an ok report: nothing is sealed)
+        Effect  a claim that is false or has nothing behind it (contradicted / unsupported) -> DENY;
+                an act that leaves out required information or says something other than its label -> ESCALATE.
+                Flow findings are not sealed: they are graded on their own (``c_flow``), not by default.
+
+        ``SpeechMonitor`` above is the guard for a few things that must never be said; this layer is the full
+        reading of every claim against the policy graph, the GMS and the session (it catches, for example,
+        "I've recorded that you recognize it" when UNRECOGNIZED was recorded)."""
+        if report is None or report.ok:
+            return
+        res = [GateResult(GateDecision.DENY, "speech_grounding",
+                          f"{v.status}: {v.claim.words!r} ({v.why or v.source})", rule=f"claim:{v.claim.field}")
+               for v in report.verdicts if v.failed]
+        res += [GateResult(GateDecision.ESCALATE, "speech_grounding", f.detail, rule=f"{f.kind}:{f.act}")
+                for f in report.findings if f.kind != "not_allowed_here"]
+        self._seal("speech", {"text": report.text}, res, "flagged")
+
     @staticmethod
     def outcomes(results: list[GateResult]) -> tuple[str, str]:
         """(strict outcome, quorum outcome) for one proposed call."""

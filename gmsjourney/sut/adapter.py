@@ -11,6 +11,10 @@ simulator knows what is being asked. Tool calls are observed at the mock backend
 (ToolEnvironment / ToolGateway), so components, outcome and trajectory are read
 from what the bot actually did, not from what it says it did.
 
+After every bot turn the runner also checks what the bot SAID (gmsjourney/speech): the words are
+read on their own, every fact they state is checked against the tool results, the customer's turns
+and the GMS, and against the bot's own act labels (``extras["speech"]``, graded as ``c_speech``).
+
 Per user turn the runner:
   1. asks the simulator for the next semantic frame given the bot's act,
   2. realises it under the scenario's factor levels with the scenario's enrichment arm
@@ -83,10 +87,16 @@ class JourneyRunner:
     governance: Any = None            # governance.monitor.GovernanceConfig -> runtime gates on every run
     arm_realizers: dict[str, Any] | None = None   # enrichment arm -> realizer (scenario.metadata['arm'])
     budgets: Any = None               # evaluation.constraints.ConstraintBudget -> per-turn budgets in every row
+    check_speech: bool = True         # read and verify every bot utterance (gmsjourney/speech)
 
     def __post_init__(self) -> None:
         self.ont = Ontology.from_store(self.store)
         self.lookback = self.store.lookup_enm("limit", "lookback_days")
+        self.speech = None
+        kg = getattr(self.store, "kg", None)
+        if self.check_speech and kg is not None and kg.where("says"):
+            from ..speech import SpeechContract, UtteranceVerifier
+            self.speech = UtteranceVerifier(self.store, SpeechContract.from_graph(kg))
 
     def run(self, scn: Scenario, faults: list[FaultProfile] | None = None,
             oracle_path: list | None = None) -> SUTResult:
@@ -111,16 +121,21 @@ class JourneyRunner:
         violations: list[dict[str, Any]] = []
         current_txn = None
         last_kb = None
+        speech = self.speech.conversation(fx.get("session_date")) if self.speech is not None else None
         t0 = time.perf_counter()
         turn: BotTurn = bot.start()
         bot_stats.append(_turn_stats(turn.text, t0))
         for i in range(MAX_USER_TURNS + 1):
             acts = turn.acts if (self.use_structured_acts and turn.acts) else \
                 [self.classifier.classify(turn.text, merchants)]
+            said = None
+            if speech is not None:           # what the customer hears, checked before they answer
+                said = speech.check(turn.acts if self.use_structured_acts else [], turn.text, env.log, tr.user_frames)
             tr.events.append({"role": "bot", "acts": acts, "text": turn.text})
             transcript.append({"role": "bot", "text": turn.text, "acts": [a.get("act") for a in acts]})
             if monitor is not None:
                 monitor.on_bot(turn.text, turn.acts if self.use_structured_acts else None)
+                monitor.on_speech(said)      # the speech check's findings, sealed live into the audit
             self._observe_acts(tr, acts, last_kb, turn.text)
             for a in acts:
                 if a.get("act") == "PRESENT_TXN" and a.get("txn"):
@@ -168,7 +183,9 @@ class JourneyRunner:
             extras={"trace": tr, "transcript": transcript, "invariance_violations": violations,
                     "bot_turn_stats": bot_stats, "arm": scn.metadata.get("arm", "template"),
                     "injected": list(getattr(tools, "injected", [])),
-                    "governance": monitor.finish() if monitor is not None else None})
+                    "governance": monitor.finish() if monitor is not None else None,
+                    "speech": None if speech is None else {"summary": speech.summary(), "problems": speech.problems(),
+                                                           "turns": [r.as_dict() for r in speech.reports]}})
 
     # ------------------------------------------------------------------ helpers
     def _observe_acts(self, tr: Trace, acts: list[dict], last_kb, text: str) -> None:

@@ -43,7 +43,7 @@ TOOL_API = {
     "get_review_transactions": {
         "args": {},
         "returns": '{"status": "TRANSACTIONS" | "EMPTY", "transactions": [{"transaction_id", "merchant", "amount", '
-                   '"age_days"}]}; raises an error when the service is unavailable'},
+                   '"date", "age_days"}]}; raises an error when the service is unavailable'},
     "record_charge_response": {
         "args": {"transaction_id": "the id of the charge being reviewed",
                  "disposition": "RECOGNIZED | UNRECOGNIZED | UNSURE"},
@@ -82,7 +82,7 @@ ACTS = {
     "OPENING": ("the required opening statement", []),
     "ASK_AUTH": ("ask for the last four digits of the card", []),
     "ASK_AUTH_RETRY": ("the digits did not match; ask again", []),
-    "PRESENT_TXN": ("read out ONE returned charge (merchant, amount) and ask whether the customer recognizes it",
+    "PRESENT_TXN": ("read out ONE returned charge (merchant, amount, date) and ask whether the customer recognizes it",
                     ["txn"]),
     "ANSWER_KB": ("answer a general policy question from the procedure", ["txn"]),
     "ASK_CLARIFY": ("ask the customer to clarify an answer you could not understand", ["txn"]),

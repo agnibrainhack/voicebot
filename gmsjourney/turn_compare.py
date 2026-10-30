@@ -14,7 +14,10 @@ are cut into customer turns. For every turn the table shows:
 * tools_match (same tools, same key arguments, in order), acts_match (same decision acts:
   optional acknowledgements such as CONFIRM_RECORDED and a re-presentation of the same
   charge after a clarification are ignored, see ``normalize_acts``), turn_match (both), and
-  the first turn where the two runs diverge.
+  the first turn where the two runs diverge;
+* speech_check: what the speech check (gmsjourney/speech) found in the bot's WORDS that turn -
+  "ok", or each false / unsupported claim and missing or unfaithful act. The oracle comparison
+  above is on tools and acts; this column is where a right act said wrongly shows up.
 
 The customer is simulated reactively (journey.UserSimulator): after the first divergence
 the bot has asked something the oracle did not, so the conversations may legitimately
@@ -134,6 +137,34 @@ def segment(events: list[dict]) -> tuple[list[dict], list[dict]]:
     return opening, turns
 
 
+def speech_by_turn(events: list[dict], speech_turns: list[dict]) -> tuple[str, list[str]]:
+    """What the speech check said about the bot's words: (opening, one entry per customer turn).
+
+    Input   the run's trace events and ``extras["speech"]["turns"]`` (one report per bot event, in order).
+    Output  "ok", or the turn's problems in words ("contradicted disposition 'recognize' (truth UNRECOGNIZED) ;
+            missing PRESENT_TXN: date"); "" where the bot did not speak or speech was not checked."""
+    def words(rep: dict | None) -> str:
+        if rep is None:
+            return ""
+        bad = [f"{c['status']} {c['field']} '{c['words']}'" + (f" (truth {c['truth']})" if c.get("truth") is not None else "")
+               for c in rep["claims"] if c["status"] in ("contradicted", "unsupported")]
+        bad += [f"{f['kind']} {f['act']}: {f['detail']}" for f in rep["findings"]]
+        return " ; ".join(bad) or "ok"
+    opening, per_turn, k, cur = "", [], 0, None
+    for ev in events:
+        if ev.get("role") == "user":
+            per_turn.append([])
+            cur = per_turn[-1]
+        elif ev.get("role") == "bot":
+            w = words(speech_turns[k] if k < len(speech_turns) else None)
+            k += 1
+            if cur is None:
+                opening = w
+            elif w:
+                cur.append(w)
+    return opening, [" | ".join(x) for x in per_turn]
+
+
 # ----------------------------------------------------------------------------- one scenario
 def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Expected (oracle) vs actual (bot) for one scenario, one row per customer turn."""
@@ -147,6 +178,7 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
     _, exp_turns = segment(expected.events)
     _, act_turns = segment(actual.events)
     ont = runner.ont
+    speech_open, speech_turns = speech_by_turn(actual.events, ((res.extras.get("speech") or {}).get("turns") or []))
     rows, diverged_at = [], None
     for i in range(max(len(exp_turns), len(act_turns))):
         e = exp_turns[i] if i < len(exp_turns) else None
@@ -177,6 +209,7 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
             "expected_bot": " ; ".join(describe_act(x, merchants) for x in (e["acts"] if e else [])) or "-",
             "actual_bot_acts": " ; ".join(describe_act(x, merchants) for x in (a["acts"] if a else [])) or "-",
             "actual_bot_text": " ".join(a["bot_text"]) if a else "",
+            "speech_check": speech_turns[i] if i < len(speech_turns) else "",
             "expected_next_state": e_acts[-1][0] if e_acts else "-",
             "actual_next_state": a_acts[-1][0] if a_acts else "-",
             "tools_match": tools_ok, "acts_match": acts_ok, "turn_match": ok,
@@ -189,8 +222,12 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
         "first_divergence_turn": diverged_at, "turns_matching": sum(r["turn_match"] for r in rows),
         "expected_outcome": json.loads(item.answer) if isinstance(item.answer, str) else item.answer,
         "actual_outcome": json.loads(res.answer) if isinstance(res.answer, str) else res.answer,
-        "outcome_correct": bool(row["correct"]), "workflow_adherent": bool(row["workflow_adherent"]),
+        "outcome_correct": bool(row.get("outcome_correct", row["correct"])),
+        "correct": bool(row["correct"]),                         # outcome, and (by default) grounded words
+        "workflow_adherent": bool(row["workflow_adherent"]),
         "violations": row["violations"],
+        "speech_ok": bool(row.get("c_speech", 1)), "speech_problems": row.get("speech_problems") or [],
+        "speech_opening": speech_open,
         "stages_wrong": [k[2:] for k, v in row.items() if k.startswith("c_") and v == 0],
         "expected_opening": " ; ".join(describe_act(x) for x in segment(expected.events)[0]),
         "actual_opening": " ; ".join(describe_act(x) for x in segment(actual.events)[0]),
@@ -202,12 +239,13 @@ def show_turns(runner, oracle, scenario, validator=None, display=None):
     df, s = turn_by_turn(runner, oracle, scenario, validator=validator)
     show = display or (lambda d: print(d.to_string(index=False)))
     print(f"{s['case_id']}: outcome {'CORRECT' if s['outcome_correct'] else 'WRONG'} | "
+          f"words {'grounded' if s['speech_ok'] else 'NOT grounded'} | "
           f"turns matching {s['turns_matching']}/{max(s['turns_expected'], s['turns_actual'])} | "
           f"first divergence: {s['first_divergence_turn']} | stages wrong: {s['stages_wrong'] or '-'}")
     print("expected outcome:", s["expected_outcome"])
     print("actual outcome:  ", s["actual_outcome"])
     show(df[["turn", "state", "customer_text", "expected_tools", "actual_tools", "expected_bot", "actual_bot_acts",
-             "turn_match"]])
+             "turn_match", "speech_check"]])
     return df, s
 
 

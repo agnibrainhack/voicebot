@@ -93,6 +93,9 @@ class CampaignConfig:
     # Picked round-robin over the base categories, so a small sample still covers every kind of case.
     max_cases: int | None = None
     progress: bool = True                        # tqdm progress bars for the bot runs (when tqdm is installed)
+    speech_gate: str = "fail"                    # report | fail | strict: does `correct` require what the bot SAID
+                                                 # to be grounded and complete (and, strict, in the right place)
+    speech_controls: bool = True                 # check the speech check with word-only negative controls
     max_failed_cases_in_report: int = 400        # failed runs listed one by one in the report (all in failures.jsonl)
     kx_dedup_mode: str = "off"                   # off | audit | accept   (knowledge/kx_store.py)
     kx_v_sft_mode: str = "full"                  # full (reference) | rotation | ab (train both, keep the better)
@@ -149,9 +152,14 @@ def build_gms(policy_path: str | Path = POLICY, *, kx_store_dir: str | None = No
     params = {"geode_epochs": geode_epochs, "max_iters": max_iters, "embed_trainer_epochs": embed_trainer_epochs,
               "embed_max_iters": embed_max_iters, "sft_epochs": sft_epochs,
               "contradiction_epochs": contradiction_epochs, "dedup_mode": dedup_mode, "v_sft_mode": v_sft_mode}
-    # the store is keyed by everything that changes it: the policy source, every build parameter, the
-    # production store's config, the package versions and which encoders it is warm-started from
-    key = hashlib.sha256(json.dumps([Path(policy_path).read_text(), seed, params,
+    # the store is keyed by everything that changes it: what it is trained on (the GMS view of the
+    # compiled policy, so an edit to the graph that the store never sees - the speech layer, evidence
+    # quotes - reuses it), every build parameter, the production store's config, the package versions
+    # and which encoders it is warm-started from
+    from .knowledge.geode import build_store
+    from .knowledge.kx_view import render_gms_markdown
+    trained_on = render_gms_markdown(build_store(policy_path).store)
+    key = hashlib.sha256(json.dumps([trained_on, seed, params,
                                      sorted({**DEFAULT_STORE_CONFIG, **overrides}.items()),
                                      info.get("versions"), backend.encoder_kind()],
                                     default=str).encode()).hexdigest()[:16]
@@ -164,6 +172,39 @@ def build_gms(policy_path: str | Path = POLICY, *, kx_store_dir: str | None = No
             f"production store -> GMSJudge calibration ({sdir})")
         kb = build_kx_store(policy_path, sdir, seed=seed, store_overrides=overrides, log=log, **params)
     return kb.store, {**kb.report, "store_dir": str(sdir)}, info
+
+
+def speech_section(store, base_rows: list[dict], rows: list[dict], llm_rows: list[dict], gate: str) -> dict[str, Any]:
+    """What the bot said, across the campaign: the claims checked and their verdicts, the problems by kind
+    with examples, and how many runs the speech check changed (outcome right, words wrong)."""
+    from collections import Counter
+
+    def part(rs: list[dict]) -> dict[str, Any]:
+        sp = [r for r in rs if "c_speech" in r]
+        kinds: Counter = Counter()
+        examples: dict[str, dict] = {}
+        for r in sp:
+            for p in r.get("speech_problems", []):
+                k = f"{p['kind']}:{p.get('field') or p.get('act')}"
+                kinds[k] += 1
+                examples.setdefault(k, {"sid": r["sid"], **p})
+        tot = lambda k: sum(r.get(k, 0) for r in sp)  # noqa: E731
+        return {"runs": len(sp), "grounded_runs": sum(r["c_speech"] for r in sp),
+                "outcome_right_words_wrong": sum(r["outcome_correct"] and not r["c_speech"] for r in sp),
+                "claims": tot("speech_claims"), "supported": tot("speech_supported"),
+                "contradicted": tot("speech_contradicted"), "unsupported": tot("speech_unsupported"),
+                "unverifiable": tot("speech_unverifiable"), "unfaithful": tot("speech_unfaithful"),
+                "missing": tot("speech_missing"), "flow": tot("speech_flow"),
+                "knowlytix_checked": tot("speech_kx_checked"), "knowlytix_agree": tot("speech_kx_agree"),
+                "problems": dict(kinds.most_common()), "examples": examples}
+    kg = store.kg
+    out = {"gate": gate, "contract": {"acts_with_content": sum(1 for s in kg.states if kg.says(s)),
+                                      "fields": len(kg.where("says")), "cues": len(kg.where("spoken_cue")),
+                                      "phrasings": len(kg.where("spoken_as"))},
+           "base_level": part(base_rows), "enriched": part(rows)}
+    if llm_rows:
+        out["enriched_llm"] = part(llm_rows)
+    return out
 
 
 def tags_for(spec: JourneySpec) -> list[str]:
@@ -382,7 +423,9 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
                            "engine": "forgeloop GMSPlausibilityGate + AuditLogger on the knowlytix store"}
 
     # 7 -------------------------------------------------------------- run SUT
-    log("[7/12] running the system under test (runtime monitor on)")
+    log("[7/12] running the system under test (runtime monitor on; every utterance checked)")
+    from .evaluation import runner as _runner_mod
+    _runner_mod.SPEECH_GATE = cfg.speech_gate
     factory = cfg.bot_factory or make_reference_factory(store)
     rk = {"store": store, "realizer": realizer, "reader": reader}
     budget = ConstraintBudget(**(cfg.budgets or {}))
@@ -414,6 +457,15 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     R["release_gate"] = {"base_level": release_gate(base_rows), "enriched_template": release_gate(rows)}
     if llm_rows:
         R["release_gate"]["enriched_llm"] = release_gate(llm_rows)
+    R["speech"] = speech_section(store, base_rows, rows, llm_rows, cfg.speech_gate)
+    if cfg.speech_controls and runner.speech is not None:
+        log("      checking the speech check: word-only negative controls on the base cases")
+        from .speech.controls import run_controls
+        ctl_kw = {k: v for k, v in rk.items()}
+        R["speech"]["controls"] = run_controls(lambda f: JourneyRunner(bot_factory=f, **ctl_kw),
+                                               make_reference_factory(store), base_scns)
+        o = R["speech"]["controls"]["overall"]
+        log(f"      {o['detected']}/{o['applied']} word edits flagged (lowest rate per control {o['min_rate']})")
     if gcfg is not None:
         # drift reference: the gate scores of the bot's own base-level traffic (calibration time);
         # the enriched runs play the role of production traffic
@@ -539,7 +591,7 @@ def sample_bases(bases: list, n: int | None) -> list:
 _FAILED_KEYS = ("sid", "seed", "base", "arm", "correct", "workflow_adherent", "status", "transfer_reason",
                 "expected_transfer_reason", "severity", "risk_tier", "failure_codes", "violations", "why",
                 "kb_detail", "invariance_ok", "budget_violations", "gate_rules", "turns", "tool_sequence",
-                "tags", "transcript")
+                "tags", "transcript", "outcome_correct", "c_speech", "speech_problems")
 
 
 def failed_case_records(failed: list[dict], limit: int | None = 400) -> list[dict]:
@@ -647,7 +699,9 @@ def _state_mapping_summary(proofs, kg) -> dict[str, Any]:
 
 def _runtime_summary(rows: list[dict], record: dict, store) -> dict[str, Any]:
     from .governance.calibrate import recalibration_triggers
-    good = lambda r: r["correct"] and r["workflow_adherent"] and r.get("kb_correct", 1)   # every graded part right
+    # every graded part right, the words included (whatever --speech-gate says), so an alarm on a run whose words
+    # were wrong is never counted as a false alarm
+    good = lambda r: r["correct"] and r["workflow_adherent"] and r.get("kb_correct", 1) and r.get("c_speech", 1)  # noqa: E731
     ok = [r for r in rows if good(r)]
     bad = [r for r in rows if not good(r)]
     fa = [r for r in ok if r.get("gate_alarms")]

@@ -25,6 +25,10 @@ MERCHANTS = [("Amazon", "45.67"), ("Starbucks", "6.25"), ("Shell", "52.10"),
              ("Netflix", "15.99"), ("Uber", "23.40"), ("Target", "88.05")]
 REVIEW_AGES = [3, 8, 15, 22, 27]
 CREDENTIAL = "4821"
+# The day every simulated call takes place. A returned transaction carries both its date and its
+# age in days (pdf.4: get_review_transactions returns "transaction_id, merchant, amount, date"), so
+# a bot that says "the charge on March 13" can be checked against the tool result.
+SESSION_DATE = "2026-03-16"
 
 # The content dimensions and their levels (N/A marks "irrelevant in this case").
 DIMENSIONS: dict[str, list[Any]] = {
@@ -131,12 +135,13 @@ def build_fixture(spec: JourneySpec) -> dict[str, Any]:
         age = REVIEW_AGES[i]
         if spec.window == "day30" and i == spec.n_txn - 1:
             age = 30
-        txns.append({"transaction_id": f"T{i + 1}", "merchant": m, "amount": amt, "age_days": age})
+        txns.append({"transaction_id": f"T{i + 1}", "merchant": m, "amount": amt, "date": _date(age), "age_days": age})
     if spec.window == "day31":
         m, amt = MERCHANTS[5]
-        old = {"transaction_id": "T9", "merchant": m, "amount": amt, "age_days": 31}
+        old = {"transaction_id": "T9", "merchant": m, "amount": amt, "date": _date(31), "age_days": 31}
         txns.insert(min(1, len(txns)), old)       # placed among reviewable ones on purpose
     fx: dict[str, Any] = {
+        "session_date": SESSION_DATE,
         "credential": CREDENTIAL, "auth_results": auth_results, "transactions": txns,
         "card_options": ["SECURE_CARD", "REPLACE_CARD"] if spec.card_options == "eligible" else [],
         "submit_result": "SUCCESS" if spec.submit == "ok" else "FAILED",
@@ -148,6 +153,12 @@ def build_fixture(spec: JourneySpec) -> dict[str, Any]:
     if spec.card_options == "unavailable":
         fx["card_options_status"] = "UNAVAILABLE"
     return fx
+
+
+def _date(age_days: int) -> str:
+    """The calendar date of a charge that is ``age_days`` old on SESSION_DATE (ISO, e.g. 2026-03-13)."""
+    from datetime import date, timedelta
+    return (date.fromisoformat(SESSION_DATE) - timedelta(days=age_days)).isoformat()
 
 
 def reviewable_ids(fixture: dict[str, Any], lookback: int) -> list[str]:

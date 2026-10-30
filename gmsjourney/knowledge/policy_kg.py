@@ -350,6 +350,159 @@ GMS_STATE_RELATIONS = ("in_stage", "accepts_act", "leads_to", "applies_rule", "l
                        "interprets_yes_as", "interprets_no_as", "fires_in_state", "has_slot")
 
 
+# =========================================================================== the speech layer
+# What the bot tells the customer, declared once so every sentence it speaks can be checked
+# (gmsjourney/speech). The PDF's own words set the standard: "The bot may naturally explain a
+# returned transaction or answer a general replacement-delivery question, provided the response
+# stays grounded in the API result or knowledge base" (pdf.6).
+#
+# These triples have kind "speech" and gms=False: they describe the dialog, they are not policy
+# knowledge the GMS learns, so adding or editing them never retrains the store.
+BOT_LEXICON_NOTE = ("Curated bot-voice phrasings and cue words used to read what the bot says (not stated in the "
+                    "PDF).")
+
+# Where a spoken value's truth lives. A binding is one of:
+#   item.<field>          the returned transaction the act is about      (tool result: get_review_transactions)
+#   write.<tool>.<arg>    an argument of a SUCCESSFUL write               (record_charge_response, submit_card_action)
+#   writes.<tool>         every successful write of that tool             (what a summary must list)
+#   caller.<slot>         what the customer asked for or answered         (the reader's frames of their turns)
+#   policy.<category>     the knowledge store's exact register            (lookup_enm; delivery_days = min..max)
+#   policy.limit:<key>    one limit of the exact register
+#   text.opening          the required opening statement, word for word
+BINDING_KINDS = ("item", "write", "writes", "caller", "policy", "text")
+
+
+@dataclass(frozen=True)
+class Said:
+    """One piece of information a bot act tells the customer.
+
+    field     its name in the act label and in the validator ("merchant", "fee", ...)
+    source    where its true value comes from (a binding, see BINDING_KINDS above)
+    required  the customer must hear it whenever the act is spoken (unless there is nothing
+              to say, e.g. a summary when nothing was recorded)
+    """
+    field: str
+    source: str
+    required: bool = False
+
+
+@dataclass(frozen=True)
+class SpeechSpec:
+    """What one bot act (a dialog state) says, why, and the words that signal it.
+
+    says      the information the act carries (Said, in the order it is usually spoken)
+    cues      words that mark the act when it carries no information of its own
+              ("anything else" -> ASK_MORE_HELP); matched case-insensitively
+    source    the PDF section that states what the act must say, and evidence a verbatim quote
+    """
+    source: str
+    evidence: str
+    says: tuple[Said, ...] = ()
+    cues: tuple[str, ...] = ()
+
+
+BOT_SPEECH: dict[str, SpeechSpec] = {
+    "OPENING": SpeechSpec("pdf.6", "Before I review account-specific charges, I need to authenticate you.",
+                          says=(Said("opening", "text.opening", True),)),
+    "ASK_AUTH": SpeechSpec("pdf.2A", "Explain that authentication is needed before account-specific information "
+                           "can be discussed.", cues=("last four", "digits", "verify you", "authenticate")),
+    "ASK_AUTH_RETRY": SpeechSpec("program", "at most 2 times incorrect authentication",
+                                 cues=("didn't match", "did not match", "try again", "doesn't match")),
+    "PRESENT_TXN": SpeechSpec("pdf.2B", "Present one transaction at a time using merchant, amount and date.",
+                              says=(Said("merchant", "item.merchant", True), Said("amount", "item.amount", True),
+                                    Said("date", "item.date", True)),
+                              cues=("do you recognize", "do you recognise", "recognize that charge")),
+    "PROVIDE_CONTEXT": SpeechSpec("pdf.2C", "If the customer is unsure, provide available transaction context and "
+                                  "ask once more.",
+                                  says=(Said("merchant", "item.merchant"), Said("amount", "item.amount"),
+                                        Said("date", "item.date"), Said("age_days", "item.age_days")),
+                                  cues=("do you recognize", "do you recognise")),
+    "ASK_CLARIFY": SpeechSpec("pdf.3", "ask one short clarification",
+                              cues=("didn't catch", "did not catch", "say that again", "didn't understand",
+                                    "could you repeat")),
+    "ANSWER_KB": SpeechSpec("pdf.6", "provided the response stays grounded in the API result or knowledge base"),
+    "CONFIRM_RECORDED": SpeechSpec("pdf.2D", "The bot must not claim that the response was recorded unless the API "
+                                   "returns SUCCESS.",
+                                   says=(Said("disposition", "write.record_charge_response.disposition"),),
+                                   cues=("recorded", "i've noted", "noted that", "saved your answer")),
+    "DISCLOSE_FEE": SpeechSpec("pdf.5", "Before selecting expedited delivery, the bot must tell the customer the $15 "
+                               "fee and obtain a clear confirmation.",
+                               says=(Said("delivery", "caller.delivery", True),
+                                     Said("fee", "policy.delivery_fee_usd", True),
+                                     Said("delivery_days", "policy.delivery_days")),
+                               cues=("fee",)),
+    "CONFIRM_ACTION": SpeechSpec("pdf.2E", "If an eligible action is returned, confirm the requested action",
+                                 says=(Said("action", "caller.card_action", True), Said("delivery", "caller.delivery")),
+                                 cues=("shall i", "should i", "go ahead", "would you like me to", "do you want me to")),
+    "ACTION_DONE": SpeechSpec("pdf.2E", "describe it as completed only after SUCCESS",
+                              says=(Said("action", "write.submit_card_action.action", True),
+                                    Said("delivery", "write.submit_card_action.delivery")),
+                              cues=("that's done", "it's done", "has been", "is complete", "completed")),
+    "ACK_DECLINED": SpeechSpec("pdf.2E", "This second intent must not erase the charge-review intent.",
+                               cues=("won't do that", "will not do that", "i won't", "no problem, i")),
+    "INFORM_NO_CARD_ACTION": SpeechSpec("pdf.4", "Offer only returned options.",
+                                        says=(Said("action", "caller.card_action"),),
+                                        cues=("isn't available", "is not available", "not available",
+                                              "can't offer", "cannot offer")),
+    "EXPLAIN_LIMIT": SpeechSpec("pdf.5", "The bot may review up to 4 recent transactions in one self-service "
+                                "session.",
+                                says=(Said("limit", "policy.limit:max_transactions_per_session", True),),
+                                cues=("up to", "at most", "only review")),
+    "EXPLAIN_NO_TXNS": SpeechSpec("pdf.2B", "If the tool returns no transactions, explain that there are no charges "
+                                  "available for review",
+                                  cues=("no charges", "no transactions", "nothing to review")),
+    "SUMMARIZE": SpeechSpec("pdf.2F", "summarize the responses and any account action that actually completed",
+                            says=(Said("recorded", "writes.record_charge_response", True),
+                                  Said("actions", "writes.submit_card_action", True)),
+                            cues=("summary", "to summarize", "so far i recorded", "i recorded")),
+    "ASK_MORE_HELP": SpeechSpec("pdf.2B", "ask whether the customer needs other help",
+                                cues=("anything else", "other help", "help with anything")),
+    "TRANSFER": SpeechSpec("pdf.2F", "If the customer requests a human at any point, transfer the interaction.",
+                           cues=("transfer you", "representative", "connect you", "an agent")),
+    "END": SpeechSpec("pdf.7", "then end.", cues=("goodbye", "bye", "thank you for calling")),
+}
+
+# What a tool returns, field by field (pdf.4: get_review_transactions returns "transaction_id,
+# merchant, amount, date"). type: how the value is spoken and compared (money, date, days, text, id).
+TOOL_RETURNS: dict[str, tuple[str, str, tuple[tuple[str, str], ...]]] = {
+    "get_review_transactions": ("pdf.4", "transaction_id, merchant, amount, date",
+                                (("transaction_id", "id"), ("merchant", "text"), ("amount", "money"),
+                                 ("date", "date"), ("age_days", "days"))),
+}
+
+# How the bot (not the customer) words a value. The customer synonyms (has_alias) are read too;
+# these add the bot's second-person and past-tense forms. Longer phrases win over the shorter
+# ones they contain, so "not recognized" is never read as "recognized".
+BOT_PHRASES: dict[str, tuple[str, ...]] = {
+    "RECOGNIZED": ("recognized", "you recognize", "recognize it", "is yours", "was yours", "you made it",
+                   "as yours"),
+    "UNRECOGNIZED": ("not recognized", "unrecognized", "don't recognize", "do not recognize", "didn't recognize",
+                     "isn't yours", "is not yours", "not yours", "wasn't yours", "didn't make", "not mine"),
+    "UNSURE": ("unsure", "not sure", "uncertain"),
+    "SECURE_CARD": ("secured", "locked", "frozen", "blocked", "secure your card", "lock your card"),
+    "REPLACE_CARD": ("replaced", "replacement card", "a new card", "card replacement", "replace your card"),
+    # a limit is worded around its number; {n} marks where the number goes
+    "max_transactions_per_session": ("up to {n} charges", "up to {n} transactions", "up to {n} recent transactions",
+                                     "at most {n} charges", "at most {n} transactions", "{n} charges per session",
+                                     "{n} charges in one session", "{n} transactions in one session"),
+    "lookback_days": ("previous {n} days", "previous {n} calendar days", "last {n} days", "last {n} calendar days",
+                      "past {n} days", "{n}-day window", "{n} day window", "within {n} days"),
+    "max_auth_attempts": ("{n} attempts", "{n} verification attempts", "{n} authentication attempts", "{n} tries"),
+}
+
+# Statements about a rule's fact, worded for and against it. The rule's stance decides which is
+# true: R27 says an unrecognized transaction is NOT proof of fraud (must_not), so a sentence that
+# asserts it contradicts the policy and one that denies it is supported. Denials are read first
+# ("not, by itself, proof of fraud" also contains "proof of fraud").
+STANCE_PHRASES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "R27": (("means fraud", "is fraud", "was fraud", "confirms fraud", "proves fraud", "proof of fraud",
+             "confirmation of fraud", "evidence of fraud"),
+            ("not proof of fraud", "not, by itself", "not by itself", "doesn't mean fraud", "does not mean fraud",
+             "isn't fraud", "is not fraud", "not necessarily fraud", "not confirmation of fraud", "doesn't prove",
+             "does not prove")),
+}
+
+
 # =========================================================================== PDF text
 _SEC_HEAD = re.compile(r"^(\d)\.\s+(Purpose|Operating Procedure|Voice and|Illustrative Tools|Small Knowledge|"
                        r"Required vs|Illustrative Journey)")
@@ -486,6 +639,7 @@ def build_kg(transcription: str | Path = TRANSCRIPTION, pdf_path: str | Path | N
     sections = pdf_sections(raw)
     sections["program"] = PROGRAM_BRIEF
     sections["lexicon"] = LEXICON_NOTE
+    sections["bot_lexicon"] = BOT_LEXICON_NOTE
 
     triples: list[dict[str, Any]] = []
     seen: set[tuple] = set()
@@ -634,6 +788,25 @@ def build_kg(transcription: str | Path = TRANSCRIPTION, pdf_path: str | Path | N
             add(tg, "fires_in_state", sid, "state", STATES[sid].source, evidence=STATES[sid].evidence, state=sid,
                 gms=True)
 
+    # ---- speech layer: what each bot act says, where its truth lives, and how the bot words it
+    for tool, (src, quote, fields) in TOOL_RETURNS.items():
+        for name, ty in fields:
+            add(tool, "returns_field", name, "speech", src, evidence=quote, qualifiers={"type": ty})
+    for act, spec in BOT_SPEECH.items():
+        for i, said in enumerate(spec.says):
+            add(act, "says", said.field, "speech", spec.source, evidence=spec.evidence, state=act,
+                qualifiers={"from": said.source, "required": said.required, "order": i})
+        for cue in spec.cues:
+            add(act, "spoken_cue", cue, "speech", "bot_lexicon", evidence=BOT_LEXICON_NOTE, state=act)
+    for value, phrases in BOT_PHRASES.items():
+        for ph in phrases:
+            add(value, "spoken_as", ph, "speech", "bot_lexicon", evidence=BOT_LEXICON_NOTE)
+    for rid, (asserted, denied) in STANCE_PHRASES.items():
+        for ph in asserted:
+            add(rid, "asserted_by", ph, "speech", "bot_lexicon", evidence=BOT_LEXICON_NOTE)
+        for ph in denied:
+            add(rid, "denied_by", ph, "speech", "bot_lexicon", evidence=BOT_LEXICON_NOTE)
+
     kg = {
         "schema": SCHEMA_ID,
         "title": ing.title,
@@ -652,6 +825,12 @@ def build_kg(transcription: str | Path = TRANSCRIPTION, pdf_path: str | Path | N
 
 def _relation_docs() -> dict[str, str]:
     return {
+        "says": "bot act -> a field it tells the customer (qualifiers: from = where its truth lives, required, order)",
+        "spoken_cue": "bot act -> words that mark the act when it carries no information of its own",
+        "spoken_as": "value -> how the bot words it (second person, past tense: 'not recognized', 'replaced')",
+        "returns_field": "tool -> a field of what it returns (qualifiers: type money / date / days / text / id)",
+        "asserted_by": "rule -> words that assert the rule's fact ('means fraud')",
+        "denied_by": "rule -> words that deny the rule's fact ('not, by itself, proof of fraud')",
         "enables": "workflow node -> next workflow node (qualifiers: edge, condition)",
         "leads_to": "dialog state -> next dialog state (qualifiers: on = customer act or auto, when, rules, edges)",
         "in_stage": "dialog state -> journey stage",
@@ -788,6 +967,61 @@ class PolicyKG:
         v = self.tails(key, "has_value")
         return v[0] if v else None
 
+    # ------------------------------------------------------------- speech layer
+    def says(self, act: str) -> list[dict[str, Any]]:
+        """What a bot act tells the customer: [{field, from, required}] in speaking order."""
+        rows = [{"field": t["tail"], **t.get("qualifiers", {})} for t in self.where("says", head=act)]
+        return sorted(rows, key=lambda r: r.get("order", 0))
+
+    def spoken_cues(self, act: str) -> list[str]:
+        return self.tails(act, "spoken_cue")
+
+    def spoken_as(self, value: str) -> list[str]:
+        """How the bot words a value: its curated bot phrasings plus the customer synonyms."""
+        return self.tails(value, "spoken_as") + self.aliases(value)
+
+    def returned_fields(self, tool: str) -> dict[str, str]:
+        return {t["tail"]: t.get("qualifiers", {}).get("type", "text") for t in self.where("returns_field", head=tool)}
+
+    def stance_phrases(self, rule_id: str) -> tuple[list[str], list[str]]:
+        return self.tails(rule_id, "asserted_by"), self.tails(rule_id, "denied_by")
+
+    def rule_fact(self, rule_id: str) -> tuple[str, str, str] | None:
+        """(subject, predicate, object) a rule states, with its stance in the rule's has_stance."""
+        for t in self.triples:
+            q = t.get("qualifiers") or {}
+            if q.get("rule") == rule_id and "stance" in q and t["kind"] == "policy":
+                return t["head"], t["relation"], str(t["tail"])
+        return None
+
+    def _speech_errors(self) -> list[str]:
+        """The speech layer refers only to what the graph declares."""
+        errs = []
+        states, tools = set(self.states), {t["head"] for t in self.where("is_a", tail="tool")}
+        limits = {t["head"] for t in self.where("is_a", tail="limit")}
+        slots = {t["tail"] for t in self.where("has_slot")}
+        returned = {t["tail"] for t in self.where("returns_field")}
+        for t in self.where("says"):
+            if t["head"] not in states:
+                errs.append(f"{t['id']}: says on unknown state {t['head']}")
+            src = str((t.get("qualifiers") or {}).get("from", ""))
+            kind, _, rest = src.partition(".")
+            if kind not in BINDING_KINDS:
+                errs.append(f"{t['id']}: unknown binding {src!r}")
+            elif kind == "item" and rest not in returned:
+                errs.append(f"{t['id']}: {src} is not a returned field")
+            elif kind in ("write", "writes") and rest.split(".")[0] not in tools:
+                errs.append(f"{t['id']}: {src} names no tool")
+            elif kind == "caller" and rest not in slots:
+                errs.append(f"{t['id']}: {src} names no customer slot")
+            elif kind == "policy" and rest.startswith("limit:") and rest[6:] not in limits:
+                errs.append(f"{t['id']}: {src} names no limit")
+        unspoken = states - {t["head"] for t in self.where("says")} - {t["head"] for t in self.where("spoken_cue")}
+        unspoken -= {"ANSWER_KB"}                          # a policy answer is checked claim by claim
+        if self.where("says") and unspoken:
+            errs.append(f"states with no speech declaration: {sorted(unspoken)}")
+        return errs
+
     # ------------------------------------------------------------- checks
     def validate(self) -> list[str]:
         errs = []
@@ -831,6 +1065,7 @@ class PolicyKG:
         covered = {t["tail"] for t in self.where("applies_rule")}
         if rules - covered:
             errs.append(f"rules applied in no state: {sorted(rules - covered)}")
+        errs += self._speech_errors()
         if self.data.get("sha256") and self.data["sha256"] != _content_hash(self.data):
             errs.append("content hash mismatch (file edited without rebuilding its hash)")
         return errs

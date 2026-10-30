@@ -161,8 +161,10 @@ to detect a level that triples the odds of failure.
   factors, per-category and per-component attribution, weak link.
 * **Resilience**: error / timeout / stale / plausible-wrong per tool. Silence is counted only where the oracle
   itself escalates under the same fault; faults nothing at the bot boundary can detect are reported separately.
-* **Mutation analysis**: 16 realistic defects; a scenario kills a mutant when the reference passes and the
-  mutant fails.
+* **What the bot said** (§15): every sentence's claims are graded against the policy graph, the exact register and
+  the session's true writes. `c_speech` is folded into `correct` by default (`--speech-gate`).
+* **Mutation analysis**: 21 realistic defects. Four of them change only the words. A scenario kills a mutant when
+  the reference passes and the mutant fails.
 
 ## 8. Reading of the operating procedure (assumptions to confirm)
 
@@ -517,3 +519,100 @@ counted.
   each fake name is reported, because a strong binding to a real option is where an embedding-driven bot would
   fabricate. The policy graph gains two ASK_KB slots (`name`, `subject`) and two intents. That is four triples; the
   rest of the graph is unchanged.
+
+## 15. Validating what the bot says
+
+**The gap.** Every check in §7 grades what the bot *did*: tool calls, the dialog-act labels it emits, and the end
+state. The English the customer hears was never graded. A bot built on dialog acts renders words from the acts, but
+the rendering step (a template, an LLM, a TTS prompt) can still say the wrong merchant, the opposite answer or the
+wrong fee, or leave out the date. The governance `SpeechMonitor` (§11) blocks a few dangerous sentences on the spot.
+It checks that *some* write succeeded, not that the words name the right charge or the right answer.
+
+**Design.** The fix grades the words against three things the harness already holds:
+
+1. **The policy graph** declares what each act must say and where the truth of each spoken value lives (the
+   `speech` section: `says`, `spoken_cue`, `spoken_as`, `returns_field`, `asserted_by`/`denied_by`). These
+   triples are `gms=False`. The GMS view, its key and the trained store are unchanged, so nothing is retrained. The
+   phrasings are read off the graph the same way the reader of customer turns reads its aliases: no LLM and no
+   hard-coded rule map. A finding's rule is the act's own PDF section in the graph.
+2. **The session** (`SessionFacts.from_run`) is what truly happened:
+   - the transactions the tool returned;
+   - the writes that succeeded, meaning status SUCCESS with every echoed argument equal to the request (the same
+     standard as the outcome grader);
+   - the options offered;
+   - the customer's own slots.
+3. **The GMS**:
+   - the exact register for fees, delivery days and limits (`lookup_enm`);
+   - rule stances (`stance_check`, the R27 u-space tension);
+   - the claimed figure's distance from the fact against the relation's cap (`score_triple`, `tau`), reported per
+     figure;
+   - knowlytix's `AnswerVerifier` in geometric mode, run on the same sentence as an independent reader. It reads
+     one sentence without the dialog, so it is only given sentences that name the option and give the figure as
+     a number. "No, it's $0.", where the option is in the customer's question, is graded but not passed to it.
+
+   The last two are reported and never decide. The register is the authority for a number, as in the book's ENM
+   (Ch. 3.4).
+
+**Reading** (`speech/reader.py`). Each sentence gives claims of the form `(field, value, about, mode)`:
+
+- Charges are named by their returned merchant. A sentence that names none refers to the act's transaction or the
+  last one talked about.
+- Dispositions and actions are matched to the graph's phrasings, longest first and without overlap, and associated
+  with the nearest merchant mention.
+- The mode separates a statement, a claimed recording, a claimed completion and an offer. A question or a
+  conditional asserts no disposition and no completion ("Do you recognize it?" claims nothing; "If you'd like, I can
+  replace it" offers).
+- When the turn answers a policy question, the figures in it are policy figures about the asked subject, not
+  account facts.
+
+**Verdicts and findings** (`speech/verify.py`):
+
+- Every claim is supported, contradicted, unsupported or unverifiable against its declared source.
+- Turn-level findings:
+  - the words contradict the label (`text_contradicts_label`);
+  - a labelled act is not said (`label_not_said`);
+  - required information is missing (`missing`). The item facts are required only on a charge's first
+    presentation, after pdf.3 ("do not ask the customer to repeat information without a reason");
+  - the act is not a graph transition from the prompt the customer answered (`not_allowed_here`). TRANSFER,
+    SUMMARIZE and END are allowed anywhere, and so is ASK_CLARIFY. The bot cannot know what the customer meant,
+    and the policy prefers asking to guessing. An unneeded clarification costs a turn, and the outcome and the
+    turn-by-turn comparison grade that. A policy answer to a question nobody asked is out of flow: the reference
+    bot's narrow KB retriever reads a policy sentence aloud when the customer says "could you say that again?".
+- When a bot gives no labels, the acts it expresses are inferred from cues and content, and graded the same way.
+
+**At run time.** The check runs on every bot turn before the customer answers. With governance on, its findings
+are sealed into the runtime monitor's hash-chained audit as the gate `speech_grounding`:
+
+- contradicted or unsupported claims are DENY;
+- missing or unfaithful acts are ESCALATE;
+- flow findings are not sealed, as they are graded separately.
+
+The word defects are then flagged live as well as graded, and the audit records what the customer was told.
+
+**Scoring.**
+
+- `c_speech` = claims supported, faithful and complete on every turn; `c_flow` = every act follows the graph.
+- `outcome_correct` keeps the old verdict, so the effect of the new gate is visible.
+- Severity codes:
+  - `SPEECH_CONTRADICTED`, `SPEECH_UNSUPPORTED`: critical (the customer is told something false);
+  - `SPEECH_UNFAITHFUL`: high;
+  - `SPEECH_MISSING`: moderate;
+  - `SPEECH_FLOW`: low.
+
+**Validity.**
+
+- **False alarms:** on the base suite the reference bot's words are all grounded, except one sentence that the
+  policy-answer grader independently marks wrong: J040, "Expedited delivery costs $0.", which is a known
+  limitation of the reference bot's narrow KB retriever.
+- **Sensitivity:** eleven negative controls edit only the words of one act in a real conversation, and every
+  edited turn must be flagged (section 5a of the report).
+- **Mutants:** four word-only mutants have the reference bot's exact outcome, and only this check kills them.
+
+**Assumptions to confirm.**
+
+- PDF section 2B ("present one transaction at a time using merchant, amount and date") is read as: all three are
+  spoken.
+- The transaction's date is the posting date the tool returns (`date`, added to the tool result next to
+  `age_days`).
+- "Expedited" is also spoken as "express", "rush", "fast shipping" or "overnight". The full set of phrasings is in
+  the graph's `bot_lexicon` and its aliases.

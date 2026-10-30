@@ -38,6 +38,12 @@ MUTATIONS = {
     "fraud_claim": "Tells the customer an unrecognized charge means fraud.",
     "kb_first_amount": "Answers fee questions with the first dollar amount in the knowledge base.",
     "kb_fabricate_unknown": "Answers fee/time questions about options or facts the policy does not state with the expedited figures.",
+    # defects in the WORDS only: the act labels and every tool call stay correct, so only the check of
+    # what the bot says (gmsjourney/speech) can catch them
+    "says_wrong_fee": "Labels the $15 expedited fee correctly but tells the customer $25.",
+    "misstates_recorded_answer": "Records the right answer but tells the customer it recorded the opposite.",
+    "names_wrong_amount": "Presents the right charge but reads out an amount one dollar off.",
+    "summary_omits": "Summarizes only the first recorded response.",
 }
 
 # words that can precede "delivery"/"shipping" in a question without naming an option
@@ -47,7 +53,7 @@ should and or to it its please tell me know wondering was were be have has can c
 expedited express rush overnight fast faster fastest quick quicker quickest cheap cheaper cheapest free""".split())
 
 DEFAULT_CONFIG = {"max_transactions": 4, "lookback_days": 30, "max_auth_attempts": 2,
-                  "max_clarifications": 1, "max_unsure": 1, "max_turns": 20, "expedited_fee": 15,
+                  "max_clarifications": 1, "max_unsure": 1, "max_turns": 20, "expedited_fee": 15, "expedited_days": 2,
                   "opening": "Before I review account-specific charges, I need to authenticate you."}
 
 
@@ -206,6 +212,22 @@ class KBAnswerer:
         return self._best(q) or ""
 
 
+# ------------------------------------------------------------------ wording
+MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+               "November", "December"]
+SPOKEN_DISPOSITION = {"RECOGNIZED": "recognized", "UNRECOGNIZED": "not recognized", "UNSURE": "unsure"}
+SPOKEN_ACTION = {"SECURE_CARD": ("secure your card", "secured"), "REPLACE_CARD": ("replace your card", "replaced")}
+SPOKEN_DELIVERY = {"standard_delivery": "standard delivery", "expedited_delivery": "expedited delivery"}
+
+
+def spoken_date(iso: str | None) -> str:
+    """'2026-03-13' -> 'March 13' (how the bot reads a charge's date out)."""
+    if not iso:
+        return ""
+    y, m, d = (int(x) for x in iso.split("-"))
+    return f"{MONTH_NAMES[m - 1]} {d}"
+
+
 # ------------------------------------------------------------------ bot
 @dataclass
 class ReferenceBot:
@@ -236,6 +258,7 @@ class ReferenceBot:
         self.pending_card: dict = {}
         self.recorded: dict[str, str] = {}
         self.actions: list = []
+        self.merchants: dict[str, str] = {}      # transaction_id -> merchant, for the summary
         self.ended = False
 
     # -------------------------------------------------------- helpers
@@ -246,11 +269,22 @@ class ReferenceBot:
     def _call(self, tool: str, **args):
         return self.tools.call(tool, **args)
 
+    def _summary_text(self, lead: str) -> str:
+        """Every response recorded and every action completed, in words (pdf.2F, R19)."""
+        items = list(self.recorded.items())
+        if "summary_omits" in self.m:
+            items = items[:1]
+        said = [f"the {self.merchants.get(t, t)} charge as {SPOKEN_DISPOSITION.get(d, d.lower())}" for t, d in items]
+        text = f"{lead} I recorded " + (", ".join(said[:-1]) + " and " + said[-1] if len(said) > 1 else said[0]) + "."
+        for a, dl in self.actions:
+            text += f" Your card has been {SPOKEN_ACTION[a][1]}" + (f", with {SPOKEN_DELIVERY[dl]}" if dl else "") + "."
+        return text
+
     def _transfer(self, reason: str, prefix: list[dict] | None = None) -> BotTurn:
         acts = list(prefix or [])
         if self.recorded:
             acts.append({"act": "SUMMARIZE", "recorded": dict(self.recorded), "actions": list(self.actions),
-                         "text": f"So far I recorded {len(self.recorded)} response(s)."})
+                         "text": self._summary_text("So far,")})
         acts.append({"act": "TRANSFER", "reason": reason, "text": "Let me transfer you to a representative."})
         try:
             self._call("transfer_to_human", reason=reason)
@@ -263,8 +297,10 @@ class ReferenceBot:
         t = self.cur
         self.state = "REVIEW"
         self.clar = self.unsure = 0
+        amount = f"{float(t['amount']) + 1:.2f}" if "names_wrong_amount" in self.m else t["amount"]
+        on = f" on {spoken_date(t.get('date'))}" if t.get("date") else ""
         return self._say(prefix + [{"act": "PRESENT_TXN", "txn": t["transaction_id"],
-                                    "text": f"I see a charge at {t['merchant']} for ${t['amount']}. Do you recognize it?"}])
+                                    "text": f"I see a charge at {t['merchant']} for ${amount}{on}. Do you recognize it?"}])
 
     def _next(self, prefix: list[dict]) -> BotTurn:
         if self.queue and not ("card_erases_review" in self.m and self.card_done):
@@ -275,7 +311,7 @@ class ReferenceBot:
                                   "text": f"I can review up to {self.cfg['max_transactions']} charges here."}])
         self.state = "MORE_HELP"
         return self._say(prefix + [{"act": "SUMMARIZE", "recorded": dict(self.recorded), "actions": list(self.actions),
-                                    "text": "Here's a summary of what I recorded."},
+                                    "text": self._summary_text("Here's a summary:")},
                                    {"act": "ASK_MORE_HELP", "text": "Is there anything else I can help with?"}])
 
     # -------------------------------------------------------- protocol
@@ -342,6 +378,7 @@ class ReferenceBot:
         except ToolError:
             return self._transfer("retrieve_unavailable")
         txns = res.get("transactions", [])
+        self.merchants = {t["transaction_id"]: t["merchant"] for t in txns}
         L = self.cfg["lookback_days"]
         if "present_all_returned" in self.m:
             within = txns
@@ -393,7 +430,11 @@ class ReferenceBot:
                 return self._next([{"act": "CONFIRM_RECORDED", "txn": tid, "disposition": d, "text": "Got it, recorded."}])
             return self._transfer("record_failed")
         self.recorded[tid] = d
-        prefix = [{"act": "CONFIRM_RECORDED", "txn": tid, "disposition": d, "text": "Thanks, I've recorded that."}]
+        said = "Thanks, I've recorded that."
+        if "misstates_recorded_answer" in self.m:
+            opposite = {"RECOGNIZED": "you don't recognize it", "UNRECOGNIZED": "you recognize it"}.get(d, "you're unsure")
+            said = f"Thanks, I've recorded that {opposite}."
+        prefix = [{"act": "CONFIRM_RECORDED", "txn": tid, "disposition": d, "text": said}]
         if d == "UNSURE":
             if "unsure_no_transfer" in self.m:
                 return self._next(prefix)
@@ -421,12 +462,24 @@ class ReferenceBot:
         a, dl = self.pending_card["card_action"], self.pending_card.get("delivery")
         acts = list(prefix)
         if a == "REPLACE_CARD" and dl == "expedited_delivery":
+            fee = self.cfg["expedited_fee"] + (10 if "says_wrong_fee" in self.m else 0)
             acts.append({"act": "DISCLOSE_FEE", "fee": self.cfg["expedited_fee"], "delivery": dl,
-                         "text": f"Expedited delivery has a ${self.cfg['expedited_fee']} fee and arrives in 2 business days."})
-        acts.append({"act": "CONFIRM_ACTION", "action": a, "delivery": dl, "text": "Shall I go ahead?"})
+                         "text": f"Expedited delivery has a ${fee} fee and arrives in "
+                                 f"{self.cfg['expedited_days']} business days."})
+        acts.append({"act": "CONFIRM_ACTION", "action": a, "delivery": dl, "text": self._confirm_text(a, dl)})
         self.state = "CARD_CONFIRM"
         self.clar = 0
         return self._say(acts)
+
+    @staticmethod
+    def _confirm_text(a: str, dl: str | None) -> str:
+        """'Shall I replace your card with expedited delivery?' - the customer hears what they confirm (R16)."""
+        return f"Shall I {SPOKEN_ACTION[a][0]}" + (f" with {SPOKEN_DELIVERY[dl]}" if dl and a == "REPLACE_CARD" else "") + "?"
+
+    @staticmethod
+    def _done_text(a: str, dl: str | None) -> str:
+        return f"That's done. Your card has been {SPOKEN_ACTION[a][1]}" + \
+            (f", with {SPOKEN_DELIVERY[dl]}" if dl and a == "REPLACE_CARD" else "") + "."
 
     def _card_confirm(self, u: dict) -> BotTurn:
         if u.get("intent") == "human":
@@ -441,8 +494,8 @@ class ReferenceBot:
             return self._submit([])
         if u.get("no"):
             return self._next([{"act": "ACK_DECLINED", "text": "Okay, I won't do that."}])
-        return self._unclear([{"act": "CONFIRM_ACTION", "action": self.pending_card["card_action"],
-                               "delivery": self.pending_card.get("delivery"), "text": "Shall I go ahead?"}])
+        a, dl = self.pending_card["card_action"], self.pending_card.get("delivery")
+        return self._unclear([{"act": "CONFIRM_ACTION", "action": a, "delivery": dl, "text": self._confirm_text(a, dl)}])
 
     def _submit(self, prefix: list[dict]) -> BotTurn:
         a, dl = self.pending_card["card_action"], self.pending_card.get("delivery")
@@ -451,13 +504,13 @@ class ReferenceBot:
         except ToolError:
             if "silent_tool_failure" in self.m:
                 self.actions.append((a, dl))
-                return self._next(prefix + [{"act": "ACTION_DONE", "action": a, "text": "Done."}])
+                return self._next(prefix + [{"act": "ACTION_DONE", "action": a, "text": self._done_text(a, dl)}])
             return self._transfer("submit_failed", prefix)
         echo_ok = "no_echo_check" in self.m or res.get("action") == a
         if res.get("status") != "SUCCESS" or not echo_ok:
             return self._transfer("submit_failed", prefix)
         self.actions.append((a, dl))
-        return self._next(prefix + [{"act": "ACTION_DONE", "action": a, "delivery": dl, "text": "That's done."}])
+        return self._next(prefix + [{"act": "ACTION_DONE", "action": a, "delivery": dl, "text": self._done_text(a, dl)}])
 
     def _more_help(self, u: dict) -> BotTurn:
         if u.get("intent") == "human":

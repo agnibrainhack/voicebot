@@ -23,6 +23,10 @@ if __name__ == "__main__":
     ap.add_argument("--max-cases", type=int, default=None,
                     help="test only this many base cases (each with its enriched variants); default: all")
     ap.add_argument("--no-progress", action="store_true", help="no tqdm progress bars")
+    ap.add_argument("--speech-gate", default="fail", choices=["report", "fail", "strict"],
+                    help="what the bot SAID in `correct`: report only | require grounded, faithful, complete words "
+                         "(default) | also every act where the dialog-state graph allows it")
+    ap.add_argument("--no-speech-controls", action="store_true", help="skip the word-only negative controls")
     ap.add_argument("--seed", type=int, default=42)
     # knowlytix build parameters (defaults: the reference build_calibrated_rag_store)
     ap.add_argument("--kx-epochs", type=int, default=None, help="production store epochs (default 150; licence cap 200)")
@@ -75,7 +79,8 @@ if __name__ == "__main__":
                     help="policy-question turns inside LLM rows: keep template wording (default) or rewrite")
     a = ap.parse_args()
     cfg = CampaignConfig(out_dir=a.out, profile=a.profile, runs_per_base=a.runs_per_base, seed=a.seed,
-                         max_cases=a.max_cases, progress=not a.no_progress,
+                         max_cases=a.max_cases, progress=not a.no_progress, speech_gate=a.speech_gate,
+                         speech_controls=not a.no_speech_controls,
                          run_mutation=not a.no_mutation, run_resilience=not a.no_resilience,
                          run_power=not a.no_power, run_governance=not a.no_governance,
                          kx_epochs=a.kx_epochs, kx_geode_epochs=a.kx_geode_epochs,

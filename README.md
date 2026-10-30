@@ -96,11 +96,12 @@ automatically, and the embedding numbers below should improve.
 | Substrate (knowlytix generators) | exact_recall 12/12 two-way, multi_hop 19/19 two-way, counting 71 symbolic; graph answers its own questions 100% |
 | Feasible content-level pairs covered | 523 / 523; rules 32/32 · workflow edges 21/21 · escalation triggers 11/11 |
 | Enriched scenarios proved invariant | 486 / 486 (4,428 customer turns, each read in its dialog state); 632 / 632 meaning-changing edits rejected, incl. 40 wrong-state edits |
-| Bot accuracy, base cases → enriched | 90.1% → 50.0% |
+| Bot accuracy, base cases → enriched | 89.7% → 50.3% (outcome alone 90.8% → 52.0%; the difference is runs whose outcome was right and whose words were not) |
 | Factors that drive failure (BH-adjusted; this run used knowlytix DOEAnalyzer, since replaced by our deviance tests) | noise (p_adj 1.6e-10), numeric_format (1.5e-4), disfluency (0.012) |
 | Runtime gate (Appendix C) | θ = 0.882 on `enables`: AUC 1.0, 0 false admits, 0 false rejects; probe sweep 15 TP / 27 TN, no errors |
-| Runtime monitor | 0% false alarms on fully correct runs; 103 / 328 failed runs flagged live; hash chains verified; PSI 0.02 |
-| Seeded defects (16) | 100% caught by the suites (covering 75% vs random of equal size 37.5%); **16/16 flagged live by the runtime monitor** |
+| Runtime monitor | 0 false alarms on 244 fully correct enriched runs; 46 / 277 failed runs flagged live; hash chains verified |
+| Seeded defects (21, four of them in the words only) | 100% caught by the suites (covering 85.7% vs random of equal size 52.4%); **21/21 flagged live by the runtime monitor**. Two of them (the opposite answer said back, a summary that leaves one out) are flagged only by `speech_grounding` |
+| What the bot said (speech check) | 789 claims on 87 base runs and 3,975 on 521 enriched runs. 85/87 and 501/521 runs fully grounded. Every wrong figure left is a real KB defect of the reference bot ("Expedited delivery costs $0." to "how much more is expedited?", the wrong delivery days). The flow findings are almost all real too: a policy sentence recited to "could you say that again?", a decline acted on after "no wait, yes". The exception is 2 safe re-asks of the fee. 392/392 word-only control edits flagged. knowlytix's AnswerVerifier agrees on 56/56 and 260/260 of the figures it can read |
 | Silent failures under injected tool faults | 0 |
 | GMS canonicals | 97.4% of aliases bound by the trained GMS to the canonical value the graph states; 90.2% of the 509 trained facts inside their relation's cut |
 | Turn by turn (oracle vs bot) | 300 / 567 runs match the oracle at every turn; every wrong outcome diverges, first divergences mostly in PRESENT_TXN (139) and ASK_AUTH (115) |
@@ -187,6 +188,117 @@ route.
 Use `show_turns(runner, oracle, scenario)` in the notebook (cell 11b). The campaign writes
 `dataset/turn_by_turn.csv` (every turn of every case) and `dataset/turn_by_turn_summary.csv` (per case: first
 divergence, expected vs actual outcome, stages wrong, violations).
+
+## Validating what the bot says (`gmsjourney/speech/`)
+
+The checks above grade what the bot *did*: its tool calls and its dialog-act labels. A bot can do everything right
+and still say the wrong thing, for example by labelling a turn `CONFIRM_RECORDED(T1, UNRECOGNIZED)` and recording
+UNRECOGNIZED, but telling the customer "I've noted that you **recognize** the Amazon charge". The speech check reads
+every sentence the customer hears and grades it against the policy graph, the GMS and what actually happened in the
+session.
+
+```
+ bot turn: acts + words                                     what is true
+ ───────────────────────                                    ────────────────────────────────────────────
+ CONFIRM_RECORDED(T1, UNRECOGNIZED)                         policy graph: what each act must say, and
+ "I've noted that you recognize the Amazon charge."           where each spoken value's truth lives
+        │                                                   session: transactions returned, writes that
+        ▼  reader (graph phrasings, no LLM)                   truly succeeded, what the customer said
+ claims: disposition=RECOGNIZED about T1, mode=recorded     GMS: exact register (fees, days, limits),
+        │                                                     rule stances, geometric distance vs cap
+        ▼  verifier
+ contradicted: the successful record for T1 says UNRECOGNIZED (R13)
+ finding: text_contradicts_label (CONFIRM_RECORDED)
+```
+
+**What the graph declares** (a `speech` section, `gms=False`, so the GMS view and the trained store do not change):
+
+| Relation | Example | Meaning |
+|---|---|---|
+| `says` | `PRESENT_TXN says merchant` (from `item.merchant`, required) | the facts an act must speak, and where their truth lives |
+| `spoken_cue` | `ACTION_DONE spoken_cue "that's done"` | words that show the act was said, when a bot gives no labels |
+| `spoken_as` | `UNRECOGNIZED spoken_as "not mine"`, `max_transactions_per_session spoken_as "up to {n} charges"` | how a value or a limit is spoken |
+| `returns_field` | `get_review_transactions returns_field date` | the fields a tool's result carries |
+| `asserted_by` / `denied_by` | `R27 denied_by "not, by itself, proof of fraud"` | how a rule's stance is asserted or denied in words |
+
+The sources are `item.<field>` (a returned transaction), `write.<tool>.<arg>` (a successful write),
+`writes.<tool>` (every successful write), `caller.<slot>` (what the customer said), `policy.<category>` /
+`policy.limit:<key>` (the exact register) and `text.opening`. `PolicyKG.validate()` checks that every source
+resolves and every dialog state is declared.
+
+**Each claim gets a verdict:**
+
+- `supported`: matches its source (a write must have truly succeeded, with the echo matching the request);
+- `contradicted`: the source holds a different value;
+- `unsupported`: no source backs it (for example "recorded" with no successful record for that charge, R13, or
+  "done" before any card action succeeded, R17);
+- `unverifiable`: nothing to check it against.
+
+**Each turn also gets findings:**
+
+- `text_contradicts_label`: the words say something other than the act's label;
+- `label_not_said`: a labelled act whose required facts never appear;
+- `missing`: required information absent, for example a charge presented without its date (pdf.2B), or a summary
+  that leaves out a recorded answer (pdf.2F). A re-ask of a charge already presented does not need the facts again
+  (pdf.3);
+- `not_allowed_here`: an act that is not a graph transition from the prompt the customer answered.
+
+Policy figures (fees, delivery days, limits) are graded on the exact register. Two readings are reported next to
+each one, and neither decides the verdict: the GMS distance of the claimed value from the fact against the relation's
+cap, and knowlytix's own `AnswerVerifier` (geometric mode), which confirms a correct figure and does not find a wrong
+one.
+
+**Scores per case** (in `results.csv`):
+
+- `c_speech`: every turn's claims are supported, faithful to the labels and complete;
+- `c_flow`: every act follows the graph;
+- `outcome_correct`: the earlier verdict, kept as it was;
+- `speech_claims`, `speech_supported`, `speech_contradicted`, `speech_unsupported`, `speech_missing` and the rest;
+- `speech_problems`: the first few problems in words.
+
+`--speech-gate` decides what `correct` means:
+
+- `report`: speech is shown but not graded;
+- `fail` (default): `correct` also needs `c_speech`;
+- `strict`: `correct` also needs `c_flow`.
+
+**Checking the checker.** A check that never fires proves nothing, so the campaign runs eleven negative controls
+(`speech/controls.py`; skip them with `--no-speech-controls`). Each control edits only the words of one act in a real
+conversation and leaves the labels, tools and outcome untouched:
+
+- swap the merchant, change the amount, shift or drop the date;
+- flip the recorded answer;
+- a wrong fee, wrong delivery days or a wrong limit;
+- "your card has been replaced" said early;
+- "this means fraud";
+- a summary that drops a recorded answer.
+
+The report's section 5a shows the detection rate for each control. Four word-only mutants
+(`says_wrong_fee`, `misstates_recorded_answer`, `names_wrong_amount`, `summary_omits`) have the same outcome as the
+reference bot and are killed only by this check.
+
+```python
+from gmsjourney.speech import SpeechContract, UtteranceVerifier
+v = UtteranceVerifier(store, SpeechContract.from_graph(store.kg))
+conv = v.conversation(session_date="2026-03-16")          # one per conversation
+report = conv.check(acts, text, tool_log, customer_frames)  # after every bot turn
+report.ok, [x.as_dict() for x in report.verdicts], [f.as_dict() for f in report.findings]
+conv.summary()                                            # c_speech, c_flow and the counts
+```
+
+`JourneyRunner` does this on every bot turn, before the customer answers, when the store's graph has a speech
+section (`check_speech=True`). With governance on, each turn's findings are also sealed live into the runtime
+monitor's hash-chained audit as the gate `speech_grounding`:
+
+- a false or baseless claim is sealed as DENY;
+- a missing or unfaithful act is sealed as ESCALATE;
+- flow is graded but not sealed.
+
+The governance `SpeechMonitor` stays as it was. It is a guard for a few things that must never be said (a claim with
+no success behind it, an asserted fraud stance, a figure off the register, a card number). The speech check reads
+which charge and which value each sentence names and grounds every one of them. On the campaign, two seeded word
+defects get past `SpeechMonitor` and are flagged live only by `speech_grounding`: saying the opposite of the
+recorded answer, and a summary that leaves one out.
 
 ## How a base case and its enriched variants are proved to be the same test
 

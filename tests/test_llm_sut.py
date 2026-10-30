@@ -13,6 +13,7 @@ import json
 import re
 import sys
 import tempfile
+from datetime import date
 from functools import lru_cache
 from pathlib import Path
 from types import SimpleNamespace
@@ -64,14 +65,21 @@ class HappyPathModel:
             if n == "authenticate_customer":
                 return _r({"tool": "get_review_transactions", "args": {}})
             if n == "get_review_transactions":
+                # the policy's presentation: merchant, amount and date (pdf.2B; the speech check grades the words)
                 t = r["transactions"][0]
+                when = date.fromisoformat(t["date"]).strftime("%B %d").replace(" 0", " ")
                 return say([{"act": "PRESENT_TXN", "txn": t["transaction_id"],
-                             "text": f"I see a charge at {t['merchant']} for ${t['amount']}. Do you recognize it?"}])
+                             "text": f"I see a charge at {t['merchant']} for ${t['amount']} on {when}. "
+                                     f"Do you recognize it?"}])
             if n == "record_charge_response":
+                txns = {t["transaction_id"]: t for x in conv if x.get("tool") == "get_review_transactions"
+                        for t in x["result"]["transactions"]}
+                merchant = txns[r["transaction_id"]]["merchant"]
+                said = {"RECOGNIZED": "recognized", "UNRECOGNIZED": "not recognized"}[r["disposition"]]
                 return say([{"act": "CONFIRM_RECORDED", "txn": r["transaction_id"], "disposition": r["disposition"],
                              "text": "Thanks, I've recorded that."},
                             {"act": "SUMMARIZE", "recorded": {r["transaction_id"]: r["disposition"]}, "actions": [],
-                             "text": "Here's a summary."},
+                             "text": f"Here's a summary: I recorded the {merchant} charge as {said}."},
                             {"act": "ASK_MORE_HELP", "text": "Anything else?"}])
         c = last.get("customer", "").lower()
         prev = [x for x in conv if "bot" in x][-1]["bot"][-1]
@@ -102,7 +110,8 @@ def test_llm_bot_runs_through_the_harness_and_is_graded():
     rows = run(scns, runner, oracle.limits, store.workflow, None)
     one, two = rows
     assert one["correct"] == 1 and one["tool_sequence"] == \
-        "authenticate_customer>get_review_transactions>record_charge_response"
+        "authenticate_customer>get_review_transactions>record_charge_response", one.get("speech_problems")
+    assert one["c_speech"] == 1 and one["speech_claims"] > 0     # what it said was checked, and grounded
     assert two["correct"] == 0                       # reviews one of two charges: graded as a defect
     st = factory.stats.as_dict()
     assert st["conversations"] == 2 and st["invalid_replies"] == 0 and st["unknown_turns"] == 0
