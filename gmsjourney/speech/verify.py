@@ -169,14 +169,17 @@ class UtteranceVerifier:
         self.reader = UtteranceReader(contract)
         self._geo: dict[tuple, dict | None] = {}
         # knowlytix's own claim checker (AnswerVerifier, geometric mode: no LLM) as an independent second
-        # reader of policy figures; it reports the store facts a sentence states correctly
+        # reader of policy figures; it reports the store facts a sentence states correctly. It reads with the
+        # store's tuned encoders (v from the embed loop, u from the contradiction SFT), the same ones the
+        # geometry readings and the stance check use, so every GMS reading of a sentence is like for like.
         self._kx_verifier = None
         self._kx_seen: dict[str, list[tuple[str, str, str]]] = {}
         raw = getattr(store, "kx_raw", None)
         if corroborate and raw is not None:
             try:
                 from knowlytix.knowledge.rag.verify import AnswerVerifier
-                self._kx_verifier = AnswerVerifier(raw, None, mode="geometric")
+                self._kx_verifier = AnswerVerifier(raw, None, mode="geometric", v_encoder=getattr(store, "v_ft", None),
+                                                   u_encoder=getattr(store, "u_ft", None))
             except Exception:                                   # noqa: BLE001 - corroboration is optional
                 self._kx_verifier = None
 
