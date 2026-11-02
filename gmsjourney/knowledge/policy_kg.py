@@ -380,10 +380,18 @@ class Said:
     source    where its true value comes from (a binding, see BINDING_KINDS above)
     required  the customer must hear it whenever the act is spoken (unless there is nothing
               to say, e.g. a summary when nothing was recorded)
+    basis     how the PDF backs this piece (written into the graph so a reviewer can check it):
+                stated       the PDF says it (the act's evidence quote)
+                inferred     follows from the PDF's words but is not spelled out
+                interpreted  the PDF's text read one particular way
+                design       not in the PDF: the brief or this harness's dialog design
+    note      why, for anything that is not "stated"
     """
     field: str
     source: str
     required: bool = False
+    basis: str = "stated"
+    note: str = ""
 
 
 @dataclass(frozen=True)
@@ -401,9 +409,17 @@ class SpeechSpec:
     cues: tuple[str, ...] = ()
 
 
+_CONTEXT = "'available transaction context' is not itemised; the fields the tool returns are taken as that context"
+_AGE_DAYS = "age_days is not a field pdf.4 lists; the mock backend adds it so the 30-day window (pdf.5) can be checked"
+DESIGN_NOTE = ("Added by this test harness's design, not stated in the PDF: fields the mock backend returns beyond "
+               "pdf.4's list, and what dialog states this harness adds must say.")
+
 BOT_SPEECH: dict[str, SpeechSpec] = {
     "OPENING": SpeechSpec("pdf.6", "Before I review account-specific charges, I need to authenticate you.",
-                          says=(Said("opening", "text.opening", True),)),
+                          says=(Said("opening", "text.opening", True, "interpreted",
+                                     "pdf.6 gives this sentence as the required/static example; pdf.2A separates the "
+                                     "opening statement from the explanation that authentication is needed, and does "
+                                     "not give the opening statement's own text"),)),
     "ASK_AUTH": SpeechSpec("pdf.2A", "Explain that authentication is needed before account-specific information "
                            "can be discussed.", cues=("last four", "digits", "verify you", "authenticate")),
     "ASK_AUTH_RETRY": SpeechSpec("program", "at most 2 times incorrect authentication",
@@ -414,8 +430,10 @@ BOT_SPEECH: dict[str, SpeechSpec] = {
                               cues=("do you recognize", "do you recognise", "recognize that charge")),
     "PROVIDE_CONTEXT": SpeechSpec("pdf.2C", "If the customer is unsure, provide available transaction context and "
                                   "ask once more.",
-                                  says=(Said("merchant", "item.merchant"), Said("amount", "item.amount"),
-                                        Said("date", "item.date"), Said("age_days", "item.age_days")),
+                                  says=(Said("merchant", "item.merchant", False, "inferred", _CONTEXT),
+                                        Said("amount", "item.amount", False, "inferred", _CONTEXT),
+                                        Said("date", "item.date", False, "inferred", _CONTEXT),
+                                        Said("age_days", "item.age_days", False, "design", _AGE_DAYS)),
                                   cues=("do you recognize", "do you recognise")),
     "ASK_CLARIFY": SpeechSpec("pdf.3", "ask one short clarification",
                               cues=("didn't catch", "did not catch", "say that again", "didn't understand",
@@ -423,30 +441,45 @@ BOT_SPEECH: dict[str, SpeechSpec] = {
     "ANSWER_KB": SpeechSpec("pdf.6", "provided the response stays grounded in the API result or knowledge base"),
     "CONFIRM_RECORDED": SpeechSpec("pdf.2D", "The bot must not claim that the response was recorded unless the API "
                                    "returns SUCCESS.",
-                                   says=(Said("disposition", "write.record_charge_response.disposition"),),
+                                   says=(Said("disposition", "write.record_charge_response.disposition", False,
+                                              "inferred", "pdf.2D states the claim needs SUCCESS; that the "
+                                              "disposition said must be the one recorded follows from it"),),
                                    cues=("recorded", "i've noted", "noted that", "saved your answer")),
     "DISCLOSE_FEE": SpeechSpec("pdf.5", "Before selecting expedited delivery, the bot must tell the customer the $15 "
                                "fee and obtain a clear confirmation.",
-                               says=(Said("delivery", "caller.delivery", True),
+                               says=(Said("delivery", "caller.delivery", True, "inferred",
+                                          "pdf.5 says to tell the customer the $15 fee; naming the option the fee "
+                                          "belongs to is inferred"),
                                      Said("fee", "policy.delivery_fee_usd", True),
-                                     Said("delivery_days", "policy.delivery_days")),
+                                     Said("delivery_days", "policy.delivery_days", False, "design",
+                                          "the PDF does not ask for the delivery time here; it is checked when said")),
                                cues=("fee",)),
     "CONFIRM_ACTION": SpeechSpec("pdf.2E", "If an eligible action is returned, confirm the requested action",
-                                 says=(Said("action", "caller.card_action", True), Said("delivery", "caller.delivery")),
+                                 says=(Said("action", "caller.card_action", True),
+                                       Said("delivery", "caller.delivery", False, "inferred",
+                                            "the delivery option is part of the requested replacement")),
                                  cues=("shall i", "should i", "go ahead", "would you like me to", "do you want me to")),
     "ACTION_DONE": SpeechSpec("pdf.2E", "describe it as completed only after SUCCESS",
-                              says=(Said("action", "write.submit_card_action.action", True),
-                                    Said("delivery", "write.submit_card_action.delivery")),
+                              says=(Said("action", "write.submit_card_action.action", True, "inferred",
+                                         "pdf.2E: 'describe it as completed only after SUCCESS'; naming the action "
+                                         "in that description is inferred"),
+                                    Said("delivery", "write.submit_card_action.delivery", False, "inferred",
+                                         "the delivery option is part of the completed replacement")),
                               cues=("that's done", "it's done", "has been", "is complete", "completed")),
     "ACK_DECLINED": SpeechSpec("pdf.2E", "This second intent must not erase the charge-review intent.",
                                cues=("won't do that", "will not do that", "i won't", "no problem, i")),
     "INFORM_NO_CARD_ACTION": SpeechSpec("pdf.4", "Offer only returned options.",
-                                        says=(Said("action", "caller.card_action"),),
+                                        says=(Said("action", "caller.card_action", False, "design",
+                                                   "telling the customer that no option was returned is dialog "
+                                                   "design; pdf.4 says to offer only returned options"),),
                                         cues=("isn't available", "is not available", "not available",
                                               "can't offer", "cannot offer")),
     "EXPLAIN_LIMIT": SpeechSpec("pdf.5", "The bot may review up to 4 recent transactions in one self-service "
                                 "session.",
-                                says=(Said("limit", "policy.limit:max_transactions_per_session", True),),
+                                says=(Said("limit", "policy.limit:max_transactions_per_session", True, "design",
+                                           "pdf.5 gives the limit (4); explaining it to the customer and "
+                                           "transferring the rest is the brief's and this design's reading "
+                                           "(DESIGN section 8)"),),
                                 cues=("up to", "at most", "only review")),
     "EXPLAIN_NO_TXNS": SpeechSpec("pdf.2B", "If the tool returns no transactions, explain that there are no charges "
                                   "available for review",
@@ -467,7 +500,12 @@ BOT_SPEECH: dict[str, SpeechSpec] = {
 TOOL_RETURNS: dict[str, tuple[str, str, tuple[tuple[str, str], ...]]] = {
     "get_review_transactions": ("pdf.4", "transaction_id, merchant, amount, date",
                                 (("transaction_id", "id"), ("merchant", "text"), ("amount", "money"),
-                                 ("date", "date"), ("age_days", "days"))),
+                                 ("date", "date"))),
+}
+# Fields this harness's mock backend adds to a tool's result that the PDF does not list (source "design").
+DESIGN_RETURNS: dict[str, tuple[tuple[str, str, str], ...]] = {
+    "get_review_transactions": (("age_days", "days", "added so the 30-day review window (pdf.5) can be checked; "
+                                 "pdf.4 lists transaction_id, merchant, amount, date only"),),
 }
 
 # How the bot (not the customer) words a value. The customer synonyms (has_alias) are read too;
@@ -640,6 +678,7 @@ def build_kg(transcription: str | Path = TRANSCRIPTION, pdf_path: str | Path | N
     sections["program"] = PROGRAM_BRIEF
     sections["lexicon"] = LEXICON_NOTE
     sections["bot_lexicon"] = BOT_LEXICON_NOTE
+    sections["design"] = DESIGN_NOTE
 
     triples: list[dict[str, Any]] = []
     seen: set[tuple] = set()
@@ -792,10 +831,16 @@ def build_kg(transcription: str | Path = TRANSCRIPTION, pdf_path: str | Path | N
     for tool, (src, quote, fields) in TOOL_RETURNS.items():
         for name, ty in fields:
             add(tool, "returns_field", name, "speech", src, evidence=quote, qualifiers={"type": ty})
+    for tool, fields in DESIGN_RETURNS.items():
+        for name, ty, note in fields:
+            add(tool, "returns_field", name, "speech", "design", evidence=DESIGN_NOTE,
+                qualifiers={"type": ty, "basis": "design", "note": note})
     for act, spec in BOT_SPEECH.items():
         for i, said in enumerate(spec.says):
-            add(act, "says", said.field, "speech", spec.source, evidence=spec.evidence, state=act,
-                qualifiers={"from": said.source, "required": said.required, "order": i})
+            q = {"from": said.source, "required": said.required, "order": i, "basis": said.basis}
+            if said.note:
+                q["note"] = said.note
+            add(act, "says", said.field, "speech", spec.source, evidence=spec.evidence, state=act, qualifiers=q)
         for cue in spec.cues:
             add(act, "spoken_cue", cue, "speech", "bot_lexicon", evidence=BOT_LEXICON_NOTE, state=act)
     for value, phrases in BOT_PHRASES.items():
@@ -825,7 +870,8 @@ def build_kg(transcription: str | Path = TRANSCRIPTION, pdf_path: str | Path | N
 
 def _relation_docs() -> dict[str, str]:
     return {
-        "says": "bot act -> a field it tells the customer (qualifiers: from = where its truth lives, required, order)",
+        "says": "bot act -> a field it tells the customer (qualifiers: from = where its truth lives, required, order, "
+                "basis = stated / inferred / interpreted / design, note)",
         "spoken_cue": "bot act -> words that mark the act when it carries no information of its own",
         "spoken_as": "value -> how the bot words it (second person, past tense: 'not recognized', 'replaced')",
         "returns_field": "tool -> a field of what it returns (qualifiers: type money / date / days / text / id)",

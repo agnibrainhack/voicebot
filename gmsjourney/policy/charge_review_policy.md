@@ -108,15 +108,15 @@ Each line is `from -> to : condition`.
 
 | value_set | value | aliases |
 |---|---|---|
-| disposition | RECOGNIZED | recognized; mine; i made it; legit; that's me; i know it |
-| disposition | UNRECOGNIZED | unrecognized; not mine; don't recognize; never made; not me; unauthorized |
-| disposition | UNSURE | unsure; not sure; don't know; can't remember; maybe |
-| card_action | SECURE_CARD | secure; lock; freeze; block |
-| card_action | REPLACE_CARD | replace; new card; reissue; send another card |
-| delivery | standard_delivery | standard; regular; normal shipping; free delivery |
-| delivery | expedited_delivery | expedited; express; rush; fast shipping; overnight |
-| tool_result | SUCCESS | success; ok |
-| tool_result | FAILED | failed; error |
+| disposition | RECOGNIZED | recognized; mine; i made it; legit; that's me; i know it; i recognize it; it's mine; that's mine; that was me; that's my charge; my purchase; i made that purchase; i bought that; i authorized it; i approved that; that's legitimate; i remember it; i know that one |
+| disposition | UNRECOGNIZED | unrecognized; not mine; don't recognize; never made; not me; unauthorized; i don't recognize it; it's not mine; that's not mine; that wasn't me; not my charge; not my purchase; i didn't make that; i never made that purchase; i didn't buy that; i never bought that; i didn't authorize it; never seen it; unfamiliar |
+| disposition | UNSURE | unsure; not sure; don't know; can't remember; maybe; i'm not sure; i'm unsure; not certain; i'm not certain; i don't remember; can't recall; i can't recall; no idea; not positive; hard to say |
+| card_action | SECURE_CARD | secure; lock; freeze; block; secure my card; secure the card; lock my card; lock the card; lock it; freeze my card; freeze the card; freeze it; block my card; block the card; put a hold on my card; put a hold on the card |
+| card_action | REPLACE_CARD | replace; new card; reissue; send another card; replace my card; replace the card; replacement card; a replacement; reissue my card; reissue the card; a new card; send me a new card; get a new card; issue a new card; fresh card; another card |
+| delivery | standard_delivery | standard; regular; normal shipping; free delivery; standard delivery; standard shipping; regular delivery; regular shipping; normal delivery; usual delivery; usual shipping; free shipping; the free option; no-fee delivery; the no-fee option |
+| delivery | expedited_delivery | expedited; express; rush; fast shipping; expedited delivery; expedited shipping; express delivery; express shipping; rush delivery; rush shipping; fast delivery; faster delivery; faster shipping; quick delivery; quicker delivery; the faster option; the quicker option; the express option |
+| tool_result | SUCCESS | success; ok; succeeded; successful; went through |
+| tool_result | FAILED | failed; error; failure; unsuccessful; did not go through; didn't go through |
 
 ## 8. Domain model
 

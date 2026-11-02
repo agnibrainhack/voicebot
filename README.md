@@ -215,7 +215,7 @@ session.
 
 | Relation | Example | Meaning |
 |---|---|---|
-| `says` | `PRESENT_TXN says merchant` (from `item.merchant`, required) | the facts an act must speak, and where their truth lives |
+| `says` | `PRESENT_TXN says merchant` (from `item.merchant`, required, basis stated) | the facts an act must speak, where their truth lives, and how firmly the PDF backs it (`basis`: stated / inferred / interpreted / design, with a note) |
 | `spoken_cue` | `ACTION_DONE spoken_cue "that's done"` | words that show the act was said, when a bot gives no labels |
 | `spoken_as` | `UNRECOGNIZED spoken_as "not mine"`, `max_transactions_per_session spoken_as "up to {n} charges"` | how a value or a limit is spoken |
 | `returns_field` | `get_review_transactions returns_field date` | the fields a tool's result carries |

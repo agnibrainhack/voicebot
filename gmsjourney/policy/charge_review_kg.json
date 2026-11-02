@@ -7,6 +7,7 @@
   "transcription": "charge_review_policy.md",
   "sections": {
    "bot_lexicon": "Curated bot-voice phrasings and cue words used to read what the bot says (not stated in the PDF).",
+   "design": "Added by this test harness's design, not stated in the PDF: fields the mock backend returns beyond pdf.4's list, and what dialog states this harness adds must say.",
    "lexicon": "Curated customer synonyms for each canonical value (not stated in the PDF).",
    "pdf.1": "This sample describes a small voice-bot journey for reviewing recent card charges. The bot authenticates a customer, retrieves transactions, captures whether each charge is recognized, unrecognized, or uncertain, and completes simple follow-up servicing. The journey includes tool calls, knowledge retrieval, conversational branching and failure handling so the POC can demonstrate knowledge extraction, grounded test generation, enrichment, DOE and trajectory evaluation.",
    "pdf.2A": "Play the required opening statement. Explain that authentication is needed before account-specific information can be discussed. Call authenticate_customer. If authentication fails or the tool is unavailable, transfer to a human representative.",
@@ -25,7 +26,7 @@
   }
  },
  "relations": {
-  "says": "bot act -> a field it tells the customer (qualifiers: from = where its truth lives, required, order)",
+  "says": "bot act -> a field it tells the customer (qualifiers: from = where its truth lives, required, order, basis = stated / inferred / interpreted / design, note)",
   "spoken_cue": "bot act -> words that mark the act when it carries no information of its own",
   "spoken_as": "value -> how the bot words it (second person, past tense: 'not recognized', 'replaced')",
   "returns_field": "tool -> a field of what it returns (qualifiers: type money / date / days / text / id)",
@@ -3275,6 +3276,188 @@
   },
   {
    "id": "T0271",
+   "head": "RECOGNIZED",
+   "relation": "has_alias",
+   "tail": "i recognize it",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0272",
+   "head": "RECOGNIZED",
+   "relation": "has_alias",
+   "tail": "it's mine",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0273",
+   "head": "RECOGNIZED",
+   "relation": "has_alias",
+   "tail": "that's mine",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0274",
+   "head": "RECOGNIZED",
+   "relation": "has_alias",
+   "tail": "that was me",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0275",
+   "head": "RECOGNIZED",
+   "relation": "has_alias",
+   "tail": "that's my charge",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0276",
+   "head": "RECOGNIZED",
+   "relation": "has_alias",
+   "tail": "my purchase",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0277",
+   "head": "RECOGNIZED",
+   "relation": "has_alias",
+   "tail": "i made that purchase",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0278",
+   "head": "RECOGNIZED",
+   "relation": "has_alias",
+   "tail": "i bought that",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0279",
+   "head": "RECOGNIZED",
+   "relation": "has_alias",
+   "tail": "i authorized it",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0280",
+   "head": "RECOGNIZED",
+   "relation": "has_alias",
+   "tail": "i approved that",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0281",
+   "head": "RECOGNIZED",
+   "relation": "has_alias",
+   "tail": "that's legitimate",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0282",
+   "head": "RECOGNIZED",
+   "relation": "has_alias",
+   "tail": "i remember it",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0283",
+   "head": "RECOGNIZED",
+   "relation": "has_alias",
+   "tail": "i know that one",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0284",
    "head": "UNRECOGNIZED",
    "relation": "member_of",
    "tail": "disposition",
@@ -3285,7 +3468,7 @@
    "gms": true
   },
   {
-   "id": "T0272",
+   "id": "T0285",
    "head": "UNRECOGNIZED",
    "relation": "has_alias",
    "tail": "unrecognized",
@@ -3299,7 +3482,7 @@
    "gms": true
   },
   {
-   "id": "T0273",
+   "id": "T0286",
    "head": "UNRECOGNIZED",
    "relation": "has_alias",
    "tail": "not mine",
@@ -3313,7 +3496,7 @@
    "gms": true
   },
   {
-   "id": "T0274",
+   "id": "T0287",
    "head": "UNRECOGNIZED",
    "relation": "has_alias",
    "tail": "don't recognize",
@@ -3327,7 +3510,7 @@
    "gms": true
   },
   {
-   "id": "T0275",
+   "id": "T0288",
    "head": "UNRECOGNIZED",
    "relation": "has_alias",
    "tail": "never made",
@@ -3341,7 +3524,7 @@
    "gms": true
   },
   {
-   "id": "T0276",
+   "id": "T0289",
    "head": "UNRECOGNIZED",
    "relation": "has_alias",
    "tail": "not me",
@@ -3355,7 +3538,7 @@
    "gms": true
   },
   {
-   "id": "T0277",
+   "id": "T0290",
    "head": "UNRECOGNIZED",
    "relation": "has_alias",
    "tail": "unauthorized",
@@ -3369,7 +3552,189 @@
    "gms": true
   },
   {
-   "id": "T0278",
+   "id": "T0291",
+   "head": "UNRECOGNIZED",
+   "relation": "has_alias",
+   "tail": "i don't recognize it",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0292",
+   "head": "UNRECOGNIZED",
+   "relation": "has_alias",
+   "tail": "it's not mine",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0293",
+   "head": "UNRECOGNIZED",
+   "relation": "has_alias",
+   "tail": "that's not mine",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0294",
+   "head": "UNRECOGNIZED",
+   "relation": "has_alias",
+   "tail": "that wasn't me",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0295",
+   "head": "UNRECOGNIZED",
+   "relation": "has_alias",
+   "tail": "not my charge",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0296",
+   "head": "UNRECOGNIZED",
+   "relation": "has_alias",
+   "tail": "not my purchase",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0297",
+   "head": "UNRECOGNIZED",
+   "relation": "has_alias",
+   "tail": "i didn't make that",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0298",
+   "head": "UNRECOGNIZED",
+   "relation": "has_alias",
+   "tail": "i never made that purchase",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0299",
+   "head": "UNRECOGNIZED",
+   "relation": "has_alias",
+   "tail": "i didn't buy that",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0300",
+   "head": "UNRECOGNIZED",
+   "relation": "has_alias",
+   "tail": "i never bought that",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0301",
+   "head": "UNRECOGNIZED",
+   "relation": "has_alias",
+   "tail": "i didn't authorize it",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0302",
+   "head": "UNRECOGNIZED",
+   "relation": "has_alias",
+   "tail": "never seen it",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0303",
+   "head": "UNRECOGNIZED",
+   "relation": "has_alias",
+   "tail": "unfamiliar",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0304",
    "head": "UNSURE",
    "relation": "member_of",
    "tail": "disposition",
@@ -3380,7 +3745,7 @@
    "gms": true
   },
   {
-   "id": "T0279",
+   "id": "T0305",
    "head": "UNSURE",
    "relation": "has_alias",
    "tail": "unsure",
@@ -3394,7 +3759,7 @@
    "gms": true
   },
   {
-   "id": "T0280",
+   "id": "T0306",
    "head": "UNSURE",
    "relation": "has_alias",
    "tail": "not sure",
@@ -3408,7 +3773,7 @@
    "gms": true
   },
   {
-   "id": "T0281",
+   "id": "T0307",
    "head": "UNSURE",
    "relation": "has_alias",
    "tail": "don't know",
@@ -3422,7 +3787,7 @@
    "gms": true
   },
   {
-   "id": "T0282",
+   "id": "T0308",
    "head": "UNSURE",
    "relation": "has_alias",
    "tail": "can't remember",
@@ -3436,7 +3801,7 @@
    "gms": true
   },
   {
-   "id": "T0283",
+   "id": "T0309",
    "head": "UNSURE",
    "relation": "has_alias",
    "tail": "maybe",
@@ -3450,7 +3815,147 @@
    "gms": true
   },
   {
-   "id": "T0284",
+   "id": "T0310",
+   "head": "UNSURE",
+   "relation": "has_alias",
+   "tail": "i'm not sure",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0311",
+   "head": "UNSURE",
+   "relation": "has_alias",
+   "tail": "i'm unsure",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0312",
+   "head": "UNSURE",
+   "relation": "has_alias",
+   "tail": "not certain",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0313",
+   "head": "UNSURE",
+   "relation": "has_alias",
+   "tail": "i'm not certain",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0314",
+   "head": "UNSURE",
+   "relation": "has_alias",
+   "tail": "i don't remember",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0315",
+   "head": "UNSURE",
+   "relation": "has_alias",
+   "tail": "can't recall",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0316",
+   "head": "UNSURE",
+   "relation": "has_alias",
+   "tail": "i can't recall",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0317",
+   "head": "UNSURE",
+   "relation": "has_alias",
+   "tail": "no idea",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0318",
+   "head": "UNSURE",
+   "relation": "has_alias",
+   "tail": "not positive",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0319",
+   "head": "UNSURE",
+   "relation": "has_alias",
+   "tail": "hard to say",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "disposition"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0320",
    "head": "SECURE_CARD",
    "relation": "member_of",
    "tail": "card_action",
@@ -3461,7 +3966,7 @@
    "gms": true
   },
   {
-   "id": "T0285",
+   "id": "T0321",
    "head": "SECURE_CARD",
    "relation": "has_alias",
    "tail": "secure",
@@ -3475,7 +3980,7 @@
    "gms": true
   },
   {
-   "id": "T0286",
+   "id": "T0322",
    "head": "SECURE_CARD",
    "relation": "has_alias",
    "tail": "lock",
@@ -3489,7 +3994,7 @@
    "gms": true
   },
   {
-   "id": "T0287",
+   "id": "T0323",
    "head": "SECURE_CARD",
    "relation": "has_alias",
    "tail": "freeze",
@@ -3503,7 +4008,7 @@
    "gms": true
   },
   {
-   "id": "T0288",
+   "id": "T0324",
    "head": "SECURE_CARD",
    "relation": "has_alias",
    "tail": "block",
@@ -3517,7 +4022,175 @@
    "gms": true
   },
   {
-   "id": "T0289",
+   "id": "T0325",
+   "head": "SECURE_CARD",
+   "relation": "has_alias",
+   "tail": "secure my card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0326",
+   "head": "SECURE_CARD",
+   "relation": "has_alias",
+   "tail": "secure the card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0327",
+   "head": "SECURE_CARD",
+   "relation": "has_alias",
+   "tail": "lock my card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0328",
+   "head": "SECURE_CARD",
+   "relation": "has_alias",
+   "tail": "lock the card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0329",
+   "head": "SECURE_CARD",
+   "relation": "has_alias",
+   "tail": "lock it",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0330",
+   "head": "SECURE_CARD",
+   "relation": "has_alias",
+   "tail": "freeze my card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0331",
+   "head": "SECURE_CARD",
+   "relation": "has_alias",
+   "tail": "freeze the card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0332",
+   "head": "SECURE_CARD",
+   "relation": "has_alias",
+   "tail": "freeze it",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0333",
+   "head": "SECURE_CARD",
+   "relation": "has_alias",
+   "tail": "block my card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0334",
+   "head": "SECURE_CARD",
+   "relation": "has_alias",
+   "tail": "block the card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0335",
+   "head": "SECURE_CARD",
+   "relation": "has_alias",
+   "tail": "put a hold on my card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0336",
+   "head": "SECURE_CARD",
+   "relation": "has_alias",
+   "tail": "put a hold on the card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0337",
    "head": "REPLACE_CARD",
    "relation": "member_of",
    "tail": "card_action",
@@ -3528,7 +4201,7 @@
    "gms": true
   },
   {
-   "id": "T0290",
+   "id": "T0338",
    "head": "REPLACE_CARD",
    "relation": "has_alias",
    "tail": "replace",
@@ -3542,7 +4215,7 @@
    "gms": true
   },
   {
-   "id": "T0291",
+   "id": "T0339",
    "head": "REPLACE_CARD",
    "relation": "has_alias",
    "tail": "new card",
@@ -3556,7 +4229,7 @@
    "gms": true
   },
   {
-   "id": "T0292",
+   "id": "T0340",
    "head": "REPLACE_CARD",
    "relation": "has_alias",
    "tail": "reissue",
@@ -3570,7 +4243,7 @@
    "gms": true
   },
   {
-   "id": "T0293",
+   "id": "T0341",
    "head": "REPLACE_CARD",
    "relation": "has_alias",
    "tail": "send another card",
@@ -3584,7 +4257,175 @@
    "gms": true
   },
   {
-   "id": "T0294",
+   "id": "T0342",
+   "head": "REPLACE_CARD",
+   "relation": "has_alias",
+   "tail": "replace my card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0343",
+   "head": "REPLACE_CARD",
+   "relation": "has_alias",
+   "tail": "replace the card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0344",
+   "head": "REPLACE_CARD",
+   "relation": "has_alias",
+   "tail": "replacement card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0345",
+   "head": "REPLACE_CARD",
+   "relation": "has_alias",
+   "tail": "a replacement",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0346",
+   "head": "REPLACE_CARD",
+   "relation": "has_alias",
+   "tail": "reissue my card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0347",
+   "head": "REPLACE_CARD",
+   "relation": "has_alias",
+   "tail": "reissue the card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0348",
+   "head": "REPLACE_CARD",
+   "relation": "has_alias",
+   "tail": "a new card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0349",
+   "head": "REPLACE_CARD",
+   "relation": "has_alias",
+   "tail": "send me a new card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0350",
+   "head": "REPLACE_CARD",
+   "relation": "has_alias",
+   "tail": "get a new card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0351",
+   "head": "REPLACE_CARD",
+   "relation": "has_alias",
+   "tail": "issue a new card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0352",
+   "head": "REPLACE_CARD",
+   "relation": "has_alias",
+   "tail": "fresh card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0353",
+   "head": "REPLACE_CARD",
+   "relation": "has_alias",
+   "tail": "another card",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "card_action"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0354",
    "head": "standard_delivery",
    "relation": "member_of",
    "tail": "delivery",
@@ -3595,7 +4436,7 @@
    "gms": true
   },
   {
-   "id": "T0295",
+   "id": "T0355",
    "head": "standard_delivery",
    "relation": "has_alias",
    "tail": "standard",
@@ -3609,7 +4450,7 @@
    "gms": true
   },
   {
-   "id": "T0296",
+   "id": "T0356",
    "head": "standard_delivery",
    "relation": "has_alias",
    "tail": "regular",
@@ -3623,7 +4464,7 @@
    "gms": true
   },
   {
-   "id": "T0297",
+   "id": "T0357",
    "head": "standard_delivery",
    "relation": "has_alias",
    "tail": "normal shipping",
@@ -3637,7 +4478,7 @@
    "gms": true
   },
   {
-   "id": "T0298",
+   "id": "T0358",
    "head": "standard_delivery",
    "relation": "has_alias",
    "tail": "free delivery",
@@ -3651,7 +4492,161 @@
    "gms": true
   },
   {
-   "id": "T0299",
+   "id": "T0359",
+   "head": "standard_delivery",
+   "relation": "has_alias",
+   "tail": "standard delivery",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0360",
+   "head": "standard_delivery",
+   "relation": "has_alias",
+   "tail": "standard shipping",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0361",
+   "head": "standard_delivery",
+   "relation": "has_alias",
+   "tail": "regular delivery",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0362",
+   "head": "standard_delivery",
+   "relation": "has_alias",
+   "tail": "regular shipping",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0363",
+   "head": "standard_delivery",
+   "relation": "has_alias",
+   "tail": "normal delivery",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0364",
+   "head": "standard_delivery",
+   "relation": "has_alias",
+   "tail": "usual delivery",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0365",
+   "head": "standard_delivery",
+   "relation": "has_alias",
+   "tail": "usual shipping",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0366",
+   "head": "standard_delivery",
+   "relation": "has_alias",
+   "tail": "free shipping",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0367",
+   "head": "standard_delivery",
+   "relation": "has_alias",
+   "tail": "the free option",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0368",
+   "head": "standard_delivery",
+   "relation": "has_alias",
+   "tail": "no-fee delivery",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0369",
+   "head": "standard_delivery",
+   "relation": "has_alias",
+   "tail": "the no-fee option",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0370",
    "head": "expedited_delivery",
    "relation": "member_of",
    "tail": "delivery",
@@ -3662,7 +4657,7 @@
    "gms": true
   },
   {
-   "id": "T0300",
+   "id": "T0371",
    "head": "expedited_delivery",
    "relation": "has_alias",
    "tail": "expedited",
@@ -3676,7 +4671,7 @@
    "gms": true
   },
   {
-   "id": "T0301",
+   "id": "T0372",
    "head": "expedited_delivery",
    "relation": "has_alias",
    "tail": "express",
@@ -3690,7 +4685,7 @@
    "gms": true
   },
   {
-   "id": "T0302",
+   "id": "T0373",
    "head": "expedited_delivery",
    "relation": "has_alias",
    "tail": "rush",
@@ -3704,7 +4699,7 @@
    "gms": true
   },
   {
-   "id": "T0303",
+   "id": "T0374",
    "head": "expedited_delivery",
    "relation": "has_alias",
    "tail": "fast shipping",
@@ -3718,10 +4713,10 @@
    "gms": true
   },
   {
-   "id": "T0304",
+   "id": "T0375",
    "head": "expedited_delivery",
    "relation": "has_alias",
-   "tail": "overnight",
+   "tail": "expedited delivery",
    "tail_type": "alias",
    "kind": "vocabulary",
    "source": "lexicon",
@@ -3732,7 +4727,189 @@
    "gms": true
   },
   {
-   "id": "T0305",
+   "id": "T0376",
+   "head": "expedited_delivery",
+   "relation": "has_alias",
+   "tail": "expedited shipping",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0377",
+   "head": "expedited_delivery",
+   "relation": "has_alias",
+   "tail": "express delivery",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0378",
+   "head": "expedited_delivery",
+   "relation": "has_alias",
+   "tail": "express shipping",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0379",
+   "head": "expedited_delivery",
+   "relation": "has_alias",
+   "tail": "rush delivery",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0380",
+   "head": "expedited_delivery",
+   "relation": "has_alias",
+   "tail": "rush shipping",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0381",
+   "head": "expedited_delivery",
+   "relation": "has_alias",
+   "tail": "fast delivery",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0382",
+   "head": "expedited_delivery",
+   "relation": "has_alias",
+   "tail": "faster delivery",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0383",
+   "head": "expedited_delivery",
+   "relation": "has_alias",
+   "tail": "faster shipping",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0384",
+   "head": "expedited_delivery",
+   "relation": "has_alias",
+   "tail": "quick delivery",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0385",
+   "head": "expedited_delivery",
+   "relation": "has_alias",
+   "tail": "quicker delivery",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0386",
+   "head": "expedited_delivery",
+   "relation": "has_alias",
+   "tail": "the faster option",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0387",
+   "head": "expedited_delivery",
+   "relation": "has_alias",
+   "tail": "the quicker option",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0388",
+   "head": "expedited_delivery",
+   "relation": "has_alias",
+   "tail": "the express option",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "delivery"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0389",
    "head": "SUCCESS",
    "relation": "member_of",
    "tail": "tool_result",
@@ -3743,7 +4920,7 @@
    "gms": true
   },
   {
-   "id": "T0306",
+   "id": "T0390",
    "head": "SUCCESS",
    "relation": "has_alias",
    "tail": "success",
@@ -3757,7 +4934,7 @@
    "gms": true
   },
   {
-   "id": "T0307",
+   "id": "T0391",
    "head": "SUCCESS",
    "relation": "has_alias",
    "tail": "ok",
@@ -3771,7 +4948,49 @@
    "gms": true
   },
   {
-   "id": "T0308",
+   "id": "T0392",
+   "head": "SUCCESS",
+   "relation": "has_alias",
+   "tail": "succeeded",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "tool_result"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0393",
+   "head": "SUCCESS",
+   "relation": "has_alias",
+   "tail": "successful",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "tool_result"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0394",
+   "head": "SUCCESS",
+   "relation": "has_alias",
+   "tail": "went through",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "tool_result"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0395",
    "head": "FAILED",
    "relation": "member_of",
    "tail": "tool_result",
@@ -3782,7 +5001,7 @@
    "gms": true
   },
   {
-   "id": "T0309",
+   "id": "T0396",
    "head": "FAILED",
    "relation": "has_alias",
    "tail": "failed",
@@ -3796,7 +5015,7 @@
    "gms": true
   },
   {
-   "id": "T0310",
+   "id": "T0397",
    "head": "FAILED",
    "relation": "has_alias",
    "tail": "error",
@@ -3810,7 +5029,63 @@
    "gms": true
   },
   {
-   "id": "T0311",
+   "id": "T0398",
+   "head": "FAILED",
+   "relation": "has_alias",
+   "tail": "failure",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "tool_result"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0399",
+   "head": "FAILED",
+   "relation": "has_alias",
+   "tail": "unsuccessful",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "tool_result"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0400",
+   "head": "FAILED",
+   "relation": "has_alias",
+   "tail": "did not go through",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "tool_result"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0401",
+   "head": "FAILED",
+   "relation": "has_alias",
+   "tail": "didn't go through",
+   "tail_type": "alias",
+   "kind": "vocabulary",
+   "source": "lexicon",
+   "evidence": "Curated customer synonyms for each canonical value (not stated in the PDF).",
+   "qualifiers": {
+    "value_set": "tool_result"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0402",
    "head": "value",
    "relation": "member_of",
    "tail": "kb_intent",
@@ -3821,7 +5096,7 @@
    "gms": false
   },
   {
-   "id": "T0312",
+   "id": "T0403",
    "head": "limit",
    "relation": "member_of",
    "tail": "kb_intent",
@@ -3832,7 +5107,7 @@
    "gms": false
   },
   {
-   "id": "T0313",
+   "id": "T0404",
    "head": "plausibility",
    "relation": "member_of",
    "tail": "kb_intent",
@@ -3843,7 +5118,7 @@
    "gms": false
   },
   {
-   "id": "T0314",
+   "id": "T0405",
    "head": "mcq",
    "relation": "member_of",
    "tail": "kb_intent",
@@ -3854,7 +5129,7 @@
    "gms": false
   },
   {
-   "id": "T0315",
+   "id": "T0406",
    "head": "cheaper",
    "relation": "member_of",
    "tail": "kb_intent",
@@ -3865,7 +5140,7 @@
    "gms": false
   },
   {
-   "id": "T0316",
+   "id": "T0407",
    "head": "faster",
    "relation": "member_of",
    "tail": "kb_intent",
@@ -3876,7 +5151,7 @@
    "gms": false
   },
   {
-   "id": "T0317",
+   "id": "T0408",
    "head": "faster_option_fee",
    "relation": "member_of",
    "tail": "kb_intent",
@@ -3887,7 +5162,7 @@
    "gms": false
   },
   {
-   "id": "T0318",
+   "id": "T0409",
    "head": "fee_difference",
    "relation": "member_of",
    "tail": "kb_intent",
@@ -3898,7 +5173,7 @@
    "gms": false
   },
   {
-   "id": "T0319",
+   "id": "T0410",
    "head": "count_options",
    "relation": "member_of",
    "tail": "kb_intent",
@@ -3909,7 +5184,7 @@
    "gms": false
   },
   {
-   "id": "T0320",
+   "id": "T0411",
    "head": "expedited_total",
    "relation": "member_of",
    "tail": "kb_intent",
@@ -3920,7 +5195,7 @@
    "gms": false
   },
   {
-   "id": "T0321",
+   "id": "T0412",
    "head": "needs_confirmation",
    "relation": "member_of",
    "tail": "kb_intent",
@@ -3931,7 +5206,7 @@
    "gms": false
   },
   {
-   "id": "T0322",
+   "id": "T0413",
    "head": "window_check",
    "relation": "member_of",
    "tail": "kb_intent",
@@ -3942,7 +5217,7 @@
    "gms": false
   },
   {
-   "id": "T0323",
+   "id": "T0414",
    "head": "procedure",
    "relation": "member_of",
    "tail": "kb_intent",
@@ -3953,7 +5228,7 @@
    "gms": false
   },
   {
-   "id": "T0324",
+   "id": "T0415",
    "head": "refund",
    "relation": "member_of",
    "tail": "kb_intent",
@@ -3964,7 +5239,7 @@
    "gms": false
   },
   {
-   "id": "T0325",
+   "id": "T0416",
    "head": "fraud",
    "relation": "member_of",
    "tail": "kb_intent",
@@ -3975,7 +5250,7 @@
    "gms": false
   },
   {
-   "id": "T0326",
+   "id": "T0417",
    "head": "skip_auth",
    "relation": "member_of",
    "tail": "kb_intent",
@@ -3986,7 +5261,7 @@
    "gms": false
   },
   {
-   "id": "T0327",
+   "id": "T0418",
    "head": "unknown_option",
    "relation": "member_of",
    "tail": "kb_intent",
@@ -3997,7 +5272,7 @@
    "gms": false
   },
   {
-   "id": "T0328",
+   "id": "T0419",
    "head": "unstated_fact",
    "relation": "member_of",
    "tail": "kb_intent",
@@ -4008,7 +5283,7 @@
    "gms": false
   },
   {
-   "id": "T0329",
+   "id": "T0420",
    "head": "fee",
    "relation": "member_of",
    "tail": "kb_attribute",
@@ -4019,7 +5294,7 @@
    "gms": false
   },
   {
-   "id": "T0330",
+   "id": "T0421",
    "head": "days",
    "relation": "member_of",
    "tail": "kb_attribute",
@@ -4030,7 +5305,7 @@
    "gms": false
   },
   {
-   "id": "T0331",
+   "id": "T0422",
    "head": "PROVIDE_CREDENTIAL",
    "relation": "is_a",
    "tail": "dialog_act",
@@ -4041,7 +5316,7 @@
    "gms": false
   },
   {
-   "id": "T0332",
+   "id": "T0423",
    "head": "PROVIDE_CREDENTIAL",
    "relation": "has_slot",
    "tail": "credential",
@@ -4056,7 +5331,7 @@
    "gms": true
   },
   {
-   "id": "T0333",
+   "id": "T0424",
    "head": "INFORM_DISPOSITION",
    "relation": "is_a",
    "tail": "dialog_act",
@@ -4067,7 +5342,7 @@
    "gms": false
   },
   {
-   "id": "T0334",
+   "id": "T0425",
    "head": "INFORM_DISPOSITION",
    "relation": "has_slot",
    "tail": "disposition",
@@ -4082,7 +5357,7 @@
    "gms": true
   },
   {
-   "id": "T0335",
+   "id": "T0426",
    "head": "INFORM_DISPOSITION",
    "relation": "has_slot",
    "tail": "card_action",
@@ -4097,7 +5372,7 @@
    "gms": true
   },
   {
-   "id": "T0336",
+   "id": "T0427",
    "head": "INFORM_DISPOSITION",
    "relation": "has_slot",
    "tail": "delivery",
@@ -4112,7 +5387,7 @@
    "gms": true
   },
   {
-   "id": "T0337",
+   "id": "T0428",
    "head": "INFORM_DISPOSITION",
    "relation": "has_slot",
    "tail": "corrected_from",
@@ -4127,7 +5402,7 @@
    "gms": true
   },
   {
-   "id": "T0338",
+   "id": "T0429",
    "head": "REQUEST_CARD_ACTION",
    "relation": "is_a",
    "tail": "dialog_act",
@@ -4138,7 +5413,7 @@
    "gms": false
   },
   {
-   "id": "T0339",
+   "id": "T0430",
    "head": "REQUEST_CARD_ACTION",
    "relation": "has_slot",
    "tail": "card_action",
@@ -4153,7 +5428,7 @@
    "gms": true
   },
   {
-   "id": "T0340",
+   "id": "T0431",
    "head": "REQUEST_CARD_ACTION",
    "relation": "has_slot",
    "tail": "delivery",
@@ -4168,7 +5443,7 @@
    "gms": true
   },
   {
-   "id": "T0341",
+   "id": "T0432",
    "head": "CONFIRM",
    "relation": "is_a",
    "tail": "dialog_act",
@@ -4179,7 +5454,7 @@
    "gms": false
   },
   {
-   "id": "T0342",
+   "id": "T0433",
    "head": "DENY",
    "relation": "is_a",
    "tail": "dialog_act",
@@ -4190,7 +5465,7 @@
    "gms": false
   },
   {
-   "id": "T0343",
+   "id": "T0434",
    "head": "END",
    "relation": "is_a",
    "tail": "dialog_act",
@@ -4201,7 +5476,7 @@
    "gms": false
   },
   {
-   "id": "T0344",
+   "id": "T0435",
    "head": "UNCLEAR",
    "relation": "is_a",
    "tail": "dialog_act",
@@ -4212,7 +5487,7 @@
    "gms": false
   },
   {
-   "id": "T0345",
+   "id": "T0436",
    "head": "REQUEST_HUMAN",
    "relation": "is_a",
    "tail": "dialog_act",
@@ -4223,7 +5498,7 @@
    "gms": false
   },
   {
-   "id": "T0346",
+   "id": "T0437",
    "head": "ASK_KB",
    "relation": "is_a",
    "tail": "dialog_act",
@@ -4234,7 +5509,7 @@
    "gms": false
   },
   {
-   "id": "T0347",
+   "id": "T0438",
    "head": "ASK_KB",
    "relation": "has_slot",
    "tail": "intent",
@@ -4249,7 +5524,7 @@
    "gms": true
   },
   {
-   "id": "T0348",
+   "id": "T0439",
    "head": "ASK_KB",
    "relation": "has_slot",
    "tail": "attr",
@@ -4264,7 +5539,7 @@
    "gms": true
   },
   {
-   "id": "T0349",
+   "id": "T0440",
    "head": "ASK_KB",
    "relation": "has_slot",
    "tail": "entity",
@@ -4279,7 +5554,7 @@
    "gms": true
   },
   {
-   "id": "T0350",
+   "id": "T0441",
    "head": "ASK_KB",
    "relation": "has_slot",
    "tail": "key",
@@ -4294,7 +5569,7 @@
    "gms": true
   },
   {
-   "id": "T0351",
+   "id": "T0442",
    "head": "ASK_KB",
    "relation": "has_slot",
    "tail": "value",
@@ -4309,7 +5584,7 @@
    "gms": true
   },
   {
-   "id": "T0352",
+   "id": "T0443",
    "head": "ASK_KB",
    "relation": "has_slot",
    "tail": "options",
@@ -4324,7 +5599,7 @@
    "gms": true
   },
   {
-   "id": "T0353",
+   "id": "T0444",
    "head": "ASK_KB",
    "relation": "has_slot",
    "tail": "days",
@@ -4339,7 +5614,7 @@
    "gms": true
   },
   {
-   "id": "T0354",
+   "id": "T0445",
    "head": "ASK_KB",
    "relation": "has_slot",
    "tail": "name",
@@ -4354,7 +5629,7 @@
    "gms": true
   },
   {
-   "id": "T0355",
+   "id": "T0446",
    "head": "ASK_KB",
    "relation": "has_slot",
    "tail": "subject",
@@ -4369,7 +5644,7 @@
    "gms": true
   },
   {
-   "id": "T0356",
+   "id": "T0447",
    "head": "customer",
    "relation": "has_session",
    "tail": "review_session",
@@ -4380,7 +5655,7 @@
    "gms": true
   },
   {
-   "id": "T0357",
+   "id": "T0448",
    "head": "review_session",
    "relation": "reviews",
    "tail": "transaction",
@@ -4391,7 +5666,7 @@
    "gms": true
   },
   {
-   "id": "T0358",
+   "id": "T0449",
    "head": "transaction",
    "relation": "governed_by",
    "tail": "charge_review_policy",
@@ -4402,7 +5677,7 @@
    "gms": true
   },
   {
-   "id": "T0359",
+   "id": "T0450",
    "head": "customer",
    "relation": "subject_to",
    "tail": "charge_review_policy",
@@ -4413,7 +5688,7 @@
    "gms": true
   },
   {
-   "id": "T0360",
+   "id": "T0451",
    "head": "transaction",
    "relation": "has_disposition",
    "tail": "disposition",
@@ -4424,7 +5699,7 @@
    "gms": true
   },
   {
-   "id": "T0361",
+   "id": "T0452",
    "head": "review_session",
    "relation": "limited_by",
    "tail": "max_transactions_per_session",
@@ -4435,7 +5710,7 @@
    "gms": true
   },
   {
-   "id": "T0362",
+   "id": "T0453",
    "head": "review_session",
    "relation": "limited_by",
    "tail": "max_turns",
@@ -4446,7 +5721,7 @@
    "gms": true
   },
   {
-   "id": "T0363",
+   "id": "T0454",
    "head": "review_session",
    "relation": "limited_by",
    "tail": "max_auth_attempts",
@@ -4457,7 +5732,7 @@
    "gms": true
   },
   {
-   "id": "T0364",
+   "id": "T0455",
    "head": "replace_card",
    "relation": "delivered_by",
    "tail": "standard_delivery",
@@ -4468,7 +5743,7 @@
    "gms": true
   },
   {
-   "id": "T0365",
+   "id": "T0456",
    "head": "replace_card",
    "relation": "delivered_by",
    "tail": "expedited_delivery",
@@ -4479,7 +5754,7 @@
    "gms": true
   },
   {
-   "id": "T0366",
+   "id": "T0457",
    "head": "authenticate_customer",
    "relation": "precedes",
    "tail": "get_review_transactions",
@@ -4490,7 +5765,7 @@
    "gms": true
   },
   {
-   "id": "T0367",
+   "id": "T0458",
    "head": "get_review_transactions",
    "relation": "precedes",
    "tail": "record_charge_response",
@@ -4501,7 +5776,7 @@
    "gms": true
   },
   {
-   "id": "T0368",
+   "id": "T0459",
    "head": "record_charge_response",
    "relation": "precedes",
    "tail": "get_card_action_options",
@@ -4512,7 +5787,7 @@
    "gms": true
   },
   {
-   "id": "T0369",
+   "id": "T0460",
    "head": "get_card_action_options",
    "relation": "precedes",
    "tail": "submit_card_action",
@@ -4523,7 +5798,7 @@
    "gms": true
   },
   {
-   "id": "T0370",
+   "id": "T0461",
    "head": "authenticate_customer",
    "relation": "precedes_two",
    "tail": "record_charge_response",
@@ -4534,7 +5809,7 @@
    "gms": true
   },
   {
-   "id": "T0371",
+   "id": "T0462",
    "head": "get_review_transactions",
    "relation": "precedes_two",
    "tail": "get_card_action_options",
@@ -4545,7 +5820,7 @@
    "gms": true
   },
   {
-   "id": "T0372",
+   "id": "T0463",
    "head": "record_charge_response",
    "relation": "precedes_two",
    "tail": "submit_card_action",
@@ -4556,7 +5831,7 @@
    "gms": true
   },
   {
-   "id": "T0373",
+   "id": "T0464",
    "head": "auth_failed",
    "relation": "is_a",
    "tail": "escalation_trigger",
@@ -4567,7 +5842,7 @@
    "gms": false
   },
   {
-   "id": "T0374",
+   "id": "T0465",
    "head": "auth_failed",
    "relation": "justified_by",
    "tail": "R4",
@@ -4578,7 +5853,7 @@
    "gms": true
   },
   {
-   "id": "T0375",
+   "id": "T0466",
    "head": "auth_failed",
    "relation": "has_condition",
    "tail": "authentication FAILED at max_auth_attempts",
@@ -4589,7 +5864,7 @@
    "gms": false
   },
   {
-   "id": "T0376",
+   "id": "T0467",
    "head": "auth_unavailable",
    "relation": "is_a",
    "tail": "escalation_trigger",
@@ -4600,7 +5875,7 @@
    "gms": false
   },
   {
-   "id": "T0377",
+   "id": "T0468",
    "head": "auth_unavailable",
    "relation": "justified_by",
    "tail": "R5",
@@ -4611,7 +5886,7 @@
    "gms": true
   },
   {
-   "id": "T0378",
+   "id": "T0469",
    "head": "auth_unavailable",
    "relation": "has_condition",
    "tail": "authenticate_customer unavailable",
@@ -4622,7 +5897,7 @@
    "gms": false
   },
   {
-   "id": "T0379",
+   "id": "T0470",
    "head": "retrieve_unavailable",
    "relation": "is_a",
    "tail": "escalation_trigger",
@@ -4633,7 +5908,7 @@
    "gms": false
   },
   {
-   "id": "T0380",
+   "id": "T0471",
    "head": "retrieve_unavailable",
    "relation": "justified_by",
    "tail": "R14",
@@ -4644,7 +5919,7 @@
    "gms": true
   },
   {
-   "id": "T0381",
+   "id": "T0472",
    "head": "retrieve_unavailable",
    "relation": "has_condition",
    "tail": "get_review_transactions unavailable",
@@ -4655,7 +5930,7 @@
    "gms": false
   },
   {
-   "id": "T0382",
+   "id": "T0473",
    "head": "record_failed",
    "relation": "is_a",
    "tail": "escalation_trigger",
@@ -4666,7 +5941,7 @@
    "gms": false
   },
   {
-   "id": "T0383",
+   "id": "T0474",
    "head": "record_failed",
    "relation": "justified_by",
    "tail": "R14",
@@ -4677,7 +5952,7 @@
    "gms": true
   },
   {
-   "id": "T0384",
+   "id": "T0475",
    "head": "record_failed",
    "relation": "has_condition",
    "tail": "record_charge_response not SUCCESS",
@@ -4688,7 +5963,7 @@
    "gms": false
   },
   {
-   "id": "T0385",
+   "id": "T0476",
    "head": "unsure_twice",
    "relation": "is_a",
    "tail": "escalation_trigger",
@@ -4699,7 +5974,7 @@
    "gms": false
   },
   {
-   "id": "T0386",
+   "id": "T0477",
    "head": "unsure_twice",
    "relation": "justified_by",
    "tail": "R11",
@@ -4710,7 +5985,7 @@
    "gms": true
   },
   {
-   "id": "T0387",
+   "id": "T0478",
    "head": "unsure_twice",
    "relation": "has_condition",
    "tail": "customer still unsure after context",
@@ -4721,7 +5996,7 @@
    "gms": false
   },
   {
-   "id": "T0388",
+   "id": "T0479",
    "head": "ambiguity_persists",
    "relation": "is_a",
    "tail": "escalation_trigger",
@@ -4732,7 +6007,7 @@
    "gms": false
   },
   {
-   "id": "T0389",
+   "id": "T0480",
    "head": "ambiguity_persists",
    "relation": "justified_by",
    "tail": "R23",
@@ -4743,7 +6018,7 @@
    "gms": true
   },
   {
-   "id": "T0390",
+   "id": "T0481",
    "head": "ambiguity_persists",
    "relation": "has_condition",
    "tail": "response unclear after one retry",
@@ -4754,7 +6029,7 @@
    "gms": false
   },
   {
-   "id": "T0391",
+   "id": "T0482",
    "head": "submit_failed",
    "relation": "is_a",
    "tail": "escalation_trigger",
@@ -4765,7 +6040,7 @@
    "gms": false
   },
   {
-   "id": "T0392",
+   "id": "T0483",
    "head": "submit_failed",
    "relation": "justified_by",
    "tail": "R29",
@@ -4776,7 +6051,7 @@
    "gms": true
   },
   {
-   "id": "T0393",
+   "id": "T0484",
    "head": "submit_failed",
    "relation": "has_condition",
    "tail": "submit_card_action not SUCCESS",
@@ -4787,7 +6062,7 @@
    "gms": false
   },
   {
-   "id": "T0394",
+   "id": "T0485",
    "head": "customer_request",
    "relation": "is_a",
    "tail": "escalation_trigger",
@@ -4798,7 +6073,7 @@
    "gms": false
   },
   {
-   "id": "T0395",
+   "id": "T0486",
    "head": "customer_request",
    "relation": "justified_by",
    "tail": "R20",
@@ -4809,7 +6084,7 @@
    "gms": true
   },
   {
-   "id": "T0396",
+   "id": "T0487",
    "head": "customer_request",
    "relation": "has_condition",
    "tail": "customer asks for a human",
@@ -4820,7 +6095,7 @@
    "gms": false
   },
   {
-   "id": "T0397",
+   "id": "T0488",
    "head": "turn_limit",
    "relation": "is_a",
    "tail": "escalation_trigger",
@@ -4831,7 +6106,7 @@
    "gms": false
   },
   {
-   "id": "T0398",
+   "id": "T0489",
    "head": "turn_limit",
    "relation": "justified_by",
    "tail": "R28",
@@ -4842,7 +6117,7 @@
    "gms": true
   },
   {
-   "id": "T0399",
+   "id": "T0490",
    "head": "turn_limit",
    "relation": "has_condition",
    "tail": "20-turn limit reached before completion",
@@ -4853,7 +6128,7 @@
    "gms": false
   },
   {
-   "id": "T0400",
+   "id": "T0491",
    "head": "transaction_limit",
    "relation": "is_a",
    "tail": "escalation_trigger",
@@ -4864,7 +6139,7 @@
    "gms": false
   },
   {
-   "id": "T0401",
+   "id": "T0492",
    "head": "transaction_limit",
    "relation": "justified_by",
    "tail": "R31",
@@ -4875,7 +6150,7 @@
    "gms": true
   },
   {
-   "id": "T0402",
+   "id": "T0493",
    "head": "transaction_limit",
    "relation": "has_condition",
    "tail": "more than 4 reviewable transactions",
@@ -4886,7 +6161,7 @@
    "gms": false
   },
   {
-   "id": "T0403",
+   "id": "T0494",
    "head": "card_options_unavailable",
    "relation": "is_a",
    "tail": "escalation_trigger",
@@ -4897,7 +6172,7 @@
    "gms": false
   },
   {
-   "id": "T0404",
+   "id": "T0495",
    "head": "card_options_unavailable",
    "relation": "justified_by",
    "tail": "R32",
@@ -4908,7 +6183,7 @@
    "gms": true
   },
   {
-   "id": "T0405",
+   "id": "T0496",
    "head": "card_options_unavailable",
    "relation": "has_condition",
    "tail": "get_card_action_options unavailable",
@@ -4919,7 +6194,7 @@
    "gms": false
   },
   {
-   "id": "T0406",
+   "id": "T0497",
    "head": "knowledge_base",
    "relation": "states",
    "tail": "A standard replacement card normally arrives in 5-7 business days.",
@@ -4933,7 +6208,7 @@
    "gms": false
   },
   {
-   "id": "T0407",
+   "id": "T0498",
    "head": "knowledge_base",
    "relation": "states",
    "tail": "Standard replacement delivery fee is $0.",
@@ -4947,7 +6222,7 @@
    "gms": false
   },
   {
-   "id": "T0408",
+   "id": "T0499",
    "head": "knowledge_base",
    "relation": "states",
    "tail": "Expedited replacement delivery is available for a $15 fee and normally arrives in 2 business days.",
@@ -4961,7 +6236,7 @@
    "gms": false
   },
   {
-   "id": "T0409",
+   "id": "T0500",
    "head": "knowledge_base",
    "relation": "states",
    "tail": "Before selecting expedited delivery, the bot must tell the customer the $15 fee and obtain a clear confirmation.",
@@ -4975,7 +6250,7 @@
    "gms": false
   },
   {
-   "id": "T0410",
+   "id": "T0501",
    "head": "knowledge_base",
    "relation": "states",
    "tail": "The bot may review up to 4 recent transactions in one self-service session.",
@@ -4989,7 +6264,7 @@
    "gms": false
   },
   {
-   "id": "T0411",
+   "id": "T0502",
    "head": "knowledge_base",
    "relation": "states",
    "tail": "Recent-transaction review covers transactions from the previous 30 calendar days.",
@@ -5003,7 +6278,7 @@
    "gms": false
   },
   {
-   "id": "T0412",
+   "id": "T0503",
    "head": "knowledge_base",
    "relation": "states",
    "tail": "An unrecognized transaction is a customer-reported concern; it is not, by itself, proof of fraud.",
@@ -5017,7 +6292,7 @@
    "gms": false
   },
   {
-   "id": "T0413",
+   "id": "T0504",
    "head": "knowledge_base",
    "relation": "states",
    "tail": "If the bot cannot complete a required servicing action, the customer may be transferred to a human representative.",
@@ -5031,7 +6306,7 @@
    "gms": false
   },
   {
-   "id": "T0414",
+   "id": "T0505",
    "head": "opening_statement",
    "relation": "has_text",
    "tail": "Before I review account-specific charges, I need to authenticate you.",
@@ -5042,7 +6317,7 @@
    "gms": false
   },
   {
-   "id": "T0415",
+   "id": "T0506",
    "head": "OPENING",
    "relation": "is_a",
    "tail": "dialog_state",
@@ -5054,7 +6329,7 @@
    "gms": false
   },
   {
-   "id": "T0416",
+   "id": "T0507",
    "head": "OPENING",
    "relation": "in_stage",
    "tail": "opening",
@@ -5066,7 +6341,7 @@
    "gms": true
   },
   {
-   "id": "T0417",
+   "id": "T0508",
    "head": "OPENING",
    "relation": "prompts_customer",
    "tail": "no",
@@ -5078,7 +6353,7 @@
    "gms": false
   },
   {
-   "id": "T0418",
+   "id": "T0509",
    "head": "OPENING",
    "relation": "applies_rule",
    "tail": "R1",
@@ -5090,7 +6365,7 @@
    "gms": true
   },
   {
-   "id": "T0419",
+   "id": "T0510",
    "head": "OPENING",
    "relation": "applies_rule",
    "tail": "R2",
@@ -5102,7 +6377,7 @@
    "gms": true
   },
   {
-   "id": "T0420",
+   "id": "T0511",
    "head": "ASK_AUTH",
    "relation": "is_a",
    "tail": "dialog_state",
@@ -5114,7 +6389,7 @@
    "gms": false
   },
   {
-   "id": "T0421",
+   "id": "T0512",
    "head": "ASK_AUTH",
    "relation": "in_stage",
    "tail": "authenticate",
@@ -5126,7 +6401,7 @@
    "gms": true
   },
   {
-   "id": "T0422",
+   "id": "T0513",
    "head": "ASK_AUTH",
    "relation": "prompts_customer",
    "tail": "yes",
@@ -5138,7 +6413,7 @@
    "gms": false
   },
   {
-   "id": "T0423",
+   "id": "T0514",
    "head": "ASK_AUTH",
    "relation": "accepts_act",
    "tail": "PROVIDE_CREDENTIAL",
@@ -5150,7 +6425,7 @@
    "gms": true
   },
   {
-   "id": "T0424",
+   "id": "T0515",
    "head": "ASK_AUTH",
    "relation": "accepts_act",
    "tail": "REQUEST_HUMAN",
@@ -5162,7 +6437,7 @@
    "gms": true
   },
   {
-   "id": "T0425",
+   "id": "T0516",
    "head": "ASK_AUTH",
    "relation": "accepts_act",
    "tail": "ASK_KB",
@@ -5174,7 +6449,7 @@
    "gms": true
   },
   {
-   "id": "T0426",
+   "id": "T0517",
    "head": "ASK_AUTH",
    "relation": "accepts_act",
    "tail": "UNCLEAR",
@@ -5186,7 +6461,7 @@
    "gms": true
   },
   {
-   "id": "T0427",
+   "id": "T0518",
    "head": "ASK_AUTH",
    "relation": "interprets_yes_as",
    "tail": "UNCLEAR",
@@ -5198,7 +6473,7 @@
    "gms": true
   },
   {
-   "id": "T0428",
+   "id": "T0519",
    "head": "ASK_AUTH",
    "relation": "interprets_no_as",
    "tail": "UNCLEAR",
@@ -5210,7 +6485,7 @@
    "gms": true
   },
   {
-   "id": "T0429",
+   "id": "T0520",
    "head": "ASK_AUTH",
    "relation": "applies_rule",
    "tail": "R2",
@@ -5222,7 +6497,7 @@
    "gms": true
   },
   {
-   "id": "T0430",
+   "id": "T0521",
    "head": "ASK_AUTH",
    "relation": "applies_rule",
    "tail": "R3",
@@ -5234,7 +6509,7 @@
    "gms": true
   },
   {
-   "id": "T0431",
+   "id": "T0522",
    "head": "ASK_AUTH",
    "relation": "applies_rule",
    "tail": "R5",
@@ -5246,7 +6521,7 @@
    "gms": true
   },
   {
-   "id": "T0432",
+   "id": "T0523",
    "head": "ASK_AUTH",
    "relation": "applies_rule",
    "tail": "R20",
@@ -5258,7 +6533,7 @@
    "gms": true
   },
   {
-   "id": "T0433",
+   "id": "T0524",
    "head": "ASK_AUTH",
    "relation": "applies_rule",
    "tail": "R22",
@@ -5270,7 +6545,7 @@
    "gms": true
   },
   {
-   "id": "T0434",
+   "id": "T0525",
    "head": "ASK_AUTH",
    "relation": "applies_rule",
    "tail": "R23",
@@ -5282,7 +6557,7 @@
    "gms": true
   },
   {
-   "id": "T0435",
+   "id": "T0526",
    "head": "ASK_AUTH",
    "relation": "applies_rule",
    "tail": "R25",
@@ -5294,7 +6569,7 @@
    "gms": true
   },
   {
-   "id": "T0436",
+   "id": "T0527",
    "head": "ASK_AUTH",
    "relation": "applies_rule",
    "tail": "R28",
@@ -5306,7 +6581,7 @@
    "gms": true
   },
   {
-   "id": "T0437",
+   "id": "T0528",
    "head": "ASK_AUTH",
    "relation": "limited_by",
    "tail": "max_auth_attempts",
@@ -5318,7 +6593,7 @@
    "gms": true
   },
   {
-   "id": "T0438",
+   "id": "T0529",
    "head": "ASK_AUTH",
    "relation": "limited_by",
    "tail": "max_turns",
@@ -5330,7 +6605,7 @@
    "gms": true
   },
   {
-   "id": "T0439",
+   "id": "T0530",
    "head": "ASK_AUTH",
    "relation": "calls_tool",
    "tail": "authenticate_customer",
@@ -5342,7 +6617,7 @@
    "gms": true
   },
   {
-   "id": "T0440",
+   "id": "T0531",
    "head": "ASK_AUTH",
    "relation": "calls_tool",
    "tail": "get_review_transactions",
@@ -5354,7 +6629,7 @@
    "gms": true
   },
   {
-   "id": "T0441",
+   "id": "T0532",
    "head": "ASK_AUTH",
    "relation": "calls_tool",
    "tail": "transfer_to_human",
@@ -5366,7 +6641,7 @@
    "gms": true
   },
   {
-   "id": "T0442",
+   "id": "T0533",
    "head": "ASK_AUTH_RETRY",
    "relation": "is_a",
    "tail": "dialog_state",
@@ -5378,7 +6653,7 @@
    "gms": false
   },
   {
-   "id": "T0443",
+   "id": "T0534",
    "head": "ASK_AUTH_RETRY",
    "relation": "in_stage",
    "tail": "authenticate",
@@ -5390,7 +6665,7 @@
    "gms": true
   },
   {
-   "id": "T0444",
+   "id": "T0535",
    "head": "ASK_AUTH_RETRY",
    "relation": "prompts_customer",
    "tail": "yes",
@@ -5402,7 +6677,7 @@
    "gms": false
   },
   {
-   "id": "T0445",
+   "id": "T0536",
    "head": "ASK_AUTH_RETRY",
    "relation": "accepts_act",
    "tail": "PROVIDE_CREDENTIAL",
@@ -5414,7 +6689,7 @@
    "gms": true
   },
   {
-   "id": "T0446",
+   "id": "T0537",
    "head": "ASK_AUTH_RETRY",
    "relation": "accepts_act",
    "tail": "REQUEST_HUMAN",
@@ -5426,7 +6701,7 @@
    "gms": true
   },
   {
-   "id": "T0447",
+   "id": "T0538",
    "head": "ASK_AUTH_RETRY",
    "relation": "accepts_act",
    "tail": "ASK_KB",
@@ -5438,7 +6713,7 @@
    "gms": true
   },
   {
-   "id": "T0448",
+   "id": "T0539",
    "head": "ASK_AUTH_RETRY",
    "relation": "accepts_act",
    "tail": "UNCLEAR",
@@ -5450,7 +6725,7 @@
    "gms": true
   },
   {
-   "id": "T0449",
+   "id": "T0540",
    "head": "ASK_AUTH_RETRY",
    "relation": "interprets_yes_as",
    "tail": "UNCLEAR",
@@ -5462,7 +6737,7 @@
    "gms": true
   },
   {
-   "id": "T0450",
+   "id": "T0541",
    "head": "ASK_AUTH_RETRY",
    "relation": "interprets_no_as",
    "tail": "UNCLEAR",
@@ -5474,7 +6749,7 @@
    "gms": true
   },
   {
-   "id": "T0451",
+   "id": "T0542",
    "head": "ASK_AUTH_RETRY",
    "relation": "applies_rule",
    "tail": "R3",
@@ -5486,7 +6761,7 @@
    "gms": true
   },
   {
-   "id": "T0452",
+   "id": "T0543",
    "head": "ASK_AUTH_RETRY",
    "relation": "applies_rule",
    "tail": "R4",
@@ -5498,7 +6773,7 @@
    "gms": true
   },
   {
-   "id": "T0453",
+   "id": "T0544",
    "head": "ASK_AUTH_RETRY",
    "relation": "applies_rule",
    "tail": "R5",
@@ -5510,7 +6785,7 @@
    "gms": true
   },
   {
-   "id": "T0454",
+   "id": "T0545",
    "head": "ASK_AUTH_RETRY",
    "relation": "applies_rule",
    "tail": "R20",
@@ -5522,7 +6797,7 @@
    "gms": true
   },
   {
-   "id": "T0455",
+   "id": "T0546",
    "head": "ASK_AUTH_RETRY",
    "relation": "applies_rule",
    "tail": "R22",
@@ -5534,7 +6809,7 @@
    "gms": true
   },
   {
-   "id": "T0456",
+   "id": "T0547",
    "head": "ASK_AUTH_RETRY",
    "relation": "applies_rule",
    "tail": "R23",
@@ -5546,7 +6821,7 @@
    "gms": true
   },
   {
-   "id": "T0457",
+   "id": "T0548",
    "head": "ASK_AUTH_RETRY",
    "relation": "applies_rule",
    "tail": "R25",
@@ -5558,7 +6833,7 @@
    "gms": true
   },
   {
-   "id": "T0458",
+   "id": "T0549",
    "head": "ASK_AUTH_RETRY",
    "relation": "applies_rule",
    "tail": "R28",
@@ -5570,7 +6845,7 @@
    "gms": true
   },
   {
-   "id": "T0459",
+   "id": "T0550",
    "head": "ASK_AUTH_RETRY",
    "relation": "limited_by",
    "tail": "max_auth_attempts",
@@ -5582,7 +6857,7 @@
    "gms": true
   },
   {
-   "id": "T0460",
+   "id": "T0551",
    "head": "ASK_AUTH_RETRY",
    "relation": "limited_by",
    "tail": "max_turns",
@@ -5594,7 +6869,7 @@
    "gms": true
   },
   {
-   "id": "T0461",
+   "id": "T0552",
    "head": "ASK_AUTH_RETRY",
    "relation": "calls_tool",
    "tail": "authenticate_customer",
@@ -5606,7 +6881,7 @@
    "gms": true
   },
   {
-   "id": "T0462",
+   "id": "T0553",
    "head": "ASK_AUTH_RETRY",
    "relation": "calls_tool",
    "tail": "get_review_transactions",
@@ -5618,7 +6893,7 @@
    "gms": true
   },
   {
-   "id": "T0463",
+   "id": "T0554",
    "head": "ASK_AUTH_RETRY",
    "relation": "calls_tool",
    "tail": "transfer_to_human",
@@ -5630,7 +6905,7 @@
    "gms": true
   },
   {
-   "id": "T0464",
+   "id": "T0555",
    "head": "PRESENT_TXN",
    "relation": "is_a",
    "tail": "dialog_state",
@@ -5642,7 +6917,7 @@
    "gms": false
   },
   {
-   "id": "T0465",
+   "id": "T0556",
    "head": "PRESENT_TXN",
    "relation": "in_stage",
    "tail": "capture",
@@ -5654,7 +6929,7 @@
    "gms": true
   },
   {
-   "id": "T0466",
+   "id": "T0557",
    "head": "PRESENT_TXN",
    "relation": "prompts_customer",
    "tail": "yes",
@@ -5666,7 +6941,7 @@
    "gms": false
   },
   {
-   "id": "T0467",
+   "id": "T0558",
    "head": "PRESENT_TXN",
    "relation": "accepts_act",
    "tail": "INFORM_DISPOSITION",
@@ -5678,7 +6953,7 @@
    "gms": true
   },
   {
-   "id": "T0468",
+   "id": "T0559",
    "head": "PRESENT_TXN",
    "relation": "accepts_act",
    "tail": "REQUEST_CARD_ACTION",
@@ -5690,7 +6965,7 @@
    "gms": true
   },
   {
-   "id": "T0469",
+   "id": "T0560",
    "head": "PRESENT_TXN",
    "relation": "accepts_act",
    "tail": "REQUEST_HUMAN",
@@ -5702,7 +6977,7 @@
    "gms": true
   },
   {
-   "id": "T0470",
+   "id": "T0561",
    "head": "PRESENT_TXN",
    "relation": "accepts_act",
    "tail": "ASK_KB",
@@ -5714,7 +6989,7 @@
    "gms": true
   },
   {
-   "id": "T0471",
+   "id": "T0562",
    "head": "PRESENT_TXN",
    "relation": "accepts_act",
    "tail": "UNCLEAR",
@@ -5726,7 +7001,7 @@
    "gms": true
   },
   {
-   "id": "T0472",
+   "id": "T0563",
    "head": "PRESENT_TXN",
    "relation": "interprets_yes_as",
    "tail": "RECOGNIZED",
@@ -5738,7 +7013,7 @@
    "gms": true
   },
   {
-   "id": "T0473",
+   "id": "T0564",
    "head": "PRESENT_TXN",
    "relation": "interprets_no_as",
    "tail": "UNRECOGNIZED",
@@ -5750,7 +7025,7 @@
    "gms": true
   },
   {
-   "id": "T0474",
+   "id": "T0565",
    "head": "PRESENT_TXN",
    "relation": "applies_rule",
    "tail": "R6",
@@ -5762,7 +7037,7 @@
    "gms": true
   },
   {
-   "id": "T0475",
+   "id": "T0566",
    "head": "PRESENT_TXN",
    "relation": "applies_rule",
    "tail": "R7",
@@ -5774,7 +7049,7 @@
    "gms": true
   },
   {
-   "id": "T0476",
+   "id": "T0567",
    "head": "PRESENT_TXN",
    "relation": "applies_rule",
    "tail": "R9",
@@ -5786,7 +7061,7 @@
    "gms": true
   },
   {
-   "id": "T0477",
+   "id": "T0568",
    "head": "PRESENT_TXN",
    "relation": "applies_rule",
    "tail": "R12",
@@ -5798,7 +7073,7 @@
    "gms": true
   },
   {
-   "id": "T0478",
+   "id": "T0569",
    "head": "PRESENT_TXN",
    "relation": "applies_rule",
    "tail": "R18",
@@ -5810,7 +7085,7 @@
    "gms": true
   },
   {
-   "id": "T0479",
+   "id": "T0570",
    "head": "PRESENT_TXN",
    "relation": "applies_rule",
    "tail": "R20",
@@ -5822,7 +7097,7 @@
    "gms": true
   },
   {
-   "id": "T0480",
+   "id": "T0571",
    "head": "PRESENT_TXN",
    "relation": "applies_rule",
    "tail": "R21",
@@ -5834,7 +7109,7 @@
    "gms": true
   },
   {
-   "id": "T0481",
+   "id": "T0572",
    "head": "PRESENT_TXN",
    "relation": "applies_rule",
    "tail": "R22",
@@ -5846,7 +7121,7 @@
    "gms": true
   },
   {
-   "id": "T0482",
+   "id": "T0573",
    "head": "PRESENT_TXN",
    "relation": "applies_rule",
    "tail": "R24",
@@ -5858,7 +7133,7 @@
    "gms": true
   },
   {
-   "id": "T0483",
+   "id": "T0574",
    "head": "PRESENT_TXN",
    "relation": "applies_rule",
    "tail": "R25",
@@ -5870,7 +7145,7 @@
    "gms": true
   },
   {
-   "id": "T0484",
+   "id": "T0575",
    "head": "PRESENT_TXN",
    "relation": "applies_rule",
    "tail": "R27",
@@ -5882,7 +7157,7 @@
    "gms": true
   },
   {
-   "id": "T0485",
+   "id": "T0576",
    "head": "PRESENT_TXN",
    "relation": "applies_rule",
    "tail": "R28",
@@ -5894,7 +7169,7 @@
    "gms": true
   },
   {
-   "id": "T0486",
+   "id": "T0577",
    "head": "PRESENT_TXN",
    "relation": "applies_rule",
    "tail": "R30",
@@ -5906,7 +7181,7 @@
    "gms": true
   },
   {
-   "id": "T0487",
+   "id": "T0578",
    "head": "PRESENT_TXN",
    "relation": "applies_rule",
    "tail": "R31",
@@ -5918,7 +7193,7 @@
    "gms": true
   },
   {
-   "id": "T0488",
+   "id": "T0579",
    "head": "PRESENT_TXN",
    "relation": "limited_by",
    "tail": "max_transactions_per_session",
@@ -5930,7 +7205,7 @@
    "gms": true
   },
   {
-   "id": "T0489",
+   "id": "T0580",
    "head": "PRESENT_TXN",
    "relation": "limited_by",
    "tail": "lookback_days",
@@ -5942,7 +7217,7 @@
    "gms": true
   },
   {
-   "id": "T0490",
+   "id": "T0581",
    "head": "PRESENT_TXN",
    "relation": "limited_by",
    "tail": "max_turns",
@@ -5954,7 +7229,7 @@
    "gms": true
   },
   {
-   "id": "T0491",
+   "id": "T0582",
    "head": "PRESENT_TXN",
    "relation": "calls_tool",
    "tail": "record_charge_response",
@@ -5966,7 +7241,7 @@
    "gms": true
   },
   {
-   "id": "T0492",
+   "id": "T0583",
    "head": "PRESENT_TXN",
    "relation": "calls_tool",
    "tail": "transfer_to_human",
@@ -5978,7 +7253,7 @@
    "gms": true
   },
   {
-   "id": "T0493",
+   "id": "T0584",
    "head": "ANSWER_KB",
    "relation": "is_a",
    "tail": "dialog_state",
@@ -5990,7 +7265,7 @@
    "gms": false
   },
   {
-   "id": "T0494",
+   "id": "T0585",
    "head": "ANSWER_KB",
    "relation": "in_stage",
    "tail": "capture",
@@ -6002,7 +7277,7 @@
    "gms": true
   },
   {
-   "id": "T0495",
+   "id": "T0586",
    "head": "ANSWER_KB",
    "relation": "prompts_customer",
    "tail": "no",
@@ -6014,7 +7289,7 @@
    "gms": false
   },
   {
-   "id": "T0496",
+   "id": "T0587",
    "head": "ANSWER_KB",
    "relation": "applies_rule",
    "tail": "R24",
@@ -6026,7 +7301,7 @@
    "gms": true
   },
   {
-   "id": "T0497",
+   "id": "T0588",
    "head": "ANSWER_KB",
    "relation": "applies_rule",
    "tail": "R25",
@@ -6038,7 +7313,7 @@
    "gms": true
   },
   {
-   "id": "T0498",
+   "id": "T0589",
    "head": "ANSWER_KB",
    "relation": "applies_rule",
    "tail": "R26",
@@ -6050,7 +7325,7 @@
    "gms": true
   },
   {
-   "id": "T0499",
+   "id": "T0590",
    "head": "ANSWER_KB",
    "relation": "applies_rule",
    "tail": "R27",
@@ -6062,7 +7337,7 @@
    "gms": true
   },
   {
-   "id": "T0500",
+   "id": "T0591",
    "head": "ASK_CLARIFY",
    "relation": "is_a",
    "tail": "dialog_state",
@@ -6074,7 +7349,7 @@
    "gms": false
   },
   {
-   "id": "T0501",
+   "id": "T0592",
    "head": "ASK_CLARIFY",
    "relation": "in_stage",
    "tail": "capture",
@@ -6086,7 +7361,7 @@
    "gms": true
   },
   {
-   "id": "T0502",
+   "id": "T0593",
    "head": "ASK_CLARIFY",
    "relation": "prompts_customer",
    "tail": "yes",
@@ -6098,7 +7373,7 @@
    "gms": false
   },
   {
-   "id": "T0503",
+   "id": "T0594",
    "head": "ASK_CLARIFY",
    "relation": "accepts_act",
    "tail": "INFORM_DISPOSITION",
@@ -6110,7 +7385,7 @@
    "gms": true
   },
   {
-   "id": "T0504",
+   "id": "T0595",
    "head": "ASK_CLARIFY",
    "relation": "accepts_act",
    "tail": "REQUEST_CARD_ACTION",
@@ -6122,7 +7397,7 @@
    "gms": true
   },
   {
-   "id": "T0505",
+   "id": "T0596",
    "head": "ASK_CLARIFY",
    "relation": "accepts_act",
    "tail": "REQUEST_HUMAN",
@@ -6134,7 +7409,7 @@
    "gms": true
   },
   {
-   "id": "T0506",
+   "id": "T0597",
    "head": "ASK_CLARIFY",
    "relation": "accepts_act",
    "tail": "ASK_KB",
@@ -6146,7 +7421,7 @@
    "gms": true
   },
   {
-   "id": "T0507",
+   "id": "T0598",
    "head": "ASK_CLARIFY",
    "relation": "accepts_act",
    "tail": "UNCLEAR",
@@ -6158,7 +7433,7 @@
    "gms": true
   },
   {
-   "id": "T0508",
+   "id": "T0599",
    "head": "ASK_CLARIFY",
    "relation": "interprets_yes_as",
    "tail": "RECOGNIZED",
@@ -6170,7 +7445,7 @@
    "gms": true
   },
   {
-   "id": "T0509",
+   "id": "T0600",
    "head": "ASK_CLARIFY",
    "relation": "interprets_no_as",
    "tail": "UNRECOGNIZED",
@@ -6182,7 +7457,7 @@
    "gms": true
   },
   {
-   "id": "T0510",
+   "id": "T0601",
    "head": "ASK_CLARIFY",
    "relation": "applies_rule",
    "tail": "R9",
@@ -6194,7 +7469,7 @@
    "gms": true
   },
   {
-   "id": "T0511",
+   "id": "T0602",
    "head": "ASK_CLARIFY",
    "relation": "applies_rule",
    "tail": "R20",
@@ -6206,7 +7481,7 @@
    "gms": true
   },
   {
-   "id": "T0512",
+   "id": "T0603",
    "head": "ASK_CLARIFY",
    "relation": "applies_rule",
    "tail": "R21",
@@ -6218,7 +7493,7 @@
    "gms": true
   },
   {
-   "id": "T0513",
+   "id": "T0604",
    "head": "ASK_CLARIFY",
    "relation": "applies_rule",
    "tail": "R22",
@@ -6230,7 +7505,7 @@
    "gms": true
   },
   {
-   "id": "T0514",
+   "id": "T0605",
    "head": "ASK_CLARIFY",
    "relation": "applies_rule",
    "tail": "R23",
@@ -6242,7 +7517,7 @@
    "gms": true
   },
   {
-   "id": "T0515",
+   "id": "T0606",
    "head": "ASK_CLARIFY",
    "relation": "applies_rule",
    "tail": "R28",
@@ -6254,7 +7529,7 @@
    "gms": true
   },
   {
-   "id": "T0516",
+   "id": "T0607",
    "head": "ASK_CLARIFY",
    "relation": "limited_by",
    "tail": "max_clarification_retries",
@@ -6266,7 +7541,7 @@
    "gms": true
   },
   {
-   "id": "T0517",
+   "id": "T0608",
    "head": "ASK_CLARIFY",
    "relation": "limited_by",
    "tail": "max_turns",
@@ -6278,7 +7553,7 @@
    "gms": true
   },
   {
-   "id": "T0518",
+   "id": "T0609",
    "head": "ASK_CLARIFY",
    "relation": "calls_tool",
    "tail": "record_charge_response",
@@ -6290,7 +7565,7 @@
    "gms": true
   },
   {
-   "id": "T0519",
+   "id": "T0610",
    "head": "ASK_CLARIFY",
    "relation": "calls_tool",
    "tail": "transfer_to_human",
@@ -6302,7 +7577,7 @@
    "gms": true
   },
   {
-   "id": "T0520",
+   "id": "T0611",
    "head": "PROVIDE_CONTEXT",
    "relation": "is_a",
    "tail": "dialog_state",
@@ -6314,7 +7589,7 @@
    "gms": false
   },
   {
-   "id": "T0521",
+   "id": "T0612",
    "head": "PROVIDE_CONTEXT",
    "relation": "in_stage",
    "tail": "capture",
@@ -6326,7 +7601,7 @@
    "gms": true
   },
   {
-   "id": "T0522",
+   "id": "T0613",
    "head": "PROVIDE_CONTEXT",
    "relation": "prompts_customer",
    "tail": "yes",
@@ -6338,7 +7613,7 @@
    "gms": false
   },
   {
-   "id": "T0523",
+   "id": "T0614",
    "head": "PROVIDE_CONTEXT",
    "relation": "accepts_act",
    "tail": "INFORM_DISPOSITION",
@@ -6350,7 +7625,7 @@
    "gms": true
   },
   {
-   "id": "T0524",
+   "id": "T0615",
    "head": "PROVIDE_CONTEXT",
    "relation": "accepts_act",
    "tail": "REQUEST_CARD_ACTION",
@@ -6362,7 +7637,7 @@
    "gms": true
   },
   {
-   "id": "T0525",
+   "id": "T0616",
    "head": "PROVIDE_CONTEXT",
    "relation": "accepts_act",
    "tail": "REQUEST_HUMAN",
@@ -6374,7 +7649,7 @@
    "gms": true
   },
   {
-   "id": "T0526",
+   "id": "T0617",
    "head": "PROVIDE_CONTEXT",
    "relation": "accepts_act",
    "tail": "ASK_KB",
@@ -6386,7 +7661,7 @@
    "gms": true
   },
   {
-   "id": "T0527",
+   "id": "T0618",
    "head": "PROVIDE_CONTEXT",
    "relation": "accepts_act",
    "tail": "UNCLEAR",
@@ -6398,7 +7673,7 @@
    "gms": true
   },
   {
-   "id": "T0528",
+   "id": "T0619",
    "head": "PROVIDE_CONTEXT",
    "relation": "interprets_yes_as",
    "tail": "RECOGNIZED",
@@ -6410,7 +7685,7 @@
    "gms": true
   },
   {
-   "id": "T0529",
+   "id": "T0620",
    "head": "PROVIDE_CONTEXT",
    "relation": "interprets_no_as",
    "tail": "UNRECOGNIZED",
@@ -6422,7 +7697,7 @@
    "gms": true
   },
   {
-   "id": "T0530",
+   "id": "T0621",
    "head": "PROVIDE_CONTEXT",
    "relation": "applies_rule",
    "tail": "R7",
@@ -6434,7 +7709,7 @@
    "gms": true
   },
   {
-   "id": "T0531",
+   "id": "T0622",
    "head": "PROVIDE_CONTEXT",
    "relation": "applies_rule",
    "tail": "R10",
@@ -6446,7 +7721,7 @@
    "gms": true
   },
   {
-   "id": "T0532",
+   "id": "T0623",
    "head": "PROVIDE_CONTEXT",
    "relation": "applies_rule",
    "tail": "R11",
@@ -6458,7 +7733,7 @@
    "gms": true
   },
   {
-   "id": "T0533",
+   "id": "T0624",
    "head": "PROVIDE_CONTEXT",
    "relation": "applies_rule",
    "tail": "R20",
@@ -6470,7 +7745,7 @@
    "gms": true
   },
   {
-   "id": "T0534",
+   "id": "T0625",
    "head": "PROVIDE_CONTEXT",
    "relation": "applies_rule",
    "tail": "R21",
@@ -6482,7 +7757,7 @@
    "gms": true
   },
   {
-   "id": "T0535",
+   "id": "T0626",
    "head": "PROVIDE_CONTEXT",
    "relation": "applies_rule",
    "tail": "R28",
@@ -6494,7 +7769,7 @@
    "gms": true
   },
   {
-   "id": "T0536",
+   "id": "T0627",
    "head": "PROVIDE_CONTEXT",
    "relation": "limited_by",
    "tail": "max_unsure_retries",
@@ -6506,7 +7781,7 @@
    "gms": true
   },
   {
-   "id": "T0537",
+   "id": "T0628",
    "head": "PROVIDE_CONTEXT",
    "relation": "limited_by",
    "tail": "max_turns",
@@ -6518,7 +7793,7 @@
    "gms": true
   },
   {
-   "id": "T0538",
+   "id": "T0629",
    "head": "PROVIDE_CONTEXT",
    "relation": "calls_tool",
    "tail": "record_charge_response",
@@ -6530,7 +7805,7 @@
    "gms": true
   },
   {
-   "id": "T0539",
+   "id": "T0630",
    "head": "PROVIDE_CONTEXT",
    "relation": "calls_tool",
    "tail": "transfer_to_human",
@@ -6542,7 +7817,7 @@
    "gms": true
   },
   {
-   "id": "T0540",
+   "id": "T0631",
    "head": "CONFIRM_RECORDED",
    "relation": "is_a",
    "tail": "dialog_state",
@@ -6554,7 +7829,7 @@
    "gms": false
   },
   {
-   "id": "T0541",
+   "id": "T0632",
    "head": "CONFIRM_RECORDED",
    "relation": "in_stage",
    "tail": "record",
@@ -6566,7 +7841,7 @@
    "gms": true
   },
   {
-   "id": "T0542",
+   "id": "T0633",
    "head": "CONFIRM_RECORDED",
    "relation": "prompts_customer",
    "tail": "no",
@@ -6578,7 +7853,7 @@
    "gms": false
   },
   {
-   "id": "T0543",
+   "id": "T0634",
    "head": "CONFIRM_RECORDED",
    "relation": "applies_rule",
    "tail": "R12",
@@ -6590,7 +7865,7 @@
    "gms": true
   },
   {
-   "id": "T0544",
+   "id": "T0635",
    "head": "CONFIRM_RECORDED",
    "relation": "applies_rule",
    "tail": "R13",
@@ -6602,7 +7877,7 @@
    "gms": true
   },
   {
-   "id": "T0545",
+   "id": "T0636",
    "head": "CONFIRM_RECORDED",
    "relation": "applies_rule",
    "tail": "R14",
@@ -6614,7 +7889,7 @@
    "gms": true
   },
   {
-   "id": "T0546",
+   "id": "T0637",
    "head": "CONFIRM_RECORDED",
    "relation": "applies_rule",
    "tail": "R18",
@@ -6626,7 +7901,7 @@
    "gms": true
   },
   {
-   "id": "T0547",
+   "id": "T0638",
    "head": "CONFIRM_RECORDED",
    "relation": "applies_rule",
    "tail": "R31",
@@ -6638,7 +7913,7 @@
    "gms": true
   },
   {
-   "id": "T0548",
+   "id": "T0639",
    "head": "CONFIRM_RECORDED",
    "relation": "applies_rule",
    "tail": "R32",
@@ -6650,7 +7925,7 @@
    "gms": true
   },
   {
-   "id": "T0549",
+   "id": "T0640",
    "head": "CONFIRM_RECORDED",
    "relation": "applies_rule",
    "tail": "R33",
@@ -6662,7 +7937,7 @@
    "gms": true
   },
   {
-   "id": "T0550",
+   "id": "T0641",
    "head": "CONFIRM_RECORDED",
    "relation": "limited_by",
    "tail": "max_transactions_per_session",
@@ -6674,7 +7949,7 @@
    "gms": true
   },
   {
-   "id": "T0551",
+   "id": "T0642",
    "head": "CONFIRM_RECORDED",
    "relation": "calls_tool",
    "tail": "get_card_action_options",
@@ -6686,7 +7961,7 @@
    "gms": true
   },
   {
-   "id": "T0552",
+   "id": "T0643",
    "head": "CONFIRM_RECORDED",
    "relation": "calls_tool",
    "tail": "transfer_to_human",
@@ -6698,7 +7973,7 @@
    "gms": true
   },
   {
-   "id": "T0553",
+   "id": "T0644",
    "head": "DISCLOSE_FEE",
    "relation": "is_a",
    "tail": "dialog_state",
@@ -6710,7 +7985,7 @@
    "gms": false
   },
   {
-   "id": "T0554",
+   "id": "T0645",
    "head": "DISCLOSE_FEE",
    "relation": "in_stage",
    "tail": "card_action",
@@ -6722,7 +7997,7 @@
    "gms": true
   },
   {
-   "id": "T0555",
+   "id": "T0646",
    "head": "DISCLOSE_FEE",
    "relation": "prompts_customer",
    "tail": "no",
@@ -6734,7 +8009,7 @@
    "gms": false
   },
   {
-   "id": "T0556",
+   "id": "T0647",
    "head": "DISCLOSE_FEE",
    "relation": "applies_rule",
    "tail": "R26",
@@ -6746,7 +8021,7 @@
    "gms": true
   },
   {
-   "id": "T0557",
+   "id": "T0648",
    "head": "CONFIRM_ACTION",
    "relation": "is_a",
    "tail": "dialog_state",
@@ -6758,7 +8033,7 @@
    "gms": false
   },
   {
-   "id": "T0558",
+   "id": "T0649",
    "head": "CONFIRM_ACTION",
    "relation": "in_stage",
    "tail": "card_action",
@@ -6770,7 +8045,7 @@
    "gms": true
   },
   {
-   "id": "T0559",
+   "id": "T0650",
    "head": "CONFIRM_ACTION",
    "relation": "prompts_customer",
    "tail": "yes",
@@ -6782,7 +8057,7 @@
    "gms": false
   },
   {
-   "id": "T0560",
+   "id": "T0651",
    "head": "CONFIRM_ACTION",
    "relation": "accepts_act",
    "tail": "CONFIRM",
@@ -6794,7 +8069,7 @@
    "gms": true
   },
   {
-   "id": "T0561",
+   "id": "T0652",
    "head": "CONFIRM_ACTION",
    "relation": "accepts_act",
    "tail": "DENY",
@@ -6806,7 +8081,7 @@
    "gms": true
   },
   {
-   "id": "T0562",
+   "id": "T0653",
    "head": "CONFIRM_ACTION",
    "relation": "accepts_act",
    "tail": "REQUEST_CARD_ACTION",
@@ -6818,7 +8093,7 @@
    "gms": true
   },
   {
-   "id": "T0563",
+   "id": "T0654",
    "head": "CONFIRM_ACTION",
    "relation": "accepts_act",
    "tail": "REQUEST_HUMAN",
@@ -6830,7 +8105,7 @@
    "gms": true
   },
   {
-   "id": "T0564",
+   "id": "T0655",
    "head": "CONFIRM_ACTION",
    "relation": "accepts_act",
    "tail": "ASK_KB",
@@ -6842,7 +8117,7 @@
    "gms": true
   },
   {
-   "id": "T0565",
+   "id": "T0656",
    "head": "CONFIRM_ACTION",
    "relation": "accepts_act",
    "tail": "UNCLEAR",
@@ -6854,7 +8129,7 @@
    "gms": true
   },
   {
-   "id": "T0566",
+   "id": "T0657",
    "head": "CONFIRM_ACTION",
    "relation": "interprets_yes_as",
    "tail": "CONFIRM",
@@ -6866,7 +8141,7 @@
    "gms": true
   },
   {
-   "id": "T0567",
+   "id": "T0658",
    "head": "CONFIRM_ACTION",
    "relation": "interprets_no_as",
    "tail": "DENY",
@@ -6878,7 +8153,7 @@
    "gms": true
   },
   {
-   "id": "T0568",
+   "id": "T0659",
    "head": "CONFIRM_ACTION",
    "relation": "applies_rule",
    "tail": "R15",
@@ -6890,7 +8165,7 @@
    "gms": true
   },
   {
-   "id": "T0569",
+   "id": "T0660",
    "head": "CONFIRM_ACTION",
    "relation": "applies_rule",
    "tail": "R16",
@@ -6902,7 +8177,7 @@
    "gms": true
   },
   {
-   "id": "T0570",
+   "id": "T0661",
    "head": "CONFIRM_ACTION",
    "relation": "applies_rule",
    "tail": "R18",
@@ -6914,7 +8189,7 @@
    "gms": true
   },
   {
-   "id": "T0571",
+   "id": "T0662",
    "head": "CONFIRM_ACTION",
    "relation": "applies_rule",
    "tail": "R20",
@@ -6926,7 +8201,7 @@
    "gms": true
   },
   {
-   "id": "T0572",
+   "id": "T0663",
    "head": "CONFIRM_ACTION",
    "relation": "applies_rule",
    "tail": "R26",
@@ -6938,7 +8213,7 @@
    "gms": true
   },
   {
-   "id": "T0573",
+   "id": "T0664",
    "head": "CONFIRM_ACTION",
    "relation": "applies_rule",
    "tail": "R28",
@@ -6950,7 +8225,7 @@
    "gms": true
   },
   {
-   "id": "T0574",
+   "id": "T0665",
    "head": "CONFIRM_ACTION",
    "relation": "applies_rule",
    "tail": "R29",
@@ -6962,7 +8237,7 @@
    "gms": true
   },
   {
-   "id": "T0575",
+   "id": "T0666",
    "head": "CONFIRM_ACTION",
    "relation": "limited_by",
    "tail": "max_turns",
@@ -6974,7 +8249,7 @@
    "gms": true
   },
   {
-   "id": "T0576",
+   "id": "T0667",
    "head": "CONFIRM_ACTION",
    "relation": "calls_tool",
    "tail": "submit_card_action",
@@ -6986,7 +8261,7 @@
    "gms": true
   },
   {
-   "id": "T0577",
+   "id": "T0668",
    "head": "CONFIRM_ACTION",
    "relation": "calls_tool",
    "tail": "transfer_to_human",
@@ -6998,7 +8273,7 @@
    "gms": true
   },
   {
-   "id": "T0578",
+   "id": "T0669",
    "head": "ACTION_DONE",
    "relation": "is_a",
    "tail": "dialog_state",
@@ -7010,7 +8285,7 @@
    "gms": false
   },
   {
-   "id": "T0579",
+   "id": "T0670",
    "head": "ACTION_DONE",
    "relation": "in_stage",
    "tail": "card_action",
@@ -7022,7 +8297,7 @@
    "gms": true
   },
   {
-   "id": "T0580",
+   "id": "T0671",
    "head": "ACTION_DONE",
    "relation": "prompts_customer",
    "tail": "no",
@@ -7034,7 +8309,7 @@
    "gms": false
   },
   {
-   "id": "T0581",
+   "id": "T0672",
    "head": "ACTION_DONE",
    "relation": "applies_rule",
    "tail": "R17",
@@ -7046,7 +8321,7 @@
    "gms": true
   },
   {
-   "id": "T0582",
+   "id": "T0673",
    "head": "ACTION_DONE",
    "relation": "applies_rule",
    "tail": "R33",
@@ -7058,7 +8333,7 @@
    "gms": true
   },
   {
-   "id": "T0583",
+   "id": "T0674",
    "head": "ACK_DECLINED",
    "relation": "is_a",
    "tail": "dialog_state",
@@ -7070,7 +8345,7 @@
    "gms": false
   },
   {
-   "id": "T0584",
+   "id": "T0675",
    "head": "ACK_DECLINED",
    "relation": "in_stage",
    "tail": "card_action",
@@ -7082,7 +8357,7 @@
    "gms": true
   },
   {
-   "id": "T0585",
+   "id": "T0676",
    "head": "ACK_DECLINED",
    "relation": "prompts_customer",
    "tail": "no",
@@ -7094,7 +8369,7 @@
    "gms": false
   },
   {
-   "id": "T0586",
+   "id": "T0677",
    "head": "ACK_DECLINED",
    "relation": "applies_rule",
    "tail": "R16",
@@ -7106,7 +8381,7 @@
    "gms": true
   },
   {
-   "id": "T0587",
+   "id": "T0678",
    "head": "ACK_DECLINED",
    "relation": "applies_rule",
    "tail": "R18",
@@ -7118,7 +8393,7 @@
    "gms": true
   },
   {
-   "id": "T0588",
+   "id": "T0679",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "is_a",
    "tail": "dialog_state",
@@ -7130,7 +8405,7 @@
    "gms": false
   },
   {
-   "id": "T0589",
+   "id": "T0680",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "in_stage",
    "tail": "card_action",
@@ -7142,7 +8417,7 @@
    "gms": true
   },
   {
-   "id": "T0590",
+   "id": "T0681",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "prompts_customer",
    "tail": "no",
@@ -7154,7 +8429,7 @@
    "gms": false
   },
   {
-   "id": "T0591",
+   "id": "T0682",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "applies_rule",
    "tail": "R15",
@@ -7166,7 +8441,7 @@
    "gms": true
   },
   {
-   "id": "T0592",
+   "id": "T0683",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "applies_rule",
    "tail": "R18",
@@ -7178,7 +8453,7 @@
    "gms": true
   },
   {
-   "id": "T0593",
+   "id": "T0684",
    "head": "EXPLAIN_LIMIT",
    "relation": "is_a",
    "tail": "dialog_state",
@@ -7190,7 +8465,7 @@
    "gms": false
   },
   {
-   "id": "T0594",
+   "id": "T0685",
    "head": "EXPLAIN_LIMIT",
    "relation": "in_stage",
    "tail": "retrieve",
@@ -7202,7 +8477,7 @@
    "gms": true
   },
   {
-   "id": "T0595",
+   "id": "T0686",
    "head": "EXPLAIN_LIMIT",
    "relation": "prompts_customer",
    "tail": "no",
@@ -7214,7 +8489,7 @@
    "gms": false
   },
   {
-   "id": "T0596",
+   "id": "T0687",
    "head": "EXPLAIN_LIMIT",
    "relation": "applies_rule",
    "tail": "R31",
@@ -7226,7 +8501,7 @@
    "gms": true
   },
   {
-   "id": "T0597",
+   "id": "T0688",
    "head": "EXPLAIN_LIMIT",
    "relation": "limited_by",
    "tail": "max_transactions_per_session",
@@ -7238,7 +8513,7 @@
    "gms": true
   },
   {
-   "id": "T0598",
+   "id": "T0689",
    "head": "EXPLAIN_LIMIT",
    "relation": "calls_tool",
    "tail": "transfer_to_human",
@@ -7250,7 +8525,7 @@
    "gms": true
   },
   {
-   "id": "T0599",
+   "id": "T0690",
    "head": "EXPLAIN_NO_TXNS",
    "relation": "is_a",
    "tail": "dialog_state",
@@ -7262,7 +8537,7 @@
    "gms": false
   },
   {
-   "id": "T0600",
+   "id": "T0691",
    "head": "EXPLAIN_NO_TXNS",
    "relation": "in_stage",
    "tail": "retrieve",
@@ -7274,7 +8549,7 @@
    "gms": true
   },
   {
-   "id": "T0601",
+   "id": "T0692",
    "head": "EXPLAIN_NO_TXNS",
    "relation": "prompts_customer",
    "tail": "no",
@@ -7286,7 +8561,7 @@
    "gms": false
   },
   {
-   "id": "T0602",
+   "id": "T0693",
    "head": "EXPLAIN_NO_TXNS",
    "relation": "applies_rule",
    "tail": "R8",
@@ -7298,7 +8573,7 @@
    "gms": true
   },
   {
-   "id": "T0603",
+   "id": "T0694",
    "head": "SUMMARIZE",
    "relation": "is_a",
    "tail": "dialog_state",
@@ -7310,7 +8585,7 @@
    "gms": false
   },
   {
-   "id": "T0604",
+   "id": "T0695",
    "head": "SUMMARIZE",
    "relation": "in_stage",
    "tail": "finish",
@@ -7322,7 +8597,7 @@
    "gms": true
   },
   {
-   "id": "T0605",
+   "id": "T0696",
    "head": "SUMMARIZE",
    "relation": "prompts_customer",
    "tail": "no",
@@ -7334,7 +8609,7 @@
    "gms": false
   },
   {
-   "id": "T0606",
+   "id": "T0697",
    "head": "SUMMARIZE",
    "relation": "applies_rule",
    "tail": "R13",
@@ -7346,7 +8621,7 @@
    "gms": true
   },
   {
-   "id": "T0607",
+   "id": "T0698",
    "head": "SUMMARIZE",
    "relation": "applies_rule",
    "tail": "R17",
@@ -7358,7 +8633,7 @@
    "gms": true
   },
   {
-   "id": "T0608",
+   "id": "T0699",
    "head": "SUMMARIZE",
    "relation": "applies_rule",
    "tail": "R19",
@@ -7370,7 +8645,7 @@
    "gms": true
   },
   {
-   "id": "T0609",
+   "id": "T0700",
    "head": "SUMMARIZE",
    "relation": "calls_tool",
    "tail": "transfer_to_human",
@@ -7382,7 +8657,7 @@
    "gms": true
   },
   {
-   "id": "T0610",
+   "id": "T0701",
    "head": "ASK_MORE_HELP",
    "relation": "is_a",
    "tail": "dialog_state",
@@ -7394,7 +8669,7 @@
    "gms": false
   },
   {
-   "id": "T0611",
+   "id": "T0702",
    "head": "ASK_MORE_HELP",
    "relation": "in_stage",
    "tail": "finish",
@@ -7406,7 +8681,7 @@
    "gms": true
   },
   {
-   "id": "T0612",
+   "id": "T0703",
    "head": "ASK_MORE_HELP",
    "relation": "prompts_customer",
    "tail": "yes",
@@ -7418,7 +8693,7 @@
    "gms": false
   },
   {
-   "id": "T0613",
+   "id": "T0704",
    "head": "ASK_MORE_HELP",
    "relation": "accepts_act",
    "tail": "END",
@@ -7430,7 +8705,7 @@
    "gms": true
   },
   {
-   "id": "T0614",
+   "id": "T0705",
    "head": "ASK_MORE_HELP",
    "relation": "accepts_act",
    "tail": "REQUEST_HUMAN",
@@ -7442,7 +8717,7 @@
    "gms": true
   },
   {
-   "id": "T0615",
+   "id": "T0706",
    "head": "ASK_MORE_HELP",
    "relation": "accepts_act",
    "tail": "ASK_KB",
@@ -7454,7 +8729,7 @@
    "gms": true
   },
   {
-   "id": "T0616",
+   "id": "T0707",
    "head": "ASK_MORE_HELP",
    "relation": "accepts_act",
    "tail": "UNCLEAR",
@@ -7466,7 +8741,7 @@
    "gms": true
   },
   {
-   "id": "T0617",
+   "id": "T0708",
    "head": "ASK_MORE_HELP",
    "relation": "interprets_yes_as",
    "tail": "UNCLEAR",
@@ -7478,7 +8753,7 @@
    "gms": true
   },
   {
-   "id": "T0618",
+   "id": "T0709",
    "head": "ASK_MORE_HELP",
    "relation": "interprets_no_as",
    "tail": "END",
@@ -7490,7 +8765,7 @@
    "gms": true
   },
   {
-   "id": "T0619",
+   "id": "T0710",
    "head": "ASK_MORE_HELP",
    "relation": "applies_rule",
    "tail": "R8",
@@ -7502,7 +8777,7 @@
    "gms": true
   },
   {
-   "id": "T0620",
+   "id": "T0711",
    "head": "ASK_MORE_HELP",
    "relation": "applies_rule",
    "tail": "R20",
@@ -7514,7 +8789,7 @@
    "gms": true
   },
   {
-   "id": "T0621",
+   "id": "T0712",
    "head": "ASK_MORE_HELP",
    "relation": "applies_rule",
    "tail": "R25",
@@ -7526,7 +8801,7 @@
    "gms": true
   },
   {
-   "id": "T0622",
+   "id": "T0713",
    "head": "ASK_MORE_HELP",
    "relation": "applies_rule",
    "tail": "R28",
@@ -7538,7 +8813,7 @@
    "gms": true
   },
   {
-   "id": "T0623",
+   "id": "T0714",
    "head": "ASK_MORE_HELP",
    "relation": "limited_by",
    "tail": "max_turns",
@@ -7550,7 +8825,7 @@
    "gms": true
   },
   {
-   "id": "T0624",
+   "id": "T0715",
    "head": "ASK_MORE_HELP",
    "relation": "calls_tool",
    "tail": "transfer_to_human",
@@ -7562,7 +8837,7 @@
    "gms": true
   },
   {
-   "id": "T0625",
+   "id": "T0716",
    "head": "TRANSFER",
    "relation": "is_a",
    "tail": "dialog_state",
@@ -7574,7 +8849,7 @@
    "gms": false
   },
   {
-   "id": "T0626",
+   "id": "T0717",
    "head": "TRANSFER",
    "relation": "in_stage",
    "tail": "transfer",
@@ -7586,7 +8861,7 @@
    "gms": true
   },
   {
-   "id": "T0627",
+   "id": "T0718",
    "head": "TRANSFER",
    "relation": "prompts_customer",
    "tail": "no",
@@ -7598,7 +8873,7 @@
    "gms": false
   },
   {
-   "id": "T0628",
+   "id": "T0719",
    "head": "TRANSFER",
    "relation": "applies_rule",
    "tail": "R20",
@@ -7610,7 +8885,7 @@
    "gms": true
   },
   {
-   "id": "T0629",
+   "id": "T0720",
    "head": "TRANSFER",
    "relation": "calls_tool",
    "tail": "transfer_to_human",
@@ -7622,7 +8897,7 @@
    "gms": true
   },
   {
-   "id": "T0630",
+   "id": "T0721",
    "head": "END",
    "relation": "is_a",
    "tail": "dialog_state",
@@ -7634,7 +8909,7 @@
    "gms": false
   },
   {
-   "id": "T0631",
+   "id": "T0722",
    "head": "END",
    "relation": "in_stage",
    "tail": "end",
@@ -7646,7 +8921,7 @@
    "gms": true
   },
   {
-   "id": "T0632",
+   "id": "T0723",
    "head": "END",
    "relation": "prompts_customer",
    "tail": "no",
@@ -7658,7 +8933,7 @@
    "gms": false
   },
   {
-   "id": "T0633",
+   "id": "T0724",
    "head": "OPENING",
    "relation": "leads_to",
    "tail": "ASK_AUTH",
@@ -7681,7 +8956,7 @@
    "gms": true
   },
   {
-   "id": "T0634",
+   "id": "T0725",
    "head": "ASK_AUTH",
    "relation": "leads_to",
    "tail": "ASK_AUTH_RETRY",
@@ -7703,7 +8978,7 @@
    "gms": true
   },
   {
-   "id": "T0635",
+   "id": "T0726",
    "head": "ASK_AUTH",
    "relation": "leads_to",
    "tail": "PRESENT_TXN",
@@ -7726,7 +9001,7 @@
    "gms": true
   },
   {
-   "id": "T0636",
+   "id": "T0727",
    "head": "ASK_AUTH",
    "relation": "leads_to",
    "tail": "EXPLAIN_NO_TXNS",
@@ -7749,7 +9024,7 @@
    "gms": true
   },
   {
-   "id": "T0637",
+   "id": "T0728",
    "head": "ASK_AUTH",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -7773,7 +9048,7 @@
    "gms": true
   },
   {
-   "id": "T0638",
+   "id": "T0729",
    "head": "ASK_AUTH",
    "relation": "leads_to",
    "tail": "ASK_AUTH",
@@ -7793,7 +9068,7 @@
    "gms": true
   },
   {
-   "id": "T0639",
+   "id": "T0730",
    "head": "ASK_AUTH",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -7813,7 +9088,7 @@
    "gms": true
   },
   {
-   "id": "T0640",
+   "id": "T0731",
    "head": "ASK_AUTH",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -7835,7 +9110,7 @@
    "gms": true
   },
   {
-   "id": "T0641",
+   "id": "T0732",
    "head": "ASK_AUTH_RETRY",
    "relation": "leads_to",
    "tail": "PRESENT_TXN",
@@ -7858,7 +9133,7 @@
    "gms": true
   },
   {
-   "id": "T0642",
+   "id": "T0733",
    "head": "ASK_AUTH_RETRY",
    "relation": "leads_to",
    "tail": "EXPLAIN_NO_TXNS",
@@ -7881,7 +9156,7 @@
    "gms": true
   },
   {
-   "id": "T0643",
+   "id": "T0734",
    "head": "ASK_AUTH_RETRY",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -7903,7 +9178,7 @@
    "gms": true
   },
   {
-   "id": "T0644",
+   "id": "T0735",
    "head": "ASK_AUTH_RETRY",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -7923,7 +9198,7 @@
    "gms": true
   },
   {
-   "id": "T0645",
+   "id": "T0736",
    "head": "PRESENT_TXN",
    "relation": "leads_to",
    "tail": "CONFIRM_RECORDED",
@@ -7946,7 +9221,7 @@
    "gms": true
   },
   {
-   "id": "T0646",
+   "id": "T0737",
    "head": "PRESENT_TXN",
    "relation": "leads_to",
    "tail": "PROVIDE_CONTEXT",
@@ -7966,7 +9241,7 @@
    "gms": true
   },
   {
-   "id": "T0647",
+   "id": "T0738",
    "head": "PRESENT_TXN",
    "relation": "leads_to",
    "tail": "ASK_CLARIFY",
@@ -7986,7 +9261,7 @@
    "gms": true
   },
   {
-   "id": "T0648",
+   "id": "T0739",
    "head": "PRESENT_TXN",
    "relation": "leads_to",
    "tail": "ANSWER_KB",
@@ -8006,7 +9281,7 @@
    "gms": true
   },
   {
-   "id": "T0649",
+   "id": "T0740",
    "head": "PRESENT_TXN",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -8028,7 +9303,7 @@
    "gms": true
   },
   {
-   "id": "T0650",
+   "id": "T0741",
    "head": "PRESENT_TXN",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -8048,7 +9323,7 @@
    "gms": true
   },
   {
-   "id": "T0651",
+   "id": "T0742",
    "head": "PRESENT_TXN",
    "relation": "leads_to",
    "tail": "SUMMARIZE",
@@ -8069,7 +9344,7 @@
    "gms": true
   },
   {
-   "id": "T0652",
+   "id": "T0743",
    "head": "PRESENT_TXN",
    "relation": "leads_to",
    "tail": "SUMMARIZE",
@@ -8092,7 +9367,7 @@
    "gms": true
   },
   {
-   "id": "T0653",
+   "id": "T0744",
    "head": "ANSWER_KB",
    "relation": "leads_to",
    "tail": "PRESENT_TXN",
@@ -8112,7 +9387,7 @@
    "gms": true
   },
   {
-   "id": "T0654",
+   "id": "T0745",
    "head": "ASK_CLARIFY",
    "relation": "leads_to",
    "tail": "CONFIRM_RECORDED",
@@ -8135,7 +9410,7 @@
    "gms": true
   },
   {
-   "id": "T0655",
+   "id": "T0746",
    "head": "ASK_CLARIFY",
    "relation": "leads_to",
    "tail": "PROVIDE_CONTEXT",
@@ -8155,7 +9430,7 @@
    "gms": true
   },
   {
-   "id": "T0656",
+   "id": "T0747",
    "head": "ASK_CLARIFY",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -8175,7 +9450,7 @@
    "gms": true
   },
   {
-   "id": "T0657",
+   "id": "T0748",
    "head": "ASK_CLARIFY",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -8195,7 +9470,7 @@
    "gms": true
   },
   {
-   "id": "T0658",
+   "id": "T0749",
    "head": "ASK_CLARIFY",
    "relation": "leads_to",
    "tail": "SUMMARIZE",
@@ -8216,7 +9491,7 @@
    "gms": true
   },
   {
-   "id": "T0659",
+   "id": "T0750",
    "head": "PROVIDE_CONTEXT",
    "relation": "leads_to",
    "tail": "CONFIRM_RECORDED",
@@ -8239,7 +9514,7 @@
    "gms": true
   },
   {
-   "id": "T0660",
+   "id": "T0751",
    "head": "PROVIDE_CONTEXT",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -8261,7 +9536,7 @@
    "gms": true
   },
   {
-   "id": "T0661",
+   "id": "T0752",
    "head": "PROVIDE_CONTEXT",
    "relation": "leads_to",
    "tail": "SUMMARIZE",
@@ -8284,7 +9559,7 @@
    "gms": true
   },
   {
-   "id": "T0662",
+   "id": "T0753",
    "head": "PROVIDE_CONTEXT",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -8304,7 +9579,7 @@
    "gms": true
   },
   {
-   "id": "T0663",
+   "id": "T0754",
    "head": "CONFIRM_RECORDED",
    "relation": "leads_to",
    "tail": "PRESENT_TXN",
@@ -8327,7 +9602,7 @@
    "gms": true
   },
   {
-   "id": "T0664",
+   "id": "T0755",
    "head": "CONFIRM_RECORDED",
    "relation": "leads_to",
    "tail": "CONFIRM_ACTION",
@@ -8350,7 +9625,7 @@
    "gms": true
   },
   {
-   "id": "T0665",
+   "id": "T0756",
    "head": "CONFIRM_RECORDED",
    "relation": "leads_to",
    "tail": "DISCLOSE_FEE",
@@ -8372,7 +9647,7 @@
    "gms": true
   },
   {
-   "id": "T0666",
+   "id": "T0757",
    "head": "CONFIRM_RECORDED",
    "relation": "leads_to",
    "tail": "INFORM_NO_CARD_ACTION",
@@ -8395,7 +9670,7 @@
    "gms": true
   },
   {
-   "id": "T0667",
+   "id": "T0758",
    "head": "CONFIRM_RECORDED",
    "relation": "leads_to",
    "tail": "EXPLAIN_LIMIT",
@@ -8415,7 +9690,7 @@
    "gms": true
   },
   {
-   "id": "T0668",
+   "id": "T0759",
    "head": "CONFIRM_RECORDED",
    "relation": "leads_to",
    "tail": "SUMMARIZE",
@@ -8437,7 +9712,7 @@
    "gms": true
   },
   {
-   "id": "T0669",
+   "id": "T0760",
    "head": "CONFIRM_RECORDED",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -8459,7 +9734,7 @@
    "gms": true
   },
   {
-   "id": "T0670",
+   "id": "T0761",
    "head": "DISCLOSE_FEE",
    "relation": "leads_to",
    "tail": "CONFIRM_ACTION",
@@ -8479,7 +9754,7 @@
    "gms": true
   },
   {
-   "id": "T0671",
+   "id": "T0762",
    "head": "CONFIRM_ACTION",
    "relation": "leads_to",
    "tail": "ACTION_DONE",
@@ -8502,7 +9777,7 @@
    "gms": true
   },
   {
-   "id": "T0672",
+   "id": "T0763",
    "head": "CONFIRM_ACTION",
    "relation": "leads_to",
    "tail": "CONFIRM_ACTION",
@@ -8523,7 +9798,7 @@
    "gms": true
   },
   {
-   "id": "T0673",
+   "id": "T0764",
    "head": "CONFIRM_ACTION",
    "relation": "leads_to",
    "tail": "ACK_DECLINED",
@@ -8544,7 +9819,7 @@
    "gms": true
   },
   {
-   "id": "T0674",
+   "id": "T0765",
    "head": "CONFIRM_ACTION",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -8566,7 +9841,7 @@
    "gms": true
   },
   {
-   "id": "T0675",
+   "id": "T0766",
    "head": "CONFIRM_ACTION",
    "relation": "leads_to",
    "tail": "SUMMARIZE",
@@ -8589,7 +9864,7 @@
    "gms": true
   },
   {
-   "id": "T0676",
+   "id": "T0767",
    "head": "CONFIRM_ACTION",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -8609,7 +9884,7 @@
    "gms": true
   },
   {
-   "id": "T0677",
+   "id": "T0768",
    "head": "ACTION_DONE",
    "relation": "leads_to",
    "tail": "PRESENT_TXN",
@@ -8631,7 +9906,7 @@
    "gms": true
   },
   {
-   "id": "T0678",
+   "id": "T0769",
    "head": "ACTION_DONE",
    "relation": "leads_to",
    "tail": "SUMMARIZE",
@@ -8653,7 +9928,7 @@
    "gms": true
   },
   {
-   "id": "T0679",
+   "id": "T0770",
    "head": "ACK_DECLINED",
    "relation": "leads_to",
    "tail": "PRESENT_TXN",
@@ -8673,7 +9948,7 @@
    "gms": true
   },
   {
-   "id": "T0680",
+   "id": "T0771",
    "head": "ACK_DECLINED",
    "relation": "leads_to",
    "tail": "SUMMARIZE",
@@ -8693,7 +9968,7 @@
    "gms": true
   },
   {
-   "id": "T0681",
+   "id": "T0772",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "leads_to",
    "tail": "PRESENT_TXN",
@@ -8715,7 +9990,7 @@
    "gms": true
   },
   {
-   "id": "T0682",
+   "id": "T0773",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "leads_to",
    "tail": "SUMMARIZE",
@@ -8737,7 +10012,7 @@
    "gms": true
   },
   {
-   "id": "T0683",
+   "id": "T0774",
    "head": "EXPLAIN_LIMIT",
    "relation": "leads_to",
    "tail": "SUMMARIZE",
@@ -8758,7 +10033,7 @@
    "gms": true
   },
   {
-   "id": "T0684",
+   "id": "T0775",
    "head": "EXPLAIN_NO_TXNS",
    "relation": "leads_to",
    "tail": "ASK_MORE_HELP",
@@ -8780,7 +10055,7 @@
    "gms": true
   },
   {
-   "id": "T0685",
+   "id": "T0776",
    "head": "SUMMARIZE",
    "relation": "leads_to",
    "tail": "ASK_MORE_HELP",
@@ -8802,7 +10077,7 @@
    "gms": true
   },
   {
-   "id": "T0686",
+   "id": "T0777",
    "head": "SUMMARIZE",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -8822,7 +10097,7 @@
    "gms": true
   },
   {
-   "id": "T0687",
+   "id": "T0778",
    "head": "ASK_MORE_HELP",
    "relation": "leads_to",
    "tail": "END",
@@ -8844,7 +10119,7 @@
    "gms": true
   },
   {
-   "id": "T0688",
+   "id": "T0779",
    "head": "ASK_MORE_HELP",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -8864,7 +10139,7 @@
    "gms": true
   },
   {
-   "id": "T0689",
+   "id": "T0780",
    "head": "TRANSFER",
    "relation": "leads_to",
    "tail": "END",
@@ -8886,7 +10161,7 @@
    "gms": true
   },
   {
-   "id": "T0690",
+   "id": "T0781",
    "head": "ASK_AUTH",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -8906,7 +10181,7 @@
    "gms": true
   },
   {
-   "id": "T0691",
+   "id": "T0782",
    "head": "ASK_AUTH_RETRY",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -8926,7 +10201,7 @@
    "gms": true
   },
   {
-   "id": "T0692",
+   "id": "T0783",
    "head": "PRESENT_TXN",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -8946,7 +10221,7 @@
    "gms": true
   },
   {
-   "id": "T0693",
+   "id": "T0784",
    "head": "ASK_CLARIFY",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -8966,7 +10241,7 @@
    "gms": true
   },
   {
-   "id": "T0694",
+   "id": "T0785",
    "head": "PROVIDE_CONTEXT",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -8986,7 +10261,7 @@
    "gms": true
   },
   {
-   "id": "T0695",
+   "id": "T0786",
    "head": "CONFIRM_ACTION",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -9006,7 +10281,7 @@
    "gms": true
   },
   {
-   "id": "T0696",
+   "id": "T0787",
    "head": "ASK_MORE_HELP",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -9026,7 +10301,7 @@
    "gms": true
   },
   {
-   "id": "T0697",
+   "id": "T0788",
    "head": "auth_failed",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH_RETRY",
@@ -9038,7 +10313,7 @@
    "gms": true
   },
   {
-   "id": "T0698",
+   "id": "T0789",
    "head": "auth_unavailable",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH",
@@ -9050,7 +10325,7 @@
    "gms": true
   },
   {
-   "id": "T0699",
+   "id": "T0790",
    "head": "auth_unavailable",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH_RETRY",
@@ -9062,7 +10337,7 @@
    "gms": true
   },
   {
-   "id": "T0700",
+   "id": "T0791",
    "head": "retrieve_unavailable",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH",
@@ -9074,7 +10349,7 @@
    "gms": true
   },
   {
-   "id": "T0701",
+   "id": "T0792",
    "head": "retrieve_unavailable",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH_RETRY",
@@ -9086,7 +10361,7 @@
    "gms": true
   },
   {
-   "id": "T0702",
+   "id": "T0793",
    "head": "record_failed",
    "relation": "fires_in_state",
    "tail": "PRESENT_TXN",
@@ -9098,7 +10373,7 @@
    "gms": true
   },
   {
-   "id": "T0703",
+   "id": "T0794",
    "head": "record_failed",
    "relation": "fires_in_state",
    "tail": "ASK_CLARIFY",
@@ -9110,7 +10385,7 @@
    "gms": true
   },
   {
-   "id": "T0704",
+   "id": "T0795",
    "head": "record_failed",
    "relation": "fires_in_state",
    "tail": "PROVIDE_CONTEXT",
@@ -9122,7 +10397,7 @@
    "gms": true
   },
   {
-   "id": "T0705",
+   "id": "T0796",
    "head": "unsure_twice",
    "relation": "fires_in_state",
    "tail": "PROVIDE_CONTEXT",
@@ -9134,7 +10409,7 @@
    "gms": true
   },
   {
-   "id": "T0706",
+   "id": "T0797",
    "head": "ambiguity_persists",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH",
@@ -9146,7 +10421,7 @@
    "gms": true
   },
   {
-   "id": "T0707",
+   "id": "T0798",
    "head": "ambiguity_persists",
    "relation": "fires_in_state",
    "tail": "ASK_CLARIFY",
@@ -9158,7 +10433,7 @@
    "gms": true
   },
   {
-   "id": "T0708",
+   "id": "T0799",
    "head": "submit_failed",
    "relation": "fires_in_state",
    "tail": "CONFIRM_ACTION",
@@ -9170,7 +10445,7 @@
    "gms": true
   },
   {
-   "id": "T0709",
+   "id": "T0800",
    "head": "customer_request",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH",
@@ -9182,7 +10457,7 @@
    "gms": true
   },
   {
-   "id": "T0710",
+   "id": "T0801",
    "head": "customer_request",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH_RETRY",
@@ -9194,7 +10469,7 @@
    "gms": true
   },
   {
-   "id": "T0711",
+   "id": "T0802",
    "head": "customer_request",
    "relation": "fires_in_state",
    "tail": "PRESENT_TXN",
@@ -9206,7 +10481,7 @@
    "gms": true
   },
   {
-   "id": "T0712",
+   "id": "T0803",
    "head": "customer_request",
    "relation": "fires_in_state",
    "tail": "ASK_CLARIFY",
@@ -9218,7 +10493,7 @@
    "gms": true
   },
   {
-   "id": "T0713",
+   "id": "T0804",
    "head": "customer_request",
    "relation": "fires_in_state",
    "tail": "PROVIDE_CONTEXT",
@@ -9230,7 +10505,7 @@
    "gms": true
   },
   {
-   "id": "T0714",
+   "id": "T0805",
    "head": "customer_request",
    "relation": "fires_in_state",
    "tail": "CONFIRM_ACTION",
@@ -9242,7 +10517,7 @@
    "gms": true
   },
   {
-   "id": "T0715",
+   "id": "T0806",
    "head": "customer_request",
    "relation": "fires_in_state",
    "tail": "ASK_MORE_HELP",
@@ -9254,7 +10529,7 @@
    "gms": true
   },
   {
-   "id": "T0716",
+   "id": "T0807",
    "head": "turn_limit",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH",
@@ -9266,7 +10541,7 @@
    "gms": true
   },
   {
-   "id": "T0717",
+   "id": "T0808",
    "head": "turn_limit",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH_RETRY",
@@ -9278,7 +10553,7 @@
    "gms": true
   },
   {
-   "id": "T0718",
+   "id": "T0809",
    "head": "turn_limit",
    "relation": "fires_in_state",
    "tail": "PRESENT_TXN",
@@ -9290,7 +10565,7 @@
    "gms": true
   },
   {
-   "id": "T0719",
+   "id": "T0810",
    "head": "turn_limit",
    "relation": "fires_in_state",
    "tail": "ASK_CLARIFY",
@@ -9302,7 +10577,7 @@
    "gms": true
   },
   {
-   "id": "T0720",
+   "id": "T0811",
    "head": "turn_limit",
    "relation": "fires_in_state",
    "tail": "PROVIDE_CONTEXT",
@@ -9314,7 +10589,7 @@
    "gms": true
   },
   {
-   "id": "T0721",
+   "id": "T0812",
    "head": "turn_limit",
    "relation": "fires_in_state",
    "tail": "CONFIRM_ACTION",
@@ -9326,7 +10601,7 @@
    "gms": true
   },
   {
-   "id": "T0722",
+   "id": "T0813",
    "head": "turn_limit",
    "relation": "fires_in_state",
    "tail": "ASK_MORE_HELP",
@@ -9338,7 +10613,7 @@
    "gms": true
   },
   {
-   "id": "T0723",
+   "id": "T0814",
    "head": "transaction_limit",
    "relation": "fires_in_state",
    "tail": "CONFIRM_RECORDED",
@@ -9350,7 +10625,7 @@
    "gms": true
   },
   {
-   "id": "T0724",
+   "id": "T0815",
    "head": "card_options_unavailable",
    "relation": "fires_in_state",
    "tail": "CONFIRM_RECORDED",
@@ -9362,7 +10637,7 @@
    "gms": true
   },
   {
-   "id": "T0725",
+   "id": "T0816",
    "head": "get_review_transactions",
    "relation": "returns_field",
    "tail": "transaction_id",
@@ -9376,7 +10651,7 @@
    "gms": false
   },
   {
-   "id": "T0726",
+   "id": "T0817",
    "head": "get_review_transactions",
    "relation": "returns_field",
    "tail": "merchant",
@@ -9390,7 +10665,7 @@
    "gms": false
   },
   {
-   "id": "T0727",
+   "id": "T0818",
    "head": "get_review_transactions",
    "relation": "returns_field",
    "tail": "amount",
@@ -9404,7 +10679,7 @@
    "gms": false
   },
   {
-   "id": "T0728",
+   "id": "T0819",
    "head": "get_review_transactions",
    "relation": "returns_field",
    "tail": "date",
@@ -9418,21 +10693,23 @@
    "gms": false
   },
   {
-   "id": "T0729",
+   "id": "T0820",
    "head": "get_review_transactions",
    "relation": "returns_field",
    "tail": "age_days",
    "tail_type": "entity",
    "kind": "speech",
-   "source": "pdf.4",
-   "evidence": "transaction_id, merchant, amount, date",
+   "source": "design",
+   "evidence": "Added by this test harness's design, not stated in the PDF: fields the mock backend returns beyond pdf.4's list, and what dialog states this harness adds must say.",
    "qualifiers": {
-    "type": "days"
+    "type": "days",
+    "basis": "design",
+    "note": "added so the 30-day review window (pdf.5) can be checked; pdf.4 lists transaction_id, merchant, amount, date only"
    },
    "gms": false
   },
   {
-   "id": "T0730",
+   "id": "T0821",
    "head": "OPENING",
    "relation": "says",
    "tail": "opening",
@@ -9444,12 +10721,14 @@
    "qualifiers": {
     "from": "text.opening",
     "required": true,
-    "order": 0
+    "order": 0,
+    "basis": "interpreted",
+    "note": "pdf.6 gives this sentence as the required/static example; pdf.2A separates the opening statement from the explanation that authentication is needed, and does not give the opening statement's own text"
    },
    "gms": false
   },
   {
-   "id": "T0731",
+   "id": "T0822",
    "head": "ASK_AUTH",
    "relation": "spoken_cue",
    "tail": "last four",
@@ -9461,7 +10740,7 @@
    "gms": false
   },
   {
-   "id": "T0732",
+   "id": "T0823",
    "head": "ASK_AUTH",
    "relation": "spoken_cue",
    "tail": "digits",
@@ -9473,7 +10752,7 @@
    "gms": false
   },
   {
-   "id": "T0733",
+   "id": "T0824",
    "head": "ASK_AUTH",
    "relation": "spoken_cue",
    "tail": "verify you",
@@ -9485,7 +10764,7 @@
    "gms": false
   },
   {
-   "id": "T0734",
+   "id": "T0825",
    "head": "ASK_AUTH",
    "relation": "spoken_cue",
    "tail": "authenticate",
@@ -9497,7 +10776,7 @@
    "gms": false
   },
   {
-   "id": "T0735",
+   "id": "T0826",
    "head": "ASK_AUTH_RETRY",
    "relation": "spoken_cue",
    "tail": "didn't match",
@@ -9509,7 +10788,7 @@
    "gms": false
   },
   {
-   "id": "T0736",
+   "id": "T0827",
    "head": "ASK_AUTH_RETRY",
    "relation": "spoken_cue",
    "tail": "did not match",
@@ -9521,7 +10800,7 @@
    "gms": false
   },
   {
-   "id": "T0737",
+   "id": "T0828",
    "head": "ASK_AUTH_RETRY",
    "relation": "spoken_cue",
    "tail": "try again",
@@ -9533,7 +10812,7 @@
    "gms": false
   },
   {
-   "id": "T0738",
+   "id": "T0829",
    "head": "ASK_AUTH_RETRY",
    "relation": "spoken_cue",
    "tail": "doesn't match",
@@ -9545,7 +10824,7 @@
    "gms": false
   },
   {
-   "id": "T0739",
+   "id": "T0830",
    "head": "PRESENT_TXN",
    "relation": "says",
    "tail": "merchant",
@@ -9557,12 +10836,13 @@
    "qualifiers": {
     "from": "item.merchant",
     "required": true,
-    "order": 0
+    "order": 0,
+    "basis": "stated"
    },
    "gms": false
   },
   {
-   "id": "T0740",
+   "id": "T0831",
    "head": "PRESENT_TXN",
    "relation": "says",
    "tail": "amount",
@@ -9574,12 +10854,13 @@
    "qualifiers": {
     "from": "item.amount",
     "required": true,
-    "order": 1
+    "order": 1,
+    "basis": "stated"
    },
    "gms": false
   },
   {
-   "id": "T0741",
+   "id": "T0832",
    "head": "PRESENT_TXN",
    "relation": "says",
    "tail": "date",
@@ -9591,12 +10872,13 @@
    "qualifiers": {
     "from": "item.date",
     "required": true,
-    "order": 2
+    "order": 2,
+    "basis": "stated"
    },
    "gms": false
   },
   {
-   "id": "T0742",
+   "id": "T0833",
    "head": "PRESENT_TXN",
    "relation": "spoken_cue",
    "tail": "do you recognize",
@@ -9608,7 +10890,7 @@
    "gms": false
   },
   {
-   "id": "T0743",
+   "id": "T0834",
    "head": "PRESENT_TXN",
    "relation": "spoken_cue",
    "tail": "do you recognise",
@@ -9620,7 +10902,7 @@
    "gms": false
   },
   {
-   "id": "T0744",
+   "id": "T0835",
    "head": "PRESENT_TXN",
    "relation": "spoken_cue",
    "tail": "recognize that charge",
@@ -9632,7 +10914,7 @@
    "gms": false
   },
   {
-   "id": "T0745",
+   "id": "T0836",
    "head": "PROVIDE_CONTEXT",
    "relation": "says",
    "tail": "merchant",
@@ -9644,12 +10926,14 @@
    "qualifiers": {
     "from": "item.merchant",
     "required": false,
-    "order": 0
+    "order": 0,
+    "basis": "inferred",
+    "note": "'available transaction context' is not itemised; the fields the tool returns are taken as that context"
    },
    "gms": false
   },
   {
-   "id": "T0746",
+   "id": "T0837",
    "head": "PROVIDE_CONTEXT",
    "relation": "says",
    "tail": "amount",
@@ -9661,12 +10945,14 @@
    "qualifiers": {
     "from": "item.amount",
     "required": false,
-    "order": 1
+    "order": 1,
+    "basis": "inferred",
+    "note": "'available transaction context' is not itemised; the fields the tool returns are taken as that context"
    },
    "gms": false
   },
   {
-   "id": "T0747",
+   "id": "T0838",
    "head": "PROVIDE_CONTEXT",
    "relation": "says",
    "tail": "date",
@@ -9678,12 +10964,14 @@
    "qualifiers": {
     "from": "item.date",
     "required": false,
-    "order": 2
+    "order": 2,
+    "basis": "inferred",
+    "note": "'available transaction context' is not itemised; the fields the tool returns are taken as that context"
    },
    "gms": false
   },
   {
-   "id": "T0748",
+   "id": "T0839",
    "head": "PROVIDE_CONTEXT",
    "relation": "says",
    "tail": "age_days",
@@ -9695,12 +10983,14 @@
    "qualifiers": {
     "from": "item.age_days",
     "required": false,
-    "order": 3
+    "order": 3,
+    "basis": "design",
+    "note": "age_days is not a field pdf.4 lists; the mock backend adds it so the 30-day window (pdf.5) can be checked"
    },
    "gms": false
   },
   {
-   "id": "T0749",
+   "id": "T0840",
    "head": "PROVIDE_CONTEXT",
    "relation": "spoken_cue",
    "tail": "do you recognize",
@@ -9712,7 +11002,7 @@
    "gms": false
   },
   {
-   "id": "T0750",
+   "id": "T0841",
    "head": "PROVIDE_CONTEXT",
    "relation": "spoken_cue",
    "tail": "do you recognise",
@@ -9724,7 +11014,7 @@
    "gms": false
   },
   {
-   "id": "T0751",
+   "id": "T0842",
    "head": "ASK_CLARIFY",
    "relation": "spoken_cue",
    "tail": "didn't catch",
@@ -9736,7 +11026,7 @@
    "gms": false
   },
   {
-   "id": "T0752",
+   "id": "T0843",
    "head": "ASK_CLARIFY",
    "relation": "spoken_cue",
    "tail": "did not catch",
@@ -9748,7 +11038,7 @@
    "gms": false
   },
   {
-   "id": "T0753",
+   "id": "T0844",
    "head": "ASK_CLARIFY",
    "relation": "spoken_cue",
    "tail": "say that again",
@@ -9760,7 +11050,7 @@
    "gms": false
   },
   {
-   "id": "T0754",
+   "id": "T0845",
    "head": "ASK_CLARIFY",
    "relation": "spoken_cue",
    "tail": "didn't understand",
@@ -9772,7 +11062,7 @@
    "gms": false
   },
   {
-   "id": "T0755",
+   "id": "T0846",
    "head": "ASK_CLARIFY",
    "relation": "spoken_cue",
    "tail": "could you repeat",
@@ -9784,7 +11074,7 @@
    "gms": false
   },
   {
-   "id": "T0756",
+   "id": "T0847",
    "head": "CONFIRM_RECORDED",
    "relation": "says",
    "tail": "disposition",
@@ -9796,12 +11086,14 @@
    "qualifiers": {
     "from": "write.record_charge_response.disposition",
     "required": false,
-    "order": 0
+    "order": 0,
+    "basis": "inferred",
+    "note": "pdf.2D states the claim needs SUCCESS; that the disposition said must be the one recorded follows from it"
    },
    "gms": false
   },
   {
-   "id": "T0757",
+   "id": "T0848",
    "head": "CONFIRM_RECORDED",
    "relation": "spoken_cue",
    "tail": "recorded",
@@ -9813,7 +11105,7 @@
    "gms": false
   },
   {
-   "id": "T0758",
+   "id": "T0849",
    "head": "CONFIRM_RECORDED",
    "relation": "spoken_cue",
    "tail": "i've noted",
@@ -9825,7 +11117,7 @@
    "gms": false
   },
   {
-   "id": "T0759",
+   "id": "T0850",
    "head": "CONFIRM_RECORDED",
    "relation": "spoken_cue",
    "tail": "noted that",
@@ -9837,7 +11129,7 @@
    "gms": false
   },
   {
-   "id": "T0760",
+   "id": "T0851",
    "head": "CONFIRM_RECORDED",
    "relation": "spoken_cue",
    "tail": "saved your answer",
@@ -9849,7 +11141,7 @@
    "gms": false
   },
   {
-   "id": "T0761",
+   "id": "T0852",
    "head": "DISCLOSE_FEE",
    "relation": "says",
    "tail": "delivery",
@@ -9861,12 +11153,14 @@
    "qualifiers": {
     "from": "caller.delivery",
     "required": true,
-    "order": 0
+    "order": 0,
+    "basis": "inferred",
+    "note": "pdf.5 says to tell the customer the $15 fee; naming the option the fee belongs to is inferred"
    },
    "gms": false
   },
   {
-   "id": "T0762",
+   "id": "T0853",
    "head": "DISCLOSE_FEE",
    "relation": "says",
    "tail": "fee",
@@ -9878,12 +11172,13 @@
    "qualifiers": {
     "from": "policy.delivery_fee_usd",
     "required": true,
-    "order": 1
+    "order": 1,
+    "basis": "stated"
    },
    "gms": false
   },
   {
-   "id": "T0763",
+   "id": "T0854",
    "head": "DISCLOSE_FEE",
    "relation": "says",
    "tail": "delivery_days",
@@ -9895,12 +11190,14 @@
    "qualifiers": {
     "from": "policy.delivery_days",
     "required": false,
-    "order": 2
+    "order": 2,
+    "basis": "design",
+    "note": "the PDF does not ask for the delivery time here; it is checked when said"
    },
    "gms": false
   },
   {
-   "id": "T0764",
+   "id": "T0855",
    "head": "DISCLOSE_FEE",
    "relation": "spoken_cue",
    "tail": "fee",
@@ -9912,7 +11209,7 @@
    "gms": false
   },
   {
-   "id": "T0765",
+   "id": "T0856",
    "head": "CONFIRM_ACTION",
    "relation": "says",
    "tail": "action",
@@ -9924,12 +11221,13 @@
    "qualifiers": {
     "from": "caller.card_action",
     "required": true,
-    "order": 0
+    "order": 0,
+    "basis": "stated"
    },
    "gms": false
   },
   {
-   "id": "T0766",
+   "id": "T0857",
    "head": "CONFIRM_ACTION",
    "relation": "says",
    "tail": "delivery",
@@ -9941,12 +11239,14 @@
    "qualifiers": {
     "from": "caller.delivery",
     "required": false,
-    "order": 1
+    "order": 1,
+    "basis": "inferred",
+    "note": "the delivery option is part of the requested replacement"
    },
    "gms": false
   },
   {
-   "id": "T0767",
+   "id": "T0858",
    "head": "CONFIRM_ACTION",
    "relation": "spoken_cue",
    "tail": "shall i",
@@ -9958,7 +11258,7 @@
    "gms": false
   },
   {
-   "id": "T0768",
+   "id": "T0859",
    "head": "CONFIRM_ACTION",
    "relation": "spoken_cue",
    "tail": "should i",
@@ -9970,7 +11270,7 @@
    "gms": false
   },
   {
-   "id": "T0769",
+   "id": "T0860",
    "head": "CONFIRM_ACTION",
    "relation": "spoken_cue",
    "tail": "go ahead",
@@ -9982,7 +11282,7 @@
    "gms": false
   },
   {
-   "id": "T0770",
+   "id": "T0861",
    "head": "CONFIRM_ACTION",
    "relation": "spoken_cue",
    "tail": "would you like me to",
@@ -9994,7 +11294,7 @@
    "gms": false
   },
   {
-   "id": "T0771",
+   "id": "T0862",
    "head": "CONFIRM_ACTION",
    "relation": "spoken_cue",
    "tail": "do you want me to",
@@ -10006,7 +11306,7 @@
    "gms": false
   },
   {
-   "id": "T0772",
+   "id": "T0863",
    "head": "ACTION_DONE",
    "relation": "says",
    "tail": "action",
@@ -10018,12 +11318,14 @@
    "qualifiers": {
     "from": "write.submit_card_action.action",
     "required": true,
-    "order": 0
+    "order": 0,
+    "basis": "inferred",
+    "note": "pdf.2E: 'describe it as completed only after SUCCESS'; naming the action in that description is inferred"
    },
    "gms": false
   },
   {
-   "id": "T0773",
+   "id": "T0864",
    "head": "ACTION_DONE",
    "relation": "says",
    "tail": "delivery",
@@ -10035,12 +11337,14 @@
    "qualifiers": {
     "from": "write.submit_card_action.delivery",
     "required": false,
-    "order": 1
+    "order": 1,
+    "basis": "inferred",
+    "note": "the delivery option is part of the completed replacement"
    },
    "gms": false
   },
   {
-   "id": "T0774",
+   "id": "T0865",
    "head": "ACTION_DONE",
    "relation": "spoken_cue",
    "tail": "that's done",
@@ -10052,7 +11356,7 @@
    "gms": false
   },
   {
-   "id": "T0775",
+   "id": "T0866",
    "head": "ACTION_DONE",
    "relation": "spoken_cue",
    "tail": "it's done",
@@ -10064,7 +11368,7 @@
    "gms": false
   },
   {
-   "id": "T0776",
+   "id": "T0867",
    "head": "ACTION_DONE",
    "relation": "spoken_cue",
    "tail": "has been",
@@ -10076,7 +11380,7 @@
    "gms": false
   },
   {
-   "id": "T0777",
+   "id": "T0868",
    "head": "ACTION_DONE",
    "relation": "spoken_cue",
    "tail": "is complete",
@@ -10088,7 +11392,7 @@
    "gms": false
   },
   {
-   "id": "T0778",
+   "id": "T0869",
    "head": "ACTION_DONE",
    "relation": "spoken_cue",
    "tail": "completed",
@@ -10100,7 +11404,7 @@
    "gms": false
   },
   {
-   "id": "T0779",
+   "id": "T0870",
    "head": "ACK_DECLINED",
    "relation": "spoken_cue",
    "tail": "won't do that",
@@ -10112,7 +11416,7 @@
    "gms": false
   },
   {
-   "id": "T0780",
+   "id": "T0871",
    "head": "ACK_DECLINED",
    "relation": "spoken_cue",
    "tail": "will not do that",
@@ -10124,7 +11428,7 @@
    "gms": false
   },
   {
-   "id": "T0781",
+   "id": "T0872",
    "head": "ACK_DECLINED",
    "relation": "spoken_cue",
    "tail": "i won't",
@@ -10136,7 +11440,7 @@
    "gms": false
   },
   {
-   "id": "T0782",
+   "id": "T0873",
    "head": "ACK_DECLINED",
    "relation": "spoken_cue",
    "tail": "no problem, i",
@@ -10148,7 +11452,7 @@
    "gms": false
   },
   {
-   "id": "T0783",
+   "id": "T0874",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "says",
    "tail": "action",
@@ -10160,12 +11464,14 @@
    "qualifiers": {
     "from": "caller.card_action",
     "required": false,
-    "order": 0
+    "order": 0,
+    "basis": "design",
+    "note": "telling the customer that no option was returned is dialog design; pdf.4 says to offer only returned options"
    },
    "gms": false
   },
   {
-   "id": "T0784",
+   "id": "T0875",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "spoken_cue",
    "tail": "isn't available",
@@ -10177,7 +11483,7 @@
    "gms": false
   },
   {
-   "id": "T0785",
+   "id": "T0876",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "spoken_cue",
    "tail": "is not available",
@@ -10189,7 +11495,7 @@
    "gms": false
   },
   {
-   "id": "T0786",
+   "id": "T0877",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "spoken_cue",
    "tail": "not available",
@@ -10201,7 +11507,7 @@
    "gms": false
   },
   {
-   "id": "T0787",
+   "id": "T0878",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "spoken_cue",
    "tail": "can't offer",
@@ -10213,7 +11519,7 @@
    "gms": false
   },
   {
-   "id": "T0788",
+   "id": "T0879",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "spoken_cue",
    "tail": "cannot offer",
@@ -10225,7 +11531,7 @@
    "gms": false
   },
   {
-   "id": "T0789",
+   "id": "T0880",
    "head": "EXPLAIN_LIMIT",
    "relation": "says",
    "tail": "limit",
@@ -10237,12 +11543,14 @@
    "qualifiers": {
     "from": "policy.limit:max_transactions_per_session",
     "required": true,
-    "order": 0
+    "order": 0,
+    "basis": "design",
+    "note": "pdf.5 gives the limit (4); explaining it to the customer and transferring the rest is the brief's and this design's reading (DESIGN section 8)"
    },
    "gms": false
   },
   {
-   "id": "T0790",
+   "id": "T0881",
    "head": "EXPLAIN_LIMIT",
    "relation": "spoken_cue",
    "tail": "up to",
@@ -10254,7 +11562,7 @@
    "gms": false
   },
   {
-   "id": "T0791",
+   "id": "T0882",
    "head": "EXPLAIN_LIMIT",
    "relation": "spoken_cue",
    "tail": "at most",
@@ -10266,7 +11574,7 @@
    "gms": false
   },
   {
-   "id": "T0792",
+   "id": "T0883",
    "head": "EXPLAIN_LIMIT",
    "relation": "spoken_cue",
    "tail": "only review",
@@ -10278,7 +11586,7 @@
    "gms": false
   },
   {
-   "id": "T0793",
+   "id": "T0884",
    "head": "EXPLAIN_NO_TXNS",
    "relation": "spoken_cue",
    "tail": "no charges",
@@ -10290,7 +11598,7 @@
    "gms": false
   },
   {
-   "id": "T0794",
+   "id": "T0885",
    "head": "EXPLAIN_NO_TXNS",
    "relation": "spoken_cue",
    "tail": "no transactions",
@@ -10302,7 +11610,7 @@
    "gms": false
   },
   {
-   "id": "T0795",
+   "id": "T0886",
    "head": "EXPLAIN_NO_TXNS",
    "relation": "spoken_cue",
    "tail": "nothing to review",
@@ -10314,7 +11622,7 @@
    "gms": false
   },
   {
-   "id": "T0796",
+   "id": "T0887",
    "head": "SUMMARIZE",
    "relation": "says",
    "tail": "recorded",
@@ -10326,12 +11634,13 @@
    "qualifiers": {
     "from": "writes.record_charge_response",
     "required": true,
-    "order": 0
+    "order": 0,
+    "basis": "stated"
    },
    "gms": false
   },
   {
-   "id": "T0797",
+   "id": "T0888",
    "head": "SUMMARIZE",
    "relation": "says",
    "tail": "actions",
@@ -10343,12 +11652,13 @@
    "qualifiers": {
     "from": "writes.submit_card_action",
     "required": true,
-    "order": 1
+    "order": 1,
+    "basis": "stated"
    },
    "gms": false
   },
   {
-   "id": "T0798",
+   "id": "T0889",
    "head": "SUMMARIZE",
    "relation": "spoken_cue",
    "tail": "summary",
@@ -10360,7 +11670,7 @@
    "gms": false
   },
   {
-   "id": "T0799",
+   "id": "T0890",
    "head": "SUMMARIZE",
    "relation": "spoken_cue",
    "tail": "to summarize",
@@ -10372,7 +11682,7 @@
    "gms": false
   },
   {
-   "id": "T0800",
+   "id": "T0891",
    "head": "SUMMARIZE",
    "relation": "spoken_cue",
    "tail": "so far i recorded",
@@ -10384,7 +11694,7 @@
    "gms": false
   },
   {
-   "id": "T0801",
+   "id": "T0892",
    "head": "SUMMARIZE",
    "relation": "spoken_cue",
    "tail": "i recorded",
@@ -10396,7 +11706,7 @@
    "gms": false
   },
   {
-   "id": "T0802",
+   "id": "T0893",
    "head": "ASK_MORE_HELP",
    "relation": "spoken_cue",
    "tail": "anything else",
@@ -10408,7 +11718,7 @@
    "gms": false
   },
   {
-   "id": "T0803",
+   "id": "T0894",
    "head": "ASK_MORE_HELP",
    "relation": "spoken_cue",
    "tail": "other help",
@@ -10420,7 +11730,7 @@
    "gms": false
   },
   {
-   "id": "T0804",
+   "id": "T0895",
    "head": "ASK_MORE_HELP",
    "relation": "spoken_cue",
    "tail": "help with anything",
@@ -10432,7 +11742,7 @@
    "gms": false
   },
   {
-   "id": "T0805",
+   "id": "T0896",
    "head": "TRANSFER",
    "relation": "spoken_cue",
    "tail": "transfer you",
@@ -10444,7 +11754,7 @@
    "gms": false
   },
   {
-   "id": "T0806",
+   "id": "T0897",
    "head": "TRANSFER",
    "relation": "spoken_cue",
    "tail": "representative",
@@ -10456,7 +11766,7 @@
    "gms": false
   },
   {
-   "id": "T0807",
+   "id": "T0898",
    "head": "TRANSFER",
    "relation": "spoken_cue",
    "tail": "connect you",
@@ -10468,7 +11778,7 @@
    "gms": false
   },
   {
-   "id": "T0808",
+   "id": "T0899",
    "head": "TRANSFER",
    "relation": "spoken_cue",
    "tail": "an agent",
@@ -10480,7 +11790,7 @@
    "gms": false
   },
   {
-   "id": "T0809",
+   "id": "T0900",
    "head": "END",
    "relation": "spoken_cue",
    "tail": "goodbye",
@@ -10492,7 +11802,7 @@
    "gms": false
   },
   {
-   "id": "T0810",
+   "id": "T0901",
    "head": "END",
    "relation": "spoken_cue",
    "tail": "bye",
@@ -10504,7 +11814,7 @@
    "gms": false
   },
   {
-   "id": "T0811",
+   "id": "T0902",
    "head": "END",
    "relation": "spoken_cue",
    "tail": "thank you for calling",
@@ -10516,7 +11826,7 @@
    "gms": false
   },
   {
-   "id": "T0812",
+   "id": "T0903",
    "head": "RECOGNIZED",
    "relation": "spoken_as",
    "tail": "recognized",
@@ -10527,7 +11837,7 @@
    "gms": false
   },
   {
-   "id": "T0813",
+   "id": "T0904",
    "head": "RECOGNIZED",
    "relation": "spoken_as",
    "tail": "you recognize",
@@ -10538,7 +11848,7 @@
    "gms": false
   },
   {
-   "id": "T0814",
+   "id": "T0905",
    "head": "RECOGNIZED",
    "relation": "spoken_as",
    "tail": "recognize it",
@@ -10549,7 +11859,7 @@
    "gms": false
   },
   {
-   "id": "T0815",
+   "id": "T0906",
    "head": "RECOGNIZED",
    "relation": "spoken_as",
    "tail": "is yours",
@@ -10560,7 +11870,7 @@
    "gms": false
   },
   {
-   "id": "T0816",
+   "id": "T0907",
    "head": "RECOGNIZED",
    "relation": "spoken_as",
    "tail": "was yours",
@@ -10571,7 +11881,7 @@
    "gms": false
   },
   {
-   "id": "T0817",
+   "id": "T0908",
    "head": "RECOGNIZED",
    "relation": "spoken_as",
    "tail": "you made it",
@@ -10582,7 +11892,7 @@
    "gms": false
   },
   {
-   "id": "T0818",
+   "id": "T0909",
    "head": "RECOGNIZED",
    "relation": "spoken_as",
    "tail": "as yours",
@@ -10593,7 +11903,7 @@
    "gms": false
   },
   {
-   "id": "T0819",
+   "id": "T0910",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "not recognized",
@@ -10604,7 +11914,7 @@
    "gms": false
   },
   {
-   "id": "T0820",
+   "id": "T0911",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "unrecognized",
@@ -10615,7 +11925,7 @@
    "gms": false
   },
   {
-   "id": "T0821",
+   "id": "T0912",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "don't recognize",
@@ -10626,7 +11936,7 @@
    "gms": false
   },
   {
-   "id": "T0822",
+   "id": "T0913",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "do not recognize",
@@ -10637,7 +11947,7 @@
    "gms": false
   },
   {
-   "id": "T0823",
+   "id": "T0914",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "didn't recognize",
@@ -10648,7 +11958,7 @@
    "gms": false
   },
   {
-   "id": "T0824",
+   "id": "T0915",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "isn't yours",
@@ -10659,7 +11969,7 @@
    "gms": false
   },
   {
-   "id": "T0825",
+   "id": "T0916",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "is not yours",
@@ -10670,7 +11980,7 @@
    "gms": false
   },
   {
-   "id": "T0826",
+   "id": "T0917",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "not yours",
@@ -10681,7 +11991,7 @@
    "gms": false
   },
   {
-   "id": "T0827",
+   "id": "T0918",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "wasn't yours",
@@ -10692,7 +12002,7 @@
    "gms": false
   },
   {
-   "id": "T0828",
+   "id": "T0919",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "didn't make",
@@ -10703,7 +12013,7 @@
    "gms": false
   },
   {
-   "id": "T0829",
+   "id": "T0920",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "not mine",
@@ -10714,7 +12024,7 @@
    "gms": false
   },
   {
-   "id": "T0830",
+   "id": "T0921",
    "head": "UNSURE",
    "relation": "spoken_as",
    "tail": "unsure",
@@ -10725,7 +12035,7 @@
    "gms": false
   },
   {
-   "id": "T0831",
+   "id": "T0922",
    "head": "UNSURE",
    "relation": "spoken_as",
    "tail": "not sure",
@@ -10736,7 +12046,7 @@
    "gms": false
   },
   {
-   "id": "T0832",
+   "id": "T0923",
    "head": "UNSURE",
    "relation": "spoken_as",
    "tail": "uncertain",
@@ -10747,7 +12057,7 @@
    "gms": false
   },
   {
-   "id": "T0833",
+   "id": "T0924",
    "head": "SECURE_CARD",
    "relation": "spoken_as",
    "tail": "secured",
@@ -10758,7 +12068,7 @@
    "gms": false
   },
   {
-   "id": "T0834",
+   "id": "T0925",
    "head": "SECURE_CARD",
    "relation": "spoken_as",
    "tail": "locked",
@@ -10769,7 +12079,7 @@
    "gms": false
   },
   {
-   "id": "T0835",
+   "id": "T0926",
    "head": "SECURE_CARD",
    "relation": "spoken_as",
    "tail": "frozen",
@@ -10780,7 +12090,7 @@
    "gms": false
   },
   {
-   "id": "T0836",
+   "id": "T0927",
    "head": "SECURE_CARD",
    "relation": "spoken_as",
    "tail": "blocked",
@@ -10791,7 +12101,7 @@
    "gms": false
   },
   {
-   "id": "T0837",
+   "id": "T0928",
    "head": "SECURE_CARD",
    "relation": "spoken_as",
    "tail": "secure your card",
@@ -10802,7 +12112,7 @@
    "gms": false
   },
   {
-   "id": "T0838",
+   "id": "T0929",
    "head": "SECURE_CARD",
    "relation": "spoken_as",
    "tail": "lock your card",
@@ -10813,7 +12123,7 @@
    "gms": false
   },
   {
-   "id": "T0839",
+   "id": "T0930",
    "head": "REPLACE_CARD",
    "relation": "spoken_as",
    "tail": "replaced",
@@ -10824,7 +12134,7 @@
    "gms": false
   },
   {
-   "id": "T0840",
+   "id": "T0931",
    "head": "REPLACE_CARD",
    "relation": "spoken_as",
    "tail": "replacement card",
@@ -10835,7 +12145,7 @@
    "gms": false
   },
   {
-   "id": "T0841",
+   "id": "T0932",
    "head": "REPLACE_CARD",
    "relation": "spoken_as",
    "tail": "a new card",
@@ -10846,7 +12156,7 @@
    "gms": false
   },
   {
-   "id": "T0842",
+   "id": "T0933",
    "head": "REPLACE_CARD",
    "relation": "spoken_as",
    "tail": "card replacement",
@@ -10857,7 +12167,7 @@
    "gms": false
   },
   {
-   "id": "T0843",
+   "id": "T0934",
    "head": "REPLACE_CARD",
    "relation": "spoken_as",
    "tail": "replace your card",
@@ -10868,7 +12178,7 @@
    "gms": false
   },
   {
-   "id": "T0844",
+   "id": "T0935",
    "head": "max_transactions_per_session",
    "relation": "spoken_as",
    "tail": "up to {n} charges",
@@ -10879,7 +12189,7 @@
    "gms": false
   },
   {
-   "id": "T0845",
+   "id": "T0936",
    "head": "max_transactions_per_session",
    "relation": "spoken_as",
    "tail": "up to {n} transactions",
@@ -10890,7 +12200,7 @@
    "gms": false
   },
   {
-   "id": "T0846",
+   "id": "T0937",
    "head": "max_transactions_per_session",
    "relation": "spoken_as",
    "tail": "up to {n} recent transactions",
@@ -10901,7 +12211,7 @@
    "gms": false
   },
   {
-   "id": "T0847",
+   "id": "T0938",
    "head": "max_transactions_per_session",
    "relation": "spoken_as",
    "tail": "at most {n} charges",
@@ -10912,7 +12222,7 @@
    "gms": false
   },
   {
-   "id": "T0848",
+   "id": "T0939",
    "head": "max_transactions_per_session",
    "relation": "spoken_as",
    "tail": "at most {n} transactions",
@@ -10923,7 +12233,7 @@
    "gms": false
   },
   {
-   "id": "T0849",
+   "id": "T0940",
    "head": "max_transactions_per_session",
    "relation": "spoken_as",
    "tail": "{n} charges per session",
@@ -10934,7 +12244,7 @@
    "gms": false
   },
   {
-   "id": "T0850",
+   "id": "T0941",
    "head": "max_transactions_per_session",
    "relation": "spoken_as",
    "tail": "{n} charges in one session",
@@ -10945,7 +12255,7 @@
    "gms": false
   },
   {
-   "id": "T0851",
+   "id": "T0942",
    "head": "max_transactions_per_session",
    "relation": "spoken_as",
    "tail": "{n} transactions in one session",
@@ -10956,7 +12266,7 @@
    "gms": false
   },
   {
-   "id": "T0852",
+   "id": "T0943",
    "head": "lookback_days",
    "relation": "spoken_as",
    "tail": "previous {n} days",
@@ -10967,7 +12277,7 @@
    "gms": false
   },
   {
-   "id": "T0853",
+   "id": "T0944",
    "head": "lookback_days",
    "relation": "spoken_as",
    "tail": "previous {n} calendar days",
@@ -10978,7 +12288,7 @@
    "gms": false
   },
   {
-   "id": "T0854",
+   "id": "T0945",
    "head": "lookback_days",
    "relation": "spoken_as",
    "tail": "last {n} days",
@@ -10989,7 +12299,7 @@
    "gms": false
   },
   {
-   "id": "T0855",
+   "id": "T0946",
    "head": "lookback_days",
    "relation": "spoken_as",
    "tail": "last {n} calendar days",
@@ -11000,7 +12310,7 @@
    "gms": false
   },
   {
-   "id": "T0856",
+   "id": "T0947",
    "head": "lookback_days",
    "relation": "spoken_as",
    "tail": "past {n} days",
@@ -11011,7 +12321,7 @@
    "gms": false
   },
   {
-   "id": "T0857",
+   "id": "T0948",
    "head": "lookback_days",
    "relation": "spoken_as",
    "tail": "{n}-day window",
@@ -11022,7 +12332,7 @@
    "gms": false
   },
   {
-   "id": "T0858",
+   "id": "T0949",
    "head": "lookback_days",
    "relation": "spoken_as",
    "tail": "{n} day window",
@@ -11033,7 +12343,7 @@
    "gms": false
   },
   {
-   "id": "T0859",
+   "id": "T0950",
    "head": "lookback_days",
    "relation": "spoken_as",
    "tail": "within {n} days",
@@ -11044,7 +12354,7 @@
    "gms": false
   },
   {
-   "id": "T0860",
+   "id": "T0951",
    "head": "max_auth_attempts",
    "relation": "spoken_as",
    "tail": "{n} attempts",
@@ -11055,7 +12365,7 @@
    "gms": false
   },
   {
-   "id": "T0861",
+   "id": "T0952",
    "head": "max_auth_attempts",
    "relation": "spoken_as",
    "tail": "{n} verification attempts",
@@ -11066,7 +12376,7 @@
    "gms": false
   },
   {
-   "id": "T0862",
+   "id": "T0953",
    "head": "max_auth_attempts",
    "relation": "spoken_as",
    "tail": "{n} authentication attempts",
@@ -11077,7 +12387,7 @@
    "gms": false
   },
   {
-   "id": "T0863",
+   "id": "T0954",
    "head": "max_auth_attempts",
    "relation": "spoken_as",
    "tail": "{n} tries",
@@ -11088,7 +12398,7 @@
    "gms": false
   },
   {
-   "id": "T0864",
+   "id": "T0955",
    "head": "R27",
    "relation": "asserted_by",
    "tail": "means fraud",
@@ -11099,7 +12409,7 @@
    "gms": false
   },
   {
-   "id": "T0865",
+   "id": "T0956",
    "head": "R27",
    "relation": "asserted_by",
    "tail": "is fraud",
@@ -11110,7 +12420,7 @@
    "gms": false
   },
   {
-   "id": "T0866",
+   "id": "T0957",
    "head": "R27",
    "relation": "asserted_by",
    "tail": "was fraud",
@@ -11121,7 +12431,7 @@
    "gms": false
   },
   {
-   "id": "T0867",
+   "id": "T0958",
    "head": "R27",
    "relation": "asserted_by",
    "tail": "confirms fraud",
@@ -11132,7 +12442,7 @@
    "gms": false
   },
   {
-   "id": "T0868",
+   "id": "T0959",
    "head": "R27",
    "relation": "asserted_by",
    "tail": "proves fraud",
@@ -11143,7 +12453,7 @@
    "gms": false
   },
   {
-   "id": "T0869",
+   "id": "T0960",
    "head": "R27",
    "relation": "asserted_by",
    "tail": "proof of fraud",
@@ -11154,7 +12464,7 @@
    "gms": false
   },
   {
-   "id": "T0870",
+   "id": "T0961",
    "head": "R27",
    "relation": "asserted_by",
    "tail": "confirmation of fraud",
@@ -11165,7 +12475,7 @@
    "gms": false
   },
   {
-   "id": "T0871",
+   "id": "T0962",
    "head": "R27",
    "relation": "asserted_by",
    "tail": "evidence of fraud",
@@ -11176,7 +12486,7 @@
    "gms": false
   },
   {
-   "id": "T0872",
+   "id": "T0963",
    "head": "R27",
    "relation": "denied_by",
    "tail": "not proof of fraud",
@@ -11187,7 +12497,7 @@
    "gms": false
   },
   {
-   "id": "T0873",
+   "id": "T0964",
    "head": "R27",
    "relation": "denied_by",
    "tail": "not, by itself",
@@ -11198,7 +12508,7 @@
    "gms": false
   },
   {
-   "id": "T0874",
+   "id": "T0965",
    "head": "R27",
    "relation": "denied_by",
    "tail": "not by itself",
@@ -11209,7 +12519,7 @@
    "gms": false
   },
   {
-   "id": "T0875",
+   "id": "T0966",
    "head": "R27",
    "relation": "denied_by",
    "tail": "doesn't mean fraud",
@@ -11220,7 +12530,7 @@
    "gms": false
   },
   {
-   "id": "T0876",
+   "id": "T0967",
    "head": "R27",
    "relation": "denied_by",
    "tail": "does not mean fraud",
@@ -11231,7 +12541,7 @@
    "gms": false
   },
   {
-   "id": "T0877",
+   "id": "T0968",
    "head": "R27",
    "relation": "denied_by",
    "tail": "isn't fraud",
@@ -11242,7 +12552,7 @@
    "gms": false
   },
   {
-   "id": "T0878",
+   "id": "T0969",
    "head": "R27",
    "relation": "denied_by",
    "tail": "is not fraud",
@@ -11253,7 +12563,7 @@
    "gms": false
   },
   {
-   "id": "T0879",
+   "id": "T0970",
    "head": "R27",
    "relation": "denied_by",
    "tail": "not necessarily fraud",
@@ -11264,7 +12574,7 @@
    "gms": false
   },
   {
-   "id": "T0880",
+   "id": "T0971",
    "head": "R27",
    "relation": "denied_by",
    "tail": "not confirmation of fraud",
@@ -11275,7 +12585,7 @@
    "gms": false
   },
   {
-   "id": "T0881",
+   "id": "T0972",
    "head": "R27",
    "relation": "denied_by",
    "tail": "doesn't prove",
@@ -11286,7 +12596,7 @@
    "gms": false
   },
   {
-   "id": "T0882",
+   "id": "T0973",
    "head": "R27",
    "relation": "denied_by",
    "tail": "does not prove",
@@ -11297,5 +12607,5 @@
    "gms": false
   }
  ],
- "sha256": "6cc9922a777e245f1126b9d2f7c57d5cd607f93dc5d6f191bf88dfec3b50748f"
+ "sha256": "7c600fdf6e685f9dfcff40b4164d34f8b3757bba4b0440f877cad2d0ad370a82"
 }

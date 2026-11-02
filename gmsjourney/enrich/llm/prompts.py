@@ -47,7 +47,7 @@ DEFAULT_QUESTION = "The agent is waiting for your reply."
 # values with these words; anything else the reader would not read is a false reject.
 READER_LEXICON = {
     "standard_delivery": ["standard delivery", "regular shipping", "normal delivery"],
-    "expedited_delivery": ["expedited delivery", "express shipping", "rush delivery", "overnight shipping"],
+    "expedited_delivery": ["expedited delivery", "express shipping", "rush delivery"],
     "SECURE_CARD": ["secure my card", "lock my card", "freeze the card", "block my card"],
     "REPLACE_CARD": ["replace my card", "send me a new card", "get me a fresh card", "reissue the card"],
     "RECOGNIZED": ["I recognize it", "it's mine", "that was me", "I made that purchase", "that's mine"],

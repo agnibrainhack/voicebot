@@ -501,7 +501,7 @@ class LLMInvarianceValidator(InvarianceValidator):
         ("text_negation", r"\bI don't recognize\b", "I recognize"),
         ("text_negation", r"\b(it's|it is|that's|that is) mine\b", r"\1 not mine"),
         ("text_negation", r"\b(it's|it is|that's) not mine\b", r"\1 mine"),
-        ("text_delivery_word", r"\b(expedited|express|rush|overnight)\b", "standard"),
+        ("text_delivery_word", r"\b(expedited|express|rush)\b", "standard"),
         ("text_delivery_word", r"\b(standard|regular|normal)\b", "expedited"),
         ("text_card_action", r"\b(secure|lock|freeze|block)\b", "replace"),
         ("text_card_action", r"\breplace\b", "lock"),

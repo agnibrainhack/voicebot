@@ -542,7 +542,7 @@ def cards_page(r: dict[str, Any], levels: dict[str, list] | None = None) -> str:
 def as_iframe(doc: str, height: int = 720) -> str:
     """A page wrapped in an ``<iframe srcdoc>`` so its styles stay inside the frame (for IPython's ``HTML``)."""
     import html as _html
-    return f'<iframe srcdoc="{_html.escape(doc)}" style="width:100%;height:{height}px;border:0"></iframe>'
+    return f'<div><iframe srcdoc="{_html.escape(doc)}" style="width:100%;height:{height}px;border:0"></iframe></div>'
 
 
 # ------------------------------------------------------------------ writing it

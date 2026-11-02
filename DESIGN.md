@@ -178,6 +178,8 @@ to detect a level that triples the odds of failure.
 | Echoed SUCCESS that does not match the request | Implied by "advance only after SUCCESS". | Treated as failure (R33); exercised by plausible-wrong faults. |
 | Disputed / unrecognized charge | PDF: record UNRECOGNIZED; not proof of fraud. | Recorded, no escalation by itself (the baseline's "dispute → escalate" removed); a fraud claim is a contradicted stance. |
 | Refund amounts | Not stated. | Absence detection: the bot must not invent one. |
+| Opening statement | pdf.2A: play the required opening; pdf.6: "Before I review account-specific charges, I need to authenticate you." as the required/static example. | That sentence is the required opening, said word for word (`basis: interpreted`). |
+| "Overnight" delivery | pdf.5: expedited arrives in 2 business days. | Not a synonym of expedited (removed from the aliases, the customer reader and the LLM arm's word lists). |
 
 Change any of these in `policy/charge_review_policy.md` (and, for flow changes, `oracle.py`); every expected
 outcome follows.
@@ -637,5 +639,18 @@ rerun.
   spoken.
 - The transaction's date is the posting date the tool returns (`date`, added to the tool result next to
   `age_days`).
-- "Expedited" is also spoken as "express", "rush", "fast shipping" or "overnight". The full set of phrasings is in
-  the graph's `bot_lexicon` and its aliases.
+- "Expedited" is also spoken as "express", "rush" or "fast shipping". It is not "overnight": the PDF says expedited
+  arrives in 2 business days, so "overnight" would misstate it, and a near-miss name must not bind to a real option.
+  The full set of phrasings is in the graph's `bot_lexicon` and its aliases.
+- Every "what this act must say" triple (`says`) carries a `basis` and a `note`, so a reviewer can check the speech
+  layer against the PDF:
+
+  | basis | meaning | triples |
+  |---|---|---|
+  | stated | the PDF says it | 7: the transaction's merchant, amount and date (pdf.2B); the fee (pdf.5); the action being confirmed (pdf.2E); the summary's records and actions (pdf.2F) |
+  | inferred | follows from the PDF's words | 8: the context offered to an unsure customer (merchant, amount, date); the disposition said back; naming the option with its fee; the delivery option in a confirmation; that "describe it as completed" names the action and its delivery |
+  | interpreted | the PDF read one way | 1: the opening statement is pdf.6's required/static example |
+  | design | not in the PDF | 4: explaining the transaction limit; the "no option" state; delivery days with the fee; the age of a charge in the context |
+
+  The tool field `age_days` is also marked design: pdf.4 lists transaction_id, merchant, amount and date, and the mock
+  backend adds the age so the 30-day window can be checked.
