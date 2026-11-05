@@ -725,3 +725,23 @@ builds the list from the pack's item records (`items` how many, default 1; `last
 loop's prompts get one customer queue per item (`per_item`, a level for every item with `item: all`), and
 `project_draft.py` drafts three loop factors: the item count (one, two, at the cap, over it), the window's edges, and
 the second item answered differently (`tests/test_loops.py`).
+
+## 17. The journey console
+
+`gmsjourney/app` is a local web app over the same objects the notebook uses; nothing in it is specific to a pack.
+`server.py` (the standard library's threaded HTTP server) serves one page and a JSON API. The journey calls go
+through `studio.Studio` (state, check, preview, save) under a lock, because the active pack is process-wide. A
+campaign never runs in the server: `runs.py` starts `python -m gmsjourney.app.worker <run>` as its own process (one at
+a time), with the device in `GMSJOURNEY_DEVICE`. The worker calls `run_campaign` with an `on_step` hook and appends
+events to `events.jsonl` (start, step_start, step_done with that step's summary, log lines, done with the headline,
+error). The page polls from the last event it has, so a closed tab or a restarted kernel loses nothing.
+`summaries.py` turns the campaign's result dict into what each step produced (metrics, small tables, notes); it
+reads only keys the pipeline writes, so a step that was switched off reads as skipped.
+
+The page keeps two sources apart everywhere, in colour and in words: what the graph decides (read-only) and what
+the project sets (editable). The journey factors are the centre: each edit is re-checked against the graph after a
+short pause, problems are shown on the factor they belong to, and Preview walks the graph for one level with
+everything else at its default. The design follows Vercel's web interface guidelines: keyboard-operable with
+visible focus, labelled controls, the URL as state (`#/factors?f=...`, `#/run/<id>?step=7`), `aria-live` for runs
+and previews, confirmation before discarding or cancelling, status in words and colour together, light and dark
+themes, and reduced motion respected.

@@ -1,0 +1,80 @@
+"""One campaign in its own process: ``python -m gmsjourney.app.worker <run_dir>``.
+
+Reads ``<run_dir>/job.json`` (the journey, the device and the campaign settings), runs ``pipeline.run_campaign``
+and appends one JSON event per line to ``<run_dir>/events.jsonl`` as it goes:
+
+    start        the job as given
+    step_start   a step began (step, title)
+    step_done    a step finished, with what it produced (summaries.summarize: metrics, tables, notes)
+    log          a line the pipeline logged
+    done         the run finished (headline numbers); the outputs are under <run_dir>/out
+    error        the run stopped (the traceback)
+
+A separate process keeps the console responsive, lets a run be cancelled, and frees the GPU when it ends.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import sys
+import time
+import traceback
+from pathlib import Path
+
+OPTIONS = ("max_cases", "runs_per_base", "seed", "run_resilience", "run_mutation", "run_power", "run_governance",
+           "speech_controls", "calibration_bootstrap", "negative_controls_per_type", "llm_arm", "llm_mode", "llm_model",
+           "rebuild_store", "profile")
+
+
+def main(run_dir: str) -> int:
+    run = Path(run_dir)
+    job = json.loads((run / "job.json").read_text())
+    if job.get("device") and job["device"] != "auto":
+        os.environ["GMSJOURNEY_DEVICE"] = job["device"]
+    events = open(run / "events.jsonl", "a", buffering=1, encoding="utf-8")
+
+    def emit(**e) -> None:
+        e["t"] = round(time.time(), 3)
+        events.write(json.dumps(e, default=str) + "\n")
+
+    emit(type="start", job=job, pid=os.getpid())
+    try:
+        from ..pipeline import CampaignConfig, run_campaign
+        from . import summaries as S
+        sent: set[str] = set()
+
+        def finished(R, before: str | None = None) -> None:
+            # a later step's keys can appear early (step 7 already holds the release gate): only steps before the one
+            # starting count as done, and every step counts once the campaign has returned
+            lim = int(before) if before else 99
+            for k in S.done_steps(R):
+                if k not in sent and int(k) < lim:
+                    sent.add(k)
+                    emit(type="step_done", step=k, details=S.summarize(k, R))
+
+        def on_step(step: str, title: str, R) -> None:
+            finished(R, re.match(r"\d+", step).group(0))     # everything before this step is done
+            emit(type="step_start", step=step, title=title)
+
+        def log(msg, *a) -> None:
+            emit(type="log", text=" ".join(str(x) for x in (msg, *a)))
+
+        opts = {k: job[k] for k in OPTIONS if job.get(k) is not None}
+        cfg = CampaignConfig(domain=job["pack"], out_dir=str(run / "out"), device=job.get("device") or None,
+                             on_step=on_step, progress=False, **opts)
+        R = run_campaign(cfg, log=log)
+        finished(R)
+        head = S.headline(R)
+        (run / "headline.json").write_text(json.dumps(head, default=str))
+        emit(type="done", headline=head)
+        return 0
+    except Exception:                              # noqa: BLE001
+        emit(type="error", text=traceback.format_exc())
+        return 1
+    finally:
+        events.close()
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1]))

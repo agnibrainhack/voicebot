@@ -122,6 +122,27 @@ graph for any combination of levels, bank and customer, case rules, scoring and 
 against the graph as you type; Save writes the YAML (the previous file is kept as `.bak`).
 `python -m gmsjourney.project check` validates a project file from the command line.
 
+**The journey console** (`gmsjourney/app/`) puts the studio and the campaign behind one page, served from Python or
+Jupyter: `from gmsjourney import app; app.show()` in a notebook (`notebooks/journey_console.ipynb`), or
+`python -m gmsjourney.app --port 8790`. It has three parts:
+
+- **Journey**: the pack picker, an overview that sets what the graph decides (states, acts, tools, value sets,
+  limits, rules, triggers, transitions) beside what the project configures, the coverage gaps, and a read-only
+  view of the graph.
+- **You configure**: the journey factors (decision point, relevance, default, and per level a bank patch, a
+  tool's returns call by call, or what the customer says, with a preview of the expected conversation for any
+  level), the bank and the customer's scripts, case rules, categories, severities and the release gate. Every edit
+  is checked against the graph as you type; Save writes `project.yaml` and keeps a `.bak`.
+- **Campaign**: run settings, including the device (`auto`, `cpu`, `cuda:0`-`cuda:3`; those torch cannot see
+  are shown but disabled). Each run is a separate process (`python -m gmsjourney.app.worker`). The page follows
+  its 12 steps live and shows what each produced (metrics and tables: the store, the questions, the cases, the
+  rewording, the proof, the gates, the bot's results, attribution, tool faults, planted defects, training data,
+  the release gate), then links the report. Runs are kept under `output/console_runs/<id>/`.
+
+On a remote GPU kernel, `app.show()` goes through jupyter-server-proxy on JupyterHub; elsewhere forward the port.
+The page talks to the server with relative paths, so it works under a proxy prefix. `CampaignConfig(device=...)`
+(or `GMSJOURNEY_DEVICE`) sets the device for the knowledge store; `CampaignConfig(on_step=...)` reports each step.
+
 ## Quick start
 
 ```bash
@@ -541,6 +562,8 @@ gmsjourney/
   graph/             compact graphs: model, store compiler, interpreter (reference bot), KB mining, invariance controls
   knowledge/pack_compile.py  compact graph -> full graph (executable flow, speech layer)
   studio.py          the local studio server (studio_ui.html)
+  app/               the journey console: server.py (page + JSON API), runs.py (one process per run), worker.py,
+                     summaries.py (what each of the 12 steps produced), ui.html
   ontology.py journey.py oracle.py kb_truth.py bases/ enrich/ design/ sut/ evaluation/ pipeline.py report.py
 run_campaign.py · tests/ · notebooks/ · DESIGN.md · NOTICE
 tools/             check_llm (one-call transport preflight), llm_rejections (why LLM turns were rejected),
