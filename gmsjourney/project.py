@@ -236,7 +236,26 @@ def fixture_keys() -> dict[str, tuple[str, str]]:
                           ("field", "items"), ("fail_on_call_field", "call")):
             if sp.get(key):
                 out[sp[key]] = (t, kind)
+    out.update({k: v for k, v in loop_fixture_keys().items() if k not in out})
     return out
+
+
+LOOP_KEYS = {"items": "count", "last_item_age": "age", "extra_item_age": "age"}
+
+
+def loop_fixture_keys() -> dict[str, tuple[str, str]]:
+    """The bank settings of a pack that loops over a returned list (its first loop): ``items`` how many,
+    ``last_item_age`` the age of the last one, ``extra_item_age`` one more after them (outside the window)."""
+    from .domain import current
+    g = current().graph
+    lps = g.loops() if g is not None else []
+    if not lps:
+        return {}
+    lp = lps[0]
+    keys = {"items": (lp["tool"], "count")}
+    if lp.get("age"):
+        keys.update({"last_item_age": (lp["tool"], "age"), "extra_item_age": (lp["tool"], "age")})
+    return keys
 
 
 def __getattr__(name: str):                     # FIXTURE_TOOL: the map of the active pack
@@ -340,7 +359,7 @@ def check(proj: Project, domain) -> list[str]:
                     for x in v or []:
                         if x not in allowed:
                             issues.append(f"{w}.fixture.card_options: {x!r} is not in value set card_action")
-                elif k not in ("items", "last_item_age", "extra_item", "record_fail_on_call"):
+                elif k not in fixture_keys() and k not in ("items", "last_item_age", "extra_item", "record_fail_on_call"):
                     issues.append(f"{w}.fixture: unknown mock-bank setting {k!r}")
             for i, op in enumerate(L.customer):
                 sc = op.get("script")
@@ -353,7 +372,7 @@ def check(proj: Project, domain) -> list[str]:
                 for k, v in (op.get("add_slots") or {}).items():
                     chk_frame(f"{w}.customer[{i}].add_slots", f"INFORM_DISPOSITION({k}={v})" if op.get("to") is None
                               else f"{parse_frame(op['to'], cred).act}({k}={v})", sc)
-                if isinstance(op.get("item"), str):
+                if isinstance(op.get("item"), str) and op["item"] != "all":      # all: every item
                     chk_expr(f"{w}.customer[{i}].item", op["item"])
                 for k in (op.get("if_bot") or {}):
                     if k not in {"delivery", "action", "txn", "fee", "disposition"}:
@@ -459,7 +478,10 @@ def main(argv=None) -> None:
     ap.add_argument("path", nargs="?", default=None)
     a = ap.parse_args(argv)
     from .names import GraphNames
-    proj = Project.load(a.path)
+    from .domain import set_current
+    path = a.path or default_path()
+    set_current(pack_of(path))                       # the project's own pack: its tools, loops and names
+    proj = Project.load(path)
     dom = GraphNames.from_kg(pack_of(proj.path).kg)
     if a.cmd == "check":
         issues = check(proj, dom)

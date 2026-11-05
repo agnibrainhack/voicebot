@@ -365,6 +365,9 @@ def _say(a: dict[str, Any]) -> str:
         class _Fill(dict):
             def __missing__(self, k):
                 return ""
+        # [ ... {field} ... ] is said only when every field inside it has a value ("[ with {delivery}]")
+        tpl = re.sub(r"\[([^\[\]]*)\]", lambda mt: mt.group(1) if all(words.get(f) not in (None, "")
+                     for f in re.findall(r"{(\w+)}", mt.group(1))) else "", tpl)
         out = " ".join(tpl.format_map(_Fill(words)).split())
         return out[:1].upper() + out[1:]
     fields = ", ".join(f"{k.replace('_', ' ')} {v}" for k, v in words.items() if v not in (None, ""))
@@ -375,7 +378,12 @@ def _word(dom, field: str, v: Any) -> str:
     """One field value as the bot says it: a value in its lexicon wording, money as $N, else as is."""
     if v is None:
         return ""
+    if isinstance(v, dict):                          # a summary: key -> value ("T1 as recognized and T2 as ...")
+        return " and ".join(f"{k} as {_word(dom, field, x)}" for k, x in v.items()) or "nothing"
     if isinstance(v, str):
+        bv = (dom.get("bot.values") or {}).get(v)    # the bot's own word for a value
+        if bv:
+            return str(bv)
         say = ((dom.get("lexicon.values") or {}).get(v) or {}).get("say") or {}
         if say.get("canonical"):
             return say["canonical"]

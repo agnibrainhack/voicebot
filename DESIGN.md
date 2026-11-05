@@ -714,8 +714,14 @@ turn-pressure level that must end in a transfer pads to its target and, if the l
 takes the smallest padding past the target that triggers the transfer; charge review's first try already does, so
 its cases are unchanged.
 
-Not compiled yet: a compact graph that loops over a returned list (an `each` state, e.g. `charge_review_graph`, the
-domain-packs branch's compact rewrite of charge review). The compiler refuses it by name
-(`tests/test_graph_engine.py`); charge review itself runs from its PDF-built graph, whose flow already loops over
-the transactions (`load`, `next_item`, `pending`). Compiling `each` means mapping it onto those functions plus a
-per-item binding of the loop variable and a reset of the per-item counters.
+**Loops.** A compact graph can loop over a list a tool returns (an `each` state: `each`, `as`, `where`, `cap`, `do`,
+`empty`, `over_cap`, `done`; a body state's `@next` comes back for the next item). The compiler writes it as a quiet
+step that advances the loop (`loop_step`: load and filter the items the first time, then the next item, bound to the
+loop variable, with the per-item counters reset) and branches on item / empty / over / done; `$txn.transaction_id`
+reads the current item (`at`), a `$writes` field and a transfer `summary` read what the write tool truly did
+(`writes`). charge_review_graph (charge review as a compact graph) compiles to the same 276 journeys as its
+interpreter (`tests/test_pack_compile.py`). In journey generation a loop is data like everything else: the bank
+builds the list from the pack's item records (`items` how many, default 1; `last_item_age`; `extra_item_age`), the
+loop's prompts get one customer queue per item (`per_item`, a level for every item with `item: all`), and
+`project_draft.py` drafts three loop factors: the item count (one, two, at the cap, over it), the window's edges, and
+the second item answered differently (`tests/test_loops.py`).

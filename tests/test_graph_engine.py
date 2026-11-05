@@ -14,11 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-# Packs the one engine compiles. charge_review_graph (charge review rewritten as a compact graph, from the
-# domain-packs branch) loops over the transactions with an `each` state, which knowledge/pack_compile.py does not
-# compile yet; charge review itself runs from its PDF-built graph (gmsjourney/policy/charge_review/).
-PACKS = ("supplementary_card",)
-NOT_COMPILED = ("charge_review_graph",)
+PACKS = ("charge_review_graph", "supplementary_card")
 
 
 @lru_cache(maxsize=None)
@@ -237,21 +233,6 @@ def test_rules_state_distinct_facts_and_contradiction_calibration_comes_from_the
     else:
         assert h["status"] == "not_applicable" and h["tau_path"] is None, h
     print(f"ok test_rules_state_distinct_facts_and_contradiction_calibration_comes_from_the_graph {dom.name}")
-
-
-def test_a_looped_compact_graph_is_refused_by_name():
-    """A compact graph with an `each` loop fails at the compiler, naming the state, not somewhere downstream."""
-    from gmsjourney import domain
-    from gmsjourney.knowledge.pack_compile import PackCompileError, compile_pack
-    for p in NOT_COMPILED:
-        g = domain.load(p).graph
-        try:
-            compile_pack(g)
-        except PackCompileError as e:
-            assert "each" in str(e), e
-        else:
-            raise AssertionError(f"{p} compiled: move it to PACKS")
-    print("ok test_a_looped_compact_graph_is_refused_by_name")
 
 
 if __name__ == "__main__":

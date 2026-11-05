@@ -80,6 +80,11 @@ or the notebook's "Any journey" section (cells P1-P6), which opens the studio in
 The compiled flow is checked against the compact graph's own interpreter on every mined journey
 (`tests/test_pack_compile.py`).
 
+A journey can loop over a list a tool returns ("for each transaction ..."): an `each` state in the compact graph
+(see `charge_review_graph`, charge review written as a compact graph). The drafted project then varies how many
+items there are (one, two, at the cap, over it), where they sit against the window, and how the customer answers
+each one; the studio's Bank page shows the loop and its item records.
+
 What a supplementary-card campaign shows (30 base cases run, each with an enriched variant): every enriched case
 proved equivalent (128/128), the reference bot 100% on the base cases with every word grounded, every seeded defect
 caught by some suite, and the speech check flagging 95/95 word edits. On the enriched cases the reference bot scores

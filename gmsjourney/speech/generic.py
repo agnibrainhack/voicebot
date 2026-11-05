@@ -190,6 +190,13 @@ class GenericChecks:
                 return ClaimVerdict(cl, "supported", cl.value, f"exact register {f}/{hits[0]}")
             return ClaimVerdict(cl, "unsupported", None, f"exact register {f}", f"no member has this {f}")
         if f in m.value_sets:
+            summary = [v for k, v in (label or {}).items() if k not in ("act", "text") and isinstance(v, dict)]
+            if summary and f in m.write_args:           # a summary of what was written: each value must be one
+                done = {str((w.get("args") or {}).get(a)) for t, a in m.write_args[f] for w in facts.writes.get(t, [])}
+                ok = str(cl.value) in done
+                tools = ", ".join(t for t, _ in m.write_args[f])
+                return ClaimVerdict(cl, "supported" if ok else "contradicted", sorted(done), f"successful {tools}",
+                                    "" if ok else f"no successful {tools} wrote {cl.value}")
             if cl.mode == "done" and f in m.write_args:
                 done = [(t, a, w) for t, a in m.write_args[f] for w in facts.writes.get(t, [])]
                 if not done:
@@ -236,6 +243,8 @@ class GenericChecks:
             src = fs.source
             if src.startswith("caller.") and facts.caller.get(src.split(".", 1)[1]) is None and not label.get(fs.field):
                 continue
+            if fs.field in label and label[fs.field] in (None, ""):
+                continue                              # the act has no value for it (a card action with no delivery)
             if src.startswith("result."):
                 tool, _, fld = src[7:].partition(".")
                 if facts.results.get(tool, {}).get(fld) is None:
@@ -272,9 +281,14 @@ def _faithfulness(self, label: dict, read: ReadUtterance) -> list:
     act = label["act"]
     spec = self.v.c.acts.get(act)
     out = []
-    # an act is judged only when the words could show it: a cue, or a field it must say (TRANSFER's reason is optional)
-    judgeable = spec and (spec.cues or any(f.required and self.v.c.claim_field(f) for f in spec.says))
-    if judgeable and act not in read.heard and read.text.strip():
+    # an act is judged only when the words could show it: a cue, or a field it must say and has a value for
+    # (TRANSFER's reason is optional; a card action with no delivery has no delivery to say)
+    need = [self.v.c.claim_field(f) for f in (spec.says if spec else []) if f.required and label.get(f.field) is not None]
+    need = [x for x in need if x]
+    judgeable = spec and (spec.cues or need)
+    said = {c.field for c in read.claims}
+    heard = act in read.heard or (need and all(x in said for x in need))
+    if judgeable and not heard and read.text.strip():
         out.append(Finding("label_not_said", act, f"labelled {act} but the words do not express it: {read.text!r}"))
     for fld, want in label.items():
         if fld in ("act", "text") or want in (None, ""):

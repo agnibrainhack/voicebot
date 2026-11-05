@@ -76,9 +76,17 @@ def draft(dom=None) -> dict[str, Any]:
     script = {st: _slug(st) for st in prompts}
     scripts = {}
     not_repeated = [a for a in (question and question["act"], unclear and unclear["act"]) if a]
+    loops = g.loops()
+    in_loop = {st for lp in loops for st in lp["prompts"]}     # asked once per item: one queue per item
     for st in prompts:
-        scripts[script[st]] = {"default": default_answer(st),
-                               "exhausted": {"repeat_last_answer": True, "not_repeated": not_repeated}}
+        if st in in_loop:
+            scripts[script[st]] = {"per_item": True, "item_script": [default_answer(st)],
+                                   "unknown_item": default_answer(st),
+                                   "exhausted": {"repeat_last_answer": True, "not_repeated": not_repeated}}
+        else:
+            scripts[script[st]] = {"default": default_answer(st),
+                                   "exhausted": {"repeat_last_answer": True, "not_repeated": not_repeated}}
+    every = lambda st: {"item": "all"} if st in in_loop else {}          # noqa: E731  a decision for every item
     gate = next((t for t, sp in g.tools.items() if sp.get("role") == "auth"), None)
     # where policy questions are asked: the first prompt after the auth tool on the default path
     reached = {s: _tools_before(g, s) for s in prompts}
@@ -93,7 +101,7 @@ def draft(dom=None) -> dict[str, Any]:
         key = f"tool:{tool}"
         levels: dict[str, Any] = {"ok": {}}
         statuses = list(sp.get("fail", [])) + ["UNAVAILABLE"]
-        value_fields = {f: vs for f, vs in (sp.get("returns") or {}).items() if vs in g.values}
+        value_fields = {f: vs for f, vs in (sp.get("returns") or {}).items() if isinstance(vs, str) and vs in g.values}
         counted = _counted_limit(g, tool)
         said = {stt for stt in statuses for f in value_fields if _says_field(g, tool, stt, f)}
         for stt in statuses:
@@ -109,6 +117,10 @@ def draft(dom=None) -> dict[str, Any]:
                 counted = None
                 continue
             levels[_slug(stt)] = {"fixture": {key: [stt]}}
+        for f, typ in (sp.get("returns") or {}).items():   # some members of a value set: offer only one of them
+            if isinstance(typ, dict) and "subset_of" in typ and len(g.members(typ["subset_of"])) > 1:
+                for m in g.members(typ["subset_of"]):
+                    levels[_slug(f"only_{m}")] = {"fixture": {key: [{"status": sp["ok"], f: [m]}]}}
         if sp.get("echo"):
             levels["echo_mismatch"] = {"fixture": {key: [{"status": sp["ok"], sp["echo"]: "@other"}]}}
         factors.append({"name": _slug(tool), "about": sp.get("text") or f"what {tool} returns",
@@ -124,7 +136,7 @@ def draft(dom=None) -> dict[str, Any]:
             levels = {_slug(vals[0]): {}}
             for v in vals[1:]:
                 levels[_slug(v)] = {"customer": [{"script": script[st], "say": [_frame(act, **{sl: v})],
-                                                  "position": "replace"}]}
+                                                  "position": "replace", **every(st)}]}
             factors.append({"name": _slug(f"{st}_{sl}"), "about": f"the {sl.replace('_', ' ')} the customer gives at {st}",
                             "default": _slug(vals[0]), "anchor": {"state": st}, "relevant_when": "reached",
                             "levels": levels})
@@ -139,11 +151,36 @@ def draft(dom=None) -> dict[str, Any]:
                     if fr == first:
                         continue
                     # another answer, then the default one if the prompt is asked again (a switch, then a yes)
-                    levels[_slug(fr)] = {"customer": [{"script": script[st], "say": [fr, first], "position": "replace"}]}
+                    levels[_slug(fr)] = {"customer": [{"script": script[st], "say": [fr, first], "position": "replace",
+                                                       **every(st)}]}
             if len(levels) > 1:
                 factors.append({"name": _slug(st), "about": f"what the customer does at {st}",
                                 "default": next(iter(levels)), "anchor": {"state": st}, "relevant_when": "reached",
                                 "levels": levels})
+    constraints: list[str] = []
+    for lp in loops:                                  # the loop: how many items, the window's edges, mixed answers
+        constraints += _loop_factors(g, lp, factors, script, default_answer, glob_acts)
+    for st in prompts:                                # what the customer adds to an answer (optional slots)
+        act = next((a for a in g.states[st]["on"] if a not in glob_acts), None)
+        if act is None:
+            continue
+        for sl, sp in g.slot_specs(act).items():
+            if not sp.get("optional") or sp.get("correction_of") or sp["set"] not in g.values:
+                continue
+            levels = {"none": {}}
+            for m in g.members(sp["set"]):
+                extra = {need: vals[0] for need, vals in (sp.get("with") or {}).items()}
+                slots = {**extra, sl: m}
+                if st in in_loop:                     # layered onto every item's answer
+                    op = {"script": script[st], "add_slots": slots, "item": "all"}
+                else:
+                    base = default_answer(st)
+                    op = {"script": script[st], "say": [base[:-1] + (", " if base[-2] != "(" else "")
+                                                        + ", ".join(f"{k}={v}" for k, v in slots.items()) + ")"],
+                          "position": "replace"}
+                levels[_slug(m)] = {"customer": [op]}
+            factors.append({"name": _slug(f"{st}_{sl}"), "about": f"the {sl.replace('_', ' ')} the customer adds at {st}",
+                            "default": "none", "anchor": {"state": st}, "relevant_when": "reached", "levels": levels})
     if human:
         levels = {"none": {}}
         for st in prompts:
@@ -181,7 +218,10 @@ def draft(dom=None) -> dict[str, Any]:
     interrupts = " or ".join(x for x in (
         "level('unclear_answer') != 'none'" if "unclear_answer" in names else "",) if x) or "False"
     gov = " or ".join(x for x in ("level('human_request') != 'none'" if "human_request" in names else "",) if x) or "False"
-    bound = " or ".join(x for x in ("level('turn_pressure') != 'normal'" if "turn_pressure" in names else "",) if x) or "False"
+    bound_levels = [f"level('{f['name']}') in {tuple(k for k, v in f['levels'].items() if v.get('boundary'))!r}"
+                    for f in factors if f.get("role") == "loop" and any(v.get("boundary") for v in f["levels"].values())]
+    bound = " or ".join(x for x in ("level('turn_pressure') != 'normal'" if "turn_pressure" in names else "",
+                                     *bound_levels) if x) or "False"
     categories = [{"name": "recovery", "when": f"{failing} or {interrupts}"},
                   {"name": "boundary", "when": bound},
                   {"name": "governance_policy", "when": gov},
@@ -203,14 +243,63 @@ def draft(dom=None) -> dict[str, Any]:
         "fixture": {"credential": cred, "defaults": {}},
         "customer": {"answers": {st: script[st] for st in prompts}, "scripts": scripts,
                      "questions": {"script": script[q_state], "position": "start"}},
-        "factors": factors,
-        "constraints": [],
+        "factors": [{k: v for k, v in f.items() if k != "role" or v != "loop"} for f in factors],
+        "constraints": constraints,
         "categories": categories,
         "tags": tags,
         "generator": gen,
         "evaluation": evaluation,
         "speech": speech,
     }
+
+
+def _loop_factors(g, lp: dict[str, Any], factors: list[dict[str, Any]], script: dict[str, str], default_answer,
+                  glob_acts: set[str]) -> list[str]:
+    """Factors for a loop over a returned list, and the constraints that keep them meaningful: how many items the
+    list holds (one, two, at the cap, over it), where the last item sits against the window (inside, on its edge, one
+    more just outside), and the customer answering the second item differently from the first."""
+    tool, fld = lp["tool"], lp["field"]
+    name = _slug(fld)
+    levels: dict[str, Any] = {"one": {}, "two": {"fixture": {"items": 2}}}
+    if lp.get("cap"):
+        cap = int(g.limit_value(lp["cap"]))
+        if cap > 2:
+            levels[f"at_cap_{cap}"] = {"fixture": {"items": cap}, "boundary": True}
+        levels[f"over_cap_{cap + 1}"] = {"fixture": {"items": cap + 1}, "boundary": True}
+    added = [{"name": f"{name}_count", "about": f"how many {fld.replace('_', ' ')} {tool} returns (the loop handles "
+              f"them one at a time{', up to ' + lp['cap'] if lp.get('cap') else ''})", "default": "one",
+              "anchor": {"tool": tool}, "relevant_when": "reached", "role": "loop", "levels": levels}]
+    age = lp.get("age")
+    lim = (lp["where"].get(age) or {}).get("max") if age else None
+    if lim:
+        w = int(g.limit_value(lim))
+        added.append({"name": f"{name}_window", "about": f"where the items' {age.replace('_', ' ')} sit against {lim}",
+                      "default": "inside", "anchor": {"tool": tool}, "relevant_when": "reached", "role": "loop",
+                      "levels": {"inside": {}, f"last_at_{w}": {"fixture": {"last_item_age": w}, "boundary": True},
+                                 f"one_more_at_{w + 1}": {"fixture": {"extra_item_age": w + 1}, "boundary": True}}})
+    first = next((st for st in [lp["do"], *lp["prompts"]] if st in lp["prompts"]), None)
+    if first:
+        acts = [a for a in g.states[first]["on"] if a not in glob_acts]
+        slot = next(((a, sl, sp["set"]) for a in acts for sl, sp in g.slot_specs(a).items()
+                     if not sp.get("optional") and sp["set"] in g.values), None)
+        if slot:
+            act, sl, vs = slot
+            others = [m for m in g.members(vs) if _frame(act, **{sl: m}) != default_answer(first)]
+            if others:
+                added.append({"name": f"{name}_answers", "about": f"whether the customer answers {first} the same way "
+                              f"for every item (the second item answered differently)", "default": "same",
+                              "anchor": {"state": first}, "relevant_when": "reached", "role": "loop",
+                              "levels": {"same": {}, _slug(f"second_{others[0]}"): {"customer": [
+                                  {"script": script[first], "item": 1, "say": [_frame(act, **{sl: others[0]})],
+                                   "position": "replace"}]}}})
+    factors.extend(added)
+    tool_f = next((f for f in factors if f.get("anchor", {}).get("tool") == tool and f.get("role") != "loop"), None)
+    out = []
+    if tool_f:                                        # item lists only matter when the tool returns them
+        for f in added:
+            if f["anchor"].get("tool") == tool:
+                out.append(f"level('{tool_f['name']}') == '{tool_f['default']}' or level('{f['name']}') == '{f['default']}'")
+    return out
 
 
 def _tools_before(g, state: str) -> list[str] | None:
@@ -232,6 +321,8 @@ def _tools_before(g, state: str) -> list[str] | None:
             nxt = s["on"].get(g.tools[s["call"]]["ok"])
         elif k == "ask":
             nxt = next(iter(s["on"].values()))
+        elif k == "each":                            # a loop: its first item
+            nxt = s["do"]
         else:
             break
         while isinstance(nxt, (list, dict)):

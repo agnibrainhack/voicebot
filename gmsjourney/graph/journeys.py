@@ -153,6 +153,25 @@ def default_frame(state: str) -> F:
 
 
 # ============================================================================ mining
+def loop_items(spec: dict, n: int, last_age: Any = None, extra_age: Any = None) -> list[dict[str, Any]]:
+    """``n`` items of a returned list ({"items": type, "id": field, "age": field}), built from the pack's records
+    (domain.yaml -> fixtures.items.<type>: records, ages, id_prefix): the last one ``last_age`` days old, and one
+    more ``extra_age`` days old after them when given (outside a window)."""
+    from ..domain import current
+    fx = current().get(f"fixtures.items.{spec['items']}") or {}
+    recs, ages, prefix = fx.get("records") or [{}], fx.get("ages") or [1], fx.get("id_prefix", "I")
+    age_f, id_f = spec.get("age"), spec["id"]
+    out = []
+    for i in range(n):
+        r = {id_f: f"{prefix}{i + 1}", **recs[i % len(recs)]}
+        if age_f:
+            r[age_f] = ages[i % len(ages)] if (last_age is None or i < n - 1) else last_age
+        out.append(r)
+    if extra_age is not None:
+        out.append({id_f: f"{prefix}{n + 1}", **recs[n % len(recs)], **({age_f: extra_age} if age_f else {})})
+    return out
+
+
 def _list_options(tool: str, field: str, spec: dict, L) -> list[tuple[list, int, str]]:
     """(list, weight, label) for a list a tool returns: items for a loop (counts around the loop's
     cap, the edges of its window), or a subset of a value set."""
@@ -165,21 +184,11 @@ def _list_options(tool: str, field: str, spec: dict, L) -> list[tuple[list, int,
         out = [(full, 0, f"{field}=all")]
         out += [([m], 1, f"{field}=[{m}]") for m in full if len(full) > 1]
         return out
-    fx = dom.get(f"fixtures.items.{spec['items']}") or {}
-    recs, ages, prefix = fx.get("records") or [{}], fx.get("ages") or [1], fx.get("id_prefix", "I")
     loop = next((s for s in g.states.values() if s.get("each") == f"${tool}.{field}"), {})
-    age_f, id_f = spec.get("age"), spec["id"]
+    age_f = spec.get("age")
 
     def items(n: int, last_age=None, extra_age=None):
-        out = []
-        for i in range(n):
-            r = {id_f: f"{prefix}{i + 1}", **recs[i % len(recs)]}
-            if age_f:
-                r[age_f] = ages[i % len(ages)] if (last_age is None or i < n - 1) else last_age
-            out.append(r)
-        if extra_age is not None:
-            out.append({id_f: f"{prefix}{n + 1}", **recs[n % len(recs)], age_f: extra_age})
-        return out
+        return loop_items(spec, n, last_age, extra_age)
 
     out = [(items(1), 0, f"{field}=1")]
     cap = L(loop["cap"]) if loop.get("cap") else None

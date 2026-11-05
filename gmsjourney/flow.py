@@ -247,12 +247,14 @@ class Context:
     step_calls: dict[str, dict[str, Any]] = field(default_factory=dict)   # tool -> its call in this step
     kb_cache: dict[str, Any] = field(default_factory=dict)
     path: list[tuple[str, str, str]] = field(default_factory=list)         # transitions taken, in order
+    loops: dict[str, dict[str, Any]] = field(default_factory=dict)        # each-state -> its items and position
+    item: Any = None                                                      # the loop item being handled
 
     FUNCTIONS = {
         "act", "slot", "get", "set", "n", "inc", "limit", "enm", "tail", "call", "field", "echoed", "count",
         "select", "size", "has_value", "load", "next_item", "item", "pending", "overflow", "recorded",
         "claim_recorded", "claim_action", "fire", "kb_answer", "kb_log", "end", "turns", "text", "options",
-        "member",
+        "member", "loop_step", "where", "at", "writes",
     }
 
     # -- the customer's frame
@@ -371,6 +373,50 @@ class Context:
 
     def f_overflow(self) -> bool:
         return self.truncated
+
+    # -- loops over a returned list (a compiled pack's each-states)
+    def f_where(self, xs: Any, attr: str, low: Any = None, high: Any = None) -> tuple:
+        """The items of ``xs`` whose ``attr`` lies within [low, high] (either bound may be None)."""
+        return tuple(x for x in (xs or ()) if x.get(attr) is not None and (low is None or x[attr] >= low)
+                     and (high is None or x[attr] <= high))
+
+    def f_at(self, obj: Any, key: str) -> Any:
+        """A field of a loop item (or of any record)."""
+        return obj.get(key) if isinstance(obj, dict) else None
+
+    def f_loop_step(self, name: str, items: Any, cap: Any, var: str) -> str:
+        """Advance the loop ``name``: the first call loads ``items``; each call moves to the next one, binds it to
+        ``var`` and resets the per-item counters. Returns item | empty | over (more items than the cap) | done."""
+        lp = self.loops.get(name)
+        if lp is None:
+            lp = self.loops[name] = {"items": list(items or ()), "i": -1}
+            if not lp["items"]:
+                return "empty"
+        lp["i"] += 1
+        n = len(lp["items"])
+        cap = n if cap is None else cap
+        if lp["i"] >= min(cap, n):
+            self.item = None
+            return "over" if n > cap else "done"
+        self.item = lp["items"][lp["i"]]
+        self.vars[var] = self.item
+        for k in [k for k in self.vars if k.startswith(("count:", "unclear:"))]:
+            del self.vars[k]
+        return "item"
+
+    def f_writes(self, tool: str, key: str, value: str) -> dict[str, Any]:
+        """key -> value over the successful calls of a write tool (success status, echo matching)."""
+        kg = self.spec.kg
+        ok = (kg.tails(tool, "success_value") or [None])[0]
+        echo = (kg.tails(tool, "echoes") or [None])[0]
+        out: dict[str, Any] = {}
+        for e in self.trace.events:
+            if e.get("role") != "tool" or e.get("tool") != tool or e.get("ok") is False:
+                continue
+            r, a = e.get("result") or {}, e.get("args") or {}
+            if r.get("status") == ok and (not echo or r.get(echo) == a.get(echo)):
+                out[a.get(key)] = a.get(value)
+        return out
 
     # -- what the bot may claim
     def f_recorded(self) -> dict[str, str]:
@@ -512,8 +558,10 @@ class GraphOracle:
                     ctx.trace.turns += 1
                     ctx.trace.user_frames.append(frame)
                     ev = {"role": "user", "frame": frame}
-                    if hasattr(ctx.trace, "visited"):    # a compiled pack: the prompt this turn answers
+                    if hasattr(ctx.trace, "visited"):    # a compiled pack: the prompt this turn answers (and the item)
                         ev["state"] = state
+                        if ctx.item is not None:
+                            ev["item"] = dict(ctx.item)
                     ctx.trace.events.append(ev)
                     ctx.frame = frame
                     ctx.step_calls = {}

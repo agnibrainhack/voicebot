@@ -270,6 +270,22 @@ class PolicyGraph:
         self.__dict__["_loop_of"] = out
         return out
 
+    def loops(self) -> list[dict[str, Any]]:
+        """Every loop over a returned list: its each-state, the tool and field it reads, the loop variable, the item
+        type with its id and age fields, the window (``where``), the cap, and the states (and prompts) of its body."""
+        out = []
+        for name, s in self.states.items():
+            if self.kind(name) != "each":
+                continue
+            tool, _, fld = str(s["each"])[1:].partition(".")
+            spec = (self.tools.get(tool, {}).get("returns") or {}).get(fld) or {}
+            body = [x for x, lp in self.loop_of.items() if lp == name]
+            out.append({"state": name, "tool": tool, "field": fld, "var": s.get("as", "item"),
+                        "items": spec.get("items"), "id": spec.get("id"), "age": spec.get("age"),
+                        "where": dict(s.get("where") or {}), "cap": s.get("cap"), "do": s["do"], "body": body,
+                        "prompts": [x for x in body if self.kind(x) == "ask"]})
+        return out
+
     def _raw_next(self, state: str) -> list[tuple[str, dict]]:
         s = self.states[state]
         k = self.kind(state)

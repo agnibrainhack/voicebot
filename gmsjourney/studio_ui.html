@@ -190,6 +190,10 @@ function parseFrame(t) {
   return { act: m[1], slots };
 }
 const frameText = f => `${f.act}(${Object.entries(f.slots).filter(([, v]) => v !== "" && v != null).map(([k, v]) => `${k}=${v}`).join(", ")})`;
+function ITEM(article) {                         // what a per-item script's items are called: charges, or the loop's items
+  const w = D().has_items ? "charge" : "item";
+  return article ? `${/^[aeiou]/.test(w) ? "an" : "a"} ${w}` : w;
+}
 function toolStatuses(tool) { const t = D().tools.find(x => x.name === tool); return t ? [t.success, ...t.failures].filter(Boolean) : []; }
 
 // ---------------------------------------------------------------- widgets
@@ -360,7 +364,8 @@ function tools() {
         h("td", { class: "mono small" }, t.args.map(a => `${a.name} = ${a.from}`).join("\n") || "—")))))),
     h("div", { class: "split" },
       h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Limits"), h("table", {}, h("tbody", {}, ...Object.entries(d.limits).map(([k, v]) => h("tr", {}, h("td", { class: "mono" }, k), h("td", { class: "mono" }, v)))))),
-      h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Delivery fees"), h("table", {}, h("tbody", {}, ...Object.entries(d.fees || {}).map(([k, v]) => h("tr", {}, h("td", { class: "mono" }, k), h("td", { class: "mono" }, `$${v.fee}`)))))))];
+      Object.keys(d.fees || {}).length ? h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Delivery fees"), h("table", {}, h("tbody", {}, ...Object.entries(d.fees || {}).map(([k, v]) => h("tr", {}, h("td", { class: "mono" }, k), h("td", { class: "mono" }, `$${v.fee}`)))))) :
+      h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Figures"), h("table", {}, h("tbody", {}, ...Object.entries(d.figures || {}).flatMap(([k, v]) => Object.entries(v).map(([a, n]) => h("tr", {}, h("td", { class: "mono" }, k), h("td", { class: "mono" }, a), h("td", { class: "mono" }, n))))))))];
 }
 function vocab() {
   const d = D();
@@ -384,7 +389,7 @@ function derived() {
   const byState = {};
   (c.transitions_not_reached || []).forEach(t => { const [a] = t.split(">"); (byState[a] = byState[a] || []).push(t.slice(a.length + 1)); });
   return [h("h2", {}, "Names and coverage"),
-    h("p", { class: "lede" }, "Every name the harness uses comes from the graph; code refers to them through the registry (gmsjourney/domain.py) and fails loudly on a name the graph does not define. Below: what the graph offers that the configured factors do not use yet."),
+    h("p", { class: "lede" }, "Every name the harness uses comes from the graph; code refers to them through the registry (gmsjourney/names.py) and fails loudly on a name the graph does not define. Below: what the graph offers that the configured factors do not use yet."),
     h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "The nomenclature"), ...Object.entries(d.names).map(([k, v]) => h("div", { style: "margin-bottom:6px" }, h("b", {}, k), " ", h("span", { class: "muted small" }, `(${v.length})`), " ",
       h("span", { class: "chips", style: "display:inline-flex" }, ...v.map(n => pill(n, "graph")))))),
     h("div", { class: "split" },
@@ -416,13 +421,19 @@ function fixtureEditor(lv) {
   const draw = () => {
     box.replaceChildren(...Object.keys(fx).map(k => {
       let ed;
-      if (k === "auth_results") ed = statusPicker(toolOf[k], fx[k], null, true);
+      if (k.startsWith("tool:")) {                    // a compiled pack: what the tool returns, call by call
+        const tool = k.slice(5), calls = Array.isArray(fx[k]) ? fx[k] : (fx[k] = [fx[k]]);
+        ed = calls.every(c => typeof c === "string") ? statusPicker(tool, calls, null, true)
+          : h("input", { class: "mono", size: 52, value: JSON.stringify(calls), title: "call by call: a status, or {\"status\": ..., <field>: ...}",
+              onchange: e => { try { fx[k] = JSON.parse(e.target.value); changed(); } catch { toast("enter a JSON list, e.g. [{\"status\": \"NOT_ELIGIBLE\", \"reason\": \"ACCOUNT_TOO_NEW\"}]"); } } });
+      }
+      else if (k === "auth_results") ed = statusPicker(toolOf[k], fx[k], null, true);
       else if (toolOf[k]) ed = statusPicker(toolOf[k], fx[k], v => { fx[k] = v; changed(); });
       else if (k === "card_options") { fx[k] = fx[k] || []; const cards = D().value_sets.card_action?.map(v => v.value) || []; ed = listEditor(fx[k], (v, set) => h("select", { onchange: e => set(e.target.value) }, ...cards.map(c => h("option", { selected: c === v }, c))), () => cards[0], "option"); }
       else if (k === "extra_item") ed = h("input", { class: "mono", size: 44, value: JSON.stringify(fx[k]), onchange: e => { try { fx[k] = JSON.parse(e.target.value); changed(); } catch { toast("extra_item must be JSON, e.g. {\"id\": \"T9\", \"merchant\": 5, \"age\": 31, \"at\": 1}"); } } });
       else ed = h("input", { type: "number", value: fx[k], style: "width:80px", onchange: e => { fx[k] = Number(e.target.value); changed(); } });
       return h("div", { class: "row" }, pill("bank", "proj"), h("code", { title: S.fixture_keys[k] || "" }, k), ed, h("button", { class: "btn small danger", title: "remove this bank setting", onclick: () => { delete fx[k]; changed(); draw(); } }, "remove setting"));
-    }), h("div", { class: "row" }, h("select", { "aria-label": "add a bank setting", style: "width:100%", onchange: e => { const k = e.target.value; if (!k) return; fx[k] = k === "auth_results" || k === "card_options" ? [] : k === "extra_item" ? { id: "T9", merchant: 5, age: 31, at: 1 } : toolOf[k] ? toolStatuses(toolOf[k])[0] : 1; changed(); draw(); } },
+    }), h("div", { class: "row" }, h("select", { "aria-label": "add a bank setting", style: "width:100%", onchange: e => { const k = e.target.value; if (!k) return; fx[k] = k === "auth_results" || k === "card_options" ? [] : k.startsWith("tool:") ? [toolStatuses(k.slice(5))[0]] : k === "extra_item" ? { id: "T9", merchant: 5, age: 31, at: 1 } : toolOf[k] ? toolStatuses(toolOf[k])[0] : 1; changed(); draw(); } },
       h("option", { value: "" }, "+ bank setting…"), ...Object.entries(S.fixture_keys).filter(([k]) => !(k in fx)).map(([k, t]) => h("option", { value: k, title: t }, `${k} — ${t}`)))));
   };
   draw();
@@ -540,11 +551,14 @@ function preview() {
               : h("div", { class: "turn tool" }, h("span", { class: "who" }, "tool"), h("div", { class: "body" }, `${t.tool}(${Object.entries(t.args || {}).map(([k, v]) => `${k}=${v}`).join(", ")}) → ${t.ok ? (t.result?.status ?? "") : "error"}`))))),
         h("div", {},
           h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Outcome"), h("dl", { class: "kv" },
-            h("dt", {}, "end"), h("dd", {}, sig.end), h("dt", {}, "recorded"), h("dd", { class: "mono" }, (sig.recorded || []).map(r => r.join("=")).join(", ") || "—"),
-            h("dt", {}, "card action"), h("dd", { class: "mono" }, sig.action ? sig.action.join(" / ") : "—"), h("dt", {}, "transfer"), h("dd", { class: "mono" }, sig.transfer_reason || "—"),
+            h("dt", {}, "end"), h("dd", {}, sig.end),
+            ...(sig.writes ? [h("dt", {}, "writes"), h("dd", { class: "mono" }, sig.writes.map(([t, a]) => `${t}(${Object.entries(a || {}).map(([k, v]) => `${k}=${v}`).join(", ")})`).join("; ") || "—")]
+              : [h("dt", {}, "recorded"), h("dd", { class: "mono" }, (sig.recorded || []).map(r => r.join("=")).join(", ") || "—"),
+                 h("dt", {}, "card action"), h("dd", { class: "mono" }, sig.action ? sig.action.join(" / ") : "—")]),
+            h("dt", {}, "transfer"), h("dd", { class: "mono" }, sig.transfer_reason || "—"),
             h("dt", {}, "rules exercised"), h("dd", {}, h("div", { class: "chips" }, ...pv.rules.map(r => pill(r, "graph")))))),
-          h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "The mock bank"), h("div", { class: "tw" }, h("table", {}, h("thead", {}, h("tr", {}, ...["id", "merchant", "amount", "date", "age"].map(x => h("th", {}, x)))),
-            h("tbody", {}, ...pv.fixture.transactions.map(t => h("tr", {}, h("td", { class: "mono" }, t.transaction_id), h("td", {}, t.merchant), h("td", { class: "mono" }, t.amount), h("td", { class: "mono" }, t.date), h("td", { class: "mono" }, t.age_days)))))),
+          h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "The mock bank"), pv.fixture.transactions ? h("div", { class: "tw" }, h("table", {}, h("thead", {}, h("tr", {}, ...["id", "merchant", "amount", "date", "age"].map(x => h("th", {}, x)))),
+            h("tbody", {}, ...pv.fixture.transactions.map(t => h("tr", {}, h("td", { class: "mono" }, t.transaction_id), h("td", {}, t.merchant), h("td", { class: "mono" }, t.amount), h("td", { class: "mono" }, t.date), h("td", { class: "mono" }, t.age_days)))))) : null,
             h("dl", { class: "kv", style: "margin-top:8px" }, ...Object.entries(pv.fixture).filter(([k]) => !["transactions", "session_date", "credential"].includes(k)).flatMap(([k, v]) => [h("dt", { class: "mono" }, k), h("dd", { class: "mono" }, JSON.stringify(v))]))),
           h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, `Graph transitions taken (${pv.path.length})`), h("div", { class: "small mono" }, ...pv.path.map(p => h("div", {}, `${p[0]} → ${p[1]}  [${p[2]}]`)))))));
   }
@@ -559,7 +573,7 @@ function preview() {
 // ---- bank and customer
 function bank() {
   P.fixture = P.fixture || {}; const fx = P.fixture; fx.defaults = fx.defaults || {};
-  const merchants = fx.merchants = fx.merchants || [];
+  const merchants = D().has_items ? (fx.merchants = fx.merchants || []) : (fx.merchants || []);   // charges only where the graph reviews items
   const cust = P.customer = P.customer || {}; cust.answers = cust.answers || {}; cust.scripts = cust.scripts || {};
   const scripts = Object.keys(cust.scripts);
   const mtable = h("tbody");
@@ -572,11 +586,13 @@ function bank() {
     const sc = cust.scripts[name];
     return h("div", { class: "level" },
       h("div", { class: "lh" }, h("span", { class: "lname" }, name), h("span", { class: "small muted" }, "answers ", statesOfScript(name).join(", ") || "nothing yet"), h("span", { style: "flex:1" }),
-        h("label", { class: "row small" }, h("input", { type: "checkbox", checked: !!sc.per_item, onchange: e => { if (e.target.checked) sc.per_item = true; else delete sc.per_item; changed(true); } }), "one queue per charge")),
+        (D().has_items || D().loop) ? h("label", { class: "row small" }, h("input", { type: "checkbox", checked: !!sc.per_item, onchange: e => { if (e.target.checked) sc.per_item = true; else delete sc.per_item; changed(true); } }), `one queue per ${ITEM()}`) : null),
       sc.per_item ? [
-        h("div", { class: "row small" }, "each charge starts with", listEditor(sc.item_script = sc.item_script || [], (v, set) => frameEditor(v, set, name), () => "", "frame")),
-        h("div", { class: "row small" }, "a charge nobody scripted", frameEditor(sc.unknown_item || "", v => { sc.unknown_item = v; changed(); }, name)),
-        h("div", { class: "row small" }, "after the queue runs out: repeat the last", h("select", { onchange: e => { sc.exhausted = sc.exhausted || {}; sc.exhausted.repeat_last = e.target.value; changed(); } }, ...D().acts.map(a => h("option", { selected: sc.exhausted?.repeat_last === a.name }, a.name))),
+        h("div", { class: "row small" }, `each ${ITEM()} starts with`, listEditor(sc.item_script = sc.item_script || [], (v, set) => frameEditor(v, set, name), () => "", "frame")),
+        h("div", { class: "row small" }, `${ITEM("a")} nobody scripted`, frameEditor(sc.unknown_item || "", v => { sc.unknown_item = v; changed(); }, name)),
+        sc.exhausted?.repeat_last_answer ? h("label", { class: "row small" }, h("input", { type: "checkbox", checked: true, onchange: e => { sc.exhausted = sc.exhausted || {}; if (e.target.checked) sc.exhausted.repeat_last_answer = true; else delete sc.exhausted.repeat_last_answer; changed(); } }),
+            "after the queue runs out: repeat the customer's last answer", sc.exhausted.not_repeated?.length ? ` (never ${sc.exhausted.not_repeated.join(", ")})` : "")
+          : h("div", { class: "row small" }, "after the queue runs out: repeat the last", h("select", { onchange: e => { sc.exhausted = sc.exhausted || {}; sc.exhausted.repeat_last = e.target.value; changed(); } }, h("option", { value: "", selected: !sc.exhausted?.repeat_last }, "— act —"), ...D().acts.map(a => h("option", { selected: sc.exhausted?.repeat_last === a.name }, a.name))),
           "otherwise", frameEditor(sc.exhausted?.otherwise || "", v => { sc.exhausted = sc.exhausted || {}; sc.exhausted.otherwise = v; changed(); }, name))
       ] : h("div", { class: "row small" }, "otherwise says", frameEditor(sc.default || "", v => { sc.default = v; changed(); }, name)));
   };
@@ -586,11 +602,21 @@ function bank() {
       h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Session"), h("div", { class: "grid" },
         h("label", { class: "f" }, "today (session date)", h("input", { type: "date", value: fx.session_date, onchange: e => { fx.session_date = e.target.value; changed(); } })),
         h("label", { class: "f" }, "the credential that authenticates", h("input", { class: "mono", value: fx.credential, oninput: e => { fx.credential = e.target.value; changed(); } })),
-        h("label", { class: "f" }, "charge id prefix", h("input", { class: "mono", value: fx.item_id_prefix || "T", oninput: e => { fx.item_id_prefix = e.target.value; changed(); } }))),
+        D().has_items ? h("label", { class: "f" }, "charge id prefix", h("input", { class: "mono", value: fx.item_id_prefix || "T", oninput: e => { fx.item_id_prefix = e.target.value; changed(); } })) : null),
         h("h3", {}, "Bank defaults"), fixtureEditor({ fixture: fx.defaults })),
-      h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Charges"), h("p", { class: "small muted" }, `Ages must stay inside the review window (lookback_days = ${D().limits.lookback_days}); rows past the ages list are spares a level can insert.`),
+      D().has_items ? h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Charges"), h("p", { class: "small muted" }, `Ages must stay inside the review window (lookback_days = ${D().limits.lookback_days}); rows past the ages list are spares a level can insert.`),
         h("div", { class: "tw" }, h("table", {}, h("thead", {}, h("tr", {}, ...["id", "merchant", "amount", "age (days)", ""].map(x => h("th", {}, x)))), mtable)),
-        h("button", { class: "btn small", onclick: () => { merchants.push(["New merchant", "10.00"]); changed(); drawM(); } }, "+ charge"))),
+        h("button", { class: "btn small", onclick: () => { merchants.push(["New merchant", "10.00"]); changed(); drawM(); } }, "+ charge")) :
+      D().loop ? h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, `Loop: ${D().loop.state} over ${D().loop.tool}.${D().loop.field}`),
+        h("p", { class: "small muted" }, `One item at a time, asked at ${D().loop.prompts.join(", ")}`,
+          D().loop.cap ? `; at most ${Object.values(D().loop.cap)[0]} (${Object.keys(D().loop.cap)[0]})` : "",
+          ...Object.entries(D().loop.window).map(([f, w]) => `; ${f} ${Object.entries(w).map(([k, [n, v]]) => `${k} ${n} = ${v}`).join(", ")}`),
+          ". Bank settings: items (how many, default 1), last_item_age, extra_item_age (one more after them). Items come from the pack's records (domain.yaml):"),
+        h("div", { class: "tw" }, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, D().loop.id), ...Object.keys(D().loop.records[0] || {}).map(k => h("th", {}, k)), D().loop.age ? h("th", {}, D().loop.age) : null)),
+          h("tbody", {}, ...D().loop.records.map((r, i) => h("tr", {}, h("td", { class: "mono" }, `${D().loop.id_prefix}${i + 1}`), ...Object.values(r).map(v => h("td", { class: "mono" }, v)),
+            D().loop.age ? h("td", { class: "mono" }, D().loop.ages[i % Math.max(1, D().loop.ages.length)] ?? "") : null)))))) : null,
+      h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "What each tool returns by default"), h("p", { class: "small muted" }, "Every tool succeeds unless a bank default or a factor level says otherwise. Add a bank setting (left) or a level (Journey factors) to change one."),
+        h("table", {}, h("tbody", {}, ...D().tools.map(t => h("tr", {}, h("td", { class: "mono" }, t.name), h("td", {}, pill(t.success, "ok")))))))),
     h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Which script answers which bot act"),
       h("div", { class: "tw" }, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "bot act (graph state)"), h("th", {}, "script"), h("th", {}, ""))),
         h("tbody", {}, ...Object.keys(cust.answers).map(st => h("tr", {}, h("td", { class: "mono" }, st, D().states.find(s => s.name === st)?.prompts ? " " : "", D().states.find(s => s.name === st)?.prompts ? pill("prompts", "graph") : null),
@@ -601,7 +627,7 @@ function bank() {
       h("div", { class: "row", style: "margin-top:8px" }, h("input", { id: "newscript", placeholder: "new script name", size: 18 }), h("button", { class: "btn small", onclick: () => { const n = document.getElementById("newscript").value.trim(); if (!n || cust.scripts[n]) return; cust.scripts[n] = { default: "" }; changed(true); } }, "+ script"))),
     h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Where a case's policy questions are asked"), (() => { const q = cust.questions = cust.questions || {}; return h("div", { class: "row" },
       h("label", { class: "row small" }, "script", h("select", { onchange: e => { q.script = e.target.value; changed(); } }, ...scripts.map(s => h("option", { selected: s === q.script }, s)))),
-      h("label", { class: "row small" }, "charge", h("input", { class: "mono", size: 6, value: q.item ?? 0, onchange: e => { q.item = Number(e.target.value); changed(); } })),
+      h("label", { class: "row small" }, ITEM(), h("input", { class: "mono", size: 6, value: q.item ?? 0, onchange: e => { q.item = Number(e.target.value); changed(); } })),
       h("label", { class: "row small" }, "where", h("select", { onchange: e => { q.position = e.target.value; changed(); } }, ...["start", "append"].map(p => h("option", { selected: (q.position || "start") === p }, p))))); })())];
 }
 function setrules() {

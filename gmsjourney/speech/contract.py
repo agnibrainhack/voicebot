@@ -17,6 +17,8 @@ vocabulary and state layers.
 """
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -139,10 +141,14 @@ class SpeechContract:
         for t in kg.transitions():
             # a compiled transition may say acts on the way (a policy answer, a clarification, then the prompt again):
             # each said act sits between the source and the target
-            said = [x.strip("'\"") for x in (t.get("say") or []) if isinstance(x, str)]
-            said = [x for x in said if x in dialog and x != t["dst"]]
-            hops = [t["src"], *said, t["dst"]]
-            transitions += [(a, b, t.get("on", "auto") if i == 0 else "auto") for i, (a, b) in enumerate(zip(hops, hops[1:]))]
+            said, maybe = [], []
+            for x in (t.get("say") or []):              # 'ACT', or 'ACT' if <condition> else None (said only sometimes)
+                mt = re.match(r"""^['"]([A-Za-z_][A-Za-z0-9_]*)['"](\s+if\s+.*)?$""", str(x).strip())
+                if mt and mt.group(1) in dialog and mt.group(1) != t["dst"]:
+                    (maybe if mt.group(2) else said).append(mt.group(1))
+            for extra in ([[]] + [[m] for m in maybe]) if maybe else [[]]:
+                hops = [t["src"], *extra, *said, t["dst"]]
+                transitions += [(a, b, t.get("on", "auto") if i == 0 else "auto") for i, (a, b) in enumerate(zip(hops, hops[1:]))]
         if any(d not in dialog for _, d, _ in transitions):     # quiet tool steps: what the bot says next lies past them
             out: dict[str, list[tuple[str, str]]] = {}
             for s0, d0, o0 in transitions:

@@ -217,7 +217,7 @@ def build_fixture(spec: JourneySpec) -> dict[str, Any]:
         if lv is not None:
             settings.update(copy.deepcopy(lv.fixture))
     if not MERCHANTS:                                # no item list: the settings are the fixture
-        fx.update(settings)
+        fx.update(_loop_fixture(settings))
         return fx
     n = int(settings.pop("items", 0) or 0)
     last_age = settings.pop("last_item_age", None)
@@ -250,7 +250,60 @@ def _date(age_days: int) -> str:
     return (date.fromisoformat(SESSION_DATE) - timedelta(days=age_days)).isoformat()
 
 
+def _loop_fixture(settings: dict[str, Any]) -> dict[str, Any]:
+    """A compiled pack that loops over a returned list: the list the bank returns, built from the pack's item
+    records (``items`` how many, default 1; ``last_item_age``; ``extra_item_age``), unless a level scripts that tool
+    itself; a tool returning some members of a value set returns all of them by default."""
+    from .domain import current
+    g = current().graph
+    if g is None:
+        return settings
+    out = dict(settings)
+    lps = g.loops()
+    if lps:
+        from .graph.journeys import loop_items
+        lp = lps[0]
+        n = int(out.pop("items", 1) or 0)
+        last, extra = out.pop("last_item_age", None), out.pop("extra_item_age", None)
+        key = f"tool:{lp['tool']}"
+        if key not in out:
+            sp = g.tools[lp["tool"]]
+            spec = (sp.get("returns") or {})[lp["field"]]
+            items = loop_items(spec, n, last, extra)
+            out[key] = [{"status": sp["ok"] if items else (sp.get("fail") or [sp["ok"]])[0], lp["field"]: items}]
+    for t, sp in g.tools.items():                    # some members of a value set: all of them by default
+        for fld, typ in (sp.get("returns") or {}).items():
+            if isinstance(typ, dict) and "subset_of" in typ and f"tool:{t}" not in out:
+                full = list(current().get(f"fixtures.options.{typ['subset_of']}") or g.members(typ["subset_of"]))
+                out[f"tool:{t}"] = [{"status": sp["ok"], fld: full}]
+    return out
+
+
+def loop_ids(fixture: dict[str, Any]) -> list[str]:
+    """The ids of the items a compiled pack's loop will handle: the list its tool returns, inside the window."""
+    from .domain import current
+    g = current().graph
+    lps = g.loops() if g is not None else []
+    if not lps:
+        return []
+    lp = lps[0]
+    res = (fixture.get(f"tool:{lp['tool']}") or [{}])[0]
+    items = res.get(lp["field"]) if isinstance(res, dict) else None
+    out = []
+    for x in items or []:
+        ok = True
+        for fld, lim in lp["where"].items():
+            v = x.get(fld)
+            if v is None or ("max" in lim and v > g.limit_value(lim["max"])) or ("min" in lim and v < g.limit_value(lim["min"])):
+                ok = False
+        if ok:
+            out.append(x.get(lp["id"]))
+    return out
+
+
 def reviewable_ids(fixture: dict[str, Any], lookback: int | None) -> list[str]:
+    if "transactions" not in fixture:                # a compiled pack's loop (none: no per-item scripts)
+        return loop_ids(fixture)
     if lookback is None:
         return []
     return [t["transaction_id"] for t in fixture.get("transactions", []) if t["age_days"] <= lookback]
@@ -266,10 +319,11 @@ def _reasks() -> set[str]:
 
 class _Say:
     """One queued meaning card: said once (or every time, ``sticky``), only when the bot act matches ``if_bot``."""
-    __slots__ = ("frame", "sticky", "if_bot", "owner")
+    __slots__ = ("frame", "sticky", "if_bot", "owner", "also")
 
     def __init__(self, frame: F, sticky: bool = False, if_bot: dict | None = None, owner: str | None = None):
         self.frame, self.sticky, self.if_bot, self.owner = frame, sticky, dict(if_bot or {}), owner
+        self.also: tuple[str, ...] = ()              # factors that added slots to this frame (used when it is said)
 
 
 class UserSimulator:
@@ -281,6 +335,9 @@ class UserSimulator:
         self.answered: dict[str, int] = {}          # bot act -> how many times the customer answered it
         self.last_state: str | None = None          # the prompt the customer last answered
         self.used_by: set[str] = set()              # factors whose scripted frames were said
+        self._item: Any = None                      # the item the customer was last asked about (per-item scripts)
+        from .domain import current
+        self._compiled = current().graph is not None
         cfg = _P.customer
         self.answers: dict[str, str] = dict(cfg.get("answers") or {})
         self.scripts: dict[str, dict[str, Any]] = dict(cfg.get("scripts") or {})
@@ -311,6 +368,8 @@ class UserSimulator:
         if not self.scripts.get(sc, {}).get("per_item"):
             return [(sc, None)]
         item = op.get("item", 0)
+        if item == "all":                            # every item answers this way
+            return [(sc, tid) for tid in self.ids]
         idx = evaluate(item, view) if isinstance(item, str) else int(item)
         return [(sc, self.ids[idx])] if 0 <= idx < len(self.ids) else []
 
@@ -322,6 +381,8 @@ class UserSimulator:
                 for s in q:
                     if to is None or (s.frame.act == to.act and all(s.frame.get(k) == v for k, v in to.slots)):
                         s.frame = F.make(s.frame.act, **{**dict(s.frame.slots), **op["add_slots"]})
+                        if owner and owner != s.owner:
+                            s.also = (*s.also, owner)
                 continue
             frames = list(op.get("frames", ()))
             if op.get("questions"):                  # this case's policy questions, asked here
@@ -352,7 +413,10 @@ class UserSimulator:
         self.answered[act] = self.answered.get(act, 0) + 1
         sc = self.scripts.get(script, {})
         if sc.get("per_item"):
-            tid = bot_act.get("txn") or bot_act.get("current_txn")
+            tid = bot_act.get("txn") or bot_act.get("current_txn") or \
+                next((v for v in bot_act.values() if isinstance(v, str) and v in self.ids), None) or \
+                (self._item if self._compiled and bot_act.get("act") != act else None)   # a re-ask, same item
+            self._item = tid
             key = (script, tid)
             if key not in self.queues:               # a transaction the case never scripted
                 return self._emit(self._frame(sc["unknown_item"])) if sc.get("unknown_item") else None
@@ -364,8 +428,9 @@ class UserSimulator:
                 continue
             if not s.sticky:
                 q.pop(i)
-            if s.owner:
-                self.used_by.add(s.owner)
+            for o in (s.owner, *s.also):
+                if o:
+                    self.used_by.add(o)
             return self._remember(key, sc, s.frame)
         if not sc.get("per_item"):
             ex = sc.get("exhausted") or {}

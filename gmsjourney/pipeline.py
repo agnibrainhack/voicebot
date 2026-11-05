@@ -32,6 +32,7 @@ import hashlib
 import importlib.util
 import json
 import random
+import re
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -81,6 +82,8 @@ class CampaignConfig:
     run_power: bool = True
     run_governance: bool = True
     bot_factory: Callable | None = None          # default: the reference bot
+    device: str | None = None                    # torch device for the knowlytix store: cpu, cuda, cuda:0 ... (None: auto)
+    on_step: Callable | None = None              # on_step(step, title, R) when a step starts (R: the results so far)
     bot_name: str = "ReferenceBot"
     # knowlytix build (defaults: the reference build_calibrated_rag_store; knowledge/kx_store.py)
     kx_epochs: int | None = None                 # production store epochs (None: 150; shortcut for "train.epochs")
@@ -221,7 +224,18 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     t0 = time.time()
     out = Path(cfg.out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    R: dict[str, Any] = {"config": {k: v for k, v in asdict(cfg).items() if k != "bot_factory"}}
+    R: dict[str, Any] = {"config": {k: v for k, v in asdict(cfg).items() if k not in ("bot_factory", "on_step")}}
+    if cfg.device:                                # the store's encoders and training run here
+        from .knowledge import kx_store
+        kx_store.DEVICE = cfg.device
+    if cfg.on_step is not None:                   # tell the caller as each step starts, with what is done so far
+        _log, _hook = log, cfg.on_step
+
+        def log(msg: str, *a) -> None:            # noqa: F811
+            _log(msg, *a)
+            m = re.match(r"\[(\d+[a-z]?)/12\]\s*(.*)", str(msg))
+            if m:
+                _hook(m.group(1), m.group(2), R)
     dom = _domain.set_current(cfg.domain) if cfg.domain else _domain.current()
     problems = _domain.lint(dom)
     if problems:

@@ -41,6 +41,17 @@ def _q(v: Any) -> str:
     return repr(v)
 
 
+def _counter_name(target: Any) -> str | None:
+    """The name of the counter a compact target counts with ({"count": name, "upto": ...}), wherever it sits."""
+    if isinstance(target, dict):
+        if "count" in target:
+            return target["count"]
+        return next((n for v in target.values() for n in [_counter_name(v)] if n), None)
+    if isinstance(target, list):
+        return next((n for v in target for n in [_counter_name(v)] if n), None)
+    return None
+
+
 class _Compiler:
     def __init__(self, g: PolicyGraph):
         self.g = g
@@ -51,6 +62,8 @@ class _Compiler:
         self.handoff = self.T.get("tool")
         self.handoff_arg = self.T.get("arg", "reason")
         self.call_args: dict[str, dict[str, Any]] = {}
+        self.loop_vars = {st.get("as", "item") for n, st in g.states.items() if g.kind(n) == "each"}
+        self.steps: list[str] = []                    # quiet steps the compiler adds (handoff, loop steps)
 
     # ------------------------------------------------------------------ expressions
     def attr_expr(self, value_expr: str, attr: str) -> str:
@@ -61,6 +74,8 @@ class _Compiler:
     def ref(self, ref: Any) -> str:
         """A field value of the compact graph ($opening, $<limit>, $<tool>.<field>, $<slot>[.<attr>]) as an
         expression."""
+        if isinstance(ref, dict) and "$writes" in ref:           # what a write tool truly did: key -> value
+            return f"writes({_q(ref['$writes'])}, {_q(ref['key'])}, {_q(ref['value'])})"
         if isinstance(ref, dict):
             raise PackCompileError(f"field value {ref!r} is not supported by the compiler yet")
         if not isinstance(ref, str) or not ref.startswith("$"):
@@ -75,6 +90,8 @@ class _Compiler:
             return f"field({_q(head)}, {_q(tail)})"
         if not tail:
             return f"get({_q(head)})"
+        if head in self.loop_vars:                                # a field of the current loop item
+            return f"at(get({_q(head)}), {_q(tail)})"
         return self.attr_expr(f"get({_q(head)})", tail)
 
     def binding(self, ref: Any) -> str:
@@ -91,6 +108,8 @@ class _Compiler:
             return f"result.{head}.{tail}"
         if not tail:
             return f"caller.{head}"
+        if head in self.loop_vars:
+            return f"item.{tail}"
         if tail in self.num:
             return f"policy.{tail}:caller.{head}"
         return f"attribute.{tail}:caller.{head}"
@@ -154,11 +173,11 @@ class _Compiler:
              when: str = "") -> None:
         """Rows for every alternative of a compact target, in order (the first that holds is taken)."""
         alts = list(self.g.alternatives(target))
-        counter = target.get("count") if isinstance(target, dict) and "count" in target else None
+        counter = _counter_name(target)               # a counted branch, at the top or nested in a condition
         for t, c in alts:
             g2 = list(guard or []) + self.cond(c, src)
             d2 = list(do or [])
-            if counter:
+            if counter and ("count_upto" in c or "count_over" in c):
                 ok = "count_upto" in c
                 lim = c.get("count_upto") or c.get("count_over")
                 g2.append(f"n({_q('count:' + counter)}) + 1 {'<=' if ok else '>'} limit({_q(lim)})")
@@ -166,8 +185,10 @@ class _Compiler:
             self._edge(src, on, t, g2, pre, d2, say, rules, when or json.dumps(c, sort_keys=True) if c else when)
 
     def _edge(self, src, on, t, guard, pre, do, say, rules, when) -> None:
-        if t == NEXT:
-            raise PackCompileError(f"{src}: loops (each-states, @next) are not supported by the compiler yet")
+        if t == NEXT:                                             # the next item: back to the loop
+            t = self.g.loop_of.get(src)
+            if t is None:
+                raise PackCompileError(f"{src}: @next outside a loop")
         if isinstance(t, str) and t.startswith("!"):
             reason = t[1:]
             rid = (self.T.get("reasons") or {}).get(reason)
@@ -181,7 +202,7 @@ class _Compiler:
         if kind == "end":
             d.append("end()")
         self.row(src, t, on, when=when, guard=guard, pre=pre, do=d, say=say,
-                 rules=[*(rules or []), *self.into(t)], quiet=(kind == "call"))
+                 rules=[*(rules or []), *self.into(t)], quiet=(kind in ("call", "each")))
 
     # ------------------------------------------------------------------ the machine
     def compile(self) -> None:
@@ -191,8 +212,8 @@ class _Compiler:
         for name, s in g.states.items():
             kind = g.kind(name)
             if kind == "each":
-                raise PackCompileError(f"{name}: loops (each-states) are not supported by the compiler yet")
-            if kind == "say":
+                self._each(name, s)
+            elif kind == "say":
                 rules = self.into(name) if name == g.start else []         # the first state is entered, not reached
                 self.goto(name, "auto", s["go"], rules=rules)
             elif kind == "call":
@@ -215,16 +236,38 @@ class _Compiler:
                 self._ask(name, s, human, question, unclear, tl, global_acts)
         # the transfer: say TRANSFER (reason), end the bot's turn, call the handoff tool, stop
         if self.T:
-            if self.T.get("summary"):
-                raise PackCompileError("transfers.summary is not supported by the compiler yet")
             step = f"{self.ts}__HANDOFF"
             self.row(self.ts, step, "auto", when=f"call {self.handoff}", quiet=True, flush=True)
             self.row(step, self.T.get("then", g.end_state), "auto", when=f"{self.handoff} called",
                      guard=[f"call({_q(self.handoff)}) or True"], quiet=True)
             self.call_args[self.handoff] = {self.handoff_arg: "$reason"}
-            self.steps = [step]
-        else:
-            self.steps = []
+            self.steps.append(step)
+            sm = self.T.get("summary")
+            if sm:                               # before a transfer: what was truly done, when anything was
+                val = self.ref(sm["value"])
+                for r in self.rows:
+                    if r["dst"] == self.ts and r["src"] != self.ts:
+                        q = r["q"]
+                        q["do"] = [*q.get("do", []), f"fire({_q(sm['rule'])}) if {val} else None"]
+                        q["say"] = [f"{_q(sm['act'])} if {val} else None", *q.get("say", [])]
+
+    def _each(self, name: str, s: dict[str, Any]) -> None:
+        """A loop over a returned list: a quiet step advances it (loads and filters the items the first time, then
+        moves to the next item, binding it and resetting the per-item counters) and branches on the outcome."""
+        items = self.ref(s["each"])
+        for fld, lim in (s.get("where") or {}).items():
+            low = f"limit({_q(lim['min'])})" if "min" in lim else "None"
+            high = f"limit({_q(lim['max'])})" if "max" in lim else "None"
+            items = f"where({items}, {_q(fld)}, {low}, {high})"
+        cap = f"limit({_q(s['cap'])})" if s.get("cap") else "None"
+        var, step, key = s.get("as", "item"), f"{name}__STEP", f"loop:{name}"
+        self.row(name, step, "auto", when="next item", quiet=True,
+                 do=[f"set({_q(key)}, loop_step({_q(name)}, {items}, {cap}, {_q(var)}))"])
+        self.steps.append(step)
+        outcomes = [("item", s["do"]), ("empty", s.get("empty") or s.get("done")),
+                    ("over", s.get("over_cap") or s["done"]), ("done", s["done"])]
+        for outcome, target in outcomes:
+            self.goto(step, "auto", target, guard=[f"get({_q(key)}) == {_q(outcome)}"], when=f"loop {name}: {outcome}")
 
     def _ask(self, name, s, human, question, unclear, tl, global_acts) -> None:
         g = self.g
@@ -277,7 +320,7 @@ def compile_pack(g: PolicyGraph):
     c.compile()
     triples = [t for t in to_triples(g) if t["relation"] != "leads_to"]
     G = g.glob
-    call_states = [s for s in g.states if g.kind(s) == "call"]
+    call_states = [s for s in g.states if g.kind(s) in ("call", "each")]
     said = {}                                    # acts said that are not states of the compact machine
     if G.get("question"):
         said[G["question"]["answer"]] = "ANSWER_KB"
@@ -296,8 +339,13 @@ def compile_pack(g: PolicyGraph):
         if t["relation"] == "is_a" and t["tail"] == "dialog_state" and t["head"] in call_states:
             t["tail"] = CALL_STEP
             t["gms"] = False                     # the trained store keeps the compact graph's view of it
-    for st in getattr(c, "steps", []):
-        add(st, "is_a", CALL_STEP, "dialog", "transfers")
+    for st in c.steps:
+        add(st, "is_a", CALL_STEP, "dialog", "transfers" if st.endswith("__HANDOFF") else f"states.{st.split('__')[0]}")
+    sm = (g.transfers or {}).get("summary")
+    if sm and sm["act"] not in g.states:          # the summary said before a transfer, when it is not a state
+        add(sm["act"], "is_a", "dialog_state", "dialog", "transfers.summary")
+        add(sm["act"], "prompts_customer", "no", "dialog", "transfers.summary", state=sm["act"])
+        add(sm["act"], "carries", sm["field"], "flow", "transfers.summary", qualifiers={"from": c.ref(sm["value"])})
     for act, stage_like in said.items():
         add(act, "is_a", "dialog_state", "dialog", "global")
         add(act, "prompts_customer", "no", "dialog", "global", state=act)
@@ -311,7 +359,7 @@ def compile_pack(g: PolicyGraph):
             qualifiers=r["q"], gms=False, state=r["src"])
     # what each act carries, and what each said field is bound to
     for name, s in g.states.items():
-        if g.kind(name) == "call":
+        if g.kind(name) in ("call", "each"):
             continue
         for i, (fld, ref) in enumerate((s.get("say") or {}).items()):
             add(name, "carries", fld, "flow", f"states.{name}", qualifiers={"from": c.ref(ref)})
@@ -338,8 +386,17 @@ def compile_pack(g: PolicyGraph):
             add(tool, "has_arg", a, "tool", f"tools.{tool}", qualifiers={"from": expr})
     for tool, sp in g.tools.items():
         for fld, typ in (sp.get("returns") or {}).items():
-            add(tool, "returns_field", fld, "tool", f"tools.{tool}",
-                qualifiers={"type": "value" if typ in g.values else str(typ), "values_from": typ if typ in g.values else None})
+            if isinstance(typ, dict) and "items" in typ:           # a list of items: the list and each item's fields
+                add(tool, "returns_field", fld, "tool", f"tools.{tool}", qualifiers={"type": "list", "items": typ["items"]})
+                for role, ftype in (("id", "id"), ("age", "days")):
+                    if typ.get(role):
+                        add(tool, "returns_field", typ[role], "tool", f"tools.{tool}", qualifiers={"type": ftype, "of": fld})
+            elif isinstance(typ, dict) and "subset_of" in typ:     # some members of a value set
+                add(tool, "returns_field", fld, "tool", f"tools.{tool}",
+                    qualifiers={"type": "value", "values_from": typ["subset_of"], "subset": True})
+            else:
+                add(tool, "returns_field", fld, "tool", f"tools.{tool}",
+                    qualifiers={"type": "value" if typ in g.values else str(typ), "values_from": typ if typ in g.values else None})
         if sp.get("echo"):
             add(tool, "echoes", sp["echo"], "tool", f"tools.{tool}")
     kg = graph_kg(g)

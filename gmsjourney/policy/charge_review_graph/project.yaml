@@ -1,0 +1,517 @@
+# Project configuration of the Charge Review Voice-Bot Policy pack, drafted from its policy graph (python -m gmsjourney.project_draft).
+# Every name here is the graph's; check it with: python -m gmsjourney.project check /home/claude/voicebot_latest/gmsjourney/policy/charge_review_graph/project.yaml
+# Edit it in the studio:  python -m gmsjourney.studio --pack charge_review_graph
+#
+# A factor with relevant_when: reached is relevant when a case reaches its anchor (a tool call or a prompt), decided
+# by walking the case through the graph. Fixture keys tool:<name> list what that tool returns on its 1st, 2nd, ...
+# call (a status, or a result object); the last result repeats.
+
+project: {name: Charge Review Voice-Bot Policy}
+fixture:
+  credential: '4821'
+  defaults: {}
+customer:
+  answers: {ASK_AUTH: ask_auth, ASK_AUTH_RETRY: ask_auth_retry, PRESENT_TXN: present_txn, PROVIDE_CONTEXT: provide_context,
+    CONFIRM_ACTION: confirm_action, ASK_MORE_HELP: ask_more_help}
+  scripts:
+    ask_auth:
+      default: PROVIDE_CREDENTIAL(credential=$credential)
+      exhausted:
+        repeat_last_answer: true
+        not_repeated: [ASK_KB, UNCLEAR]
+    ask_auth_retry:
+      default: PROVIDE_CREDENTIAL(credential=$credential)
+      exhausted:
+        repeat_last_answer: true
+        not_repeated: [ASK_KB, UNCLEAR]
+    present_txn:
+      per_item: true
+      item_script: [INFORM_DISPOSITION(disposition=RECOGNIZED)]
+      unknown_item: INFORM_DISPOSITION(disposition=RECOGNIZED)
+      exhausted:
+        repeat_last_answer: true
+        not_repeated: [ASK_KB, UNCLEAR]
+    provide_context:
+      per_item: true
+      item_script: [INFORM_DISPOSITION(disposition=RECOGNIZED)]
+      unknown_item: INFORM_DISPOSITION(disposition=RECOGNIZED)
+      exhausted:
+        repeat_last_answer: true
+        not_repeated: [ASK_KB, UNCLEAR]
+    confirm_action:
+      per_item: true
+      item_script: [CONFIRM()]
+      unknown_item: CONFIRM()
+      exhausted:
+        repeat_last_answer: true
+        not_repeated: [ASK_KB, UNCLEAR]
+    ask_more_help:
+      default: END()
+      exhausted:
+        repeat_last_answer: true
+        not_repeated: [ASK_KB, UNCLEAR]
+  questions: {script: present_txn, position: start}
+factors:
+- name: authenticate_customer
+  about: authenticate_customer | Before account-specific servicing | AUTHENTICATED / FAILED | Continue only on AUTHENTICATED.
+  default: ok
+  anchor: {tool: authenticate_customer}
+  relevant_when: reached
+  levels:
+    ok: {}
+    retry_authenticated:
+      fixture:
+        tool:authenticate_customer: [FAILED, AUTHENTICATED]
+    failed_2x:
+      fixture:
+        tool:authenticate_customer: [FAILED, FAILED]
+      boundary: true
+    unavailable:
+      fixture:
+        tool:authenticate_customer: [UNAVAILABLE]
+- name: get_review_transactions
+  about: get_review_transactions | After authentication | transaction_id, merchant, amount, date | Read only returned data;
+    review one at a time.
+  default: ok
+  anchor: {tool: get_review_transactions}
+  relevant_when: reached
+  levels:
+    ok: {}
+    empty:
+      fixture:
+        tool:get_review_transactions: [EMPTY]
+    unavailable:
+      fixture:
+        tool:get_review_transactions: [UNAVAILABLE]
+- name: record_charge_response
+  about: record_charge_response | After customer gives a clear disposition | SUCCESS / FAILED | Advance only after SUCCESS;
+    otherwise transfer.
+  default: ok
+  anchor: {tool: record_charge_response}
+  relevant_when: reached
+  levels:
+    ok: {}
+    failed:
+      fixture:
+        tool:record_charge_response: [FAILED]
+    unavailable:
+      fixture:
+        tool:record_charge_response: [UNAVAILABLE]
+    echo_mismatch:
+      fixture:
+        tool:record_charge_response:
+        - {status: SUCCESS, transaction_id: '@other'}
+- name: get_card_action_options
+  about: get_card_action_options | If customer also asks to secure/replace card | Eligible actions or NONE | Offer only returned
+    options.
+  default: ok
+  anchor: {tool: get_card_action_options}
+  relevant_when: reached
+  levels:
+    ok: {}
+    none:
+      fixture:
+        tool:get_card_action_options: [NONE]
+    unavailable:
+      fixture:
+        tool:get_card_action_options: [UNAVAILABLE]
+    only_secure_card:
+      fixture:
+        tool:get_card_action_options:
+        - status: OPTIONS
+          options: [SECURE_CARD]
+    only_replace_card:
+      fixture:
+        tool:get_card_action_options:
+        - status: OPTIONS
+          options: [REPLACE_CARD]
+- name: submit_card_action
+  about: submit_card_action | After customer confirms an eligible action | SUCCESS / FAILED | Claim completion only after
+    SUCCESS.
+  default: ok
+  anchor: {tool: submit_card_action}
+  relevant_when: reached
+  levels:
+    ok: {}
+    failed:
+      fixture:
+        tool:submit_card_action: [FAILED]
+    unavailable:
+      fixture:
+        tool:submit_card_action: [UNAVAILABLE]
+    echo_mismatch:
+      fixture:
+        tool:submit_card_action:
+        - {status: SUCCESS, action: '@other'}
+- name: present_txn_disposition
+  about: the disposition the customer gives at PRESENT_TXN
+  default: recognized
+  anchor: {state: PRESENT_TXN}
+  relevant_when: reached
+  levels:
+    recognized: {}
+    unrecognized:
+      customer:
+      - script: present_txn
+        say: [INFORM_DISPOSITION(disposition=UNRECOGNIZED)]
+        position: replace
+        item: all
+    unsure:
+      customer:
+      - script: present_txn
+        say: [INFORM_DISPOSITION(disposition=UNSURE)]
+        position: replace
+        item: all
+- name: provide_context_disposition
+  about: the disposition the customer gives at PROVIDE_CONTEXT
+  default: recognized
+  anchor: {state: PROVIDE_CONTEXT}
+  relevant_when: reached
+  levels:
+    recognized: {}
+    unrecognized:
+      customer:
+      - script: provide_context
+        say: [INFORM_DISPOSITION(disposition=UNRECOGNIZED)]
+        position: replace
+        item: all
+    unsure:
+      customer:
+      - script: provide_context
+        say: [INFORM_DISPOSITION(disposition=UNSURE)]
+        position: replace
+        item: all
+- name: confirm_action
+  about: what the customer does at CONFIRM_ACTION
+  default: confirm
+  anchor: {state: CONFIRM_ACTION}
+  relevant_when: reached
+  levels:
+    confirm: {}
+    deny:
+      customer:
+      - script: confirm_action
+        say: [DENY(), CONFIRM()]
+        position: replace
+        item: all
+    request_card_action_card_action_secure_card:
+      customer:
+      - script: confirm_action
+        say: [REQUEST_CARD_ACTION(card_action=SECURE_CARD), CONFIRM()]
+        position: replace
+        item: all
+    request_card_action_card_action_replace_card:
+      customer:
+      - script: confirm_action
+        say: [REQUEST_CARD_ACTION(card_action=REPLACE_CARD), CONFIRM()]
+        position: replace
+        item: all
+- name: ask_more_help
+  about: what the customer does at ASK_MORE_HELP
+  default: end
+  anchor: {state: ASK_MORE_HELP}
+  relevant_when: reached
+  levels:
+    end: {}
+    confirm:
+      customer:
+      - script: ask_more_help
+        say: [CONFIRM(), END()]
+        position: replace
+    deny:
+      customer:
+      - script: ask_more_help
+        say: [DENY(), END()]
+        position: replace
+- name: transactions_count
+  about: how many transactions get_review_transactions returns (the loop handles them one at a time, up to max_transactions_per_session)
+  default: one
+  anchor: {tool: get_review_transactions}
+  relevant_when: reached
+  levels:
+    one: {}
+    two:
+      fixture: {items: 2}
+    at_cap_4:
+      fixture: {items: 4}
+      boundary: true
+    over_cap_5:
+      fixture: {items: 5}
+      boundary: true
+- name: transactions_window
+  about: where the items' age days sit against lookback_days
+  default: inside
+  anchor: {tool: get_review_transactions}
+  relevant_when: reached
+  levels:
+    inside: {}
+    last_at_30:
+      fixture: {last_item_age: 30}
+      boundary: true
+    one_more_at_31:
+      fixture: {extra_item_age: 31}
+      boundary: true
+- name: transactions_answers
+  about: whether the customer answers PRESENT_TXN the same way for every item (the second item answered differently)
+  default: same
+  anchor: {state: PRESENT_TXN}
+  relevant_when: reached
+  levels:
+    same: {}
+    second_unrecognized:
+      customer:
+      - script: present_txn
+        item: 1
+        say: [INFORM_DISPOSITION(disposition=UNRECOGNIZED)]
+        position: replace
+- name: present_txn_card_action
+  about: the card action the customer adds at PRESENT_TXN
+  default: none
+  anchor: {state: PRESENT_TXN}
+  relevant_when: reached
+  levels:
+    none: {}
+    secure_card:
+      customer:
+      - script: present_txn
+        add_slots: {card_action: SECURE_CARD}
+        item: all
+    replace_card:
+      customer:
+      - script: present_txn
+        add_slots: {card_action: REPLACE_CARD}
+        item: all
+- name: present_txn_delivery
+  about: the delivery the customer adds at PRESENT_TXN
+  default: none
+  anchor: {state: PRESENT_TXN}
+  relevant_when: reached
+  levels:
+    none: {}
+    standard_delivery:
+      customer:
+      - script: present_txn
+        add_slots: {card_action: REPLACE_CARD, delivery: standard_delivery}
+        item: all
+    expedited_delivery:
+      customer:
+      - script: present_txn
+        add_slots: {card_action: REPLACE_CARD, delivery: expedited_delivery}
+        item: all
+- name: provide_context_card_action
+  about: the card action the customer adds at PROVIDE_CONTEXT
+  default: none
+  anchor: {state: PROVIDE_CONTEXT}
+  relevant_when: reached
+  levels:
+    none: {}
+    secure_card:
+      customer:
+      - script: provide_context
+        add_slots: {card_action: SECURE_CARD}
+        item: all
+    replace_card:
+      customer:
+      - script: provide_context
+        add_slots: {card_action: REPLACE_CARD}
+        item: all
+- name: provide_context_delivery
+  about: the delivery the customer adds at PROVIDE_CONTEXT
+  default: none
+  anchor: {state: PROVIDE_CONTEXT}
+  relevant_when: reached
+  levels:
+    none: {}
+    standard_delivery:
+      customer:
+      - script: provide_context
+        add_slots: {card_action: REPLACE_CARD, delivery: standard_delivery}
+        item: all
+    expedited_delivery:
+      customer:
+      - script: provide_context
+        add_slots: {card_action: REPLACE_CARD, delivery: expedited_delivery}
+        item: all
+- name: human_request
+  about: the customer asks for a person at a prompt
+  default: none
+  relevant_when: reached
+  levels:
+    none: {}
+    at_ask_auth:
+      customer:
+      - script: ask_auth
+        say: [REQUEST_HUMAN()]
+        position: start
+    at_ask_auth_retry:
+      customer:
+      - script: ask_auth_retry
+        say: [REQUEST_HUMAN()]
+        position: start
+    at_present_txn:
+      customer:
+      - script: present_txn
+        say: [REQUEST_HUMAN()]
+        position: start
+    at_provide_context:
+      customer:
+      - script: provide_context
+        say: [REQUEST_HUMAN()]
+        position: start
+    at_confirm_action:
+      customer:
+      - script: confirm_action
+        say: [REQUEST_HUMAN()]
+        position: start
+    at_ask_more_help:
+      customer:
+      - script: ask_more_help
+        say: [REQUEST_HUMAN()]
+        position: start
+- name: unclear_answer
+  about: an answer that carries no decision, once (recovered) or past the clarification limit
+  default: none
+  relevant_when: reached
+  levels:
+    none: {}
+    once_at_ask_auth:
+      customer:
+      - script: ask_auth
+        say: [UNCLEAR()]
+        position: start
+    persists_at_ask_auth:
+      customer:
+      - script: ask_auth
+        say: [UNCLEAR(), UNCLEAR()]
+        position: start
+    once_at_ask_auth_retry:
+      customer:
+      - script: ask_auth_retry
+        say: [UNCLEAR()]
+        position: start
+    persists_at_ask_auth_retry:
+      customer:
+      - script: ask_auth_retry
+        say: [UNCLEAR(), UNCLEAR()]
+        position: start
+    once_at_present_txn:
+      customer:
+      - script: present_txn
+        say: [UNCLEAR()]
+        position: start
+    persists_at_present_txn:
+      customer:
+      - script: present_txn
+        say: [UNCLEAR(), UNCLEAR()]
+        position: start
+    once_at_provide_context:
+      customer:
+      - script: provide_context
+        say: [UNCLEAR()]
+        position: start
+    persists_at_provide_context:
+      customer:
+      - script: provide_context
+        say: [UNCLEAR(), UNCLEAR()]
+        position: start
+    once_at_confirm_action:
+      customer:
+      - script: confirm_action
+        say: [UNCLEAR()]
+        position: start
+    persists_at_confirm_action:
+      customer:
+      - script: confirm_action
+        say: [UNCLEAR(), UNCLEAR()]
+        position: start
+    once_at_ask_more_help:
+      customer:
+      - script: ask_more_help
+        say: [UNCLEAR()]
+        position: start
+    persists_at_ask_more_help:
+      customer:
+      - script: ask_more_help
+        say: [UNCLEAR(), UNCLEAR()]
+        position: start
+- name: policy_question
+  about: the customer asks a policy question at PRESENT_TXN
+  default: none
+  role: questions
+  anchor: {state: PRESENT_TXN}
+  relevant_when: reached
+  levels:
+    none: {}
+    ask: {questions: 1}
+- name: turn_pressure
+  about: how close the conversation runs to the turn limit
+  default: normal
+  role: turn_target
+  anchor: {state: PRESENT_TXN}
+  relevant_when: reached
+  levels:
+    normal: {}
+    at_limit: {turn_target: limit('max_turns'), exact: true, avoid_transfer: turn_limit, boundary: true}
+    over_limit: {turn_target: limit('max_turns') + 1, transfer: turn_limit, boundary: true}
+constraints: [level('get_review_transactions') == 'ok' or level('transactions_count') == 'one', level('get_review_transactions')
+    == 'ok' or level('transactions_window') == 'inside']
+categories:
+- {name: recovery, when: level('authenticate_customer') != 'ok' or level('get_review_transactions') != 'ok' or level('record_charge_response')
+    != 'ok' or level('get_card_action_options') != 'ok' or level('submit_card_action') != 'ok' or level('transactions_count')
+    != 'ok' or level('transactions_window') != 'ok' or level('unclear_answer') != 'none'}
+- {name: boundary, when: 'level(''turn_pressure'') != ''normal'' or level(''transactions_count'') in (''at_cap_4'', ''over_cap_5'')
+    or level(''transactions_window'') in (''last_at_30'', ''one_more_at_31'')'}
+- {name: governance_policy, when: level('human_request') != 'none'}
+- {name: procedural_ordering, when: 'True'}
+tags:
+- {name: procedural_ordering, when: 'True'}
+- {name: recovery, when: level('authenticate_customer') != 'ok' or level('get_review_transactions') != 'ok' or level('record_charge_response')
+    != 'ok' or level('get_card_action_options') != 'ok' or level('submit_card_action') != 'ok' or level('transactions_count')
+    != 'ok' or level('transactions_window') != 'ok' or level('unclear_answer') != 'none'}
+- {name: boundary, when: 'level(''turn_pressure'') != ''normal'' or level(''transactions_count'') in (''at_cap_4'', ''over_cap_5'')
+    or level(''transactions_window'') in (''last_at_30'', ''one_more_at_31'')'}
+- {name: governance_policy, when: level('human_request') != 'none'}
+generator:
+  policy_question_case: {policy_question: ask}
+  padding_questions: ['ASK_KB(attr=fee_usd, entity=standard_delivery, intent=value)', 'ASK_KB(attr=fee_usd, entity=expedited_delivery,
+      intent=value)', 'ASK_KB(attr=business_days_max, entity=standard_delivery, intent=value)', 'ASK_KB(attr=business_days_max,
+      entity=expedited_delivery, intent=value)', 'ASK_KB(intent=limit, key=max_transactions_per_session)', 'ASK_KB(intent=limit,
+      key=lookback_days)']
+  fault_only_rules: []
+evaluation:
+  severity: {CLAIM_WITHOUT_SUCCESS: critical, ACCOUNT_TOOL_BEFORE_AUTH: critical, SUBMIT_WITHOUT_CONFIRMATION: critical, FEE_NOT_DISCLOSED: critical,
+    TOOL_AFTER_TRANSFER: critical, WRONG_RECORD: critical, HALLUCINATION_DETECTED: critical, OUTCOME_INCORRECT: high, ESCALATION_MISSED: high,
+    AUTH_ATTEMPTS_EXCEEDED: high, TRANSACTION_LIMIT_EXCEEDED: high, FACT_INCORRECT: high, WRONG_CARD_ACTION: high, PROCESS_DEVIATION: moderate,
+    TURN_LIMIT_EXCEEDED: moderate, ESCALATION_INAPPROPRIATE: moderate, UNCLEAN_TERMINATION: moderate, STAGE_INCORRECT: moderate,
+    BUDGET_EXCEEDED: low, TOOL_LOOP: low, RUNTIME_INVARIANCE: low, SPEECH_CONTRADICTED: critical, SPEECH_UNSUPPORTED: critical,
+    SPEECH_UNFAITHFUL: high, SPEECH_MISSING: moderate, SPEECH_FLOW: low, POLICY_RULE_BROKEN: critical, LIMIT_EXCEEDED: high,
+    WRONG_STATEMENT: high}
+  tier_escalation:
+    action_taking: {moderate: high, high: critical}
+    informational: {}
+  release_gate:
+    informational:
+      accuracy_threshold: 0.8
+      max_critical: 0
+      max_high_rate: 0.1
+      min_within_budget: null
+      failure_budget: {HALLUCINATION_DETECTED: 0}
+    action_taking:
+      accuracy_threshold: 0.95
+      max_critical: 0
+      max_high_rate: 0.02
+      min_within_budget: 0.95
+      failure_budget: {HALLUCINATION_DETECTED: 0, CLAIM_WITHOUT_SUCCESS: 0, ACCOUNT_TOOL_BEFORE_AUTH: 0, SUBMIT_WITHOUT_CONFIRMATION: 0}
+speech:
+  also_allowed:
+    any: [ASK_CLARIFY, END]
+  signals:
+    condition_openers: [if, when, unless, in case]
+    recording: [recorded, i've noted, i have noted, noted that, noted it, noted the, saved, logged, marked, captured, i've
+        put, i have put]
+    completion: [has been, have been, is done, that's done, it's done, all done, done\b, completed, is complete, submitted,
+      'i''ve (?:secured|locked|replaced|frozen|blocked|ordered|sent|submitted)', 'i have (?:secured|locked|replaced|frozen|blocked|ordered|sent|submitted)',
+      is now]
+    offer: [shall i, should i, would you like, do you want, can i, may i, i can, want me to]
+    fee: [fee, fees, cost, costs, price, pay, charge for, 'charges? you']
+    free: [free, no fee, no charge, at no cost]

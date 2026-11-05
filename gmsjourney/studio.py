@@ -111,8 +111,38 @@ class Studio:
                          for t in D.triggers.values()],
             "names": {k: list(v) for k, v in D.all_names().items()},
             "fees": {o: {"fee": self.store.lookup_enm("delivery_fee_usd", o)}
-                     for o in D.value_sets.get("delivery", ())} if D.value_sets.get("delivery") else {},
+                     for o in D.value_sets.get("delivery", ())} if D.value_sets.get("delivery") and
+            getattr(self.pack, "graph", None) is None else {},        # charge review's fees; a compiled pack: figures
+            "has_items": bool(D.item_tool) and getattr(self.pack, "graph", None) is None,   # charge review's charges
+            "figures": self._figures(),
+            "loop": self._loop(),
         }
+
+    def _loop(self) -> dict[str, Any] | None:
+        """A compiled pack's loop over a returned list: what it reads, its cap and window, and the item records."""
+        g = getattr(self.pack, "graph", None)
+        lps = g.loops() if g is not None else []
+        if not lps:
+            return None
+        lp = lps[0]
+        spec = (g.tools[lp["tool"]].get("returns") or {})[lp["field"]]
+        fx = self.pack.get(f"fixtures.items.{spec['items']}") or {}
+        return {"state": lp["state"], "tool": lp["tool"], "field": lp["field"], "prompts": lp["prompts"],
+                "cap": {lp["cap"]: g.limit_value(lp["cap"])} if lp.get("cap") else None,
+                "window": {f: {k: (v, g.limit_value(v)) for k, v in lim.items()} for f, lim in lp["where"].items()},
+                "id": lp["id"], "age": lp["age"], "records": fx.get("records") or [], "ages": fx.get("ages") or [],
+                "id_prefix": fx.get("id_prefix", "I")}
+
+    def _figures(self) -> dict[str, dict[str, Any]]:
+        """value -> attribute -> the figure the policy states (a pack compiled from a compact graph)."""
+        g = getattr(self.pack, "graph", None)
+        if g is None:
+            return {}
+        out: dict[str, dict[str, Any]] = {}
+        for attr, spec in g.numeric_attributes().items():
+            for m in spec["members"]:
+                out.setdefault(m, {})[attr] = g.attr(m, attr)
+        return out
 
     def coverage(self, proj: Project) -> dict[str, Any]:
         """What the configured levels reach: graph outcomes and customer choices covered or missed, and the
@@ -125,8 +155,9 @@ class Studio:
         for f in proj.factors.values():
             for L in f.levels.values():
                 for k, v in L.fixture.items():
-                    if k in FIXTURE_TOOL:
-                        statuses[FIXTURE_TOOL[k][0]].update(v if isinstance(v, list) else [v])
+                    if k in FIXTURE_TOOL:                    # a status, or a result object carrying one
+                        statuses[FIXTURE_TOOL[k][0]].update(x.get("status") if isinstance(x, dict) else x
+                                                            for x in (v if isinstance(v, list) else [v]))
                     if k == "record_fail_on_call":
                         statuses[roles.RECORD].add(N.status.FAILED)
                     if k == "card_options":
@@ -204,7 +235,16 @@ class Studio:
     def state(self) -> dict[str, Any]:
         return {"path": str(self.project.path), "project": self.project.raw, "domain": self.domain_view(),
                 "derived": derived(self.domain), "issues": check(self.project, self.domain),
-                "coverage": self.coverage(self.project), "fixture_keys": FIXTURE_KEYS}
+                "coverage": self.coverage(self.project), "fixture_keys": self.fixture_keys()}
+
+    def fixture_keys(self) -> dict[str, str]:
+        """The bank settings a level can patch: charge review's named settings, or tool:<name> for a pack
+        compiled from a compact graph (what that tool returns, call by call)."""
+        if getattr(self.pack, "graph", None) is None:
+            return FIXTURE_KEYS
+        from .project import fixture_keys
+        return {k: f"{t} returns these, call by call (a status, or a result object with its fields)"
+                for k, (t, _) in fixture_keys().items()}
 
     # ------------------------------------------------------------------ actions
     def _project(self, raw: dict[str, Any]) -> Project:

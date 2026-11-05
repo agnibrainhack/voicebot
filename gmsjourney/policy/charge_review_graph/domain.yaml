@@ -54,6 +54,7 @@ lexicon:
         synonym: '{obj} is mine'
         colloquial: yep, {obj} was me
       cues:
+      - recognized
       - i recognize
       - i do recognize
       - recognize (?:it|that|this|the)
@@ -572,3 +573,34 @@ lexicon:
           max_transactions_per_session: Max transactions?
           lookback_days: Lookback window?
           max_auth_attempts: Verification attempts?
+
+# The reference bot's wording (graph/bot.py): a line per act, fields in braces ([ ... ] only when its fields have values); values in the bot's own words
+# (the lexicon above words them as the customer says them). Each value word is one the speech reader's cues read.
+bot:
+  values:
+    RECOGNIZED: recognized
+    UNRECOGNIZED: unrecognized
+    UNSURE: unsure
+    SECURE_CARD: secure the card
+    REPLACE_CARD: replace the card
+    standard_delivery: standard delivery
+    expedited_delivery: expedited delivery
+  says:
+    OPENING: "{text}"
+    ASK_AUTH: "To get started, please tell me the last four digits of your card."
+    ASK_AUTH_RETRY: "That didn't match. Please tell me the last four digits of your card again."
+    PRESENT_TXN: "Let's look at charge {txn}. Do you recognize it?"
+    PROVIDE_CONTEXT: "Here are more details about charge {txn}. Do you recognize it now?"
+    CONFIRM_RECORDED: "Thanks, I've noted charge {txn} as {disposition}."
+    DISCLOSE_FEE: "{delivery} has a fee of {fee}."
+    CONFIRM_ACTION: "To confirm: you'd like to {action}[ with {delivery}]. Shall I go ahead?"
+    ACTION_DONE: "All done: we will {action}[ with {delivery}]."
+    ACK_DECLINED: "Okay, I won't make any change to your card."
+    INFORM_NO_CARD_ACTION: "I'm sorry, that card change isn't available right now."
+    EXPLAIN_LIMIT: "I can only review a limited number of charges in one call."
+    EXPLAIN_NO_TXNS: "I don't see any recent charges to review."
+    SUMMARIZE: "To summarize, I've noted {recorded}."
+    ASK_MORE_HELP: "Is there anything else I can help with?"
+    END: "Thank you for calling. Goodbye."
+    TRANSFER: "Let me transfer you to a representative who can help."
+    ASK_CLARIFY: "Sorry, I didn't catch that."

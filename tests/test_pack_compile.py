@@ -6,7 +6,10 @@ its simulated customer; the compiled flow (``flow.GraphOracle`` over ``knowledge
 same customer frames against the same tool script. Bot acts, tool calls, rules exercised and the ending must be
 identical.
 
-    python tests/test_pack_compile.py [pack ...]          (default: supplementary_card)
+Charge review's compact rewrite (charge_review_graph) loops over the transactions (an each-state: filter by the review
+window, cap, per-item counters, @next) and summarises what was recorded before a transfer.
+
+    python tests/test_pack_compile.py [pack ...]          (default: both compact packs)
 """
 from __future__ import annotations
 
@@ -82,8 +85,14 @@ def test_supplementary_card_compiles_to_the_same_journeys():
     assert not r["different"], f"{len(r['different'])} of {r['journeys']} journeys differ:\n" + _show(r["different"])
 
 
+def test_a_looped_graph_compiles_to_the_same_journeys():
+    r = check_pack("charge_review_graph")
+    assert r["journeys"] > 200, r["journeys"]
+    assert not r["different"], f"{len(r['different'])} of {r['journeys']} journeys differ:\n" + _show(r["different"])
+
+
 if __name__ == "__main__":
-    packs = sys.argv[1:] or ["supplementary_card"]
+    packs = sys.argv[1:] or ["supplementary_card", "charge_review_graph"]
     for p in packs:
         r = check_pack(p)
         print(f"{p}: {r['journeys']} journeys, {len(r['different'])} different")

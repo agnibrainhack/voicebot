@@ -286,7 +286,10 @@ def multi_threshold_design(store, theta_cal: float, n_runs: int = 12, seed: int 
     planted[f"{base.rule_id}x"] = Rule(f"{base.rule_id}x", "must" if base.stance == "must_not" else "must_not",
                                        base.subject, base.predicate, base.obj, "reversed copy", base.source)
     enm_vals = [e.as_number() for e in store.enm.values()]
-    hp, hn = hol.get("positives") or [], hol.get("negatives") or []
+    def _defect(x):                                  # a bare score (built-in cohort) or a record (graph compositions)
+        return x.get("defect") if isinstance(x, dict) else x
+    hp = [_defect(x) for x in hol.get("positives") or []]
+    hn = [_defect(x) for x in hol.get("negatives") or []]
     rows = []
     saved = dict(tens)
     try:
