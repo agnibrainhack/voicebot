@@ -1,0 +1,690 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gmsjourney Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a fixed left rail of sections, a sticky action bar, one working pane; colour marks graph vs project data */
+:root {
+  --bg: #f4f5f7; --surface: #ffffff; --raised: #fafbfc; --ink: #191d24; --muted: #5b6372; --faint: #8a93a3;
+  --line: #dde1e7; --line2: #c9cfd8; --accent: #2156b3; --accent-ink: #ffffff; --accent-soft: #e5edfa;
+  --graph: #1c6a3a; --graph-soft: #e0f1e6; --proj: #8a4d00; --proj-soft: #fbefd6;
+  --ok: #1b7543; --ok-soft: #e2f2e8; --warn: #8a6100; --warn-soft: #fbf0d3; --bad: #ae2a1c; --bad-soft: #fae5e2;
+  --f-body: "IBM Plex Sans", "Segoe UI", Helvetica, Arial, sans-serif;
+  --f-head: "IBM Plex Sans Condensed", "Arial Narrow", Arial, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #111418; --surface: #191d23; --raised: #1e232a; --ink: #e6e9ee; --muted: #9ca4b2; --faint: #6f7886;
+  --line: #2b3139; --line2: #3a414c; --accent: #86abff; --accent-ink: #0f1420; --accent-soft: #1c2944;
+  --graph: #7fd3a0; --graph-soft: #15301f; --proj: #f2c46d; --proj-soft: #3a2d10;
+  --ok: #6bcf94; --ok-soft: #15301f; --warn: #e9bf5e; --warn-soft: #3a2f12; --bad: #ff8f80; --bad-soft: #3b1d19;
+  color-scheme: dark; } }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--f-body); display: grid; grid-template-columns: 220px 1fr; grid-template-rows: auto 1fr; }
+header { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 10px 18px;
+  background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+header h1 { font: 600 1.15rem var(--f-head); margin: 0; }
+header .meta { color: var(--muted); font-size: 12.5px; font-family: var(--f-mono); }
+header .spacer { flex: 1; }
+nav { border-right: 1px solid var(--line); background: var(--surface); padding: 12px 8px; overflow-y: auto; }
+nav button { display: flex; width: 100%; justify-content: space-between; align-items: center; text-align: left; border: 0; background: none;
+  color: var(--ink); font: 500 13.5px var(--f-body); padding: 8px 10px; border-radius: 6px; cursor: pointer; }
+nav button:hover { background: var(--raised); }
+nav button.on { background: var(--accent-soft); color: var(--accent); }
+nav .grp { font: 500 10.5px var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--faint); padding: 14px 10px 4px; }
+main { overflow-y: auto; padding: 20px 24px 80px; min-width: 0; }
+h2 { font: 600 1.35rem var(--f-head); margin: 0 0 4px; }
+h3 { font: 600 1.02rem var(--f-head); margin: 18px 0 8px; }
+p.lede { color: var(--muted); margin: 0 0 16px; max-width: 80ch; }
+.btn { font: 500 13px var(--f-body); border: 1px solid var(--line2); background: var(--surface); color: var(--ink); border-radius: 6px;
+  padding: 6px 12px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.small { padding: 2px 8px; font-size: 12px; }
+.btn.danger { color: var(--bad); }
+.btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pill { display: inline-flex; align-items: center; gap: 4px; font: 500 11.5px var(--f-mono); padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.pill.graph { background: var(--graph-soft); color: var(--graph); }
+.pill.proj { background: var(--proj-soft); color: var(--proj); }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.pill.n { background: var(--raised); color: var(--muted); border: 1px solid var(--line); }
+.mono, code { font-family: var(--f-mono); font-size: 12.5px; }
+code { background: var(--raised); border: 1px solid var(--line); padding: 0 4px; border-radius: 4px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; min-width: 0; }
+.grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.stat b { display: block; font: 600 1.6rem var(--f-head); font-variant-numeric: tabular-nums; }
+.stat span { color: var(--muted); font-size: 12.5px; }
+.tw { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+th { font: 500 11px var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); background: var(--raised); position: sticky; top: 0; }
+input, select, textarea { font: 13px var(--f-body); color: var(--ink); background: var(--surface); border: 1px solid var(--line2); border-radius: 5px; padding: 4px 6px; max-width: 100%; }
+input.mono, textarea.mono { font-family: var(--f-mono); font-size: 12.5px; }
+textarea { width: 100%; }
+label.f { display: grid; gap: 3px; font-size: 12px; color: var(--muted); }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.issues { background: var(--bad-soft); color: var(--bad); border-radius: 8px; padding: 8px 12px; margin: 0 0 14px; font-size: 13px; }
+.issues li { margin: 2px 0; }
+.okbox { background: var(--ok-soft); color: var(--ok); border-radius: 8px; padding: 8px 12px; margin: 0 0 14px; font-size: 13px; }
+.factor { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); margin-bottom: 14px; }
+.factor > .fh { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--raised); border-radius: 10px 10px 0 0; }
+.factor > .fh .name { font: 600 1.05rem var(--f-head); }
+.factor > .fb { padding: 10px 14px; display: grid; gap: 10px; }
+.level { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: grid; gap: 8px; background: var(--surface); }
+.level .lh { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.level .lh .lname { font: 600 13.5px var(--f-mono); }
+.op { border-left: 3px solid var(--proj); padding: 4px 8px; display: grid; gap: 6px; background: var(--raised); border-radius: 0 6px 6px 0; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 10px; font-size: 13px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.convo { display: grid; gap: 6px; }
+.turn { display: grid; grid-template-columns: 90px 1fr; gap: 8px; align-items: start; }
+.turn .who { font: 500 11px var(--f-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding-top: 3px; }
+.turn.bot .body { background: var(--accent-soft); border-radius: 8px; padding: 6px 10px; }
+.turn.customer .body { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-family: var(--f-mono); font-size: 12.5px; }
+.turn.tool .body { font-family: var(--f-mono); font-size: 12px; color: var(--muted); padding: 2px 0; }
+.act { display: inline-block; margin: 1px 6px 1px 0; }
+.act b { font-family: var(--f-mono); font-size: 12px; }
+.act small { color: var(--muted); font-family: var(--f-mono); }
+.svgwrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+svg text { fill: var(--ink); font-family: var(--f-body); }
+svg .node rect { fill: var(--surface); stroke: var(--line2); }
+svg .node.prompt rect { stroke: var(--accent); stroke-width: 1.5; }
+svg .node.sel rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2; }
+svg .edge { fill: none; stroke: var(--line2); stroke-width: 1.1; }
+svg .edge.hi { stroke: var(--accent); stroke-width: 1.8; }
+svg .edge.dim { opacity: .15; }
+svg .stage { font: 500 10.5px var(--f-mono); letter-spacing: .08em; fill: var(--faint); text-transform: uppercase; }
+.toast { position: fixed; right: 18px; bottom: 18px; background: var(--ink); color: var(--bg); border-radius: 8px; padding: 10px 14px; font-size: 13px; z-index: 10; max-width: 420px; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+@media (max-width: 1000px) { .split { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { body { grid-template-columns: 1fr; } nav { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 6px; }
+  nav .grp { display: none; } nav button { width: auto; white-space: nowrap; } main { padding: 14px 16px 60px; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>gmsjourney Studio</h1>
+  <span class="meta" id="meta">loading…</span>
+  <span class="spacer"></span>
+  <span id="dirty" class="pill n">saved</span>
+  <span id="issuecount" class="pill n">checking…</span>
+  <button class="btn" id="btnCheck">Check</button>
+  <button class="btn primary" id="btnSave">Save</button>
+</header>
+<nav id="nav"></nav>
+<main id="main"><p class="muted">Loading the policy graph and the project…</p></main>
+<script>
+"use strict";
+let S = null;          // server state: domain, derived, coverage, issues, path, fixture_keys
+let P = null;          // the project being edited (raw YAML as an object)
+let view = "overview";
+let selState = null;
+let dirty = false;
+let lastPreview = null;
+let previewLevels = {};
+let previewQuestions = [];
+
+// ---------------------------------------------------------------- dom helpers
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "html") el.innerHTML = v;
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of kids.flat(Infinity)) {
+    if (c === null || c === undefined || c === false) continue;
+    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return el;
+}
+const pill = (t, k = "n", title) => h("span", { class: `pill ${k}`, title }, t);
+const esc = s => String(s);
+function toast(msg) { const t = h("div", { class: "toast" }, msg); document.body.append(t); setTimeout(() => t.remove(), 3500); }
+async function api(path, body) {
+  const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+  const j = await r.json();
+  if (!r.ok || j.error) throw new Error(j.error || r.statusText);
+  return j;
+}
+function setDirty(v) { dirty = v; const d = document.getElementById("dirty"); d.textContent = v ? "unsaved changes" : "saved"; d.className = `pill ${v ? "warn" : "n"}`; }
+let checkTimer = null;
+function changed(rerender = false) { setDirty(true); clearTimeout(checkTimer); checkTimer = setTimeout(runCheck, 600); if (rerender) render(); }
+async function runCheck() {
+  try { const r = await api("/api/check", { project: P }); S.issues = r.issues; S.coverage = r.coverage; showIssueCount(); if (["overview", "derived"].includes(view)) render(); }
+  catch (e) { S.issues = [String(e.message)]; showIssueCount(); }
+}
+function showIssueCount() {
+  const n = (S.issues || []).length, el = document.getElementById("issuecount");
+  el.textContent = n ? `${n} problem${n > 1 ? "s" : ""}` : "valid against the graph"; el.className = `pill ${n ? "bad" : "ok"}`;
+}
+
+// ---------------------------------------------------------------- domain helpers
+const D = () => S.domain;
+const statesOfScript = sc => Object.entries(P.customer?.answers || {}).filter(([, v]) => v === sc).map(([k]) => k);
+function actsForScript(sc) {
+  const sts = statesOfScript(sc).filter(s => D().states.find(x => x.name === s && x.prompts));
+  const set = new Set(); sts.forEach(s => D().states.find(x => x.name === s).accepts.forEach(a => set.add(a)));
+  return set.size ? [...set] : D().acts.map(a => a.name);
+}
+function parseFrame(t) {
+  const m = /^\s*([A-Z][A-Z0-9_]*)\s*(?:\((.*)\))?\s*$/.exec(String(t || ""));
+  if (!m) return { act: "", slots: {} };
+  const slots = {};
+  (m[2] || "").split(",").map(x => x.trim()).filter(Boolean).forEach(p => { const [k, ...v] = p.split("="); slots[k.trim()] = v.join("=").trim(); });
+  return { act: m[1], slots };
+}
+const frameText = f => `${f.act}(${Object.entries(f.slots).filter(([, v]) => v !== "" && v != null).map(([k, v]) => `${k}=${v}`).join(", ")})`;
+function toolStatuses(tool) { const t = D().tools.find(x => x.name === tool); return t ? [t.success, ...t.failures].filter(Boolean) : []; }
+
+// ---------------------------------------------------------------- widgets
+function frameEditor(value, onChange, script) {
+  const f = parseFrame(value);
+  const wrap = h("span", { class: "row" });
+  const acts = script ? actsForScript(script) : D().acts.map(a => a.name);
+  const sel = h("select", { "aria-label": "customer act", onchange: e => { f.act = e.target.value; f.slots = {}; onChange(frameText(f)); redraw(); } },
+    h("option", { value: "" }, "— act —"), ...[...new Set([...acts, f.act].filter(Boolean))].map(a => h("option", { value: a, selected: a === f.act }, a)));
+  function redraw() {
+    wrap.replaceChildren(sel);
+    const spec = D().acts.find(a => a.name === f.act);
+    if (!spec) return;
+    for (const [slot, q] of Object.entries(spec.slots)) {
+      const vals = q.values.length ? q.values : (slot === "credential" ? ["$credential"] : []);
+      const cur = f.slots[slot] ?? "";
+      let inp;
+      if (vals.length) inp = h("select", { "aria-label": slot, onchange: e => { f.slots[slot] = e.target.value; onChange(frameText(f)); } },
+        h("option", { value: "" }, q.required ? `${slot}…` : `${slot} (optional)`), ...vals.map(v => h("option", { value: v, selected: String(v) === String(cur) }, v)));
+      else inp = h("input", { class: "mono", size: 10, placeholder: slot, value: cur, "aria-label": slot, onchange: e => { f.slots[slot] = e.target.value; onChange(frameText(f)); } });
+      wrap.append(inp);
+    }
+  }
+  redraw();
+  return wrap;
+}
+function listEditor(arr, mk, add, label = "add") {
+  const box = h("div", { class: "row" });
+  const draw = () => {
+    box.replaceChildren(...arr.map((v, i) => h("span", { class: "row", style: "gap:4px" }, mk(v, x => { arr[i] = x; changed(); }, i),
+      h("button", { class: "btn small danger", title: "remove", onclick: () => { arr.splice(i, 1); changed(); draw(); } }, "×"))),
+      h("button", { class: "btn small", onclick: () => { arr.push(add()); changed(); draw(); } }, `+ ${label}`));
+  };
+  draw();
+  return box;
+}
+function exprInput(obj, key, placeholder) {
+  return h("input", { class: "mono", style: "width:100%", placeholder: placeholder || "expression, e.g. level('n_txn') != 0", value: obj[key] ?? "",
+    oninput: e => { if (e.target.value.trim()) obj[key] = e.target.value; else delete obj[key]; changed(); } });
+}
+function statusPicker(tool, value, onChange, multi) {
+  const st = toolStatuses(tool);
+  if (multi) {
+    const arr = Array.isArray(value) ? value : [];
+    return listEditor(arr, (v, set) => h("select", { onchange: e => set(e.target.value) }, ...st.map(s => h("option", { selected: s === v }, s))), () => st[0], "call");
+  }
+  return h("select", { onchange: e => onChange(e.target.value) }, ...st.map(s => h("option", { selected: s === value }, s)));
+}
+
+// ---------------------------------------------------------------- views
+const VIEWS = [
+  ["Overview", "overview"],
+  ["Graph", null],
+  ["State machine", "states"], ["Tools and numbers", "tools"], ["Vocabulary", "vocab"], ["Rules and triggers", "rules"],
+  ["Derived", null],
+  ["Names and coverage", "derived"],
+  ["Project", null],
+  ["Journey factors", "factors"], ["Preview a case", "preview"], ["Bank and customer", "bank"], ["Case rules", "setrules"], ["Scoring and speech", "scoring"], ["YAML", "yaml"],
+];
+function renderNav() {
+  const nav = document.getElementById("nav");
+  nav.replaceChildren(...VIEWS.map(([t, k]) => k === null ? h("div", { class: "grp" }, t) :
+    h("button", { class: view === k ? "on" : "", onclick: () => { view = k; render(); } }, t,
+      k === "factors" ? pill(String(P.factors?.length || 0)) : k === "states" ? pill(String(D().states.length)) : null)));
+}
+function render() {
+  renderNav();
+  const m = document.getElementById("main");
+  m.replaceChildren(...(({ overview, states, tools, vocab, rules, derived, factors, preview, bank, setrules, scoring, yaml })[view]()).flat().filter(Boolean));
+  m.scrollTop = m.scrollTop;
+}
+function issuesBlock(filter) {
+  const list = (S.issues || []).filter(i => !filter || i.startsWith(filter));
+  if (!list.length) return filter ? null : h("div", { class: "okbox" }, "The project is valid against the policy graph.");
+  return h("ul", { class: "issues" }, ...list.map(i => h("li", {}, i)));
+}
+
+function overview() {
+  const d = D(), c = S.coverage || {};
+  const nLevels = (P.factors || []).reduce((n, f) => n + Object.keys(f.levels || {}).length, 0);
+  return [
+    h("h2", {}, d.title || "Policy graph"),
+    h("p", { class: "lede" }, "The policy graph defines the domain: dialog states, the customer's acts, tools and their statuses, limits, rules. ",
+      "The project file holds what the graph cannot decide: the mock bank, the simulated customer and the journey factors. ",
+      pill("graph", "graph"), " marks what is read from the graph, ", pill("project", "proj"), " what you configure here."),
+    issuesBlock(),
+    h("h3", {}, "From the graph"),
+    h("div", { class: "grid" }, ...Object.entries(d.summary).map(([k, v]) => h("div", { class: "stat" }, h("b", {}, v), h("span", {}, k.replace(/_/g, " "))))),
+    h("h3", {}, "In the project"),
+    h("div", { class: "grid" },
+      h("div", { class: "stat" }, h("b", {}, (P.factors || []).length), h("span", {}, "journey factors")),
+      h("div", { class: "stat" }, h("b", {}, nLevels), h("span", {}, "levels")),
+      h("div", { class: "stat" }, h("b", {}, (P.constraints || []).length), h("span", {}, "constraints")),
+      h("div", { class: "stat" }, h("b", {}, `${c.transitions_reached ?? "–"}/${c.transitions_total ?? "–"}`), h("span", {}, "transition paths the levels reach")),
+      h("div", { class: "stat" }, h("b", {}, (c.rules_not_reached || []).length), h("span", {}, "rules no level reaches")),
+      h("div", { class: "stat" }, h("b", {}, Object.values(c.customer_choices_missing || {}).flat().length), h("span", {}, "customer choices never scripted"))),
+    h("p", { class: "small muted" }, "Coverage samples a few valid cases around every level (turn-limit padding is added only by the case generator, so the turn limit reads as not reached here). See Names and coverage for the detail."),
+  ];
+}
+
+// ---- state machine
+function stateLayout() {
+  const d = D(), order = d.stages, cols = {};
+  d.states.forEach(s => { (cols[s.stage] = cols[s.stage] || []).push(s); });
+  const W = 172, GX = 46, Hn = 30, GY = 14, top = 34;
+  const pos = {}; let x = 14, maxY = 0;
+  order.forEach(st => { (cols[st] || []).forEach((s, i) => { pos[s.name] = { x, y: top + i * (Hn + GY), w: W, h: Hn }; maxY = Math.max(maxY, top + (i + 1) * (Hn + GY)); }); x += W + GX; });
+  return { pos, width: x, height: maxY + 10, order, W };
+}
+function stateSvg() {
+  const d = D(), L = stateLayout(), ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", `0 0 ${L.width} ${L.height}`); svg.setAttribute("width", L.width); svg.setAttribute("height", L.height);
+  svg.setAttribute("role", "img"); svg.setAttribute("aria-label", "dialog states by stage, with their transitions");
+  const mk = (tag, a) => { const e = document.createElementNS(ns, tag); for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); return e; };
+  let x = 14; L.order.forEach(st => { const t = mk("text", { x, y: 18, class: "stage" }); t.textContent = st; svg.append(t); x += L.W + 46; });
+  const pairs = new Map();
+  d.states.forEach(s => s.out.forEach(t => pairs.set(`${s.name}>${t.dst}`, [s.name, t.dst])));
+  const eg = mk("g", {});
+  for (const [key, [a, b]] of pairs) {
+    const A = L.pos[a], B = L.pos[b]; if (!A || !B) continue;
+    let dPath;
+    if (a === b) dPath = `M${A.x + A.w - 20},${A.y} c 10,-16 30,-16 20,0`;
+    else {
+      const x1 = B.x >= A.x + A.w ? A.x + A.w : A.x, y1 = A.y + A.h / 2, x2 = B.x >= A.x + A.w ? B.x : (B.x + B.w <= A.x ? B.x + B.w : B.x + B.w / 2), y2 = B.y + B.h / 2;
+      const mx = (x1 + x2) / 2; dPath = `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
+    }
+    const cls = !selState ? "edge" : (a === selState || b === selState) ? "edge hi" : "edge dim";
+    eg.append(mk("path", { d: dPath, class: cls }));
+  }
+  svg.append(eg);
+  d.states.forEach(s => {
+    const p = L.pos[s.name]; if (!p) return;
+    const g = mk("g", { class: `node${s.prompts ? " prompt" : ""}${selState === s.name ? " sel" : ""}`, tabindex: 0, role: "button", "aria-label": s.name, style: "cursor:pointer" });
+    g.append(mk("rect", { x: p.x, y: p.y, width: p.w, height: p.h, rx: 6 }));
+    const t = mk("text", { x: p.x + 9, y: p.y + 19, "font-size": 11.5, "font-family": "var(--f-mono)" }); t.textContent = s.name; g.append(t);
+    const pick = () => { selState = selState === s.name ? null : s.name; render(); };
+    g.addEventListener("click", pick); g.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
+    svg.append(g);
+  });
+  return svg;
+}
+function states() {
+  const d = D(), s = d.states.find(x => x.name === selState);
+  const detail = s ? h("div", { class: "card" },
+    h("div", { class: "row" }, h("h3", { style: "margin:0" }, s.name), pill(s.stage, "graph"), s.prompts ? pill("prompts the customer", "graph") : pill("bot moves on", "n")),
+    h("dl", { class: "kv", style: "margin-top:8px" },
+      s.prompts ? [h("dt", {}, "customer may"), h("dd", {}, h("div", { class: "chips" }, ...s.accepts.map(a => pill(a, "graph"))))] : null,
+      s.prompts ? [h("dt", {}, "a bare yes / no"), h("dd", {}, `${s.yes ?? "–"} / ${s.no ?? "–"}`)] : null,
+      s.carries.length ? [h("dt", {}, "the act carries"), h("dd", {}, ...s.carries.map(c => h("div", { class: "mono" }, `${c.field} = ${c.from}`)))] : null,
+      [h("dt", {}, "governed by"), h("dd", {}, h("div", { class: "chips" }, ...s.rules.map(r => pill(r, "graph"))))]),
+    h("h3", {}, `Transitions out (${s.out.length}), in priority order`),
+    h("div", { class: "tw" }, h("table", {}, h("thead", {}, h("tr", {}, ...["on", "to", "when (the procedure)", "guard / match", "rules"].map(t => h("th", {}, t)))),
+      h("tbody", {}, ...s.out.map(t => h("tr", {}, h("td", { class: "mono" }, t.on), h("td", { class: "mono" }, t.dst), h("td", {}, t.when),
+        h("td", { class: "mono small" }, [t.match ? `match: ${t.match}` : null, t.guard ? `guard: ${t.guard}` : null, t.do.length ? `do: ${t.do.join("; ")}` : null].filter(Boolean).join("\n") || "—"),
+        h("td", {}, h("div", { class: "chips" }, ...t.rules.map(r => pill(r, "n")))))))))) :
+    h("p", { class: "muted" }, "Select a state to see what the customer may say there and every transition out of it, with its guard.");
+  return [
+    h("h2", {}, "State machine"), h("p", { class: "lede" }, `${d.states.length} dialog states in ${d.stages.length} stages; blue borders prompt the customer. The oracle walks exactly these transitions.`),
+    h("div", { class: "svgwrap" }, stateSvg()), h("div", { style: "height:14px" }), detail];
+}
+function tools() {
+  const d = D();
+  return [h("h2", {}, "Tools and numbers"), h("p", { class: "lede" }, "What the bot can call, what each call returns, and the exact numbers the policy states."),
+    h("div", { class: "card tw" }, h("table", {}, h("thead", {}, h("tr", {}, ...["tool", "stage", "statuses", "on failure", "called with"].map(t => h("th", {}, t)))),
+      h("tbody", {}, ...d.tools.map(t => h("tr", {}, h("td", { class: "mono" }, t.name), h("td", {}, t.stage),
+        h("td", {}, h("div", { class: "chips" }, pill(t.success, "ok"), ...t.failures.map(f => pill(f, "bad")))), h("td", {}, t.on_failure),
+        h("td", { class: "mono small" }, t.args.map(a => `${a.name} = ${a.from}`).join("\n") || "—")))))),
+    h("div", { class: "split" },
+      h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Limits"), h("table", {}, h("tbody", {}, ...Object.entries(d.limits).map(([k, v]) => h("tr", {}, h("td", { class: "mono" }, k), h("td", { class: "mono" }, v)))))),
+      h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Delivery fees"), h("table", {}, h("tbody", {}, ...Object.entries(d.fees || {}).map(([k, v]) => h("tr", {}, h("td", { class: "mono" }, k), h("td", { class: "mono" }, `$${v.fee}`)))))))];
+}
+function vocab() {
+  const d = D();
+  return [h("h2", {}, "Vocabulary"), h("p", { class: "lede" }, "The customer's acts and slots, and the value sets their slots draw from (with how many customer synonyms each value has)."),
+    h("div", { class: "card tw" }, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "customer act"), h("th", {}, "slots"))),
+      h("tbody", {}, ...d.acts.map(a => h("tr", {}, h("td", { class: "mono" }, a.name),
+        h("td", {}, ...Object.entries(a.slots).map(([k, q]) => h("div", { class: "small" }, h("span", { class: "mono" }, k), q.required ? " (required) " : " ", q.values_from ? h("span", { class: "muted" }, `from ${q.values_from}`) : null)))))))),
+    h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Value sets"), ...Object.entries(d.value_sets).map(([k, vals]) => h("div", { style: "margin-bottom:8px" }, h("b", { class: "mono" }, k), " ",
+      h("span", { class: "chips", style: "display:inline-flex" }, ...vals.map(v => pill(`${v.value}${v.aliases ? ` · ${v.aliases}` : ""}`, "graph", `${v.aliases} customer synonyms`))))))];
+}
+function rules() {
+  const d = D();
+  return [h("h2", {}, "Rules and escalation triggers"), h("p", { class: "lede" }, "The policy's rules with the fact each states, and the triggers that end a call in a transfer."),
+    h("div", { class: "card tw" }, h("table", {}, h("thead", {}, h("tr", {}, ...["rule", "stance", "fact", "text", "source"].map(t => h("th", {}, t)))),
+      h("tbody", {}, ...d.rules.map(r => h("tr", {}, h("td", { class: "mono" }, r.id), h("td", {}, r.stance), h("td", { class: "mono small" }, r.fact ? r.fact.join(" · ") : "—"), h("td", {}, r.text), h("td", { class: "mono small" }, r.source)))))),
+    h("div", { class: "card tw" }, h("table", {}, h("thead", {}, h("tr", {}, ...["trigger", "condition", "rule", "fires in"].map(t => h("th", {}, t)))),
+      h("tbody", {}, ...d.triggers.map(t => h("tr", {}, h("td", { class: "mono" }, t.name), h("td", {}, t.condition), h("td", { class: "mono" }, t.rule), h("td", { class: "small mono" }, t.states.join(", ")))))))];
+}
+function derived() {
+  const d = D(), c = S.coverage || {}, dv = S.derived;
+  const byState = {};
+  (c.transitions_not_reached || []).forEach(t => { const [a] = t.split(">"); (byState[a] = byState[a] || []).push(t.slice(a.length + 1)); });
+  return [h("h2", {}, "Names and coverage"),
+    h("p", { class: "lede" }, "Every name the harness uses comes from the graph; code refers to them through the registry (gmsjourney/domain.py) and fails loudly on a name the graph does not define. Below: what the graph offers that the configured factors do not use yet."),
+    h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "The nomenclature"), ...Object.entries(d.names).map(([k, v]) => h("div", { style: "margin-bottom:6px" }, h("b", {}, k), " ", h("span", { class: "muted small" }, `(${v.length})`), " ",
+      h("span", { class: "chips", style: "display:inline-flex" }, ...v.map(n => pill(n, "graph")))))),
+    h("div", { class: "split" },
+      h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Tool outcomes no level produces"),
+        Object.keys(c.tool_outcomes_missing || {}).length ? h("table", {}, h("tbody", {}, ...Object.entries(c.tool_outcomes_missing).map(([t, v]) => h("tr", {}, h("td", { class: "mono" }, t), h("td", {}, h("div", { class: "chips" }, ...v.map(x => pill(x, "warn")))))))) : h("p", { class: "muted" }, "Every status of every tool is produced by some level."),
+        h("p", { class: "small muted" }, "Add a level that sets the matching bank setting (Journey factors → a level → bank).")),
+      h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Customer choices no script makes"),
+        h("table", {}, h("tbody", {}, ...Object.entries(c.customer_choices_missing || {}).map(([s, v]) => h("tr", {}, h("td", { class: "mono" }, s), h("td", {}, h("div", { class: "chips" }, ...v.map(x => pill(x, "warn")))))))),
+        h("p", { class: "small muted" }, "The graph accepts these acts in these states, so the oracle can play them; no level makes the customer say them yet."))),
+    h("div", { class: "split" },
+      h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, `Transition paths not reached (${(c.transitions_not_reached || []).length} of ${c.transitions_total})`),
+        ...Object.entries(byState).map(([s, v]) => h("div", { style: "margin-bottom:6px" }, h("b", { class: "mono" }, s), h("div", { class: "chips" }, ...v.map(x => pill(x, "n")))))),
+      h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Rules and triggers not reached"),
+        h("div", { class: "chips" }, ...(c.rules_not_reached || []).map(r => pill(r, "warn")), ...(c.triggers_not_reached || []).map(t => pill(t, "warn"))),
+        h("h3", {}, "Limit boundaries the graph implies"),
+        h("table", {}, h("tbody", {}, ...Object.entries(dv.limit_boundaries).map(([k, v]) => h("tr", {}, h("td", { class: "mono" }, k), h("td", { class: "mono" }, `${v.just_under} · ${v.at} · ${v.just_over}`))))))),
+    h("div", { class: "card tw" }, h("h3", { style: "margin-top:0" }, "Where each level leads (a few valid cases around it)"),
+      h("table", {}, h("thead", {}, h("tr", {}, ...["level", "cases", "ends", "transfers"].map(t => h("th", {}, t)))),
+        h("tbody", {}, ...Object.entries(c.per_level || {}).map(([k, v]) => h("tr", {}, h("td", { class: "mono" }, k), h("td", {}, v.cases ?? "–"),
+          h("td", { class: "small" }, Object.entries(v.ends || {}).map(([e, n]) => `${e} ${n}`).join(", ")),
+          h("td", { class: "small" }, v.error ? h("span", { style: "color:var(--bad)" }, v.error) : Object.entries(v.transfers || {}).map(([e, n]) => `${e} ${n}`).join(", ")))))))];
+}
+
+// ---- factors
+function fixtureEditor(lv) {
+  lv.fixture = lv.fixture || {};
+  const fx = lv.fixture, box = h("div", { style: "display:grid;gap:4px" });
+  const toolOf = { auth_results: "authenticate_customer", transactions_status: "get_review_transactions", card_options_status: "get_card_action_options", submit_result: "submit_card_action", record_status: "record_charge_response", submit_status: "submit_card_action" };
+  const draw = () => {
+    box.replaceChildren(...Object.keys(fx).map(k => {
+      let ed;
+      if (k === "auth_results") ed = statusPicker(toolOf[k], fx[k], null, true);
+      else if (toolOf[k]) ed = statusPicker(toolOf[k], fx[k], v => { fx[k] = v; changed(); });
+      else if (k === "card_options") { fx[k] = fx[k] || []; const cards = D().value_sets.card_action?.map(v => v.value) || []; ed = listEditor(fx[k], (v, set) => h("select", { onchange: e => set(e.target.value) }, ...cards.map(c => h("option", { selected: c === v }, c))), () => cards[0], "option"); }
+      else if (k === "extra_item") ed = h("input", { class: "mono", size: 44, value: JSON.stringify(fx[k]), onchange: e => { try { fx[k] = JSON.parse(e.target.value); changed(); } catch { toast("extra_item must be JSON, e.g. {\"id\": \"T9\", \"merchant\": 5, \"age\": 31, \"at\": 1}"); } } });
+      else ed = h("input", { type: "number", value: fx[k], style: "width:80px", onchange: e => { fx[k] = Number(e.target.value); changed(); } });
+      return h("div", { class: "row" }, pill("bank", "proj"), h("code", { title: S.fixture_keys[k] || "" }, k), ed, h("button", { class: "btn small danger", title: "remove this bank setting", onclick: () => { delete fx[k]; changed(); draw(); } }, "remove setting"));
+    }), h("div", { class: "row" }, h("select", { "aria-label": "add a bank setting", style: "width:100%", onchange: e => { const k = e.target.value; if (!k) return; fx[k] = k === "auth_results" || k === "card_options" ? [] : k === "extra_item" ? { id: "T9", merchant: 5, age: 31, at: 1 } : toolOf[k] ? toolStatuses(toolOf[k])[0] : 1; changed(); draw(); } },
+      h("option", { value: "" }, "+ bank setting…"), ...Object.entries(S.fixture_keys).filter(([k]) => !(k in fx)).map(([k, t]) => h("option", { value: k, title: t }, `${k} — ${t}`)))));
+  };
+  draw();
+  return box;
+}
+function opEditor(op, remove) {
+  const scripts = Object.keys(P.customer?.scripts || {});
+  const kind = op.add_slots ? "add_slots" : "say";
+  const box = h("div", { class: "op" });
+  const head = h("div", { class: "row" }, pill("customer", "proj"),
+    h("label", { class: "row small" }, "script", h("select", { onchange: e => { op.script = e.target.value; changed(true); } }, ...scripts.map(s => h("option", { selected: s === op.script }, s)))),
+    P.customer?.scripts?.[op.script]?.per_item ? h("label", { class: "row small" }, "item", h("input", { class: "mono", size: 18, value: op.item ?? 0, title: "index of the reviewable charge, or an expression like min(1, items() - 1)", onchange: e => { const v = e.target.value; op.item = /^\d+$/.test(v) ? Number(v) : v; changed(); } })) : null,
+    kind === "say" ? h("label", { class: "row small" }, "where", h("select", { onchange: e => { op.position = e.target.value; changed(); } }, ...["append", "start", "replace"].map(p => h("option", { selected: (op.position || "append") === p }, p)))) : null,
+    kind === "say" ? h("label", { class: "row small" }, h("input", { type: "checkbox", checked: !!op.sticky, onchange: e => { if (e.target.checked) op.sticky = true; else delete op.sticky; changed(); } }), "every time") : null,
+    h("span", { class: "spacer", style: "flex:1" }), h("button", { class: "btn small danger", onclick: remove }, "remove"));
+  box.append(head);
+  if (kind === "say") {
+    op.say = op.say || [];
+    box.append(h("div", { class: "row small" }, "says, in order:", listEditor(op.say, (v, set) => frameEditor(v, set, op.script), () => "", "frame")));
+    const ib = op.if_bot || {};
+    box.append(h("div", { class: "row small muted" }, "only when the bot's act has", h("input", { class: "mono", size: 30, placeholder: "e.g. delivery=expedited_delivery", value: Object.entries(ib).map(([k, v]) => `${k}=${v}`).join(", "),
+      onchange: e => { const o = {}; e.target.value.split(",").map(x => x.trim()).filter(Boolean).forEach(p => { const [k, v] = p.split("="); o[k.trim()] = (v || "").trim(); }); if (Object.keys(o).length) op.if_bot = o; else delete op.if_bot; changed(); } })));
+  } else {
+    box.append(h("div", { class: "row small" }, "to the frame", frameEditor(op.to || "", v => { op.to = v; changed(); }, op.script)));
+    box.append(h("div", { class: "row small" }, "add slots", h("input", { class: "mono", size: 50, value: Object.entries(op.add_slots).map(([k, v]) => `${k}=${v}`).join(", "),
+      onchange: e => { const o = {}; e.target.value.split(",").map(x => x.trim()).filter(Boolean).forEach(p => { const [k, v] = p.split("="); o[k.trim()] = (v || "").trim(); }); op.add_slots = o; changed(); } })));
+  }
+  return box;
+}
+function levelEditor(f, name, lv, drawFactor) {
+  lv = f.levels[name] = lv || {};
+  lv.customer = lv.customer || [];
+  const ops = h("div", { style: "display:grid;gap:6px" });
+  const drawOps = () => ops.replaceChildren(...lv.customer.map((op, i) => opEditor(op, () => { lv.customer.splice(i, 1); if (!lv.customer.length) delete lv.customer; changed(); drawFactor(); })));
+  drawOps();
+  const extras = [];
+  if (f.role === "questions") extras.push(h("label", { class: "row small" }, "policy questions asked", h("input", { type: "number", min: 0, style: "width:60px", value: lv.questions || 0, onchange: e => { lv.questions = Number(e.target.value); if (!lv.questions) delete lv.questions; changed(); } })));
+  if (f.role === "turn_target") extras.push(h("label", { class: "row small" }, "pad to turns", h("input", { class: "mono", size: 24, value: lv.turn_target || "", placeholder: "limit('max_turns')", onchange: e => { if (e.target.value) lv.turn_target = e.target.value; else delete lv.turn_target; changed(); } })),
+    h("label", { class: "row small" }, h("input", { type: "checkbox", checked: !!lv.exact, onchange: e => { if (e.target.checked) lv.exact = true; else delete lv.exact; changed(); } }), "exactly"),
+    h("label", { class: "row small" }, "must transfer for", h("select", { onchange: e => { if (e.target.value) lv.transfer = e.target.value; else delete lv.transfer; changed(); } }, h("option", { value: "" }, "—"), ...D().triggers.map(t => h("option", { selected: lv.transfer === t.name }, t.name)))),
+    h("label", { class: "row small" }, "must not transfer for", h("select", { onchange: e => { if (e.target.value) lv.avoid_transfer = e.target.value; else delete lv.avoid_transfer; changed(); } }, h("option", { value: "" }, "—"), ...D().triggers.map(t => h("option", { selected: lv.avoid_transfer === t.name }, t.name)))));
+  return h("div", { class: "level" },
+    h("div", { class: "lh" }, h("span", { class: "lname" }, String(name)), f.default == name ? pill("default", "n") : null,
+      h("label", { class: "row small" }, h("input", { type: "checkbox", checked: !!lv.boundary, onchange: e => { if (e.target.checked) lv.boundary = true; else delete lv.boundary; changed(); } }), "boundary"),
+      h("span", { style: "flex:1" }),
+      h("button", { class: "btn small", onclick: () => { previewLevels = { [f.name]: name }; view = "preview"; render(); runPreview(); } }, "preview"),
+      h("button", { class: "btn small danger", onclick: () => { if (Object.keys(f.levels).length < 2) return toast("a factor needs at least one level"); delete f.levels[name]; if (f.default == name) f.default = Object.keys(f.levels)[0]; changed(); drawFactor(); } }, "delete level")),
+    fixtureEditor(lv), ops,
+    h("div", { class: "row" }, h("button", { class: "btn small", onclick: () => { lv.customer.push({ script: Object.keys(P.customer.scripts)[0], say: [] }); changed(); drawFactor(); } }, "+ customer says…"),
+      h("button", { class: "btn small", onclick: () => { lv.customer.push({ script: "capture", item: 0, add_slots: {}, to: "" }); changed(); drawFactor(); } }, "+ add slots to a frame…"), ...extras));
+}
+function factorCard(f, idx) {
+  const card = h("div", { class: "factor" });
+  const draw = () => {
+    const levels = Object.keys(f.levels || {});
+    card.replaceChildren(
+      h("div", { class: "fh" }, h("span", { class: "name" }, f.name),
+        h("input", { value: f.about || "", placeholder: "what this factor varies", style: "flex:1;min-width:200px", oninput: e => { f.about = e.target.value; changed(); } }),
+        f.role ? pill(`role: ${f.role}`, "n") : null,
+        h("label", { class: "row small" }, "default", h("select", { onchange: e => { f.default = levels.find(l => String(l) === e.target.value); changed(); draw(); } }, ...levels.map(l => h("option", { selected: String(l) === String(f.default) }, l)))),
+        h("button", { class: "btn small", title: "move up", disabled: idx === 0, onclick: () => { const a = P.factors; [a[idx - 1], a[idx]] = [a[idx], a[idx - 1]]; changed(true); } }, "↑"),
+        h("button", { class: "btn small", title: "move down", disabled: idx === P.factors.length - 1, onclick: () => { const a = P.factors; [a[idx + 1], a[idx]] = [a[idx], a[idx + 1]]; changed(true); } }, "↓"),
+        h("button", { class: "btn small danger", onclick: () => { if (confirmBox(card, `Delete factor ${f.name}?`, () => { P.factors.splice(idx, 1); changed(true); })) return; } }, "delete")),
+      h("div", { class: "fb" },
+        issuesBlock(`factors.${f.name}`),
+        h("label", { class: "f" }, "relevant when (leave empty: always)", exprInput(f, "relevant_when")),
+        ...levels.map(l => levelEditor(f, l, f.levels[l], draw)),
+        h("div", { class: "row" }, h("input", { placeholder: "new level name", size: 18, id: `nl-${f.name}` }),
+          h("button", { class: "btn small", onclick: () => { const el = document.getElementById(`nl-${f.name}`); const n = el.value.trim(); if (!n) return; const key = /^\d+$/.test(n) ? Number(n) : n; if (key in f.levels) return toast("that level exists"); f.levels[key] = {}; changed(); draw(); } }, "+ level"))));
+  };
+  draw();
+  return card;
+}
+function confirmBox(anchor, msg, yes) {
+  const bar = h("div", { class: "issues row" }, msg, h("button", { class: "btn small danger", onclick: () => { yes(); } }, "Delete"), h("button", { class: "btn small", onclick: () => bar.remove() }, "Keep"));
+  anchor.prepend(bar); return true;
+}
+function factors() {
+  return [h("h2", {}, "Journey factors"),
+    h("p", { class: "lede" }, "Each factor varies one thing that changes the correct behaviour. A level patches the mock bank and/or the customer's script; the oracle replays any combination by walking the graph, so a new level needs no code. ",
+      "Relevance decides when a factor can matter (the generator treats it as N/A otherwise). Patches apply in factor order."),
+    issuesBlock("factors"),
+    ...(P.factors || []).map((f, i) => factorCard(f, i)),
+    h("div", { class: "card row" }, h("input", { id: "newfactor", placeholder: "new factor name (letters, digits, _)", size: 32 }),
+      h("button", { class: "btn", onclick: () => { const n = document.getElementById("newfactor").value.trim(); if (!/^[a-z][a-z0-9_]*$/.test(n)) return toast("use lower-case letters, digits and _"); if (P.factors.some(f => f.name === n)) return toast("that factor exists"); P.factors.push({ name: n, about: "", default: "none", levels: { none: {} } }); changed(true); } }, "+ factor"))];
+}
+
+// ---- preview
+async function runPreview() {
+  const box = document.getElementById("pvout"); if (box) box.replaceChildren(h("p", { class: "muted" }, "Walking the graph…"));
+  try { lastPreview = await api("/api/preview", { project: P, levels: previewLevels, questions: previewQuestions }); }
+  catch (e) { lastPreview = { error: e.message }; }
+  if (view === "preview") render();
+}
+function preview() {
+  const levelSel = (P.factors || []).map(f => {
+    const cur = previewLevels[f.name] ?? f.default;
+    const rel = lastPreview && lastPreview.relevant ? lastPreview.relevant[f.name] : true;
+    return h("label", { class: "f" }, h("span", {}, f.name, rel ? "" : " · N/A here"),
+      h("select", { style: rel ? "" : "opacity:.55", onchange: e => { previewLevels[f.name] = Object.keys(f.levels).find(l => String(l) === e.target.value); } }, ...Object.keys(f.levels).map(l => h("option", { selected: String(l) === String(cur) }, l))));
+  });
+  const pv = lastPreview;
+  let out;
+  if (!pv) out = h("p", { class: "muted" }, "Pick levels and run the walk.");
+  else if (pv.error) out = h("div", { class: "issues" }, pv.error);
+  else {
+    const sig = pv.signature;
+    out = h("div", {},
+      h("div", { class: "row", style: "margin-bottom:10px" }, pv.valid ? pill("valid case", "ok") : pill("breaks a constraint", "bad"), pill(`category: ${pv.category}`, "proj"), ...pv.tags.map(t => pill(t, "n")),
+        pill(`${pv.turns} customer turns`, "n"), sig.transfer_reason ? pill(`transfer: ${sig.transfer_reason}`, "warn") : pill(sig.end, "ok")),
+      h("div", { class: "split" },
+        h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Expected conversation"),
+          h("div", { class: "convo" }, ...pv.conversation.map(t => t.role === "bot" ? h("div", { class: "turn bot" }, h("span", { class: "who" }, "bot"), h("div", { class: "body" }, ...t.acts.map(a => h("span", { class: "act" }, h("b", {}, a.act), " ", h("small", {}, Object.entries(a).filter(([k]) => k !== "act" && k !== "text").map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`).join(" "))))))
+            : t.role === "customer" ? h("div", { class: "turn customer" }, h("span", { class: "who" }, "customer"), h("div", { class: "body" }, t.frame))
+              : h("div", { class: "turn tool" }, h("span", { class: "who" }, "tool"), h("div", { class: "body" }, `${t.tool}(${Object.entries(t.args || {}).map(([k, v]) => `${k}=${v}`).join(", ")}) → ${t.ok ? (t.result?.status ?? "") : "error"}`))))),
+        h("div", {},
+          h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Outcome"), h("dl", { class: "kv" },
+            h("dt", {}, "end"), h("dd", {}, sig.end), h("dt", {}, "recorded"), h("dd", { class: "mono" }, (sig.recorded || []).map(r => r.join("=")).join(", ") || "—"),
+            h("dt", {}, "card action"), h("dd", { class: "mono" }, sig.action ? sig.action.join(" / ") : "—"), h("dt", {}, "transfer"), h("dd", { class: "mono" }, sig.transfer_reason || "—"),
+            h("dt", {}, "rules exercised"), h("dd", {}, h("div", { class: "chips" }, ...pv.rules.map(r => pill(r, "graph")))))),
+          h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "The mock bank"), h("div", { class: "tw" }, h("table", {}, h("thead", {}, h("tr", {}, ...["id", "merchant", "amount", "date", "age"].map(x => h("th", {}, x)))),
+            h("tbody", {}, ...pv.fixture.transactions.map(t => h("tr", {}, h("td", { class: "mono" }, t.transaction_id), h("td", {}, t.merchant), h("td", { class: "mono" }, t.amount), h("td", { class: "mono" }, t.date), h("td", { class: "mono" }, t.age_days)))))),
+            h("dl", { class: "kv", style: "margin-top:8px" }, ...Object.entries(pv.fixture).filter(([k]) => !["transactions", "session_date", "credential"].includes(k)).flatMap(([k, v]) => [h("dt", { class: "mono" }, k), h("dd", { class: "mono" }, JSON.stringify(v))]))),
+          h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, `Graph transitions taken (${pv.path.length})`), h("div", { class: "small mono" }, ...pv.path.map(p => h("div", {}, `${p[0]} → ${p[1]}  [${p[2]}]`)))))));
+  }
+  return [h("h2", {}, "Preview a case"), h("p", { class: "lede" }, "Choose a level per factor and the oracle walks the policy graph against the bank and customer they define. Unsaved edits are included."),
+    h("div", { class: "card" }, h("div", { class: "grid" }, ...levelSel),
+      h("div", { class: "row", style: "margin-top:10px" }, h("span", { class: "small muted" }, "policy questions the customer asks first:"),
+        listEditor(previewQuestions, (v, set) => frameEditor(v, set), () => (P.generator?.padding_questions || [""])[0], "question")),
+      h("div", { class: "row", style: "margin-top:10px" }, h("button", { class: "btn primary", onclick: runPreview }, "Walk the graph"), h("button", { class: "btn", onclick: () => { previewLevels = {}; previewQuestions.length = 0; lastPreview = null; render(); } }, "Reset to defaults"))),
+    h("div", { id: "pvout" }, out)];
+}
+
+// ---- bank and customer
+function bank() {
+  P.fixture = P.fixture || {}; const fx = P.fixture; fx.defaults = fx.defaults || {};
+  const merchants = fx.merchants = fx.merchants || [];
+  const cust = P.customer = P.customer || {}; cust.answers = cust.answers || {}; cust.scripts = cust.scripts || {};
+  const scripts = Object.keys(cust.scripts);
+  const mtable = h("tbody");
+  const drawM = () => mtable.replaceChildren(...merchants.map((m, i) => h("tr", {}, h("td", { class: "mono" }, `${fx.item_id_prefix || "T"}${i + 1}`),
+    h("td", {}, h("input", { value: m[0], oninput: e => { m[0] = e.target.value; changed(); } })), h("td", {}, h("input", { class: "mono", size: 8, value: m[1], oninput: e => { m[1] = e.target.value; changed(); } })),
+    h("td", {}, i < (fx.review_ages || []).length ? h("input", { type: "number", style: "width:70px", value: fx.review_ages[i], oninput: e => { fx.review_ages[i] = Number(e.target.value); changed(); } }) : h("span", { class: "muted small" }, "spare")),
+    h("td", {}, h("button", { class: "btn small danger", onclick: () => { merchants.splice(i, 1); if (fx.review_ages && i < fx.review_ages.length) fx.review_ages.splice(i, 1); changed(); drawM(); } }, "×")))));
+  drawM();
+  const scriptCard = name => {
+    const sc = cust.scripts[name];
+    return h("div", { class: "level" },
+      h("div", { class: "lh" }, h("span", { class: "lname" }, name), h("span", { class: "small muted" }, "answers ", statesOfScript(name).join(", ") || "nothing yet"), h("span", { style: "flex:1" }),
+        h("label", { class: "row small" }, h("input", { type: "checkbox", checked: !!sc.per_item, onchange: e => { if (e.target.checked) sc.per_item = true; else delete sc.per_item; changed(true); } }), "one queue per charge")),
+      sc.per_item ? [
+        h("div", { class: "row small" }, "each charge starts with", listEditor(sc.item_script = sc.item_script || [], (v, set) => frameEditor(v, set, name), () => "", "frame")),
+        h("div", { class: "row small" }, "a charge nobody scripted", frameEditor(sc.unknown_item || "", v => { sc.unknown_item = v; changed(); }, name)),
+        h("div", { class: "row small" }, "after the queue runs out: repeat the last", h("select", { onchange: e => { sc.exhausted = sc.exhausted || {}; sc.exhausted.repeat_last = e.target.value; changed(); } }, ...D().acts.map(a => h("option", { selected: sc.exhausted?.repeat_last === a.name }, a.name))),
+          "otherwise", frameEditor(sc.exhausted?.otherwise || "", v => { sc.exhausted = sc.exhausted || {}; sc.exhausted.otherwise = v; changed(); }, name))
+      ] : h("div", { class: "row small" }, "otherwise says", frameEditor(sc.default || "", v => { sc.default = v; changed(); }, name)));
+  };
+  return [h("h2", {}, "Bank and customer"), h("p", { class: "lede" }, "The mock bank every case runs against, and how the simulated customer answers each bot act. Factor levels patch both."),
+    issuesBlock("fixture"), issuesBlock("customer"),
+    h("div", { class: "split" },
+      h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Session"), h("div", { class: "grid" },
+        h("label", { class: "f" }, "today (session date)", h("input", { type: "date", value: fx.session_date, onchange: e => { fx.session_date = e.target.value; changed(); } })),
+        h("label", { class: "f" }, "the credential that authenticates", h("input", { class: "mono", value: fx.credential, oninput: e => { fx.credential = e.target.value; changed(); } })),
+        h("label", { class: "f" }, "charge id prefix", h("input", { class: "mono", value: fx.item_id_prefix || "T", oninput: e => { fx.item_id_prefix = e.target.value; changed(); } }))),
+        h("h3", {}, "Bank defaults"), fixtureEditor({ fixture: fx.defaults })),
+      h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Charges"), h("p", { class: "small muted" }, `Ages must stay inside the review window (lookback_days = ${D().limits.lookback_days}); rows past the ages list are spares a level can insert.`),
+        h("div", { class: "tw" }, h("table", {}, h("thead", {}, h("tr", {}, ...["id", "merchant", "amount", "age (days)", ""].map(x => h("th", {}, x)))), mtable)),
+        h("button", { class: "btn small", onclick: () => { merchants.push(["New merchant", "10.00"]); changed(); drawM(); } }, "+ charge"))),
+    h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Which script answers which bot act"),
+      h("div", { class: "tw" }, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "bot act (graph state)"), h("th", {}, "script"), h("th", {}, ""))),
+        h("tbody", {}, ...Object.keys(cust.answers).map(st => h("tr", {}, h("td", { class: "mono" }, st, D().states.find(s => s.name === st)?.prompts ? " " : "", D().states.find(s => s.name === st)?.prompts ? pill("prompts", "graph") : null),
+          h("td", {}, h("select", { onchange: e => { cust.answers[st] = e.target.value; changed(true); } }, ...scripts.map(s => h("option", { selected: s === cust.answers[st] }, s)))),
+          h("td", {}, h("button", { class: "btn small danger", onclick: () => { delete cust.answers[st]; changed(true); } }, "×"))))))),
+      h("div", { class: "row" }, h("select", { onchange: e => { if (e.target.value) { cust.answers[e.target.value] = scripts[0]; changed(true); } } }, h("option", { value: "" }, "+ bot act…"), ...D().states.filter(s => !(s.name in cust.answers)).map(s => h("option", { value: s.name }, s.name))))),
+    h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Scripts"), h("div", { style: "display:grid;gap:8px" }, ...scripts.map(scriptCard)),
+      h("div", { class: "row", style: "margin-top:8px" }, h("input", { id: "newscript", placeholder: "new script name", size: 18 }), h("button", { class: "btn small", onclick: () => { const n = document.getElementById("newscript").value.trim(); if (!n || cust.scripts[n]) return; cust.scripts[n] = { default: "" }; changed(true); } }, "+ script"))),
+    h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Where a case's policy questions are asked"), (() => { const q = cust.questions = cust.questions || {}; return h("div", { class: "row" },
+      h("label", { class: "row small" }, "script", h("select", { onchange: e => { q.script = e.target.value; changed(); } }, ...scripts.map(s => h("option", { selected: s === q.script }, s)))),
+      h("label", { class: "row small" }, "charge", h("input", { class: "mono", size: 6, value: q.item ?? 0, onchange: e => { q.item = Number(e.target.value); changed(); } })),
+      h("label", { class: "row small" }, "where", h("select", { onchange: e => { q.position = e.target.value; changed(); } }, ...["start", "append"].map(p => h("option", { selected: (q.position || "start") === p }, p))))); })())];
+}
+function setrules() {
+  P.constraints = P.constraints || []; P.categories = P.categories || []; P.tags = P.tags || []; P.generator = P.generator || {};
+  const g = P.generator;
+  const ordered = (arr, label) => { const box = h("div", { style: "display:grid;gap:4px" }); const draw = () => box.replaceChildren(...arr.map((c, i) => h("div", { class: "row" },
+    h("input", { size: 18, value: c.name, oninput: e => { c.name = e.target.value; changed(); } }), h("input", { class: "mono", style: "flex:1;min-width:280px", value: c.when, oninput: e => { c.when = e.target.value; changed(); } }),
+    h("button", { class: "btn small", disabled: i === 0, onclick: () => { [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]]; changed(); draw(); } }, "↑"),
+    h("button", { class: "btn small danger", onclick: () => { arr.splice(i, 1); changed(); draw(); } }, "×"))), h("button", { class: "btn small", onclick: () => { arr.push({ name: "new", when: "True" }); changed(); draw(); } }, `+ ${label}`)); draw(); return box; };
+  const pq = g.policy_question_case = g.policy_question_case || {};
+  return [h("h2", {}, "Case rules"), h("p", { class: "lede" }, "Constraints every case must satisfy, how cases are categorised and tagged, and generator settings. Expressions use level(f), rel(f), relevant(f), items(), min, max."),
+    issuesBlock("constraints"), issuesBlock("categories"), issuesBlock("tags"), issuesBlock("generator"),
+    h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Constraints"), listEditor(P.constraints, (v, set) => h("input", { class: "mono", size: 90, value: v, oninput: e => set(e.target.value) }), () => "True", "constraint")),
+    h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Categories (the first that applies)"), ordered(P.categories, "category")),
+    h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Tags (every one that applies)"), ordered(P.tags, "tag")),
+    h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Generator"),
+      h("div", { class: "row small" }, "each policy question is asked in the case", ...Object.keys(pq).map(k => h("span", { class: "row" }, h("code", {}, k), h("select", { onchange: e => { pq[k] = Object.keys(P.factors.find(f => f.name === k)?.levels || {}).find(l => String(l) === e.target.value); changed(); } },
+        ...Object.keys(P.factors.find(f => f.name === k)?.levels || {}).map(l => h("option", { selected: String(l) === String(pq[k]) }, l)))))),
+      h("h3", {}, "Questions that pad a call to a turn target"), listEditor(g.padding_questions = g.padding_questions || [], (v, set) => frameEditor(v, set), () => "", "question"),
+      h("h3", {}, "Rules only a tool fault can reach"), h("div", { class: "chips" }, ...D().rules.map(r => h("label", { class: "pill n" }, h("input", { type: "checkbox", checked: (g.fault_only_rules || []).includes(r.id), onchange: e => { g.fault_only_rules = (g.fault_only_rules || []).filter(x => x !== r.id); if (e.target.checked) g.fault_only_rules.push(r.id); changed(); } }), r.id))))];
+}
+function scoring() {
+  const ev = P.evaluation = P.evaluation || {}, sp = P.speech = P.speech || {};
+  const sev = ev.severity = ev.severity || {}, esc = ev.tier_escalation = ev.tier_escalation || {}, gate = ev.release_gate = ev.release_gate || {};
+  const LV = ["none", "low", "moderate", "high", "critical"], codes = Object.keys(sev);
+  const num = (obj, k, step) => h("input", { class: "mono", type: "number", step: step || "0.01", style: "width:80px", value: obj[k] ?? "",
+    oninput: e => { if (e.target.value === "") delete obj[k]; else obj[k] = Number(e.target.value); changed(); } });
+  const sevTable = h("div", { class: "tw" }, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "failure code"), h("th", {}, "base severity"))),
+    h("tbody", {}, ...codes.map(c => h("tr", {}, h("td", { class: "mono" }, c), h("td", {}, h("select", { "aria-label": `severity of ${c}`, onchange: e => { sev[c] = e.target.value; changed(); } },
+      ...LV.map(l => h("option", { selected: l === sev[c] }, l)))))))));
+  const tiers = Object.keys(gate);
+  const escCard = h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Tier promotions"),
+    h("p", { class: "small" }, "A journey in this risk tier has these severities promoted (action_taking: the correct journey writes to the account; the write tools come from the graph)."),
+    ...tiers.map(t => { const m = esc[t] = esc[t] || {}; return h("div", { class: "row" }, h("code", {}, t),
+      ...["low", "moderate", "high"].map(l => h("label", { class: "row small" }, `${l} →`, h("select", { onchange: e => { if (e.target.value === l) delete m[l]; else m[l] = e.target.value; changed(); } },
+        ...LV.slice(LV.indexOf(l)).map(x => h("option", { selected: (m[l] || l) === x }, x)))))); }));
+  const gateCard = h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Release gate"),
+    h("p", { class: "small" }, "Every tier present in a run must pass: accuracy at least the threshold, at most this many critical failures, a high-severity rate at most this, and each listed code within its budget."),
+    ...tiers.map(t => { const g = gate[t]; g.failure_budget = g.failure_budget || {}; return h("div", { class: "card", style: "margin:8px 0 0" }, h("h3", { style: "margin-top:0" }, t),
+      h("div", { class: "row" }, h("label", { class: "row small" }, "accuracy ≥", num(g, "accuracy_threshold")), h("label", { class: "row small" }, "critical ≤", num(g, "max_critical", "1")),
+        h("label", { class: "row small" }, "high rate ≤", num(g, "max_high_rate")), h("label", { class: "row small" }, "within budget ≥", num(g, "min_within_budget"))),
+      h("div", { class: "row small", style: "margin-top:6px" }, "budgets:", ...Object.keys(g.failure_budget).map(c => h("span", { class: "row" }, h("code", {}, c), num(g.failure_budget, c, "1"),
+        h("button", { class: "btn small danger", title: "remove", onclick: () => { delete g.failure_budget[c]; changed(true); } }, "×"))),
+        h("select", { onchange: e => { if (e.target.value) { g.failure_budget[e.target.value] = 0; changed(true); } } }, h("option", { value: "" }, "+ budget for…"),
+          ...codes.filter(c => !(c in g.failure_budget)).map(c => h("option", { value: c }, c))))); }));
+  const aa = sp.also_allowed = sp.also_allowed || {};
+  const states = D().states.map(s => s.name), acts = ["any", ...D().acts.map(a => a.name)];
+  const allowCard = h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Flow leniencies"),
+    h("p", { class: "small" }, "The flow check already accepts, after a customer act every prompt state handles, wherever the graph lets that act lead. Add bot acts it should also accept after a customer act (or after any turn)."),
+    ...Object.keys(aa).map(on => h("div", { class: "row" }, h("code", {}, on), "→", listEditor(aa[on], (v, set) => h("select", { onchange: e => set(e.target.value) }, ...states.map(s => h("option", { selected: s === v }, s))), () => states[0], "bot act"),
+      h("button", { class: "btn small danger", onclick: () => { delete aa[on]; changed(true); } }, "remove"))),
+    h("select", { onchange: e => { if (e.target.value && !aa[e.target.value]) { aa[e.target.value] = []; changed(true); } } }, h("option", { value: "" }, "+ after customer act…"), ...acts.filter(a => !(a in aa)).map(a => h("option", { value: a }, a))));
+  const sig = sp.signals = sp.signals || {};
+  const NOTES = { condition_openers: "a sentence opening with one of these is a condition, not a claim", recording: "the bot says it recorded something",
+    completion: "the bot says something is done", offer: "the bot offers rather than states", fee: "the sentence is about a fee", free: "the sentence says an option is free" };
+  const sigCard = h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Speech cues"),
+    h("p", { class: "small" }, "Plain-English cues the speech reader looks for in what the bot says. Each entry is a regular-expression alternative, matched case-insensitively as a whole word."),
+    ...Object.keys(NOTES).map(k => h("div", { style: "margin:8px 0" }, h("div", { class: "row small" }, h("code", {}, k), NOTES[k]),
+      listEditor(sig[k] = sig[k] || [], (v, set) => h("input", { class: "mono", size: Math.max(8, String(v).length + 2), value: v, oninput: e => set(e.target.value) }), () => "", "cue"))));
+  return [h("h2", {}, "Scoring and speech"), h("p", { class: "lede" }, "How a failed run is graded and released, and how the speech check reads the bot. The failure codes come from the scorer; the tools, acts and states from the graph."),
+    issuesBlock("evaluation"), issuesBlock("speech"),
+    h("div", { class: "card" }, h("h3", { style: "margin-top:0" }, "Severity of each failure code"), sevTable), escCard, gateCard, allowCard, sigCard];
+}
+function yaml() {
+  const pre = h("pre", { class: "card mono", style: "white-space:pre-wrap;overflow-x:auto;font-size:12px" }, "…");
+  api("/api/yaml", { project: P }).then(r => pre.textContent = r.yaml).catch(e => pre.textContent = e.message);
+  return [h("h2", {}, "YAML"), h("p", { class: "lede" }, `What Save writes to ${S.path} (the previous file is kept as .bak).`), pre];
+}
+
+// ---------------------------------------------------------------- boot
+document.getElementById("btnCheck").onclick = async () => { await runCheck(); toast((S.issues || []).length ? `${S.issues.length} problem(s): see Overview` : "Valid against the policy graph"); render(); };
+document.getElementById("btnSave").onclick = async () => {
+  try { const r = await api("/api/save", { project: P }); setDirty(false); S.issues = r.issues; showIssueCount(); toast(`Saved ${r.saved}${r.issues.length ? ` with ${r.issues.length} problem(s)` : ""}`); render(); }
+  catch (e) { toast(`Not saved: ${e.message}`); }
+};
+window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+(async () => {
+  try {
+    S = await api("/api/state"); P = S.project;
+    const meta = document.getElementById("meta"); meta.textContent = `${S.path.split("/").pop()} · graph ${S.domain.sha}`; meta.title = S.path;
+    showIssueCount(); render();
+  } catch (e) { document.getElementById("main").replaceChildren(h("div", { class: "issues" }, `Could not load: ${e.message}`)); }
+})();
+</script>
+</body>
+</html>

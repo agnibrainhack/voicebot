@@ -23,4 +23,4 @@ llm = ["requests>=2.28", "tqdm>=4.60"]
 include = ["gmsjourney*"]
 
 [tool.setuptools.package-data]
-gmsjourney = ["policy/*.md", "policy/*.json", "catalogs/*.yaml", "catalogs/official/*.yaml", "catalogs/official/*.md"]
+gmsjourney = ["policy/*/*.md", "policy/*/*.json", "policy/*/*.yaml", "catalogs/official/*.yaml", "catalogs/official/*.md"]

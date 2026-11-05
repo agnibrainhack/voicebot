@@ -1,0 +1,19 @@
+# Custom factors for a voice channel (book Ch. 6.3.2: an application may add factors).
+# Same schema as official/factor_catalog.yaml, so the catalog contract applies to them
+# unchanged (gt_invariant: true, snake_case, unique, applies_to over real families).
+voice_factors:
+  - name: disfluency
+    type: categorical
+    cardinality: 3
+    categories: [none, fillers, restart]
+    description: "Spoken fillers ('um', 'you know') and restarted phrases."
+    gt_invariant: true
+    applies_to: {families: ["*"], answer_types: ["*"]}
+
+  - name: self_correction
+    type: categorical
+    cardinality: 2
+    categories: [none, false_start]
+    description: "A false start that the caller corrects to the same final answer inside one turn (tests 'use the latest clear answer' while the truth stays fixed)."
+    gt_invariant: true
+    applies_to: {families: ["*"], answer_types: ["*"]}

@@ -42,12 +42,7 @@ USER_ACTS = {
     "CHITCHAT": "Off-task talk with no journey meaning.",
 }
 
-BOT_ACTS = [
-    "ASK_AUTH", "ASK_AUTH_RETRY", "PRESENT_TXN", "PROVIDE_CONTEXT", "ASK_CLARIFY",
-    "ANSWER_KB", "CONFIRM_RECORDED", "OFFER_CARD_OPTIONS", "INFORM_NO_CARD_ACTION",
-    "CONFIRM_ACTION", "DISCLOSE_FEE", "ACTION_DONE", "ASK_MORE_HELP", "EXPLAIN_NO_TXNS",
-    "EXPLAIN_LIMIT", "SUMMARIZE", "TRANSFER", "END",
-]
+# The bot's acts are the dialog states of the policy graph (domain.py: Domain.states).
 
 # KB intents: the meaning of a policy question. Each maps to a base category of
 # the book's taxonomy (bases/kb.py) and to a ground-truth computation over the store.

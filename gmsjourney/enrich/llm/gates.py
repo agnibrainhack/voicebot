@@ -88,6 +88,8 @@ class LLMOutputGates:
         self.store, self.reader = store, reader
         self.tools = {t for t, ty in store.entity_types.items() if ty == "tool"}
         self.merchants = {m.lower() for m, _ in MERCHANTS}
+        from . import pack
+        self.pack = pack.active()
 
     # ------------------------------------------------------------------ helpers
     def figures(self, text: str) -> set[str]:
@@ -152,6 +154,10 @@ class LLMOutputGates:
 
     # ------------------------------------------------------------------ G3
     def one_clear_decision(self, text: str, frame: F, levels: dict[str, str]) -> GateReport:
+        if self.pack is not None:
+            from . import pack
+            r = pack.gates_one_decision(self.reader, text, frame, levels)
+            return GateReport(not r, r)
         cues = self.reader.cue_counts(text)
         lv = {**BASE_LEVELS, **(levels or {})}
         r = []
@@ -194,12 +200,13 @@ class LLMOutputGates:
                     rx = _INDIRECT if v == "indirect" else _DOWNPLAY
                     put(k, bool(rx.search(t)), "lead-in/aside marker")
             elif k == "entity_aliasing":
-                vals = [frame.get(s) for s in ("disposition", "delivery", "card_action", "entity", "subject")]
-                vals = [x for x in vals if x in READER_LEXICON]
+                from .prompts import _lexicon, _slot_values
+                lex, _ = _lexicon()
+                vals = [x for x in _slot_values(frame) if x in lex]
                 if not vals:
                     put(k, None, "no aliasable value in this turn")
                 else:
-                    canon = [READER_LEXICON[x][0].lower() for x in vals]
+                    canon = [lex[x][0].lower() for x in vals]
                     put(k, not any(c in low for c in canon), "official name avoided")
             elif k == "specificity":
                 if frame.act == "ASK_KB":

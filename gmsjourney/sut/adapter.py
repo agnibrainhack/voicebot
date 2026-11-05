@@ -34,28 +34,32 @@ from ..core import Scenario, SUTResult
 from ..journey import UserSimulator
 from ..kb_truth import judge_kb_answer
 from ..ontology import Ontology
-from ..trace import Trace
+from ..trace import Trace, new_trace
 from .reference_bot import BotTurn, ReferenceBot
 from .tools import FaultProfile, ToolEnvironment, ToolGateway
+from ..names import N
+from .. import roles
 
 MAX_USER_TURNS = 45
 
 
 class BotActClassifier:
     """Infer the dialog act of a text-only bot turn (for bots without structured acts)."""
-    PATTERNS = [
-        ("TRANSFER", r"\b(transfer|connect you|representative will)\b"),
-        ("ASK_AUTH_RETRY", r"\b(didn't match|try again|not match)\b"),
-        ("ASK_AUTH", r"\b(last four|verify|authenticate|digits)\b"),
-        ("DISCLOSE_FEE", r"\$\s?\d+.*\bfee\b|\bfee\b.*\$\s?\d+"),
-        ("CONFIRM_ACTION", r"\b(shall i|should i|go ahead\?|confirm)\b"),
-        ("PROVIDE_CONTEXT", r"\bdays ago\b"),
-        ("PRESENT_TXN", r"\b(do you recognize|recognise)\b"),
-        ("ASK_CLARIFY", r"\b(didn't catch|say that again|sorry\?)\b"),
-        ("EXPLAIN_NO_TXNS", r"\bno (charges|transactions)\b"),
-        ("ASK_MORE_HELP", r"\b(anything else)\b"),
-        ("END", r"\b(goodbye|bye)\b"),
-    ]
+    @property
+    def PATTERNS(self) -> list[tuple[str, str]]:                 # noqa: N802 (read when classifying)
+        return [
+            (N.state.TRANSFER, r"\b(transfer|connect you|representative will)\b"),
+            (N.state.ASK_AUTH_RETRY, r"\b(didn't match|try again|not match)\b"),
+            (N.state.ASK_AUTH, r"\b(last four|verify|authenticate|digits)\b"),
+            (N.state.DISCLOSE_FEE, r"\$\s?\d+.*\bfee\b|\bfee\b.*\$\s?\d+"),
+            (N.state.CONFIRM_ACTION, r"\b(shall i|should i|go ahead\?|confirm)\b"),
+            (N.state.PROVIDE_CONTEXT, r"\bdays ago\b"),
+            (N.state.PRESENT_TXN, r"\b(do you recognize|recognise)\b"),
+            (N.state.ASK_CLARIFY, r"\b(didn't catch|say that again|sorry\?)\b"),
+            (N.state.EXPLAIN_NO_TXNS, r"\bno (charges|transactions)\b"),
+            (N.state.ASK_MORE_HELP, r"\b(anything else)\b"),
+            (N.state.END, r"\b(goodbye|bye)\b"),
+        ]
 
     def classify(self, text: str, merchants: dict[str, str]) -> dict[str, Any]:
         t = text.lower()
@@ -71,8 +75,8 @@ class BotActClassifier:
         out = {"act": act}
         if txn:
             out["txn"] = txn
-        if act in ("DISCLOSE_FEE", "CONFIRM_ACTION") and re.search(r"expedited|express|rush", t):
-            out["delivery"] = "expedited_delivery"
+        if act in (N.state.DISCLOSE_FEE, N.state.CONFIRM_ACTION) and re.search(r"expedited|express|rush", t):
+            out["delivery"] = roles.FEE_OPTION
         return out
 
 
@@ -91,7 +95,9 @@ class JourneyRunner:
 
     def __post_init__(self) -> None:
         self.ont = Ontology.from_store(self.store)
-        self.lookback = self.store.lookup_enm("limit", "lookback_days")
+        from ..domain import current
+        self.graph = current().graph                 # a compact pack: graph-generic items, outcomes and claims
+        self.lookback = self.store.lookup_enm("limit", N.limit.lookback_days) if self.graph is None else None
         self.speech = None
         kg = getattr(self.store, "kg", None)
         if self.check_speech and kg is not None and kg.where("says"):
@@ -107,16 +113,23 @@ class JourneyRunner:
         monitor = None
         if self.governance is not None:
             from ..governance.monitor import GovernedTools, RuntimeMonitor
+            if self.graph is not None:
+                from ..graph.governance import GraphRuntimeMonitor as RuntimeMonitor   # noqa: N811
             monitor = RuntimeMonitor(self.store, self.reader, self.governance, run_id=scn.sid)
             tools = GovernedTools(tools, monitor)
         bot = self.bot_factory(tools)
         sim = UserSimulator(spec, fx, self.lookback)
-        merchants = {t["transaction_id"]: t["merchant"] for t in fx["transactions"]}
-        by_id = {t["transaction_id"]: t for t in fx["transactions"]}
+        if self.graph is None:
+            merchants = {t["transaction_id"]: t["merchant"] for t in fx["transactions"]}
+            by_id = {t["transaction_id"]: t for t in fx["transactions"]}
+        else:
+            from ..graph.runner import item_index
+            by_id = item_index(fx)
+            merchants = {}
         overrides = scn.metadata.get("seed_overrides", {})
         realizer = (self.arm_realizers or {}).get(scn.metadata.get("arm", "template"), self.realizer)
         bot_stats: list[dict[str, Any]] = []
-        tr = Trace()
+        tr = new_trace()
         transcript: list[dict[str, Any]] = []
         violations: list[dict[str, Any]] = []
         current_txn = None
@@ -127,7 +140,7 @@ class JourneyRunner:
         bot_stats.append(_turn_stats(turn.text, t0))
         for i in range(MAX_USER_TURNS + 1):
             acts = turn.acts if (self.use_structured_acts and turn.acts) else \
-                [self.classifier.classify(turn.text, merchants)]
+                ([self.classifier.classify(turn.text, merchants)] if self.graph is None else [{"act": "UNKNOWN"}])
             said = None
             if speech is not None:           # what the customer hears, checked before they answer
                 said = speech.check(turn.acts if self.use_structured_acts else [], turn.text, env.log, tr.user_frames)
@@ -137,21 +150,28 @@ class JourneyRunner:
                 monitor.on_bot(turn.text, turn.acts if self.use_structured_acts else None)
                 monitor.on_speech(said)      # the speech check's findings, sealed live into the audit
             self._observe_acts(tr, acts, last_kb, turn.text)
-            for a in acts:
-                if a.get("act") == "PRESENT_TXN" and a.get("txn"):
-                    current_txn = a["txn"]
             if turn.ended or i == MAX_USER_TURNS:
                 break
             act = dict(acts[-1])
-            act.setdefault("current_txn", current_txn)
-            if act.get("act") in ("ASK_CLARIFY", "ANSWER_KB", "PROVIDE_CONTEXT") and not act.get("txn"):
-                act["txn"] = current_txn
+            if self.graph is None:                    # one review per item: the customer answers about the current one
+                for a in acts:
+                    if a.get("act") == N.state.PRESENT_TXN and a.get("txn"):
+                        current_txn = a["txn"]
+                act.setdefault("current_txn", current_txn)
+                if act.get("act") in (N.state.ASK_CLARIFY, N.state.ANSWER_KB, N.state.PROVIDE_CONTEXT) and not act.get("txn"):
+                    act["txn"] = current_txn
+            else:                                     # an act naming a returned item makes it the current one
+                for a in acts:
+                    for v in a.values():
+                        if isinstance(v, str) and v in by_id:
+                            current_txn = v
             frame = sim.respond(act)
             if frame is None:
                 break
             t = by_id.get(act.get("txn") or current_txn, {})
-            st = act.get("act")                      # the dialog state this turn answers
-            ctx = {"merchant": t.get("merchant"), "amount": t.get("amount"), "state": st}
+            st = sim.last_state if self.graph is not None else act.get("act")   # the dialog state this turn answers
+            ctx = {**t, "state": st} if self.graph is not None else \
+                {"merchant": t.get("merchant"), "amount": t.get("amount"), "state": st}
             pinned = oracle_path is not None and i < len(oracle_path) and oracle_path[i][0] == frame
             att = overrides.get(i, 0) if pinned else 0
             seed = f"{scn.sid}|{i}" + (f"#{att}" if att else "")
@@ -163,7 +183,7 @@ class JourneyRunner:
             tr.user_frames.append(frame)
             tr.events.append({"role": "user", "frame": frame, "text": text})
             transcript.append({"role": "user", "text": text, "frame": str(frame), "state": st})
-            last_kb = frame if frame.act == "ASK_KB" else None
+            last_kb = frame if frame.act == N.act.ASK_KB else None
             if monitor is not None:
                 monitor.on_user(text, st)
             n0 = len(env.log)
@@ -174,6 +194,8 @@ class JourneyRunner:
                 tr.events.append({"role": "tool", "tool": c["tool"], "args": c["args"], "result": c.get("result")})
         tr.tool_log = list(env.log)
         tr.ended = bool(turn.ended) and not tr.transferred
+        if hasattr(tr, "finish"):
+            tr.finish()                              # outcome acts and success claims, read from what was said
         comps = tr.components()
         status = "escalated" if tr.transferred else ("ok" if tr.ended else "failed")
         return SUTResult(
@@ -189,21 +211,27 @@ class JourneyRunner:
 
     # ------------------------------------------------------------------ helpers
     def _observe_acts(self, tr: Trace, acts: list[dict], last_kb, text: str) -> None:
+        if self.graph is not None:                   # outcomes and claims are read at the end (trace.finish)
+            for a in acts:
+                if a.get("act") == N.state.ANSWER_KB and last_kb is not None:
+                    ans = a.get("text", text)
+                    tr.kb.append({"frame": str(last_kb), "answer": ans, **judge_kb_answer(self.store, last_kb, ans)})
+            return
         for a in acts:
             k = a.get("act")
-            if k == "PRESENT_TXN" and a.get("txn") and (not tr.presented or tr.presented[-1] != a["txn"]) \
+            if k == N.state.PRESENT_TXN and a.get("txn") and (not tr.presented or tr.presented[-1] != a["txn"]) \
                     and a["txn"] not in tr.presented:
                 tr.presented.append(a["txn"])
-            elif k == "CONFIRM_RECORDED" and a.get("txn"):
+            elif k == N.state.CONFIRM_RECORDED and a.get("txn"):
                 tr.claims_recorded[a["txn"]] = a.get("disposition")
-            elif k == "SUMMARIZE":
+            elif k == N.state.SUMMARIZE:
                 for t, d in (a.get("recorded") or {}).items():
                     tr.claims_recorded[t] = d
                 for act in a.get("actions") or []:
                     tr.claims_actions.append(tuple(act))
-            elif k == "ACTION_DONE":
+            elif k == N.state.ACTION_DONE:
                 tr.claims_actions.append((a.get("action"), a.get("delivery")))
-            elif k == "ANSWER_KB" and last_kb is not None:
+            elif k == N.state.ANSWER_KB and last_kb is not None:
                 ans = a.get("text", text)
                 verdict = judge_kb_answer(self.store, last_kb, ans)
                 tr.kb.append({"frame": str(last_kb), "answer": ans, **verdict})

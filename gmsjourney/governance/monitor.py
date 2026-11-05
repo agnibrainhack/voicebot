@@ -29,6 +29,7 @@ import json
 from .gates import (GateDecision, GateResult, GateState, GMSPlanGate, PolicyGate,
                     SpeechMonitor, SyntaxGate, ToolCall, ToolRegistry, compile_policies, completeness_check,
                     injection_flag)
+from ..names import N
 
 
 
@@ -62,8 +63,13 @@ class RuntimeMonitor:
         self._seq = 0
         self.decisions: list[dict[str, Any]] = []
         self.last_outcome = "allowed"
-        self._fee_text = {f"${store.lookup_enm('delivery_fee_usd', 'expedited_delivery')}",
-                          f"{store.lookup_enm('delivery_fee_usd', 'expedited_delivery')} dollars"}
+        from ..domain import current
+        from .rules import figure
+        trk = current().get("rules.tracking")
+        fee = figure(store, trk["disclosed_figure"])
+        self._fee_text = {f"${fee}", f"{fee} dollars"}
+        self._options_tool = trk["options_tool"]
+        self._handoff_act = trk.get("handoff_request_act") or N.act.REQUEST_HUMAN
 
     # ------------------------------------------------------------------ observers
     def _seal(self, kind: str, proposed: dict, results: list[GateResult], outcome: str) -> None:
@@ -88,7 +94,7 @@ class RuntimeMonitor:
             frame = self._ont.canonicalize(frame, state)          # read in the state it answers
         self.state.user_frames.append(frame)
         self.state.user_turns += 1
-        if getattr(frame, "act", None) == "REQUEST_HUMAN":
+        if getattr(frame, "act", None) == self._handoff_act:
             self.state.human_requested = True
         pat = injection_flag(text)
         if pat:
@@ -155,7 +161,7 @@ class RuntimeMonitor:
 
     def after_tool(self, tool: str, args: dict, result: Any, ok: bool) -> None:
         self.state.tool_results.append({"tool": tool, "args": dict(args), "result": copy.deepcopy(result), "ok": ok})
-        if tool == "get_card_action_options":
+        if tool == self._options_tool:
             self.state.options_at = len(self.state.user_frames)
 
     # ------------------------------------------------------------------ end of run

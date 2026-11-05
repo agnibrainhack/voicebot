@@ -34,6 +34,7 @@ from typing import Any
 
 from .enrich.realizers import BASE_LEVELS
 from .kb_truth import kb_answer
+from .names import N, graph_names
 
 
 def _j(x: Any) -> str:
@@ -119,7 +120,7 @@ def write_dataset(out_dir: str | Path, *, store, kg, oracle, validator, bases, s
     def policy_question(item, path, states, texts):
         rows = []
         for i, (f, _ctx) in enumerate(path):
-            if f.act == "ASK_KB":
+            if f.act == N.act.ASK_KB:
                 truth = kb_answer(store, f)
                 rows.append({"turn": i, "text": texts[i], "card": ont.card(f, states[i]),
                              "answer": truth.answer, "primitive": truth.primitive})
@@ -237,8 +238,8 @@ def write_dataset(out_dir: str | Path, *, store, kg, oracle, validator, bases, s
         for r in jsonl:
             f.write(_j(r) + "\n")
     pq_rows = []
+    st = graph_names().question_state
     for k in kb_items:
-        st = "PRESENT_TXN"
         pq_rows.append({"qid": k.qid, "category": k.category,
                         "question": validator.realizer.realize(k.frame, {}, f"{k.qid}|q|base", {}),
                         "meaning_card": ont.card(k.frame, st), "answer": k.answer, "answer_type": k.answer_type,

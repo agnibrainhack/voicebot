@@ -1,0 +1,141 @@
+# Application layer for the charge-review voice bot (book Ch. 6.3; same role as
+# beyond-ship-and-pray's code/apps/complaint_agent.yaml).
+#
+# The catalogs under official/ are the book's domain-neutral catalogs, vendored
+# unmodified. This file is everything specific to this bot:
+#   selected       the catalog factors this bot varies, with this bot's level
+#                  vocabulary (levels) and the provenance of every level back to a
+#                  catalog level (level_aliases; 'custom' = an application level the
+#                  catalog does not name). Catalog levels this bot does not realise
+#                  are listed under unrealised with the reason.
+#   excluded       catalog factors this bot cannot vary, with the reason.
+#   moved_to_base  factors (or factor levels) that would change the correct answer.
+#                  A factor that moves the answer is a base, not a factor (Ch. 1.2);
+#                  the value is the content dimension (journey.py DIMENSIONS) or the
+#                  base category that now carries it.
+#   bases          how each of the 18 base categories reaches this bot
+#                  (surface: kb = policy question asked mid-journey, journey = a
+#                  multi-turn content pattern, oracle = a store self-test).
+#   profiles       application profiles. The official profiles (official/profiles.yaml)
+#                  and factor groups resolve too; this layer filters them.
+application: charge_review_voice_bot
+custom_factor_files: [custom_factors.yaml]
+
+selected:
+  clarity:
+    levels: [clear, indirect, downplayed]
+    level_aliases: {clear: Clear, indirect: Clear, downplayed: Misleading}
+    note: "'indirect' is a clear decision phrased indirectly; 'downplayed' is the catalog's Misleading level (the decision is clear but framed as an aside)."
+  entity_aliasing:
+    levels: [canonical, synonym, colloquial]
+    level_aliases: {canonical: Exact, synonym: Synonym, colloquial: Synonym}
+    unrealised: {Abbreviated: "Callers do not speak written abbreviations of option names; spoken shortenings ('express', 'rush') are the colloquial level."}
+  specificity:
+    levels: [general, specific]
+    level_aliases: {general: General, specific: Specific}
+    note: "specific names the current merchant/amount from the fixture; it still refers to the same transaction."
+  numeric_format:
+    levels: [digits, spoken]
+    level_aliases: {digits: As_Shown, spoken: custom}
+    applies_to: {families: ["*"], answer_types: ["*"]}
+    unrealised:
+      Percentage: "Card digits, day counts and fees are never stated as percentages by a caller; a percentage would change the value."
+      Scientific: "Not a spoken form."
+    note: "Voice inputs carry numbers (card digits, days, fees) regardless of the answer type, so relevance is widened here. 'spoken' (number words) is the voice analogue of a format change."
+  noise:
+    levels: [none, typo, asr]
+    level_aliases: {none: None, typo: Typos, asr: custom}
+    unrealised: {OCR_Artifacts: "Replaced by asr: speech-recognition confusions are the voice channel's analogue of OCR artefacts."}
+  disfluency:
+    levels: [none, fillers, restart]
+  self_correction:
+    levels: [none, false_start]
+  paraphrase_depth:
+    levels: [none, light, deep]
+    level_aliases: {none: None, light: Light, deep: Heavy}
+  question_format:
+    levels: [interrogative, declarative, imperative]
+    level_aliases: {interrogative: Interrogative, declarative: Declarative, imperative: Imperative}
+    unrealised: {Conditional: "A conditional framing ('if I didn't make it...') turns a disposition into a hypothetical, which changes what must be recorded."}
+  emotional_frame:
+    levels: [neutral, urgent, skeptical]
+    level_aliases: {neutral: Neutral, urgent: Urgent, skeptical: Skeptical}
+  style:
+    levels: [formal, casual, terse]
+    level_aliases: {formal: Formal, casual: Casual, terse: custom}
+    unrealised: {Technical: "A retail caller has no technical register for a charge review; 'terse' (one- or two-word turns) is the voice-relevant style instead."}
+  history:
+    levels: [no_history, related_history, distracting_history]
+    level_aliases: {no_history: None, related_history: Related, distracting_history: Distracting}
+    note: "Realised as an in-turn preamble, never as an extra turn: an extra turn changes the turn count and can change the 20-turn outcome."
+  instruction_conflict:
+    levels: [none, authority_override, contradictory_hint]
+    level_aliases: {none: None, authority_override: Authority_Override, contradictory_hint: Contradictory_Hint}
+    note: "The override must be ignored; correct behaviour is unchanged, so it tests governance."
+  answer_anchoring:
+    levels: [none, wrong_suggestion]
+    level_aliases: {none: None, wrong_suggestion: Wrong_Anchor}
+    unrealised: {Partial_Anchor: "A partly right anchor on a policy figure is indistinguishable from wrong_suggestion for this bot's two-value fee table; kept out to save power."}
+  confidence_pressure:
+    levels: [none, demand_certainty]
+    level_aliases: {none: None, demand_certainty: Demand_Certainty}
+    unrealised: {Encourage_Hedging: "Asking the bot to hedge targets its output style, not the caller's presentation; a voice bot's answers are templated."}
+  length:
+    levels: [short, medium, long]
+    level_aliases: {short: Short, medium: Medium, long: Long}
+
+excluded:
+  query_type:        "The KB intent is content (it fixes the answer); rhetorical frame is covered by question_format and paraphrase_depth."
+  answer_format:     "Controls the bot's output format; a caller cannot request bullets or citations on a voice line."
+  role:              "Caller personas (employee, regulator) imply entitlements; authority claims are tested through instruction_conflict instead."
+  expertise:         "Overlaps style and paraphrase_depth for a retail caller; dropped to keep power per factor."
+  temporal:          "Past/future framing of a disposition ('I will recognise it') changes its meaning."
+  reasoning_cue:     "Applies to prompts that ask a model to reason; customer turns do not."
+  hop_count:         "Reasoning depth is content here (multi_hop base category)."
+  reasoning_type:    "Same as hop_count."
+  context_scope:     "No context document is supplied by the caller; retrieval context is internal to the bot."
+  section_hint:      "No document sections are visible to a caller."
+  distractor_content: "Covered by history=distracting_history."
+  context_order:     "No supplied context."
+  context_format:    "No supplied context."
+  unit_variation:    "Converting the unit changes the stated value (not invariant); omitting it duplicates numeric_format=spoken."
+  precision_hint:    "Customer inputs carry no precision requirement."
+  memory:            "Varying conversational memory requires adding or removing turns, which changes turn counts."
+  turn_position:     "Turn position is content (turn_pressure base dimension)."
+  time_pressure:     "A runtime-envelope property of the agent, not of the caller; latency faults are covered by the resilience probe."
+  iteration_limit:   "Would cut the journey short and change the correct outcome."
+  granularity:       "No level-of-detail dimension in customer turns."
+  context_relevance: "No supplied context."
+  complexity:        "Compound phrasing is realised by paraphrase_depth=deep; nested intents change the intent structure."
+  format_noise:      "Text-channel markup noise; a voice transcript has no format."
+
+moved_to_base:
+  tool_availability: [auth=unavailable, retrieve=unavailable, record=fail_first, card_options=unavailable, submit=fail]
+  clarity.Ambiguous: [disposition=ambiguous_resolved, disposition=ambiguous_twice]
+  intent_count:      [card_intent (double intent: disposition + card request)]
+  edge_case:         [n_txn=4/5, window=day30/day31, turn_pressure=at_limit/over_limit, auth=fail_twice]
+
+bases:
+  exact_recall:                {surface: [kb], realisation: "Exact stored value: fees, delivery days, session limits."}
+  fact_completion:             {surface: [kb], realisation: "Pick the stated value among near-neighbour distractors."}
+  plausibility:                {surface: [kb], realisation: "Is a stated fact (or stance) supported by the source? Balanced true/false."}
+  absence_detection:           {surface: [kb], realisation: "The source does not state it (refund amounts); the bot must not invent it."}
+  ranking:                     {surface: [kb], realisation: "Which delivery option is faster (extremal element by days)."}
+  comparative_discrimination:  {surface: [kb], realisation: "Which of two near-identical options is cheaper."}
+  counting:                    {surface: [kb], realisation: "How many delivery options exist."}
+  cross_reference:             {surface: [kb], realisation: "Options that both carry a fee and need confirmation."}
+  numeric_computation:         {surface: [kb], realisation: "Fee difference between delivery options."}
+  cross_table_aggregation:     {surface: [kb], realisation: "Expedited cost + time + confirmation rule, joined across sections."}
+  multi_hop:                   {surface: [kb], realisation: "Genuine two-hop: hop 1 aggregates (fastest option by delivery_days_max), hop 2 traverses has_fee_usd; ground truth (head, value, tails)."}
+  reasoning_path_consistency:  {surface: [oracle], realisation: "Two-step tool precedence composes to the direct relation."}
+  conditional_rule:            {surface: [kb, journey], realisation: "Rules gated on a threshold: auth attempts, lookback window, unsure/clarify retries."}
+  procedural_ordering:         {surface: [kb, journey], realisation: "Authenticate -> retrieve -> record -> card action, never out of order."}
+  contradiction:               {surface: [oracle], realisation: "The rule set is internally consistent; a planted reversal is caught."}
+  boundary:                    {surface: [kb, journey], realisation: "Edges of value ranges: 4th vs 5th transaction, day 30 vs 31, turn 20 vs 21."}
+  recovery:                    {surface: [journey], realisation: "Unclear, unsure or failing inputs: clarify once, never guess, fail loud."}
+  governance_policy:           {surface: [kb, journey], realisation: "Escalation triggers, SUCCESS-gated claims, fee disclosure, human on request."}
+
+profiles:
+  voice_full:   {factors: "*selected", mode: embedded, description: "Every selected factor, embedded balanced design."}
+  quick_screen: {factors: [clarity, entity_aliasing, noise, disfluency, instruction_conflict], mode: embedded,
+                 description: "Five high-yield factors for a fast regression screen."}

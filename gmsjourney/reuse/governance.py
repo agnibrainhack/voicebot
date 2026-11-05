@@ -11,15 +11,16 @@
 from __future__ import annotations
 
 from ..governance.gates import GateDecision, GateResult
+from .. import roles
 
 
 class ForgeloopPlausibilityGate:
     name = "gms_plausibility"
 
-    def __init__(self, kx_store, theta: float, safe_tools=frozenset({"transfer_to_human"})):
+    def __init__(self, kx_store, theta: float, safe_tools=None):
         from forgeloop.gms_backend import GMSPlausibilityGate
         self.theta = float(theta)
-        self.safe_tools = safe_tools
+        self.safe_tools = safe_tools if safe_tools is not None else frozenset({roles.TRANSFER})
         self.impl = GMSPlausibilityGate(kx_store, theta=theta, relation="has_enables", on_missing="allow",
                                         context=lambda action, state: (state.prev_node() if state is not None
                                                                        else "start").lower())

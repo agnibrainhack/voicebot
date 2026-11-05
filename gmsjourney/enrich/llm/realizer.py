@@ -27,7 +27,8 @@ from typing import Any
 
 from ...ontology import Ontology, SemanticFrame as F
 from ..noise import asr_noise, typo
-from ..realizers import BASE_LEVELS, PROTECT, Realizer
+from ..lexicon import Lexicon
+from ..realizers import BASE_LEVELS, Realizer
 from .client import CachedLLM, LLMUnavailable, parse_json_object
 from .gates import LLMOutputGates
 from .prompts import WRAPPER_FACTORS, _aside, build_rephrase_prompt, protected_tokens
@@ -133,7 +134,7 @@ class LLMRealizer:
         n = {**BASE_LEVELS, **(levels or {})}["noise"]
         if n == "none" or not text:
             return text
-        protect = set(PROTECT)
+        protect = set(Lexicon.current().protect)
         for tok in protected_tokens(frame, levels, ctx):
             protect.update(re.findall(r"[a-z']+", tok.lower()))
         rng = random.Random(f"{seed}|noise")

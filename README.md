@@ -30,7 +30,7 @@ policy PDF -> policy graph JSON (head/relation/tail + dialog states + per-state 
 
 ## The policy graph (the source every step reads)
 
-`gmsjourney/policy/charge_review_kg.json` is the operating procedure as 720 head / relation / tail triples. Each one
+`gmsjourney/policy/charge_review_kg.json` is the operating procedure as 1066 head / relation / tail triples. Each one
 names its PDF section (`pdf.2C`, ...) and carries an evidence quote that is a verbatim substring of that section;
 `program` marks the two limits from the business brief and `lexicon` the curated customer synonyms (not in the PDF).
 
@@ -52,6 +52,70 @@ slot values inside the slot's value set, reads a bare "yes"/"no" the way the sta
 UNRECOGNIZED after "do you recognise this charge?", CONFIRM / DENY after "shall I go ahead?", END after "anything
 else?"), treats a 4-digit number as a credential only where the state asks for one, and rejects a card the state
 does not accept. The invariance proof compares (state, card) sequences.
+
+## Any journey: domain packs
+
+A journey is a **domain pack**, a folder under `gmsjourney/policy/<pack>/`:
+
+| file | what |
+|---|---|
+| the policy graph | the policy and its dialog. Charge review's is built from the operating-procedure PDF (`charge_review_kg.json`); a new journey can be written as a **compact graph** (`gmsjourney.policy_graph/2`: limits, value sets, acts, tools with roles and statuses, rules, transfers, the always-available behaviours and the state machine; see `supplementary_card_kg.json`), which `knowledge/pack_compile.py` compiles into the same full graph |
+| `project.yaml` | the mock bank, the simulated customer, the journey factors, case rules, generator, scoring and speech settings (below) |
+| `domain.yaml` | the customer's wording (lexicon), the tools' mock behaviour, the reference bot's wording (`bot.says`); mined from a compact graph where it can be |
+| `application.yaml`, `custom_factors.yaml` | the enrichment catalog layer |
+
+One engine runs every pack: the oracle walks the graph's flow (`flow.py`), the base cases come from the project's
+factors, and the scoring, speech check, runtime gates, reference bot and its defects, and LLM arm all read the active
+pack (`domain.set_current(pack)`, `CampaignConfig(domain=pack)`, `--domain` on the command line, `--pack` for the studio).
+
+New journey, end to end:
+
+    # 1. write gmsjourney/policy/<pack>/<pack>_kg.json (compact graph) and domain.yaml (lexicon, bot wording)
+    python -m gmsjourney.domain <pack>                     # lint the pack against its graph
+    python -m gmsjourney.project_draft <pack> --write      # a project.yaml drafted from the graph
+    python -m gmsjourney.studio --pack <pack>              # review and edit it (factors, preview, scoring, speech)
+    python run_campaign.py --domain <pack>                 # build the GMS once, then the whole campaign
+
+or the notebook's "Any journey" section (cells P1-P6), which opens the studio inside the notebook.
+The compiled flow is checked against the compact graph's own interpreter on every mined journey
+(`tests/test_pack_compile.py`).
+
+What a supplementary-card campaign shows (30 base cases run, each with an enriched variant): every enriched case
+proved equivalent (128/128), the reference bot 100% on the base cases with every word grounded, every seeded defect
+caught by some suite, and the speech check flagging 95/95 word edits. On the enriched cases the reference bot scores
+about a third: by design it reads the customer with keywords only (`graph/bot.py`), so reworded, noisy or
+colloquial answers defeat it. That is the harness finding a weak bot, not a scoring fault.
+
+## The graph decides, the project file configures, nothing else names the domain
+
+Three places hold everything domain-specific:
+
+| where | what | read by |
+|---|---|---|
+| the policy graph | states, acts, slots, value sets, tools and statuses, limits, rules, triggers, and the **flow**: every `leads_to` carries its qualifiers (`on`, `when`, `guard`, `do`, `say`, `rules`, ...) as expressions in a small vetted language; `carries` says what each bot act carries, `has_arg` what each tool is called with | `flow.py` (`GraphOracle`, the expected-behaviour walker), `names.py` (the registry) |
+| `gmsjourney/policy/<pack>/project.yaml` | what the policy leaves to the tester: the mock bank (fixture), the simulated customer's scripts, the **journey factors** (each level a patch of bank settings and customer behaviour), case constraints, categories and tags, generator settings, severities and release-gate profiles (`evaluation`), speech-check leniencies and cue words (`speech`) | `project.py`, `journey.py`, `evaluation/severity.py`, `speech/` |
+| code | how to walk, score and check, never which names | everything else |
+
+**The registry.** `names.py` reads every name from the graph; core code spells them as `N.state.PRESENT_TXN`,
+`N.act.CONFIRM`, `N.status.UNAVAILABLE`, `N.limit.max_turns`, `N.rule.R27`, and a name the graph does not define
+fails at that line (`PRESENT_TX is not a dialog state in the policy graph (did you mean PRESENT_TXN?)`). Tools are
+found by role (`roles.py`): `GATE` is the tool account servicing `requires`, `RECORD` the write that takes the
+item id, `ACTION` the other write, `OPTIONS` the read before it in `precedes` order, `FEE_OPTION` the delivery
+option that `requires_fee_confirmation`. `tests/test_names.py` fails when a core module spells a graph name.
+
+**Journey factors and the oracle.** A factor level is data, not code: it patches the mock bank (`auth_results:
+[FAILED, AUTHENTICATED]`) and the customer's scripts (`say: ["UNCLEAR()"]` at a state, before the scripted answer,
+once or sticky). The oracle needs no per-factor logic: it walks the graph's flow against that bank and that
+customer, so the expected journey of a new level follows from the graph. `relevant_when` says when a factor can
+change ground truth (others read N/A); `turn_target` and `transfer`/`avoid_transfer` mark turn-limit levels.
+
+**The studio.** `python -m gmsjourney.studio [--project path] [--port 8765]` serves a local page that shows the
+graph (state machine, tools and numbers, vocabulary, rules and triggers), what follows from it (names, the
+graph's own suggestions for factors, and coverage: tool outcomes no level produces, customer choices no script
+makes, transitions and rules no case reaches), and edits the project: journey factors, a preview that walks the
+graph for any combination of levels, bank and customer, case rules, scoring and speech. Every edit is checked
+against the graph as you type; Save writes the YAML (the previous file is kept as `.bak`).
+`python -m gmsjourney.project check` validates a project file from the command line.
 
 ## Quick start
 
@@ -463,6 +527,15 @@ gmsjourney/
                      realizer, extractor (independent reader), validate (separate proof + controls), export
   enrich/            realizers, reader, invariance proof, noise, textsim (the reported surface-similarity metric)
   evaluation/        runner, attribution, stats, constraints (budgets), severity (tiers + release gate), ...
+  flow.py            the graph-driven oracle: expression language, FlowSpec (from the graph), GraphOracle
+  domain.py          domain packs: load, lint, the active pack (set_current)
+  names.py roles.py  the registry of graph names (N.state.X ...) and tools by role
+  project.py         the project file: load, check against the graph, CaseView expressions;  policy/<pack>/project.yaml
+  project_draft.py   a starting project.yaml for any pack, drafted from its graph
+  packstore.py       the active pack's symbolic store (previews, studio, factor relevance)
+  graph/             compact graphs: model, store compiler, interpreter (reference bot), KB mining, invariance controls
+  knowledge/pack_compile.py  compact graph -> full graph (executable flow, speech layer)
+  studio.py          the local studio server (studio_ui.html)
   ontology.py journey.py oracle.py kb_truth.py bases/ enrich/ design/ sut/ evaluation/ pipeline.py report.py
 run_campaign.py · tests/ · notebooks/ · DESIGN.md · NOTICE
 tools/             check_llm (one-call transport preflight), llm_rejections (why LLM turns were rejected),

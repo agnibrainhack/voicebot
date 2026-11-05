@@ -29,8 +29,8 @@ from gmsjourney.evaluation.stats import deviance_test  # noqa: E402
 from _store import kx_store  # noqa: E402
 
 
-POLICY_KG = Path(__file__).resolve().parents[1] / "gmsjourney" / "policy" / "charge_review_kg.json"
-POLICY_MD = Path(__file__).resolve().parents[1] / "gmsjourney" / "policy" / "charge_review_policy.md"
+POLICY_KG = Path(__file__).resolve().parents[1] / "gmsjourney" / "policy" / "charge_review" / "charge_review_kg.json"
+POLICY_MD = Path(__file__).resolve().parents[1] / "gmsjourney" / "policy" / "charge_review" / "charge_review_policy.md"
 
 
 @lru_cache(maxsize=1)
@@ -78,7 +78,7 @@ def test_covering_array_covers_all_feasible_pairs():
     gen = JourneyBaseGenerator(oracle, seed=3)
     rows, rep = gen.covering()
     assert rep.pairs_covered == rep.pairs_required
-    extra = gen.closure(rows, store, rep)
+    gen.closure(rows, store, rep)
     assert not rep.edges_missing and not rep.triggers_missing
 
 

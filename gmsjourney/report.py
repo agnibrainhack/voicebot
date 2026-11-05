@@ -177,7 +177,8 @@ def render_html(R: dict[str, Any]) -> str:
     parts = [f"<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' "
              f"content='width=device-width,initial-scale=1'><title>Journey Test Report</title><style>{CSS}{CSS_FAIL}</style>"
              f"</head><body><main>"]
-    parts.append("<h1>Charge-review bot: GMS-grounded journey test campaign</h1>")
+    journey = str((R.get("domain") or {}).get("name") or "charge_review").replace("_", "-").capitalize()
+    parts.append(f"<h1>{esc(journey)} bot: GMS-grounded journey test campaign</h1>")
     parts.append(f"<p class='lede'>System under test: <b>{esc(res['bot'])}</b>. Ground truth is computed from the "
                  f"policy store, never hand-labelled; every enriched case is proved equivalent to its base case "
                  f"before it is run. Elapsed {R.get('elapsed_seconds', '–')} s.</p>")
@@ -272,12 +273,13 @@ def render_html(R: dict[str, Any]) -> str:
         for c, v in rec["stats"].items():
             for k2, n in v.items():
                 tot[k2] = tot.get(k2, 0) + n
-        fg = rec["forged"]
-        parts.append(f"<p>Two-way admission ({esc(rec.get('gate'))}): {esc(tot)}. A forged question whose answer recomputes "
-                     f"correctly but declares another option's fee as its fact triple: symbolic check "
-                     f"{'admits' if fg['corrupted_triple']['symbolic'] else 'rejects'}, two-way check "
-                     f"<b>{esc(fg['corrupted_triple']['two_way'])}</b>. multi_hop ground truth "
-                     f"<code>{esc(rec.get('multi_hop_ground_truth'))}</code>.</p>")
+        fg = (rec.get("forged") or {}).get("corrupted_triple")
+        forged = (f" A forged question whose answer recomputes correctly but declares another option's fee as its fact "
+                  f"triple: symbolic check {'admits' if fg['symbolic'] else 'rejects'}, two-way check "
+                  f"<b>{esc(fg['two_way'])}</b>.") if fg else ""
+        mh = (f" multi_hop ground truth <code>{esc(rec.get('multi_hop_ground_truth'))}</code>."
+              if rec.get("multi_hop_ground_truth") is not None else "")
+        parts.append(f"<p>Two-way admission ({esc(rec.get('gate'))}): {esc(tot)}.{forged}{mh}</p>")
         sub = rec.get("knowlytix_substrate")
         if sub:
             parts.append("<details><summary>knowlytix production generators on the store (substrate self-test)</summary>"
@@ -709,6 +711,12 @@ def failure_reasons(fc: dict[str, Any]) -> list[str]:
         if exp.get("action") != act.get("action"):
             out.append(f"Card action: expected <code>{esc(_fmt(exp.get('action')))}</code>, "
                        f"completed <code>{esc(_fmt(act.get('action')))}</code>.")
+        if "writes" in exp and exp.get("writes") != act.get("writes"):          # a compact policy graph's outcome
+            out.append(f"Writes that succeeded: expected <code>{esc(exp.get('writes'))}</code>, "
+                       f"got <code>{esc(act.get('writes'))}</code>.")
+        if "told" in exp and exp.get("told") != act.get("told"):
+            out.append(f"What the customer had to be told: expected <code>{esc(exp.get('told'))}</code>, "
+                       f"the bot said <code>{esc(act.get('told'))}</code>.")
     for st, d in (why.get("stages") or {}).items():
         out.append(f"Stage <b>{esc(st)}</b>: expected <code>{esc(_fmt(d.get('expected')))}</code>, "
                    f"got <code>{esc(_fmt(d.get('actual')))}</code>.")

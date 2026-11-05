@@ -50,19 +50,27 @@ from .evaluation import attribution, mutation, resilience
 from .evaluation.constraints import ConstraintBudget
 from .evaluation.runner import run, summary
 from .evaluation.severity import release_gate
-from .journey import NA, JourneySpec, relevant_dims
+from .journey import NA, JourneySpec, policy_question_case, relevant_dims, tags_for
 from .knowledge.geode import build_store, oracle_property, to_dot
 from .ontology import Ontology
 from .oracle import PolicyOracle
 from .sut.adapter import JourneyRunner, make_reference_factory
 
-POLICY = Path(__file__).resolve().parent / "policy" / "charge_review_kg.json"          # the policy graph (source)
-POLICY_MD = Path(__file__).resolve().parent / "policy" / "charge_review_policy.md"   # its structured transcription
+from . import domain as _domain
+
+
+def __getattr__(name: str):                       # the active domain pack's policy graph and transcription
+    if name == "POLICY":
+        return _domain.current().graph_path
+    if name == "POLICY_MD":
+        return _domain.current().transcription_path
+    raise AttributeError(name)
 
 
 @dataclass
 class CampaignConfig:
-    policy_path: str = str(POLICY)
+    domain: str | None = None                    # domain pack: name or folder (default $GMSJOURNEY_DOMAIN / charge_review)
+    policy_path: str = ""                        # default: the domain pack's policy graph
     out_dir: str = "output/campaign_out"
     profile: str = "voice_full"
     runs_per_base: int = 6
@@ -93,6 +101,7 @@ class CampaignConfig:
     # Picked round-robin over the base categories, so a small sample still covers every kind of case.
     max_cases: int | None = None
     progress: bool = True                        # tqdm progress bars for the bot runs (when tqdm is installed)
+    allow_failed_self_tests: bool = False        # run on even if the store fails its self-tests
     speech_gate: str = "fail"                    # report | fail | strict: does `correct` require what the bot SAID
                                                  # to be grounded and complete (and, strict, in the right place)
     speech_controls: bool = True                 # check the speech check with word-only negative controls
@@ -131,7 +140,7 @@ class CampaignConfig:
                                                  # turn (the scenario survives) | none: reject the scenario
 
 
-def build_gms(policy_path: str | Path = POLICY, *, kx_store_dir: str | None = None, rebuild: bool = False,
+def build_gms(policy_path: str | Path | None = None, *, kx_store_dir: str | None = None, rebuild: bool = False,
               seed: int = 42, epochs: int | None = None, geode_epochs: int = 300, max_iters: int = 8,
               embed_trainer_epochs: int = 150, embed_max_iters: int = 2, sft_epochs: int | None = None,
               contradiction_epochs: int = 400, dedup_mode: str = "off", v_sft_mode: str = "full",
@@ -144,6 +153,7 @@ def build_gms(policy_path: str | Path = POLICY, *, kx_store_dir: str | None = No
     production store's DocGMSConfig (dotted keys, e.g. {"train.epochs": 200, "cap.margin": 0.3});
     ``epochs`` is a shortcut for "train.epochs"."""
     backend.require()
+    policy_path = policy_path or _domain.current().graph_path
     info = {"selected": "knowlytix", **backend.describe()}
     from .knowledge.kx_store import DEFAULT_STORE_CONFIG, build_kx_store, load_kx_store
     overrides = dict(store_config or {})
@@ -207,33 +217,20 @@ def speech_section(store, base_rows: list[dict], rows: list[dict], llm_rows: lis
     return out
 
 
-def tags_for(spec: JourneySpec) -> list[str]:
-    rel = relevant_dims(spec)
-    tags = {primary_category(spec), "procedural_ordering"}
-    if rel["auth"] in ("retry_ok", "fail_twice") or rel.get("disposition") in ("unsure_resolved", "unsure_twice",
-                                                                                 "ambiguous_resolved", "ambiguous_twice"):
-        tags.add("conditional_rule")
-    if rel.get("n_txn") in (4, 5) or rel.get("window") in ("day30", "day31") or \
-            rel.get("turn_pressure") in ("at_limit", "over_limit") or rel["auth"] == "fail_twice":
-        tags.add("boundary")
-    if rel["auth"] in ("unavailable",) or rel.get("retrieve") == "unavailable" or rel.get("record") == "fail_first" or \
-            rel.get("card_options") == "unavailable" or rel.get("submit") == "fail" or \
-            rel.get("disposition") in ("ambiguous_resolved", "ambiguous_twice", "unsure_twice"):
-        tags.add("recovery")
-    if rel["auth"] == "human_at_auth" or rel.get("human_mid") == "yes" or rel.get("card_intent") not in (NA, "none") \
-            or rel.get("record") == "fail_first":
-        tags.add("governance_policy")
-    return sorted(tags)
-
-
 def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dict[str, Any]:
     t0 = time.time()
     out = Path(cfg.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     R: dict[str, Any] = {"config": {k: v for k, v in asdict(cfg).items() if k != "bot_factory"}}
+    dom = _domain.set_current(cfg.domain) if cfg.domain else _domain.current()
+    problems = _domain.lint(dom)
+    if problems:
+        raise _domain.DomainError(f"domain pack {dom.name} does not match its graph:\n  - " + "\n  - ".join(problems))
+    policy_path = cfg.policy_path or str(dom.graph_path)
+    R["domain"] = {"name": dom.name, "dir": str(dom.dir), "graph": dom.graph_path.name}
 
     # 1 -------------------------------------------------------------- store
-    store, build_report, R["backend"] = build_gms(cfg.policy_path,
+    store, build_report, R["backend"] = build_gms(policy_path,
                                                   kx_store_dir=cfg.kx_store_dir, rebuild=cfg.rebuild_store,
                                                   seed=cfg.seed, epochs=cfg.kx_epochs,
                                                   geode_epochs=cfg.kx_geode_epochs, max_iters=cfg.kx_geode_max_iters,
@@ -243,9 +240,12 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
                                                   contradiction_epochs=cfg.kx_contradiction_epochs,
                                                   dedup_mode=cfg.kx_dedup_mode, v_sft_mode=cfg.kx_v_sft_mode,
                                                   store_config=cfg.kx_store_config, log=log)
-    demo = build_store(cfg.policy_path, inject_misread=True)
-    caught = any(c.fact == ("expedited_delivery", "has_fee_usd", "150") and c.action.startswith("drop")
-                 for c in demo.corrections)
+    demo = build_store(policy_path, inject_misread=True)
+    if dom.graph is None:
+        caught = any(c.fact == ("expedited_delivery", "has_fee_usd", "150") and c.action.startswith("drop")
+                     for c in demo.corrections)
+    else:
+        caught = any(c.action == "drop_conflict" and "misread" in str(c.source) for c in demo.corrections)
     sdir = Path(build_report["store_dir"])
     (out / "gms_build_report.json").write_text(json.dumps(build_report, indent=1, default=str))
     (out / "policy.gms.md").write_text((sdir / "policy.gms.md").read_text())
@@ -254,7 +254,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     R["store"].update({
         "injected_misread_caught": caught,
         "oracle_property": oracle_property(store),
-        "primitive_examples": {
+        "primitive_examples": _primitive_examples(store, dom) if dom.graph is not None else {
             "lookup_enm(limit, max_transactions_per_session)": store.lookup_enm("limit", "max_transactions_per_session"),
             "score_triple(policy, has_max_transactions_per_session, 4)": store.score_triple("charge_review_policy", "has_max_transactions_per_session", "4"),
             "score_triple(policy, has_max_transactions_per_session, 30)": store.score_triple("charge_review_policy", "has_max_transactions_per_session", "30"),
@@ -264,8 +264,8 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
             "check_holonomy([precedes, precedes], has_fee_usd)": store.check_holonomy(["precedes", "precedes"], "has_fee_usd"),
             "stance(unrecognized is proof of fraud)": store.stance_check("unrecognized_transaction", "is_proof_of", "fraud", +1)["verdict"],
         },
-        "calibration": {"tension": store.calibration["tension"], "holonomy_tau": store.calibration["holonomy"]["tau_path"],
-                        "per_relation": store.calibration["score_triple"]}})
+        "calibration": {"tension": store.calibration.get("tension"), "holonomy_tau": (store.calibration.get("holonomy") or {}).get("tau_path"),
+                        "per_relation": store.calibration.get("score_triple")}})
     from .governance.calibrate import tau_bootstrap
     R["store"]["tau_bootstrap"] = tau_bootstrap(store, B=cfg.calibration_bootstrap)
     kg = getattr(store, "kg", None)
@@ -278,7 +278,15 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
 
     # 2 -------------------------------------------------------------- KB bases
     log("[2/12] mining policy-question bases (two-way admission; knowlytix substrate generators)")
-    kb_items, kb_info = mine_kb_items(store, cfg.seed, extended=cfg.kb_questions == "extended")
+    if dom.graph is not None:                    # questions over the graph's figures (graph/kb.py)
+        from .graph.kb import mine_kb_items as mine_graph_kb
+        kb_items, kb_info = mine_graph_kb(store, cfg.seed)
+        if not kb_info["self_tests"]["passed"] and not cfg.allow_failed_self_tests:
+            (out / "self_tests_failed.json").write_text(json.dumps(kb_info["self_tests"], indent=1, default=str))
+            raise RuntimeError("the store failed its self-tests (book Ch. 4.3), so nothing can be scored against it: "
+                               + json.dumps(kb_info["self_tests"], default=str)[:1500])
+    else:
+        kb_items, kb_info = mine_kb_items(store, cfg.seed, extended=cfg.kb_questions == "extended")
     admitted = [k for k in kb_items if k.admission != "rejected"]
     R["kb"] = {"items": [{"qid": k.qid, "category": k.category, "frame": str(k.frame), "answer": k.answer,
                           "primitive": k.primitive, "admission": k.admission, "recovery": k.recovery,
@@ -289,7 +297,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     gen = JourneyBaseGenerator(oracle, kb_pool=[k.frame for k in admitted], seed=cfg.seed,
                                max_turn_limit_cases=cfg.max_turn_limit_cases)
     cover, rep = gen.covering()
-    kb_traces = [oracle.run(JourneySpec(n_txn=1, kb_mid="ask", kb_frames=(k.frame,))) for k in admitted]
+    kb_traces = [oracle.run(policy_question_case(k.frame)) for k in admitted]
     extra = gen.closure(cover, store, rep, extra_traces=kb_traces)
     specs = list({s.key(): s for s in cover + extra}.values())
     bases = []
@@ -298,7 +306,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         it.metadata["tags"] = tags_for(sp)
         bases.append(it)
     for k in admitted:
-        it = to_item(JourneySpec(n_txn=1, kb_mid="ask", kb_frames=(k.frame,)), oracle, k.qid, category=k.category, kb_item=k)
+        it = to_item(policy_question_case(k.frame), oracle, k.qid, category=k.category, kb_item=k)
         it.metadata["tags"] = [k.category]
         bases.append(it)
     R["coverage"] = asdict(rep)
@@ -332,7 +340,11 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     # 6 -------------------------------------------------------------- invariance proof
     log("[5/12] proving base/enriched equivalence for every scenario")
     realizer, reader = Realizer(), FrameReader(store)
-    validator = InvarianceValidator(store, oracle, reader, realizer)
+    if dom.graph is not None:
+        from .graph.invariance import GraphInvarianceValidator
+        validator = GraphInvarianceValidator(store, oracle, reader, realizer)
+    else:
+        validator = InvarianceValidator(store, oracle, reader, realizer)
     proofs = [validator.prove(s) for s in scenarios]
     controls = validator.negative_controls(scenarios, per_type=cfg.negative_controls_per_type)
     R["invariance"] = {"summary": validator.summarize(proofs, suite.factor_names), "negative_controls": controls,
@@ -426,7 +438,8 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     log("[7/12] running the system under test (runtime monitor on; every utterance checked)")
     from .evaluation import runner as _runner_mod
     _runner_mod.SPEECH_GATE = cfg.speech_gate
-    factory = cfg.bot_factory or make_reference_factory(store)
+    ref_factory, mutants, runner_kw = _reference(dom, store)
+    factory = cfg.bot_factory or ref_factory
     rk = {"store": store, "realizer": realizer, "reader": reader}
     budget = ConstraintBudget(**(cfg.budgets or {}))
     arms = {"llm": llm_realizer} if llm_realizer is not None else None
@@ -444,7 +457,8 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     rows = run(run_scns, runner, oracle.limits, store.workflow, validator, desc="SUT · enriched (template arm)", show=pb)
     llm_rows = run(run_llm, runner, oracle.limits, store.workflow, llm_validator,
                    desc="SUT · enriched (LLM arm)", show=pb) if run_llm else []
-    R["results"] = {"bot": cfg.bot_name, "base_level": summary(base_rows), "enriched": summary(rows),
+    bot = cfg.bot_name if (cfg.bot_factory is not None or dom.graph is None) else "GraphBot (the pack's reference bot)"
+    R["results"] = {"bot": bot, "base_level": summary(base_rows), "enriched": summary(rows),
                     "budgets": budget.as_dict(),
                     "sample": {"max_cases": cfg.max_cases, "base_cases_tested": len(tested),
                                "base_cases_total": len(bases), "enriched_tested": len(run_scns),
@@ -463,7 +477,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         from .speech.controls import run_controls
         ctl_kw = {k: v for k, v in rk.items()}
         R["speech"]["controls"] = run_controls(lambda f: JourneyRunner(bot_factory=f, **ctl_kw),
-                                               make_reference_factory(store), base_scns)
+                                               ref_factory, base_scns)
         o = R["speech"]["controls"]["overall"]
         log(f"      {o['detected']}/{o['applied']} word edits flagged (lowest rate per control {o['min_rate']})")
     if gcfg is not None:
@@ -482,16 +496,19 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         R["diagnosis_llm"] = attribution.diagnose(llm_rows, suite.factor_names)
 
     # 9 -------------------------------------------------------------- resilience
-    probe_scns = [s for s in base_scns if s.base.metadata["relevant"].get("n_txn") not in (NA, 0)
-                  and not s.base.metadata.get("kb_qid")]
+    if dom.graph is None:
+        probe_scns = [s for s in base_scns if s.base.metadata["relevant"].get("n_txn") not in (NA, 0)
+                      and not s.base.metadata.get("kb_qid")]
+    else:                                        # cases that get past the auth tool
+        probe_scns = [s for s in base_scns if not s.base.metadata.get("kb_qid")
+                      and s.base.metadata["oracle_tool_calls"] > 2][:40]
     if cfg.run_resilience:
         log("[9/12] probing resilience under tool faults")
         R["resilience"] = resilience.probe(runner, oracle, probe_scns, show=cfg.progress)
 
     # 10 ------------------------------------------------------------- mutation analysis
     if cfg.run_mutation and cfg.bot_factory is None:
-        from .sut.reference_bot import MUTATIONS
-        log(f"[10/12] mutation analysis ({len(MUTATIONS)} seeded defects; runtime monitor watching)")
+        log(f"[10/12] mutation analysis ({len(mutants)} seeded defects; runtime monitor watching)")
         rgen = JourneyBaseGenerator(oracle, kb_pool=[k.frame for k in admitted], seed=cfg.seed + 1)
         rand_specs = []
         while len(rand_specs) < len(specs):
@@ -505,7 +522,8 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
                   "kb_bases": [s for s in base_scns if s.base.metadata.get("kb_qid")],
                   "enriched_design": run_scns}
         R["mutation"] = mutation.mutation_analysis(store, rk, suites, oracle.limits, store.workflow, validator,
-                                                   fault_scenarios=probe_scns, governance=gcfg)
+                                                   fault_scenarios=probe_scns[:12], governance=gcfg, mutants=mutants,
+                                                   **runner_kw)
 
     # runtime monitoring summary ------------------------------------------------
     if gcfg is not None:
@@ -575,6 +593,33 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     write_case_comparison(out)
     log(f"done in {R['elapsed_seconds']} s -> {out}")
     return R
+
+
+def _primitive_examples(store, dom) -> dict[str, Any]:
+    """The store's primitives on the pack's own figures (a limit, a substitution, two members of a value set)."""
+    g = dom.graph
+    lk = next(k for k, lv in g.limits.items() if not lv.get("internal"))
+    v = store.lookup_enm("limit", lk)
+    vs0 = next(iter(g.values))
+    m0 = g.members(vs0)
+    return {f"lookup_enm(limit, {lk})": v,
+            f"score_triple({g.root}, has_{lk}, {v})": store.score_triple(g.root, f"has_{lk}", str(v)),
+            f"score_triple({g.root}, has_{lk}, {v * 7 + 3})": store.score_triple(g.root, f"has_{lk}", str(v * 7 + 3)),
+            f"tau(has_{lk})": store.tau(f"has_{lk}"),
+            f"tension({m0[0]}, {m0[1]})": store.tension_energy(m0[0], m0[1]) if len(m0) > 1 else None}
+
+
+def _reference(dom, store):
+    """The pack's reference bot factory, its seeded defects and the mutation analysis's runner settings: the
+    hand-written reference bot of a pack that has one, else the bot that follows the graph (graph/bot.py), with the
+    defects mined from the graph."""
+    if dom.graph is None:
+        from .sut.reference_bot import MUTATIONS
+        return make_reference_factory(store), MUTATIONS, {}
+    from .graph.bot import make_graph_factory, mutants
+    ms = mutants(dom.graph)
+    return make_graph_factory(store), {m: m.replace("_", " ") for m in ms}, \
+        {"runner_cls": JourneyRunner, "factory": make_graph_factory}
 
 
 def sample_bases(bases: list, n: int | None) -> list:
@@ -733,22 +778,34 @@ def _runtime_summary(rows: list[dict], record: dict, store) -> dict[str, Any]:
             "recalibration": recalibration_triggers(record, store, scores, fr_rate)}
 
 
+def _kb_answerers(store) -> list[tuple[str, Callable]]:
+    """(name, answer(frame, question) -> text): the reference bot's policy answers and those of two defects."""
+    if _domain.current().graph is None:
+        from .sut.reference_bot import DEFAULT_CONFIG, KBAnswerer
+        sents = [s for _, s in store.kb_sentences]
+        out = []
+        for name, muts in (("reference_bot", set()), ("mutant_kb_first_amount", {"kb_first_amount"}),
+                           ("mutant_fraud_claim", {"fraud_claim"})):
+            ans = KBAnswerer(sents, dict(DEFAULT_CONFIG), muts)
+            out.append((name, lambda fr, q, a=ans: a.answer(q)))
+        return out
+    from .graph.bot import GraphBot
+    bot = GraphBot(None, store)
+    return [("reference_bot", lambda fr, q: bot._answer_kb(fr)["text"])]
+
+
 def _training_corpora(store, proofs, reader, realizer, admitted, out: Path) -> dict[str, Any]:
     try:
         from proofloop.suite.emit import to_jsonl
         from .reuse.sft import classifier_corpus, draft_corpus
     except ImportError:
         return {"skipped": "proofloop not installed"}
-    from .sut.reference_bot import DEFAULT_CONFIG, KBAnswerer
     ont = Ontology.from_store(store)
     cls = classifier_corpus(proofs, reader, ont)
     to_jsonl(cls.pop("records"), out / "sft_classifier.jsonl")
-    sents = [s for _, s in store.kb_sentences]
     res = {"classifier": cls}
-    for name, muts in (("reference_bot", set()), ("mutant_kb_first_amount", {"kb_first_amount"}),
-                       ("mutant_fraud_claim", {"fraud_claim"})):
-        ans = KBAnswerer(sents, dict(DEFAULT_CONFIG), muts)
-        d = draft_corpus(store, admitted, lambda fr, q, a=ans: a.answer(q), realizer)
+    for name, answer in _kb_answerers(store):
+        d = draft_corpus(store, admitted, answer, realizer)
         if name == "reference_bot":
             to_jsonl(d["records"], out / "sft_draft.jsonl")
         d.pop("records")

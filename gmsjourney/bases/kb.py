@@ -42,8 +42,10 @@ from typing import Any
 
 from ..kb_truth import KBTruth, judge_kb_answer, kb_answer
 from ..ontology import SemanticFrame as F
+from ..names import N
+from .. import roles
 
-K = lambda intent, **kw: F.make("ASK_KB", intent=intent, **kw)
+K = lambda intent, **kw: F.make(N.act.ASK_KB, intent=intent, **kw)
 
 
 @dataclass
@@ -101,9 +103,9 @@ def two_way_check(store, truth: KBTruth, seed: int = 7) -> tuple[str, list[dict]
 
 def _generators(store, seed: int = 42) -> dict[str, list[F]]:
     rng = random.Random(seed)
-    opts = ["standard_delivery", "expedited_delivery"]
+    opts = [roles.FREE_OPTION, roles.FEE_OPTION]
     fee = {o: store.lookup_enm("delivery_fee_usd", o) for o in opts}
-    L = store.lookup_enm("limit", "lookback_days")
+    L = store.lookup_enm("limit", N.limit.lookback_days)
     # plausibility: one committed and one counterfactual claim per option (balanced)
     plaus = []
     for o in opts:
@@ -111,33 +113,34 @@ def _generators(store, seed: int = 42) -> dict[str, list[F]]:
         neg = [n for n in store.negatives_for(o, "has_fee_usd", str(fee[o]), rng)
                if n.replace(".", "").isdigit()]
         plaus.append(K("plausibility", attr="fee", entity=o, value=neg[0]))
-    gt = fee["expedited_delivery"]
+    gt = fee[roles.FEE_OPTION]
     mcq_opts = sorted({gt - 10, gt - 5, gt, gt + 5} if gt >= 10 else {gt, gt + 5, gt + 10, gt + 15})
     return {
         "exact_recall": [K("value", attr="fee", entity=o) for o in opts] +
                         [K("value", attr="days", entity=o) for o in opts] +
-                        [K("limit", key=k) for k in ("max_transactions_per_session", "lookback_days", "max_auth_attempts")],
-        "fact_completion": [K("mcq", attr="fee", entity="expedited_delivery", options=tuple(mcq_opts))],
+                        [K("limit", key=k) for k in (N.limit.max_transactions_per_session, N.limit.lookback_days, N.limit.max_auth_attempts)],
+        "fact_completion": [K("mcq", attr="fee", entity=roles.FEE_OPTION, options=tuple(mcq_opts))],
         "plausibility": plaus + [K("fraud")],
         "absence_detection": [K("refund")],
         "ranking": [K("faster")],
         "comparative_discrimination": [K("cheaper")],
-        "counting": [K("count_options")],
-        "cross_reference": [K("needs_confirmation")],
-        "numeric_computation": [K("fee_difference")],
-        "cross_table_aggregation": [K("expedited_total")],
-        "multi_hop": [K("faster_option_fee")],
-        "conditional_rule": [K("window_check", days=max(1, L // 3)), K("window_check", days=L + 15)],
-        "boundary": [K("window_check", days=L), K("window_check", days=L + 1)],
+        "counting": [K(N.value.count_options)],
+        "cross_reference": [K(N.value.needs_confirmation)],
+        "numeric_computation": [K(N.value.fee_difference)],
+        "cross_table_aggregation": [K(N.value.expedited_total)],
+        "multi_hop": [K(N.value.faster_option_fee)],
+        "conditional_rule": [K(N.value.window_check, days=max(1, L // 3)), K(N.value.window_check, days=L + 15)],
+        "boundary": [K(N.value.window_check, days=L), K(N.value.window_check, days=L + 1)],
         "procedural_ordering": [K("procedure")],
-        "governance_policy": [K("skip_auth")],
+        "governance_policy": [K(N.value.skip_auth)],
     }
 
 
 # near-miss option names a caller might use; none is an option or an alias in the policy
 NEAR_MISS_OPTIONS = [("priority_delivery", "fee"), ("same_day_delivery", "days"), ("economy_delivery", "fee")]
 # card actions whose 'fee' question the reader can phrase and read back (enrich/reader.py)
-READABLE_UNSTATED = {"SECURE_CARD"}
+def _readable_unstated() -> set[str]:
+    return {N.value.SECURE_CARD}
 
 
 # extended mode: more questions over the same policy facts, with intents the reader, the realizer and
@@ -147,11 +150,11 @@ EXTENDED_NEAR_MISS = [("premium_delivery", "fee"), ("next_day_delivery", "days")
 
 
 def _extended_generators(store) -> dict[str, list[F]]:
-    opts = list(store.value_sets.get("delivery", [])) or ["standard_delivery", "expedited_delivery"]
-    L = int(store.lookup_enm("limit", "lookback_days"))
+    opts = list(store.value_sets.get("delivery", [])) or [roles.FREE_OPTION, roles.FEE_OPTION]
+    L = int(store.lookup_enm("limit", N.limit.lookback_days))
     out: dict[str, list[F]] = {
         # inside, just inside and far outside the review window (the existing ones: L/3, L, L+1, L+15)
-        "conditional_rule": [K("window_check", days=d) for d in (1, L - 1, 2 * L) if d > 0],
+        "conditional_rule": [K(N.value.window_check, days=d) for d in (1, L - 1, 2 * L) if d > 0],
         "plausibility": [K("plausibility", attr="fee", entity=o, value="0") for o in opts],   # "is it free?"
         "fact_completion": [],
     }
@@ -162,9 +165,11 @@ def _extended_generators(store) -> dict[str, list[F]]:
     return out
 
 
-def _reads_back(store, frame: F, state: str = "PRESENT_TXN") -> bool:
+def _reads_back(store, frame: F, state: str | None = None) -> bool:
     """The template wording of the question reads back to the same meaning card - at base levels and under
     heavier rewording - so an extended question can be enriched and proved like the others."""
+    from ..names import graph_names
+    state = state or graph_names().question_state
     from ..enrich.reader import FrameReader
     from ..enrich.realizers import Realizer
     from ..ontology import Ontology
@@ -181,7 +186,7 @@ def _probes(store) -> list[tuple[str, F, dict]]:
     out = []
     options = set(store.value_sets.get("delivery", []))
     for name, attr in NEAR_MISS_OPTIONS:
-        fr = K("unknown_option", attr=attr, name=name)
+        fr = K(N.value.unknown_option, attr=attr, name=name)
         if kb_answer(store, fr).answer != "absent":
             continue
         diag = {"name": name}
@@ -194,9 +199,9 @@ def _probes(store) -> list[tuple[str, F, dict]]:
         out.append(("near_miss", fr, diag))
     deg = Counter(e for h, _r, t in store.triples for e in (h, t))
     for ca in sorted(store.value_sets.get("card_action", []), key=lambda e: (deg[e], e)):
-        if ca not in READABLE_UNSTATED:
+        if ca not in _readable_unstated():
             continue
-        fr = K("unstated_fact", attr="fee", subject=ca)
+        fr = K(N.value.unstated_fact, attr="fee", subject=ca)
         if kb_answer(store, fr).answer == "absent":
             out.append(("low_coverage", fr, {"subject": ca, "facts_about_subject": deg[ca]}))
     return out
@@ -331,7 +336,7 @@ def mine_kb_items(store, seed: int = 42, extended: bool = False) -> tuple[list[K
         options = set(store.value_sets.get("delivery", []))
         known = {str(i.frame) for i in items}
         for j, (name, attr) in enumerate(EXTENDED_NEAR_MISS):
-            fr = K("unknown_option", attr=attr, name=name)
+            fr = K(N.value.unknown_option, attr=attr, name=name)
             if str(fr) in known or name in options:
                 continue
             truth = kb_answer(store, fr)
@@ -349,19 +354,19 @@ def mine_kb_items(store, seed: int = 42, extended: bool = False) -> tuple[list[K
 
     # the geometry earns its keep: a forged question whose answer recomputes correctly
     # but whose declared fact triple is another option's real fee
-    true_q = kb_answer(store, K("value", attr="fee", entity="expedited_delivery"))
-    other = str(store.lookup_enm("delivery_fee_usd", "standard_delivery"))
+    true_q = kb_answer(store, K("value", attr="fee", entity=roles.FEE_OPTION))
+    other = str(store.lookup_enm("delivery_fee_usd", roles.FREE_OPTION))
     bad_q = KBTruth(true_q.intent, true_q.answer, true_q.answer_type, true_q.primitive, true_q.recover,
-                    answer_triples=[("expedited_delivery", "has_fee_usd", other)])
+                    answer_triples=[(roles.FEE_OPTION, "has_fee_usd", other)])
     symbolic_only = lambda q: q.recover() == q.answer
     forged = {"true_fact": {"symbolic": symbolic_only(true_q), "two_way": two_way_check(store, true_q)[0]},
-              "corrupted_triple": {"declared": ("expedited_delivery", "has_fee_usd", other),
+              "corrupted_triple": {"declared": (roles.FEE_OPTION, "has_fee_usd", other),
                                    "symbolic": symbolic_only(bad_q), "two_way": two_way_check(store, bad_q)[0]}}
 
     # store self-tests for the non customer-facing categories
     from ..knowledge.ingest import Rule
     planted = dict(store.rules)
-    r13 = store.rules["R13"]
+    r13 = store.rules[N.rule.R13]
     planted["R13x"] = Rule("R13x", "must", r13.subject, r13.predicate, r13.obj, "reversed copy", r13.source)
     self_tests = {
         "contradiction": {

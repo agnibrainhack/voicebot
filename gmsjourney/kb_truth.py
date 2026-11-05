@@ -43,6 +43,10 @@ def _days(store, opt: str) -> tuple[int, int]:
 def kb_answer(store, frame: SemanticFrame) -> KBTruth:
     """Answer from the store's primitives, with the fact triples that carry the answer
     (for the two-way check) or the reason none exists."""
+    from .domain import current
+    if current().graph is not None:                 # a compact policy graph: questions mined from its figures
+        from .graph.kb import kb_answer as graph_kb_answer
+        return graph_kb_answer(store, frame)
     intent = frame.get("intent")
     P = "charge_review_policy"
     if intent == "value":
@@ -212,8 +216,8 @@ _ABSTAIN = re.compile(r"(don't have|do not have|not able to|unable to|can't conf
 def _first_option(text: str) -> str | None:
     t = text.lower()
     pos = {}
-    for opt, words in (("standard_delivery", ["standard", "regular", "free delivery"]),
-                       ("expedited_delivery", ["expedited", "express", "rush", "faster option"])):
+    from .domain import current
+    for opt, words in (current().get("rules.bot_option_cues") or {}).items():
         idx = [t.find(w) for w in words if t.find(w) >= 0]
         if idx:
             pos[opt] = min(idx)

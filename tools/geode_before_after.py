@@ -233,7 +233,7 @@ document.getElementById("theme").onclick = () => {{ const r = document.documentE
 # ============================================================================ main
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--policy", default=str(ROOT / "gmsjourney" / "policy" / "charge_review_kg.json"))
+    ap.add_argument("--policy", default=str(ROOT / "gmsjourney" / "policy" / "charge_review" / "charge_review_kg.json"))
     ap.add_argument("--store-dir", default=None, help="a built knowlytix store folder (default: the campaign's store)")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out", default=str(ROOT / "docs" / "GEODE_BEFORE_AFTER.html"))

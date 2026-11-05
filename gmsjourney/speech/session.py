@@ -27,7 +27,21 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-WRITE_KEY = {"record_charge_response": "transaction_id", "submit_card_action": "action"}   # what a write is about
+from .. import roles
+
+def write_key(tool: str) -> str | None:
+    """What a write is about: the field it echoes (graph ``echoes``), else for the per-item write its item id and
+    for the other write its action argument."""
+    from ..names import graph_names
+    kg = graph_names()
+    echo = kg.echo_of.get(tool)
+    if echo:
+        return echo
+    if tool == roles.RECORD:
+        return roles.KEY
+    if tool == roles.ACTION:
+        return roles.ACT
+    return None
 
 
 @dataclass(frozen=True)
@@ -51,6 +65,7 @@ class SessionFacts:
     failed_writes: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     options: list[str] | None = None
     caller: dict[str, Any] = field(default_factory=dict)
+    results: dict[str, dict[str, Any]] = field(default_factory=dict)     # tool -> its latest result
 
     # ------------------------------------------------------------------ construction
     @classmethod
@@ -67,16 +82,18 @@ class SessionFacts:
         f = cls(session_date=session_date)
         for c in tool_log:
             tool, res = c.get("tool"), c.get("result") or {}
+            if c.get("ok", True):
+                f.results[tool] = dict(res)
             if not c.get("ok", True):
                 f.failed_writes.setdefault(tool, []).append(c)
                 continue
-            if tool == "get_review_transactions":
+            if tool is not None and tool == roles.ITEMS:
                 for t in res.get("transactions") or []:
                     f.items[str(t.get("transaction_id"))] = dict(t)
-            elif tool == "get_card_action_options":
+            elif tool is not None and tool == roles.OPTIONS:
                 f.options = list(res.get("options") or [])
-            elif tool in WRITE_KEY:
-                ok = res.get("status") == success_values.get(tool, "SUCCESS")
+            elif tool in roles.WRITE_TOOLS:
+                ok = res.get("status") == success_values.get(tool, roles.OK)
                 echoed = all(res.get(k) == v for k, v in (c.get("args") or {}).items() if k in res and v is not None)
                 (f.writes if ok and echoed else f.failed_writes).setdefault(tool, []).append(c)
         for fr in customer_frames:
@@ -94,7 +111,7 @@ class SessionFacts:
     def write_for(self, tool: str, about: str | None) -> dict[str, Any] | None:
         """The latest successful write of ``tool`` about ``about`` (a transaction id / an action), or the
         latest successful write when ``about`` is None."""
-        key = WRITE_KEY.get(tool)
+        key = write_key(tool)
         rows = [w for w in self.writes.get(tool, []) if about is None or str((w.get("args") or {}).get(key)) == str(about)]
         return rows[-1] if rows else None
 
@@ -109,7 +126,7 @@ class SessionFacts:
             return Truth(it[rest], f"tool result get_review_transactions: {about}.{rest}")
         if kind == "write":
             tool, _, arg = rest.partition(".")
-            w = self.write_for(tool, about if tool == "record_charge_response" else None)
+            w = self.write_for(tool, about if tool == roles.RECORD else None)
             if w is None:
                 return NOTHING
             return Truth((w.get("args") or {}).get(arg), f"successful {tool}({_args(w)})")

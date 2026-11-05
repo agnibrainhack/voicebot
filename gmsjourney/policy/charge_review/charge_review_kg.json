@@ -7,7 +7,7 @@
   "transcription": "charge_review_policy.md",
   "sections": {
    "bot_lexicon": "Curated bot-voice phrasings and cue words used to read what the bot says (not stated in the PDF).",
-   "design": "Added by this test harness's design, not stated in the PDF: fields the mock backend returns beyond pdf.4's list, and what dialog states this harness adds must say.",
+   "design": "Added by this test harness's design, not stated in the PDF: fields the mock backend returns beyond pdf.4's list, and what dialog states this harness adds must say. Added by this test harness's design: the fields each bot act carries in the expected trace, as expressions over the run (flow.GraphOracle evaluates them).",
    "lexicon": "Curated customer synonyms for each canonical value (not stated in the PDF).",
    "pdf.1": "This sample describes a small voice-bot journey for reviewing recent card charges. The bot authenticates a customer, retrieves transactions, captures whether each charge is recognized, unrecognized, or uncertain, and completes simple follow-up servicing. The journey includes tool calls, knowledge retrieval, conversational branching and failure handling so the POC can demonstrate knowledge extraction, grounded test generation, enrichment, DOE and trajectory evaluation.",
    "pdf.2A": "Play the required opening statement. Explain that authentication is needed before account-specific information can be discussed. Call authenticate_customer. If authentication fails or the tool is unavailable, transfer to a human representative.",
@@ -33,7 +33,9 @@
   "asserted_by": "rule -> words that assert the rule's fact ('means fraud')",
   "denied_by": "rule -> words that deny the rule's fact ('not, by itself, proof of fraud')",
   "enables": "workflow node -> next workflow node (qualifiers: edge, condition)",
-  "leads_to": "dialog state -> next dialog state (qualifiers: on = customer act or auto, when, rules, edges)",
+  "leads_to": "dialog state -> next dialog state (qualifiers: on = customer act, auto, else or any; when = the procedure's words; match / pre / guard / do / say = executable flow (flow.py); rules = rules exercised when taken; edges = workflow edges; flush / quiet / discard = turn boundaries)",
+  "carries": "bot act -> a field it carries in the expected trace (qualifiers: from = expression, optional)",
+  "has_arg": "tool -> argument (qualifiers: from = expression over the run)",
   "in_stage": "dialog state -> journey stage",
   "accepts_act": "dialog state -> customer meaning card (act) admissible in that state",
   "interprets_yes_as": "dialog state -> what a bare 'yes' means there",
@@ -8959,136 +8961,29 @@
    "id": "T0725",
    "head": "ASK_AUTH",
    "relation": "leads_to",
-   "tail": "ASK_AUTH_RETRY",
+   "tail": "TRANSFER",
    "tail_type": "entity",
    "kind": "trajectory",
    "state": "ASK_AUTH",
    "source": "program",
-   "evidence": "at most 2 times incorrect authentication",
+   "evidence": "at max 20 turns",
    "qualifiers": {
-    "on": "PROVIDE_CREDENTIAL",
-    "when": "authenticate_customer FAILED and attempts below max_auth_attempts",
+    "on": "any",
+    "when": "max_turns reached before the journey completes",
     "rules": [
-     "R3"
+     "R28"
     ],
-    "edges": [
-     "W2"
-    ]
+    "edges": [],
+    "guard": "turns() >= limit('max_turns')",
+    "do": [
+     "set('reason', 'turn_limit')"
+    ],
+    "discard": true
    },
    "gms": true
   },
   {
    "id": "T0726",
-   "head": "ASK_AUTH",
-   "relation": "leads_to",
-   "tail": "PRESENT_TXN",
-   "tail_type": "entity",
-   "kind": "trajectory",
-   "state": "ASK_AUTH",
-   "source": "pdf.2B",
-   "evidence": "Present one transaction at a time using merchant, amount and date.",
-   "qualifiers": {
-    "on": "PROVIDE_CREDENTIAL",
-    "when": "AUTHENTICATED and transactions returned",
-    "rules": [
-     "R3",
-     "R6"
-    ],
-    "edges": [
-     "W3"
-    ]
-   },
-   "gms": true
-  },
-  {
-   "id": "T0727",
-   "head": "ASK_AUTH",
-   "relation": "leads_to",
-   "tail": "EXPLAIN_NO_TXNS",
-   "tail_type": "entity",
-   "kind": "trajectory",
-   "state": "ASK_AUTH",
-   "source": "pdf.2B",
-   "evidence": "If the tool returns no transactions",
-   "qualifiers": {
-    "on": "PROVIDE_CREDENTIAL",
-    "when": "AUTHENTICATED and no transactions returned",
-    "rules": [
-     "R8"
-    ],
-    "edges": [
-     "W3",
-     "W6"
-    ]
-   },
-   "gms": true
-  },
-  {
-   "id": "T0728",
-   "head": "ASK_AUTH",
-   "relation": "leads_to",
-   "tail": "TRANSFER",
-   "tail_type": "entity",
-   "kind": "trajectory",
-   "state": "ASK_AUTH",
-   "source": "pdf.2A",
-   "evidence": "If authentication fails or the tool is unavailable, transfer to a human",
-   "qualifiers": {
-    "on": "PROVIDE_CREDENTIAL",
-    "when": "authenticate_customer or get_review_transactions UNAVAILABLE",
-    "rules": [
-     "R5",
-     "R14"
-    ],
-    "edges": [
-     "W4",
-     "W7"
-    ]
-   },
-   "gms": true
-  },
-  {
-   "id": "T0729",
-   "head": "ASK_AUTH",
-   "relation": "leads_to",
-   "tail": "ASK_AUTH",
-   "tail_type": "entity",
-   "kind": "trajectory",
-   "state": "ASK_AUTH",
-   "source": "pdf.3",
-   "evidence": "ask one short clarification",
-   "qualifiers": {
-    "on": "UNCLEAR",
-    "when": "first unclear answer",
-    "rules": [
-     "R22"
-    ],
-    "edges": []
-   },
-   "gms": true
-  },
-  {
-   "id": "T0730",
-   "head": "ASK_AUTH",
-   "relation": "leads_to",
-   "tail": "TRANSFER",
-   "tail_type": "entity",
-   "kind": "trajectory",
-   "state": "ASK_AUTH",
-   "source": "pdf.3",
-   "evidence": "transfer to a human representative",
-   "qualifiers": {
-    "on": "UNCLEAR",
-    "when": "still unclear after one retry",
-    "rules": [
-     "R23"
-    ],
-    "edges": []
-   },
-   "gms": true
-  },
-  {
-   "id": "T0731",
    "head": "ASK_AUTH",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -9105,35 +9000,410 @@
     ],
     "edges": [
      "W21"
+    ],
+    "do": [
+     "set('reason', 'customer_request')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0727",
+   "head": "ASK_AUTH",
+   "relation": "leads_to",
+   "tail": "ANSWER_KB",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_AUTH",
+   "source": "pdf.7",
+   "evidence": "General policy questions may trigger a knowledge-base lookup.",
+   "qualifiers": {
+    "on": "ASK_KB",
+    "when": "general policy question",
+    "rules": [
+     "R25"
+    ],
+    "edges": [],
+    "do": [
+     "set('resume', 'ASK_AUTH')",
+     "kb_log()",
+     "fire('R27') if slot('intent') == 'fraud' else None"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0728",
+   "head": "ASK_AUTH",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_AUTH",
+   "source": "pdf.2A",
+   "evidence": "If authentication fails or the tool is unavailable, transfer to a human",
+   "qualifiers": {
+    "on": "PROVIDE_CREDENTIAL",
+    "when": "authenticate_customer UNAVAILABLE",
+    "rules": [
+     "R5"
+    ],
+    "edges": [
+     "W4"
+    ],
+    "guard": "call('authenticate_customer') == 'UNAVAILABLE'",
+    "do": [
+     "set('reason', 'auth_unavailable')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0729",
+   "head": "ASK_AUTH",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_AUTH",
+   "source": "pdf.7",
+   "evidence": "If a required tool fails, transfer to a human.",
+   "qualifiers": {
+    "on": "PROVIDE_CREDENTIAL",
+    "when": "AUTHENTICATED, get_review_transactions UNAVAILABLE",
+    "rules": [
+     "R3",
+     "R14"
+    ],
+    "edges": [
+     "W3",
+     "W7"
+    ],
+    "guard": "call('authenticate_customer') == 'AUTHENTICATED' and call('get_review_transactions') == 'UNAVAILABLE'",
+    "do": [
+     "set('reason', 'retrieve_unavailable')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0730",
+   "head": "ASK_AUTH",
+   "relation": "leads_to",
+   "tail": "PRESENT_TXN",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_AUTH",
+   "source": "pdf.2B",
+   "evidence": "Present one transaction at a time using merchant, amount and date.",
+   "qualifiers": {
+    "on": "PROVIDE_CREDENTIAL",
+    "when": "AUTHENTICATED and transactions returned",
+    "rules": [
+     "R3",
+     "R7",
+     "R24",
+     "R6"
+    ],
+    "edges": [
+     "W3"
+    ],
+    "guard": "call('authenticate_customer') == 'AUTHENTICATED' and size(select('get_review_transactions', 'transactions', 'age_days', limit('lookback_days'))) > 0",
+    "do": [
+     "load(select('get_review_transactions', 'transactions', 'age_days', limit('lookback_days')), limit('max_transactions_per_session'))",
+     "fire('R30') if size(field('get_review_transactions', 'transactions')) != size(select('get_review_transactions', 'transactions', 'age_days', limit('lookback_days'))) or has_value(field('get_review_transactions', 'transactions'), 'age_days', limit('lookback_days')) else None",
+     "next_item()"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0731",
+   "head": "ASK_AUTH",
+   "relation": "leads_to",
+   "tail": "EXPLAIN_NO_TXNS",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_AUTH",
+   "source": "pdf.2B",
+   "evidence": "If the tool returns no transactions",
+   "qualifiers": {
+    "on": "PROVIDE_CREDENTIAL",
+    "when": "AUTHENTICATED and no transactions returned",
+    "rules": [
+     "R3",
+     "R7",
+     "R24",
+     "R8"
+    ],
+    "edges": [
+     "W3",
+     "W6"
+    ],
+    "guard": "call('authenticate_customer') == 'AUTHENTICATED'",
+    "do": [
+     "fire('R30') if size(field('get_review_transactions', 'transactions')) != size(select('get_review_transactions', 'transactions', 'age_days', limit('lookback_days'))) or has_value(field('get_review_transactions', 'transactions'), 'age_days', limit('lookback_days')) else None"
     ]
    },
    "gms": true
   },
   {
    "id": "T0732",
-   "head": "ASK_AUTH_RETRY",
+   "head": "ASK_AUTH",
    "relation": "leads_to",
-   "tail": "PRESENT_TXN",
+   "tail": "TRANSFER",
    "tail_type": "entity",
    "kind": "trajectory",
-   "state": "ASK_AUTH_RETRY",
+   "state": "ASK_AUTH",
    "source": "pdf.7",
-   "evidence": "On success, continue.",
+   "evidence": "On failure, transfer to human.",
    "qualifiers": {
     "on": "PROVIDE_CREDENTIAL",
-    "when": "AUTHENTICATED and transactions returned",
+    "when": "authenticate_customer FAILED at max_auth_attempts",
     "rules": [
-     "R3",
-     "R6"
+     "R4"
     ],
     "edges": [
-     "W3"
+     "W4"
+    ],
+    "guard": "count('authenticate_customer', 'FAILED') >= limit('max_auth_attempts')",
+    "do": [
+     "set('reason', 'auth_failed')"
     ]
    },
    "gms": true
   },
   {
    "id": "T0733",
+   "head": "ASK_AUTH",
+   "relation": "leads_to",
+   "tail": "ASK_AUTH_RETRY",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_AUTH",
+   "source": "program",
+   "evidence": "at most 2 times incorrect authentication",
+   "qualifiers": {
+    "on": "PROVIDE_CREDENTIAL",
+    "when": "authenticate_customer FAILED and attempts below max_auth_attempts",
+    "rules": [],
+    "edges": [
+     "W2"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0734",
+   "head": "ASK_AUTH",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_AUTH",
+   "source": "pdf.3",
+   "evidence": "If the required information or decision is still unclear after that one retry, transfer to a human representative.",
+   "qualifiers": {
+    "on": "else",
+    "when": "still unclear after one retry",
+    "rules": [
+     "R23"
+    ],
+    "edges": [],
+    "match": "n('auth_unclear') + 1 > limit('max_clarification_retries')",
+    "do": [
+     "set('reason', 'ambiguity_persists')",
+     "inc('auth_unclear')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0735",
+   "head": "ASK_AUTH",
+   "relation": "leads_to",
+   "tail": "ASK_AUTH",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_AUTH",
+   "source": "pdf.3",
+   "evidence": "ask one short clarification",
+   "qualifiers": {
+    "on": "else",
+    "when": "first unclear answer: one short clarification",
+    "rules": [
+     "R22"
+    ],
+    "edges": [],
+    "do": [
+     "inc('auth_unclear')"
+    ],
+    "say": [
+     "'ASK_CLARIFY'"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0736",
+   "head": "ASK_AUTH_RETRY",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_AUTH_RETRY",
+   "source": "program",
+   "evidence": "at max 20 turns",
+   "qualifiers": {
+    "on": "any",
+    "when": "max_turns reached before the journey completes",
+    "rules": [
+     "R28"
+    ],
+    "edges": [],
+    "guard": "turns() >= limit('max_turns')",
+    "do": [
+     "set('reason', 'turn_limit')"
+    ],
+    "discard": true
+   },
+   "gms": true
+  },
+  {
+   "id": "T0737",
+   "head": "ASK_AUTH_RETRY",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_AUTH_RETRY",
+   "source": "pdf.2F",
+   "evidence": "If the customer requests a human at any point, transfer the interaction.",
+   "qualifiers": {
+    "on": "REQUEST_HUMAN",
+    "when": "customer asks for a human",
+    "rules": [
+     "R20"
+    ],
+    "edges": [],
+    "do": [
+     "set('reason', 'customer_request')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0738",
+   "head": "ASK_AUTH_RETRY",
+   "relation": "leads_to",
+   "tail": "ANSWER_KB",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_AUTH_RETRY",
+   "source": "pdf.7",
+   "evidence": "General policy questions may trigger a knowledge-base lookup.",
+   "qualifiers": {
+    "on": "ASK_KB",
+    "when": "general policy question",
+    "rules": [
+     "R25"
+    ],
+    "edges": [],
+    "do": [
+     "set('resume', 'ASK_AUTH')",
+     "kb_log()",
+     "fire('R27') if slot('intent') == 'fraud' else None"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0739",
+   "head": "ASK_AUTH_RETRY",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_AUTH_RETRY",
+   "source": "pdf.2A",
+   "evidence": "If authentication fails or the tool is unavailable, transfer to a human",
+   "qualifiers": {
+    "on": "PROVIDE_CREDENTIAL",
+    "when": "authenticate_customer UNAVAILABLE",
+    "rules": [
+     "R5"
+    ],
+    "edges": [
+     "W4"
+    ],
+    "guard": "call('authenticate_customer') == 'UNAVAILABLE'",
+    "do": [
+     "set('reason', 'auth_unavailable')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0740",
+   "head": "ASK_AUTH_RETRY",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_AUTH_RETRY",
+   "source": "pdf.7",
+   "evidence": "If a required tool fails, transfer to a human.",
+   "qualifiers": {
+    "on": "PROVIDE_CREDENTIAL",
+    "when": "AUTHENTICATED, get_review_transactions UNAVAILABLE",
+    "rules": [
+     "R3",
+     "R14"
+    ],
+    "edges": [
+     "W3",
+     "W7"
+    ],
+    "guard": "call('authenticate_customer') == 'AUTHENTICATED' and call('get_review_transactions') == 'UNAVAILABLE'",
+    "do": [
+     "set('reason', 'retrieve_unavailable')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0741",
+   "head": "ASK_AUTH_RETRY",
+   "relation": "leads_to",
+   "tail": "PRESENT_TXN",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_AUTH_RETRY",
+   "source": "pdf.2B",
+   "evidence": "Present one transaction at a time using merchant, amount and date.",
+   "qualifiers": {
+    "on": "PROVIDE_CREDENTIAL",
+    "when": "AUTHENTICATED and transactions returned",
+    "rules": [
+     "R3",
+     "R7",
+     "R24",
+     "R6"
+    ],
+    "edges": [
+     "W3"
+    ],
+    "guard": "call('authenticate_customer') == 'AUTHENTICATED' and size(select('get_review_transactions', 'transactions', 'age_days', limit('lookback_days'))) > 0",
+    "do": [
+     "load(select('get_review_transactions', 'transactions', 'age_days', limit('lookback_days')), limit('max_transactions_per_session'))",
+     "fire('R30') if size(field('get_review_transactions', 'transactions')) != size(select('get_review_transactions', 'transactions', 'age_days', limit('lookback_days'))) or has_value(field('get_review_transactions', 'transactions'), 'age_days', limit('lookback_days')) else None",
+     "next_item()"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0742",
    "head": "ASK_AUTH_RETRY",
    "relation": "leads_to",
    "tail": "EXPLAIN_NO_TXNS",
@@ -9146,17 +9416,24 @@
     "on": "PROVIDE_CREDENTIAL",
     "when": "AUTHENTICATED and no transactions returned",
     "rules": [
+     "R3",
+     "R7",
+     "R24",
      "R8"
     ],
     "edges": [
      "W3",
      "W6"
+    ],
+    "guard": "call('authenticate_customer') == 'AUTHENTICATED'",
+    "do": [
+     "fire('R30') if size(field('get_review_transactions', 'transactions')) != size(select('get_review_transactions', 'transactions', 'age_days', limit('lookback_days'))) or has_value(field('get_review_transactions', 'transactions'), 'age_days', limit('lookback_days')) else None"
     ]
    },
    "gms": true
   },
   {
-   "id": "T0734",
+   "id": "T0743",
    "head": "ASK_AUTH_RETRY",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -9173,18 +9450,194 @@
     ],
     "edges": [
      "W4"
+    ],
+    "guard": "count('authenticate_customer', 'FAILED') >= limit('max_auth_attempts')",
+    "do": [
+     "set('reason', 'auth_failed')"
     ]
    },
    "gms": true
   },
   {
-   "id": "T0735",
+   "id": "T0744",
+   "head": "ASK_AUTH_RETRY",
+   "relation": "leads_to",
+   "tail": "ASK_AUTH_RETRY",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_AUTH_RETRY",
+   "source": "program",
+   "evidence": "at most 2 times incorrect authentication",
+   "qualifiers": {
+    "on": "PROVIDE_CREDENTIAL",
+    "when": "authenticate_customer FAILED and attempts below max_auth_attempts",
+    "rules": [],
+    "edges": [
+     "W2"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0745",
    "head": "ASK_AUTH_RETRY",
    "relation": "leads_to",
    "tail": "TRANSFER",
    "tail_type": "entity",
    "kind": "trajectory",
    "state": "ASK_AUTH_RETRY",
+   "source": "pdf.3",
+   "evidence": "If the required information or decision is still unclear after that one retry, transfer to a human representative.",
+   "qualifiers": {
+    "on": "else",
+    "when": "still unclear after one retry",
+    "rules": [
+     "R23"
+    ],
+    "edges": [],
+    "match": "n('auth_unclear') + 1 > limit('max_clarification_retries')",
+    "do": [
+     "set('reason', 'ambiguity_persists')",
+     "inc('auth_unclear')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0746",
+   "head": "ASK_AUTH_RETRY",
+   "relation": "leads_to",
+   "tail": "ASK_AUTH",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_AUTH_RETRY",
+   "source": "pdf.3",
+   "evidence": "ask one short clarification",
+   "qualifiers": {
+    "on": "else",
+    "when": "first unclear answer: one short clarification",
+    "rules": [
+     "R22"
+    ],
+    "edges": [],
+    "do": [
+     "inc('auth_unclear')"
+    ],
+    "say": [
+     "'ASK_CLARIFY'"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0747",
+   "head": "PRESENT_TXN",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PRESENT_TXN",
+   "source": "program",
+   "evidence": "at max 20 turns",
+   "qualifiers": {
+    "on": "any",
+    "when": "max_turns reached before the journey completes; responses recorded: summarize, then transfer",
+    "rules": [
+     "R28",
+     "R19"
+    ],
+    "edges": [],
+    "guard": "(turns() >= limit('max_turns')) and recorded()",
+    "do": [
+     "set('reason', 'turn_limit')"
+    ],
+    "discard": true
+   },
+   "gms": true
+  },
+  {
+   "id": "T0748",
+   "head": "PRESENT_TXN",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PRESENT_TXN",
+   "source": "program",
+   "evidence": "at max 20 turns",
+   "qualifiers": {
+    "on": "any",
+    "when": "max_turns reached before the journey completes",
+    "rules": [
+     "R28"
+    ],
+    "edges": [],
+    "guard": "turns() >= limit('max_turns')",
+    "do": [
+     "set('reason', 'turn_limit')"
+    ],
+    "discard": true
+   },
+   "gms": true
+  },
+  {
+   "id": "T0749",
+   "head": "PRESENT_TXN",
+   "relation": "leads_to",
+   "tail": "ANSWER_KB",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PRESENT_TXN",
+   "source": "pdf.7",
+   "evidence": "General policy questions may trigger a knowledge-base lookup.",
+   "qualifiers": {
+    "on": "ASK_KB",
+    "when": "general policy question",
+    "rules": [
+     "R25"
+    ],
+    "edges": [],
+    "do": [
+     "set('resume', 'PRESENT_TXN')",
+     "kb_log()",
+     "fire('R27') if slot('intent') == 'fraud' else None"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0750",
+   "head": "PRESENT_TXN",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PRESENT_TXN",
+   "source": "pdf.2F",
+   "evidence": "If the customer requests a human at any point, transfer the interaction.",
+   "qualifiers": {
+    "on": "REQUEST_HUMAN",
+    "when": "customer asks for a human; responses recorded: summarize, then transfer",
+    "rules": [
+     "R20",
+     "R19"
+    ],
+    "edges": [],
+    "guard": "recorded()",
+    "do": [
+     "set('reason', 'customer_request')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0751",
+   "head": "PRESENT_TXN",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PRESENT_TXN",
    "source": "pdf.2F",
    "evidence": "If the customer requests a human at any point, transfer the interaction.",
    "qualifiers": {
@@ -9193,12 +9646,84 @@
     "rules": [
      "R20"
     ],
-    "edges": []
+    "edges": [],
+    "do": [
+     "set('reason', 'customer_request')"
+    ]
    },
    "gms": true
   },
   {
-   "id": "T0736",
+   "id": "T0752",
+   "head": "PRESENT_TXN",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PRESENT_TXN",
+   "source": "pdf.7",
+   "evidence": "If a required tool fails, transfer to a human.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "clear answer; record_charge_response UNAVAILABLE; responses recorded: summarize, then transfer",
+    "rules": [
+     "R9",
+     "R14",
+     "R19"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') in ('RECOGNIZED', 'UNRECOGNIZED')",
+    "guard": "(call('record_charge_response') == 'UNAVAILABLE') and recorded()",
+    "pre": [
+     "set('disposition', slot('disposition'))",
+     "set('action', slot('card_action'))",
+     "set('delivery', slot('delivery'))",
+     "fire('R21') if slot('corrected_from') else None"
+    ],
+    "do": [
+     "set('reason', 'record_failed')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0753",
+   "head": "PRESENT_TXN",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PRESENT_TXN",
+   "source": "pdf.7",
+   "evidence": "If a required tool fails, transfer to a human.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "clear answer; record_charge_response UNAVAILABLE",
+    "rules": [
+     "R9",
+     "R14"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') in ('RECOGNIZED', 'UNRECOGNIZED')",
+    "guard": "call('record_charge_response') == 'UNAVAILABLE'",
+    "pre": [
+     "set('disposition', slot('disposition'))",
+     "set('action', slot('card_action'))",
+     "set('delivery', slot('delivery'))",
+     "fire('R21') if slot('corrected_from') else None"
+    ],
+    "do": [
+     "set('reason', 'record_failed')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0754",
    "head": "PRESENT_TXN",
    "relation": "leads_to",
    "tail": "CONFIRM_RECORDED",
@@ -9216,12 +9741,269 @@
     ],
     "edges": [
      "W5"
+    ],
+    "match": "slot('disposition') in ('RECOGNIZED', 'UNRECOGNIZED')",
+    "guard": "call('record_charge_response') == 'SUCCESS' and echoed('record_charge_response', 'transaction_id')",
+    "pre": [
+     "set('disposition', slot('disposition'))",
+     "set('action', slot('card_action'))",
+     "set('delivery', slot('delivery'))",
+     "fire('R21') if slot('corrected_from') else None"
+    ],
+    "do": [
+     "claim_recorded()"
     ]
    },
    "gms": true
   },
   {
-   "id": "T0737",
+   "id": "T0755",
+   "head": "PRESENT_TXN",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PRESENT_TXN",
+   "source": "pdf.4",
+   "evidence": "Advance only after SUCCESS; otherwise transfer.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "record_charge_response not SUCCESS; responses recorded: summarize, then transfer",
+    "rules": [
+     "R9",
+     "R12",
+     "R13",
+     "R14",
+     "R19"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') in ('RECOGNIZED', 'UNRECOGNIZED')",
+    "guard": "recorded()",
+    "pre": [
+     "set('disposition', slot('disposition'))",
+     "set('action', slot('card_action'))",
+     "set('delivery', slot('delivery'))",
+     "fire('R21') if slot('corrected_from') else None"
+    ],
+    "do": [
+     "set('reason', 'record_failed')",
+     "fire('R33') if not echoed('record_charge_response', 'transaction_id') else None"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0756",
+   "head": "PRESENT_TXN",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PRESENT_TXN",
+   "source": "pdf.4",
+   "evidence": "Advance only after SUCCESS; otherwise transfer.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "record_charge_response not SUCCESS",
+    "rules": [
+     "R9",
+     "R12",
+     "R13",
+     "R14"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') in ('RECOGNIZED', 'UNRECOGNIZED')",
+    "pre": [
+     "set('disposition', slot('disposition'))",
+     "set('action', slot('card_action'))",
+     "set('delivery', slot('delivery'))",
+     "fire('R21') if slot('corrected_from') else None"
+    ],
+    "do": [
+     "set('reason', 'record_failed')",
+     "fire('R33') if not echoed('record_charge_response', 'transaction_id') else None"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0757",
+   "head": "PRESENT_TXN",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PRESENT_TXN",
+   "source": "pdf.7",
+   "evidence": "If a required tool fails, transfer to a human.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "still UNSURE; record_charge_response UNAVAILABLE; responses recorded: summarize, then transfer",
+    "rules": [
+     "R10",
+     "R14",
+     "R19"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') == 'UNSURE' and n('unsure') + 1 > limit('max_unsure_retries')",
+    "guard": "(call('record_charge_response') == 'UNAVAILABLE') and recorded()",
+    "pre": [
+     "set('disposition', 'UNSURE')",
+     "set('action', None)",
+     "set('delivery', None)"
+    ],
+    "do": [
+     "set('reason', 'record_failed')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0758",
+   "head": "PRESENT_TXN",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PRESENT_TXN",
+   "source": "pdf.7",
+   "evidence": "If a required tool fails, transfer to a human.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "still UNSURE; record_charge_response UNAVAILABLE",
+    "rules": [
+     "R10",
+     "R14"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') == 'UNSURE' and n('unsure') + 1 > limit('max_unsure_retries')",
+    "guard": "call('record_charge_response') == 'UNAVAILABLE'",
+    "pre": [
+     "set('disposition', 'UNSURE')",
+     "set('action', None)",
+     "set('delivery', None)"
+    ],
+    "do": [
+     "set('reason', 'record_failed')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0759",
+   "head": "PRESENT_TXN",
+   "relation": "leads_to",
+   "tail": "CONFIRM_RECORDED",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PRESENT_TXN",
+   "source": "pdf.2C",
+   "evidence": "If still unsure, record UNSURE and transfer.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "still UNSURE: record UNSURE (then transfer)",
+    "rules": [
+     "R10",
+     "R12"
+    ],
+    "edges": [
+     "W5"
+    ],
+    "match": "slot('disposition') == 'UNSURE' and n('unsure') + 1 > limit('max_unsure_retries')",
+    "guard": "call('record_charge_response') == 'SUCCESS' and echoed('record_charge_response', 'transaction_id')",
+    "pre": [
+     "set('disposition', 'UNSURE')",
+     "set('action', None)",
+     "set('delivery', None)"
+    ],
+    "do": [
+     "claim_recorded()"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0760",
+   "head": "PRESENT_TXN",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PRESENT_TXN",
+   "source": "pdf.4",
+   "evidence": "Advance only after SUCCESS; otherwise transfer.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "still UNSURE; record_charge_response not SUCCESS; responses recorded: summarize, then transfer",
+    "rules": [
+     "R10",
+     "R12",
+     "R13",
+     "R14",
+     "R19"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') == 'UNSURE' and n('unsure') + 1 > limit('max_unsure_retries')",
+    "guard": "recorded()",
+    "pre": [
+     "set('disposition', 'UNSURE')",
+     "set('action', None)",
+     "set('delivery', None)"
+    ],
+    "do": [
+     "set('reason', 'record_failed')",
+     "fire('R33') if not echoed('record_charge_response', 'transaction_id') else None"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0761",
+   "head": "PRESENT_TXN",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PRESENT_TXN",
+   "source": "pdf.4",
+   "evidence": "Advance only after SUCCESS; otherwise transfer.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "still UNSURE; record_charge_response not SUCCESS",
+    "rules": [
+     "R10",
+     "R12",
+     "R13",
+     "R14"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') == 'UNSURE' and n('unsure') + 1 > limit('max_unsure_retries')",
+    "pre": [
+     "set('disposition', 'UNSURE')",
+     "set('action', None)",
+     "set('delivery', None)"
+    ],
+    "do": [
+     "set('reason', 'record_failed')",
+     "fire('R33') if not echoed('record_charge_response', 'transaction_id') else None"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0762",
    "head": "PRESENT_TXN",
    "relation": "leads_to",
    "tail": "PROVIDE_CONTEXT",
@@ -9236,12 +10018,70 @@
     "rules": [
      "R10"
     ],
-    "edges": []
+    "edges": [],
+    "match": "slot('disposition') == 'UNSURE'",
+    "do": [
+     "inc('unsure')"
+    ]
    },
    "gms": true
   },
   {
-   "id": "T0738",
+   "id": "T0763",
+   "head": "PRESENT_TXN",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PRESENT_TXN",
+   "source": "pdf.3",
+   "evidence": "If the required information or decision is still unclear after that one retry, transfer to a human representative.",
+   "qualifiers": {
+    "on": "else",
+    "when": "still unclear after one retry; responses recorded: summarize, then transfer",
+    "rules": [
+     "R22",
+     "R23",
+     "R19"
+    ],
+    "edges": [],
+    "match": "n('unclear') + 1 > limit('max_clarification_retries')",
+    "guard": "recorded()",
+    "do": [
+     "set('reason', 'ambiguity_persists')",
+     "inc('unclear')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0764",
+   "head": "PRESENT_TXN",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PRESENT_TXN",
+   "source": "pdf.3",
+   "evidence": "If the required information or decision is still unclear after that one retry, transfer to a human representative.",
+   "qualifiers": {
+    "on": "else",
+    "when": "still unclear after one retry",
+    "rules": [
+     "R22",
+     "R23"
+    ],
+    "edges": [],
+    "match": "n('unclear') + 1 > limit('max_clarification_retries')",
+    "do": [
+     "set('reason', 'ambiguity_persists')",
+     "inc('unclear')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0765",
    "head": "PRESENT_TXN",
    "relation": "leads_to",
    "tail": "ASK_CLARIFY",
@@ -9251,23 +10091,77 @@
    "source": "pdf.3",
    "evidence": "ask one short clarification",
    "qualifiers": {
-    "on": "UNCLEAR",
+    "on": "else",
     "when": "answer unclear (first time)",
     "rules": [
      "R22"
     ],
-    "edges": []
+    "edges": [],
+    "do": [
+     "inc('unclear')"
+    ]
    },
    "gms": true
   },
   {
-   "id": "T0739",
-   "head": "PRESENT_TXN",
+   "id": "T0766",
+   "head": "ASK_CLARIFY",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_CLARIFY",
+   "source": "program",
+   "evidence": "at max 20 turns",
+   "qualifiers": {
+    "on": "any",
+    "when": "max_turns reached before the journey completes; responses recorded: summarize, then transfer",
+    "rules": [
+     "R28",
+     "R19"
+    ],
+    "edges": [],
+    "guard": "(turns() >= limit('max_turns')) and recorded()",
+    "do": [
+     "set('reason', 'turn_limit')"
+    ],
+    "discard": true
+   },
+   "gms": true
+  },
+  {
+   "id": "T0767",
+   "head": "ASK_CLARIFY",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_CLARIFY",
+   "source": "program",
+   "evidence": "at max 20 turns",
+   "qualifiers": {
+    "on": "any",
+    "when": "max_turns reached before the journey completes",
+    "rules": [
+     "R28"
+    ],
+    "edges": [],
+    "guard": "turns() >= limit('max_turns')",
+    "do": [
+     "set('reason', 'turn_limit')"
+    ],
+    "discard": true
+   },
+   "gms": true
+  },
+  {
+   "id": "T0768",
+   "head": "ASK_CLARIFY",
    "relation": "leads_to",
    "tail": "ANSWER_KB",
    "tail_type": "entity",
    "kind": "trajectory",
-   "state": "PRESENT_TXN",
+   "state": "ASK_CLARIFY",
    "source": "pdf.7",
    "evidence": "General policy questions may trigger a knowledge-base lookup.",
    "qualifiers": {
@@ -9276,40 +10170,48 @@
     "rules": [
      "R25"
     ],
-    "edges": []
-   },
-   "gms": true
-  },
-  {
-   "id": "T0740",
-   "head": "PRESENT_TXN",
-   "relation": "leads_to",
-   "tail": "TRANSFER",
-   "tail_type": "entity",
-   "kind": "trajectory",
-   "state": "PRESENT_TXN",
-   "source": "pdf.4",
-   "evidence": "Advance only after SUCCESS; otherwise transfer.",
-   "qualifiers": {
-    "on": "INFORM_DISPOSITION",
-    "when": "record_charge_response not SUCCESS",
-    "rules": [
-     "R14"
-    ],
-    "edges": [
-     "W11"
+    "edges": [],
+    "do": [
+     "set('resume', 'PRESENT_TXN')",
+     "kb_log()",
+     "fire('R27') if slot('intent') == 'fraud' else None"
     ]
    },
    "gms": true
   },
   {
-   "id": "T0741",
-   "head": "PRESENT_TXN",
+   "id": "T0769",
+   "head": "ASK_CLARIFY",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_CLARIFY",
+   "source": "pdf.2F",
+   "evidence": "If the customer requests a human at any point, transfer the interaction.",
+   "qualifiers": {
+    "on": "REQUEST_HUMAN",
+    "when": "customer asks for a human; responses recorded: summarize, then transfer",
+    "rules": [
+     "R20",
+     "R19"
+    ],
+    "edges": [],
+    "guard": "recorded()",
+    "do": [
+     "set('reason', 'customer_request')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0770",
+   "head": "ASK_CLARIFY",
    "relation": "leads_to",
    "tail": "TRANSFER",
    "tail_type": "entity",
    "kind": "trajectory",
-   "state": "PRESENT_TXN",
+   "state": "ASK_CLARIFY",
    "source": "pdf.2F",
    "evidence": "If the customer requests a human at any point, transfer the interaction.",
    "qualifiers": {
@@ -9318,99 +10220,364 @@
     "rules": [
      "R20"
     ],
-    "edges": []
-   },
-   "gms": true
-  },
-  {
-   "id": "T0742",
-   "head": "PRESENT_TXN",
-   "relation": "leads_to",
-   "tail": "SUMMARIZE",
-   "tail_type": "entity",
-   "kind": "trajectory",
-   "state": "PRESENT_TXN",
-   "source": "pdf.2F",
-   "evidence": "summarize the responses",
-   "qualifiers": {
-    "on": "REQUEST_HUMAN",
-    "when": "customer asks for a human after responses were recorded",
-    "rules": [
-     "R19",
-     "R20"
-    ],
-    "edges": []
-   },
-   "gms": true
-  },
-  {
-   "id": "T0743",
-   "head": "PRESENT_TXN",
-   "relation": "leads_to",
-   "tail": "SUMMARIZE",
-   "tail_type": "entity",
-   "kind": "trajectory",
-   "state": "PRESENT_TXN",
-   "source": "pdf.2F",
-   "evidence": "After the available charges are reviewed, summarize the responses",
-   "qualifiers": {
-    "on": "INFORM_DISPOSITION",
-    "when": "record SUCCESS and no transaction pending",
-    "rules": [
-     "R12",
-     "R19"
-    ],
-    "edges": [
-     "W10"
+    "edges": [],
+    "do": [
+     "set('reason', 'customer_request')"
     ]
    },
    "gms": true
   },
   {
-   "id": "T0744",
-   "head": "ANSWER_KB",
+   "id": "T0771",
+   "head": "ASK_CLARIFY",
    "relation": "leads_to",
-   "tail": "PRESENT_TXN",
+   "tail": "SUMMARIZE",
    "tail_type": "entity",
    "kind": "trajectory",
-   "state": "ANSWER_KB",
+   "state": "ASK_CLARIFY",
    "source": "pdf.7",
-   "evidence": "Present one transaction and ask whether the customer recognizes it.",
+   "evidence": "If a required tool fails, transfer to a human.",
    "qualifiers": {
-    "on": "auto",
-    "when": "re-ask the pending transaction",
+    "on": "INFORM_DISPOSITION",
+    "when": "clear answer; record_charge_response UNAVAILABLE; responses recorded: summarize, then transfer",
     "rules": [
-     "R6"
+     "R9",
+     "R14",
+     "R19"
     ],
-    "edges": []
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') in ('RECOGNIZED', 'UNRECOGNIZED')",
+    "guard": "(call('record_charge_response') == 'UNAVAILABLE') and recorded()",
+    "pre": [
+     "set('disposition', slot('disposition'))",
+     "set('action', slot('card_action'))",
+     "set('delivery', slot('delivery'))",
+     "fire('R21') if slot('corrected_from') else None"
+    ],
+    "do": [
+     "set('reason', 'record_failed')"
+    ]
    },
    "gms": true
   },
   {
-   "id": "T0745",
+   "id": "T0772",
+   "head": "ASK_CLARIFY",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_CLARIFY",
+   "source": "pdf.7",
+   "evidence": "If a required tool fails, transfer to a human.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "clear answer; record_charge_response UNAVAILABLE",
+    "rules": [
+     "R9",
+     "R14"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') in ('RECOGNIZED', 'UNRECOGNIZED')",
+    "guard": "call('record_charge_response') == 'UNAVAILABLE'",
+    "pre": [
+     "set('disposition', slot('disposition'))",
+     "set('action', slot('card_action'))",
+     "set('delivery', slot('delivery'))",
+     "fire('R21') if slot('corrected_from') else None"
+    ],
+    "do": [
+     "set('reason', 'record_failed')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0773",
    "head": "ASK_CLARIFY",
    "relation": "leads_to",
    "tail": "CONFIRM_RECORDED",
    "tail_type": "entity",
    "kind": "trajectory",
    "state": "ASK_CLARIFY",
-   "source": "pdf.3",
-   "evidence": "make only one additional attempt",
+   "source": "pdf.2C",
+   "evidence": "A clear answer maps to RECOGNIZED or UNRECOGNIZED.",
    "qualifiers": {
     "on": "INFORM_DISPOSITION",
-    "when": "clear answer after clarification and SUCCESS",
+    "when": "clear RECOGNIZED/UNRECOGNIZED and record_charge_response SUCCESS",
     "rules": [
      "R9",
      "R12"
     ],
     "edges": [
      "W5"
+    ],
+    "match": "slot('disposition') in ('RECOGNIZED', 'UNRECOGNIZED')",
+    "guard": "call('record_charge_response') == 'SUCCESS' and echoed('record_charge_response', 'transaction_id')",
+    "pre": [
+     "set('disposition', slot('disposition'))",
+     "set('action', slot('card_action'))",
+     "set('delivery', slot('delivery'))",
+     "fire('R21') if slot('corrected_from') else None"
+    ],
+    "do": [
+     "claim_recorded()"
     ]
    },
    "gms": true
   },
   {
-   "id": "T0746",
+   "id": "T0774",
+   "head": "ASK_CLARIFY",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_CLARIFY",
+   "source": "pdf.4",
+   "evidence": "Advance only after SUCCESS; otherwise transfer.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "record_charge_response not SUCCESS; responses recorded: summarize, then transfer",
+    "rules": [
+     "R9",
+     "R12",
+     "R13",
+     "R14",
+     "R19"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') in ('RECOGNIZED', 'UNRECOGNIZED')",
+    "guard": "recorded()",
+    "pre": [
+     "set('disposition', slot('disposition'))",
+     "set('action', slot('card_action'))",
+     "set('delivery', slot('delivery'))",
+     "fire('R21') if slot('corrected_from') else None"
+    ],
+    "do": [
+     "set('reason', 'record_failed')",
+     "fire('R33') if not echoed('record_charge_response', 'transaction_id') else None"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0775",
+   "head": "ASK_CLARIFY",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_CLARIFY",
+   "source": "pdf.4",
+   "evidence": "Advance only after SUCCESS; otherwise transfer.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "record_charge_response not SUCCESS",
+    "rules": [
+     "R9",
+     "R12",
+     "R13",
+     "R14"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') in ('RECOGNIZED', 'UNRECOGNIZED')",
+    "pre": [
+     "set('disposition', slot('disposition'))",
+     "set('action', slot('card_action'))",
+     "set('delivery', slot('delivery'))",
+     "fire('R21') if slot('corrected_from') else None"
+    ],
+    "do": [
+     "set('reason', 'record_failed')",
+     "fire('R33') if not echoed('record_charge_response', 'transaction_id') else None"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0776",
+   "head": "ASK_CLARIFY",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_CLARIFY",
+   "source": "pdf.7",
+   "evidence": "If a required tool fails, transfer to a human.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "still UNSURE; record_charge_response UNAVAILABLE; responses recorded: summarize, then transfer",
+    "rules": [
+     "R10",
+     "R14",
+     "R19"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') == 'UNSURE' and n('unsure') + 1 > limit('max_unsure_retries')",
+    "guard": "(call('record_charge_response') == 'UNAVAILABLE') and recorded()",
+    "pre": [
+     "set('disposition', 'UNSURE')",
+     "set('action', None)",
+     "set('delivery', None)"
+    ],
+    "do": [
+     "set('reason', 'record_failed')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0777",
+   "head": "ASK_CLARIFY",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_CLARIFY",
+   "source": "pdf.7",
+   "evidence": "If a required tool fails, transfer to a human.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "still UNSURE; record_charge_response UNAVAILABLE",
+    "rules": [
+     "R10",
+     "R14"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') == 'UNSURE' and n('unsure') + 1 > limit('max_unsure_retries')",
+    "guard": "call('record_charge_response') == 'UNAVAILABLE'",
+    "pre": [
+     "set('disposition', 'UNSURE')",
+     "set('action', None)",
+     "set('delivery', None)"
+    ],
+    "do": [
+     "set('reason', 'record_failed')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0778",
+   "head": "ASK_CLARIFY",
+   "relation": "leads_to",
+   "tail": "CONFIRM_RECORDED",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_CLARIFY",
+   "source": "pdf.2C",
+   "evidence": "If still unsure, record UNSURE and transfer.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "still UNSURE: record UNSURE (then transfer)",
+    "rules": [
+     "R10",
+     "R12"
+    ],
+    "edges": [
+     "W5"
+    ],
+    "match": "slot('disposition') == 'UNSURE' and n('unsure') + 1 > limit('max_unsure_retries')",
+    "guard": "call('record_charge_response') == 'SUCCESS' and echoed('record_charge_response', 'transaction_id')",
+    "pre": [
+     "set('disposition', 'UNSURE')",
+     "set('action', None)",
+     "set('delivery', None)"
+    ],
+    "do": [
+     "claim_recorded()"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0779",
+   "head": "ASK_CLARIFY",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_CLARIFY",
+   "source": "pdf.4",
+   "evidence": "Advance only after SUCCESS; otherwise transfer.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "still UNSURE; record_charge_response not SUCCESS; responses recorded: summarize, then transfer",
+    "rules": [
+     "R10",
+     "R12",
+     "R13",
+     "R14",
+     "R19"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') == 'UNSURE' and n('unsure') + 1 > limit('max_unsure_retries')",
+    "guard": "recorded()",
+    "pre": [
+     "set('disposition', 'UNSURE')",
+     "set('action', None)",
+     "set('delivery', None)"
+    ],
+    "do": [
+     "set('reason', 'record_failed')",
+     "fire('R33') if not echoed('record_charge_response', 'transaction_id') else None"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0780",
+   "head": "ASK_CLARIFY",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_CLARIFY",
+   "source": "pdf.4",
+   "evidence": "Advance only after SUCCESS; otherwise transfer.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "still UNSURE; record_charge_response not SUCCESS",
+    "rules": [
+     "R10",
+     "R12",
+     "R13",
+     "R14"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') == 'UNSURE' and n('unsure') + 1 > limit('max_unsure_retries')",
+    "pre": [
+     "set('disposition', 'UNSURE')",
+     "set('action', None)",
+     "set('delivery', None)"
+    ],
+    "do": [
+     "set('reason', 'record_failed')",
+     "fire('R33') if not echoed('record_charge_response', 'transaction_id') else None"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0781",
    "head": "ASK_CLARIFY",
    "relation": "leads_to",
    "tail": "PROVIDE_CONTEXT",
@@ -9418,19 +10585,51 @@
    "kind": "trajectory",
    "state": "ASK_CLARIFY",
    "source": "pdf.2C",
-   "evidence": "provide available transaction context and ask once more",
+   "evidence": "If the customer is unsure, provide available transaction context and ask once more.",
    "qualifiers": {
     "on": "INFORM_DISPOSITION",
-    "when": "disposition UNSURE",
+    "when": "disposition UNSURE (first time)",
     "rules": [
      "R10"
     ],
-    "edges": []
+    "edges": [],
+    "match": "slot('disposition') == 'UNSURE'",
+    "do": [
+     "inc('unsure')"
+    ]
    },
    "gms": true
   },
   {
-   "id": "T0747",
+   "id": "T0782",
+   "head": "ASK_CLARIFY",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_CLARIFY",
+   "source": "pdf.3",
+   "evidence": "If the required information or decision is still unclear after that one retry, transfer to a human representative.",
+   "qualifiers": {
+    "on": "else",
+    "when": "still unclear after one retry; responses recorded: summarize, then transfer",
+    "rules": [
+     "R22",
+     "R23",
+     "R19"
+    ],
+    "edges": [],
+    "match": "n('unclear') + 1 > limit('max_clarification_retries')",
+    "guard": "recorded()",
+    "do": [
+     "set('reason', 'ambiguity_persists')",
+     "inc('unclear')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0783",
    "head": "ASK_CLARIFY",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -9440,23 +10639,153 @@
    "source": "pdf.3",
    "evidence": "If the required information or decision is still unclear after that one retry, transfer to a human representative.",
    "qualifiers": {
-    "on": "UNCLEAR",
+    "on": "else",
     "when": "still unclear after one retry",
     "rules": [
+     "R22",
      "R23"
     ],
-    "edges": []
+    "edges": [],
+    "match": "n('unclear') + 1 > limit('max_clarification_retries')",
+    "do": [
+     "set('reason', 'ambiguity_persists')",
+     "inc('unclear')"
+    ]
    },
    "gms": true
   },
   {
-   "id": "T0748",
+   "id": "T0784",
    "head": "ASK_CLARIFY",
+   "relation": "leads_to",
+   "tail": "ASK_CLARIFY",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_CLARIFY",
+   "source": "pdf.3",
+   "evidence": "ask one short clarification",
+   "qualifiers": {
+    "on": "else",
+    "when": "answer unclear (first time)",
+    "rules": [
+     "R22"
+    ],
+    "edges": [],
+    "do": [
+     "inc('unclear')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0785",
+   "head": "PROVIDE_CONTEXT",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PROVIDE_CONTEXT",
+   "source": "program",
+   "evidence": "at max 20 turns",
+   "qualifiers": {
+    "on": "any",
+    "when": "max_turns reached before the journey completes; responses recorded: summarize, then transfer",
+    "rules": [
+     "R28",
+     "R19"
+    ],
+    "edges": [],
+    "guard": "(turns() >= limit('max_turns')) and recorded()",
+    "do": [
+     "set('reason', 'turn_limit')"
+    ],
+    "discard": true
+   },
+   "gms": true
+  },
+  {
+   "id": "T0786",
+   "head": "PROVIDE_CONTEXT",
    "relation": "leads_to",
    "tail": "TRANSFER",
    "tail_type": "entity",
    "kind": "trajectory",
-   "state": "ASK_CLARIFY",
+   "state": "PROVIDE_CONTEXT",
+   "source": "program",
+   "evidence": "at max 20 turns",
+   "qualifiers": {
+    "on": "any",
+    "when": "max_turns reached before the journey completes",
+    "rules": [
+     "R28"
+    ],
+    "edges": [],
+    "guard": "turns() >= limit('max_turns')",
+    "do": [
+     "set('reason', 'turn_limit')"
+    ],
+    "discard": true
+   },
+   "gms": true
+  },
+  {
+   "id": "T0787",
+   "head": "PROVIDE_CONTEXT",
+   "relation": "leads_to",
+   "tail": "ANSWER_KB",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PROVIDE_CONTEXT",
+   "source": "pdf.7",
+   "evidence": "General policy questions may trigger a knowledge-base lookup.",
+   "qualifiers": {
+    "on": "ASK_KB",
+    "when": "general policy question",
+    "rules": [
+     "R25"
+    ],
+    "edges": [],
+    "do": [
+     "set('resume', 'PRESENT_TXN')",
+     "kb_log()",
+     "fire('R27') if slot('intent') == 'fraud' else None"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0788",
+   "head": "PROVIDE_CONTEXT",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PROVIDE_CONTEXT",
+   "source": "pdf.2F",
+   "evidence": "If the customer requests a human at any point, transfer the interaction.",
+   "qualifiers": {
+    "on": "REQUEST_HUMAN",
+    "when": "customer asks for a human; responses recorded: summarize, then transfer",
+    "rules": [
+     "R20",
+     "R19"
+    ],
+    "edges": [],
+    "guard": "recorded()",
+    "do": [
+     "set('reason', 'customer_request')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0789",
+   "head": "PROVIDE_CONTEXT",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PROVIDE_CONTEXT",
    "source": "pdf.2F",
    "evidence": "If the customer requests a human at any point, transfer the interaction.",
    "qualifiers": {
@@ -9465,33 +10794,84 @@
     "rules": [
      "R20"
     ],
-    "edges": []
+    "edges": [],
+    "do": [
+     "set('reason', 'customer_request')"
+    ]
    },
    "gms": true
   },
   {
-   "id": "T0749",
-   "head": "ASK_CLARIFY",
+   "id": "T0790",
+   "head": "PROVIDE_CONTEXT",
    "relation": "leads_to",
    "tail": "SUMMARIZE",
    "tail_type": "entity",
    "kind": "trajectory",
-   "state": "ASK_CLARIFY",
-   "source": "pdf.3",
-   "evidence": "transfer to a human representative",
+   "state": "PROVIDE_CONTEXT",
+   "source": "pdf.7",
+   "evidence": "If a required tool fails, transfer to a human.",
    "qualifiers": {
-    "on": "UNCLEAR",
-    "when": "still unclear after one retry and responses recorded",
+    "on": "INFORM_DISPOSITION",
+    "when": "clear answer; record_charge_response UNAVAILABLE; responses recorded: summarize, then transfer",
     "rules": [
-     "R19",
-     "R23"
+     "R9",
+     "R14",
+     "R19"
     ],
-    "edges": []
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') in ('RECOGNIZED', 'UNRECOGNIZED')",
+    "guard": "(call('record_charge_response') == 'UNAVAILABLE') and recorded()",
+    "pre": [
+     "set('disposition', slot('disposition'))",
+     "set('action', slot('card_action'))",
+     "set('delivery', slot('delivery'))",
+     "fire('R21') if slot('corrected_from') else None"
+    ],
+    "do": [
+     "set('reason', 'record_failed')"
+    ]
    },
    "gms": true
   },
   {
-   "id": "T0750",
+   "id": "T0791",
+   "head": "PROVIDE_CONTEXT",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PROVIDE_CONTEXT",
+   "source": "pdf.7",
+   "evidence": "If a required tool fails, transfer to a human.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "clear answer; record_charge_response UNAVAILABLE",
+    "rules": [
+     "R9",
+     "R14"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') in ('RECOGNIZED', 'UNRECOGNIZED')",
+    "guard": "call('record_charge_response') == 'UNAVAILABLE'",
+    "pre": [
+     "set('disposition', slot('disposition'))",
+     "set('action', slot('card_action'))",
+     "set('delivery', slot('delivery'))",
+     "fire('R21') if slot('corrected_from') else None"
+    ],
+    "do": [
+     "set('reason', 'record_failed')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0792",
    "head": "PROVIDE_CONTEXT",
    "relation": "leads_to",
    "tail": "CONFIRM_RECORDED",
@@ -9502,107 +10882,644 @@
    "evidence": "A clear answer maps to RECOGNIZED or UNRECOGNIZED.",
    "qualifiers": {
     "on": "INFORM_DISPOSITION",
-    "when": "clear answer after context and SUCCESS",
+    "when": "clear RECOGNIZED/UNRECOGNIZED and record_charge_response SUCCESS",
     "rules": [
      "R9",
      "R12"
     ],
     "edges": [
      "W5"
-    ]
-   },
-   "gms": true
-  },
-  {
-   "id": "T0751",
-   "head": "PROVIDE_CONTEXT",
-   "relation": "leads_to",
-   "tail": "TRANSFER",
-   "tail_type": "entity",
-   "kind": "trajectory",
-   "state": "PROVIDE_CONTEXT",
-   "source": "pdf.2C",
-   "evidence": "If still unsure, record UNSURE and transfer.",
-   "qualifiers": {
-    "on": "INFORM_DISPOSITION",
-    "when": "still UNSURE: record UNSURE, then transfer",
-    "rules": [
-     "R11"
     ],
-    "edges": [
-     "W11"
+    "match": "slot('disposition') in ('RECOGNIZED', 'UNRECOGNIZED')",
+    "guard": "call('record_charge_response') == 'SUCCESS' and echoed('record_charge_response', 'transaction_id')",
+    "pre": [
+     "set('disposition', slot('disposition'))",
+     "set('action', slot('card_action'))",
+     "set('delivery', slot('delivery'))",
+     "fire('R21') if slot('corrected_from') else None"
+    ],
+    "do": [
+     "claim_recorded()"
     ]
    },
    "gms": true
   },
   {
-   "id": "T0752",
+   "id": "T0793",
    "head": "PROVIDE_CONTEXT",
    "relation": "leads_to",
    "tail": "SUMMARIZE",
    "tail_type": "entity",
    "kind": "trajectory",
    "state": "PROVIDE_CONTEXT",
-   "source": "pdf.2C",
-   "evidence": "If still unsure, record UNSURE and transfer.",
+   "source": "pdf.4",
+   "evidence": "Advance only after SUCCESS; otherwise transfer.",
    "qualifiers": {
     "on": "INFORM_DISPOSITION",
-    "when": "still UNSURE and responses recorded",
+    "when": "record_charge_response not SUCCESS; responses recorded: summarize, then transfer",
     "rules": [
-     "R11",
+     "R9",
+     "R12",
+     "R13",
+     "R14",
      "R19"
     ],
     "edges": [
      "W11"
+    ],
+    "match": "slot('disposition') in ('RECOGNIZED', 'UNRECOGNIZED')",
+    "guard": "recorded()",
+    "pre": [
+     "set('disposition', slot('disposition'))",
+     "set('action', slot('card_action'))",
+     "set('delivery', slot('delivery'))",
+     "fire('R21') if slot('corrected_from') else None"
+    ],
+    "do": [
+     "set('reason', 'record_failed')",
+     "fire('R33') if not echoed('record_charge_response', 'transaction_id') else None"
     ]
    },
    "gms": true
   },
   {
-   "id": "T0753",
+   "id": "T0794",
    "head": "PROVIDE_CONTEXT",
    "relation": "leads_to",
    "tail": "TRANSFER",
    "tail_type": "entity",
    "kind": "trajectory",
    "state": "PROVIDE_CONTEXT",
-   "source": "pdf.2F",
-   "evidence": "If the customer requests a human at any point, transfer the interaction.",
+   "source": "pdf.4",
+   "evidence": "Advance only after SUCCESS; otherwise transfer.",
    "qualifiers": {
-    "on": "REQUEST_HUMAN",
-    "when": "customer asks for a human",
+    "on": "INFORM_DISPOSITION",
+    "when": "record_charge_response not SUCCESS",
     "rules": [
-     "R20"
-    ],
-    "edges": []
-   },
-   "gms": true
-  },
-  {
-   "id": "T0754",
-   "head": "CONFIRM_RECORDED",
-   "relation": "leads_to",
-   "tail": "PRESENT_TXN",
-   "tail_type": "entity",
-   "kind": "trajectory",
-   "state": "CONFIRM_RECORDED",
-   "source": "pdf.2D",
-   "evidence": "Call record_charge_response for the current transaction before advancing.",
-   "qualifiers": {
-    "on": "auto",
-    "when": "SUCCESS and next transaction pending",
-    "rules": [
-     "R6",
-     "R12"
+     "R9",
+     "R12",
+     "R13",
+     "R14"
     ],
     "edges": [
-     "W8"
+     "W11"
+    ],
+    "match": "slot('disposition') in ('RECOGNIZED', 'UNRECOGNIZED')",
+    "pre": [
+     "set('disposition', slot('disposition'))",
+     "set('action', slot('card_action'))",
+     "set('delivery', slot('delivery'))",
+     "fire('R21') if slot('corrected_from') else None"
+    ],
+    "do": [
+     "set('reason', 'record_failed')",
+     "fire('R33') if not echoed('record_charge_response', 'transaction_id') else None"
     ]
    },
    "gms": true
   },
   {
-   "id": "T0755",
+   "id": "T0795",
+   "head": "PROVIDE_CONTEXT",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PROVIDE_CONTEXT",
+   "source": "pdf.7",
+   "evidence": "If a required tool fails, transfer to a human.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "still UNSURE; record_charge_response UNAVAILABLE; responses recorded: summarize, then transfer",
+    "rules": [
+     "R10",
+     "R14",
+     "R19"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') == 'UNSURE' and n('unsure') + 1 > limit('max_unsure_retries')",
+    "guard": "(call('record_charge_response') == 'UNAVAILABLE') and recorded()",
+    "pre": [
+     "set('disposition', 'UNSURE')",
+     "set('action', None)",
+     "set('delivery', None)"
+    ],
+    "do": [
+     "set('reason', 'record_failed')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0796",
+   "head": "PROVIDE_CONTEXT",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PROVIDE_CONTEXT",
+   "source": "pdf.7",
+   "evidence": "If a required tool fails, transfer to a human.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "still UNSURE; record_charge_response UNAVAILABLE",
+    "rules": [
+     "R10",
+     "R14"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') == 'UNSURE' and n('unsure') + 1 > limit('max_unsure_retries')",
+    "guard": "call('record_charge_response') == 'UNAVAILABLE'",
+    "pre": [
+     "set('disposition', 'UNSURE')",
+     "set('action', None)",
+     "set('delivery', None)"
+    ],
+    "do": [
+     "set('reason', 'record_failed')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0797",
+   "head": "PROVIDE_CONTEXT",
+   "relation": "leads_to",
+   "tail": "CONFIRM_RECORDED",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PROVIDE_CONTEXT",
+   "source": "pdf.2C",
+   "evidence": "If still unsure, record UNSURE and transfer.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "still UNSURE: record UNSURE (then transfer)",
+    "rules": [
+     "R10",
+     "R12"
+    ],
+    "edges": [
+     "W5"
+    ],
+    "match": "slot('disposition') == 'UNSURE' and n('unsure') + 1 > limit('max_unsure_retries')",
+    "guard": "call('record_charge_response') == 'SUCCESS' and echoed('record_charge_response', 'transaction_id')",
+    "pre": [
+     "set('disposition', 'UNSURE')",
+     "set('action', None)",
+     "set('delivery', None)"
+    ],
+    "do": [
+     "claim_recorded()"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0798",
+   "head": "PROVIDE_CONTEXT",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PROVIDE_CONTEXT",
+   "source": "pdf.4",
+   "evidence": "Advance only after SUCCESS; otherwise transfer.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "still UNSURE; record_charge_response not SUCCESS; responses recorded: summarize, then transfer",
+    "rules": [
+     "R10",
+     "R12",
+     "R13",
+     "R14",
+     "R19"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') == 'UNSURE' and n('unsure') + 1 > limit('max_unsure_retries')",
+    "guard": "recorded()",
+    "pre": [
+     "set('disposition', 'UNSURE')",
+     "set('action', None)",
+     "set('delivery', None)"
+    ],
+    "do": [
+     "set('reason', 'record_failed')",
+     "fire('R33') if not echoed('record_charge_response', 'transaction_id') else None"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0799",
+   "head": "PROVIDE_CONTEXT",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PROVIDE_CONTEXT",
+   "source": "pdf.4",
+   "evidence": "Advance only after SUCCESS; otherwise transfer.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "still UNSURE; record_charge_response not SUCCESS",
+    "rules": [
+     "R10",
+     "R12",
+     "R13",
+     "R14"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "match": "slot('disposition') == 'UNSURE' and n('unsure') + 1 > limit('max_unsure_retries')",
+    "pre": [
+     "set('disposition', 'UNSURE')",
+     "set('action', None)",
+     "set('delivery', None)"
+    ],
+    "do": [
+     "set('reason', 'record_failed')",
+     "fire('R33') if not echoed('record_charge_response', 'transaction_id') else None"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0800",
+   "head": "PROVIDE_CONTEXT",
+   "relation": "leads_to",
+   "tail": "PROVIDE_CONTEXT",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PROVIDE_CONTEXT",
+   "source": "pdf.2C",
+   "evidence": "If the customer is unsure, provide available transaction context and ask once more.",
+   "qualifiers": {
+    "on": "INFORM_DISPOSITION",
+    "when": "disposition UNSURE (first time)",
+    "rules": [
+     "R10"
+    ],
+    "edges": [],
+    "match": "slot('disposition') == 'UNSURE'",
+    "do": [
+     "inc('unsure')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0801",
+   "head": "PROVIDE_CONTEXT",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PROVIDE_CONTEXT",
+   "source": "pdf.3",
+   "evidence": "If the required information or decision is still unclear after that one retry, transfer to a human representative.",
+   "qualifiers": {
+    "on": "else",
+    "when": "still unclear after one retry; responses recorded: summarize, then transfer",
+    "rules": [
+     "R22",
+     "R23",
+     "R19"
+    ],
+    "edges": [],
+    "match": "n('unclear') + 1 > limit('max_clarification_retries')",
+    "guard": "recorded()",
+    "do": [
+     "set('reason', 'ambiguity_persists')",
+     "inc('unclear')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0802",
+   "head": "PROVIDE_CONTEXT",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PROVIDE_CONTEXT",
+   "source": "pdf.3",
+   "evidence": "If the required information or decision is still unclear after that one retry, transfer to a human representative.",
+   "qualifiers": {
+    "on": "else",
+    "when": "still unclear after one retry",
+    "rules": [
+     "R22",
+     "R23"
+    ],
+    "edges": [],
+    "match": "n('unclear') + 1 > limit('max_clarification_retries')",
+    "do": [
+     "set('reason', 'ambiguity_persists')",
+     "inc('unclear')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0803",
+   "head": "PROVIDE_CONTEXT",
+   "relation": "leads_to",
+   "tail": "ASK_CLARIFY",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "PROVIDE_CONTEXT",
+   "source": "pdf.3",
+   "evidence": "ask one short clarification",
+   "qualifiers": {
+    "on": "else",
+    "when": "answer unclear (first time)",
+    "rules": [
+     "R22"
+    ],
+    "edges": [],
+    "do": [
+     "inc('unclear')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0804",
+   "head": "ANSWER_KB",
+   "relation": "leads_to",
+   "tail": "ASK_AUTH",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ANSWER_KB",
+   "source": "pdf.7",
+   "evidence": "Present one transaction and ask whether the customer recognizes it.",
+   "qualifiers": {
+    "on": "auto",
+    "when": "re-ask the pending ASK_AUTH prompt",
+    "rules": [],
+    "edges": [],
+    "guard": "get('resume') == 'ASK_AUTH'"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0805",
+   "head": "ANSWER_KB",
+   "relation": "leads_to",
+   "tail": "PRESENT_TXN",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ANSWER_KB",
+   "source": "pdf.7",
+   "evidence": "Present one transaction and ask whether the customer recognizes it.",
+   "qualifiers": {
+    "on": "auto",
+    "when": "re-ask the pending PRESENT_TXN prompt",
+    "rules": [
+     "R6"
+    ],
+    "edges": [],
+    "guard": "get('resume') == 'PRESENT_TXN'"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0806",
+   "head": "ANSWER_KB",
+   "relation": "leads_to",
+   "tail": "DISCLOSE_FEE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ANSWER_KB",
+   "source": "pdf.5",
+   "evidence": "Before selecting expedited delivery, the bot must tell the customer the $15 fee",
+   "qualifiers": {
+    "on": "auto",
+    "when": "re-ask the pending card-action confirmation; expedited delivery: disclose the fee first",
+    "rules": [
+     "R26"
+    ],
+    "edges": [],
+    "match": "get('resume') == 'CONFIRM_ACTION'",
+    "guard": "tail(get('delivery'), 'requires_fee_confirmation') == 'yes'"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0807",
+   "head": "ANSWER_KB",
+   "relation": "leads_to",
+   "tail": "CONFIRM_ACTION",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ANSWER_KB",
+   "source": "pdf.2E",
+   "evidence": "confirm the requested action",
+   "qualifiers": {
+    "on": "auto",
+    "when": "re-ask the pending card-action confirmation",
+    "rules": [],
+    "edges": [],
+    "match": "get('resume') == 'CONFIRM_ACTION'"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0808",
+   "head": "ANSWER_KB",
+   "relation": "leads_to",
+   "tail": "ASK_MORE_HELP",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ANSWER_KB",
+   "source": "pdf.2B",
+   "evidence": "ask whether the customer needs other help",
+   "qualifiers": {
+    "on": "auto",
+    "when": "re-ask whether the customer needs other help",
+    "rules": [],
+    "edges": [],
+    "guard": "get('resume') == 'ASK_MORE_HELP'"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0809",
+   "head": "CONFIRM_RECORDED",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "CONFIRM_RECORDED",
+   "source": "pdf.2C",
+   "evidence": "If still unsure, record UNSURE and transfer.",
+   "qualifiers": {
+    "on": "auto",
+    "when": "UNSURE recorded: transfer; responses recorded: summarize, then transfer",
+    "rules": [
+     "R11",
+     "R19"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "guard": "(get('disposition') == 'UNSURE') and recorded()",
+    "do": [
+     "set('reason', 'unsure_twice')"
+    ],
+    "discard": true
+   },
+   "gms": true
+  },
+  {
+   "id": "T0810",
+   "head": "CONFIRM_RECORDED",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "CONFIRM_RECORDED",
+   "source": "pdf.2C",
+   "evidence": "If still unsure, record UNSURE and transfer.",
+   "qualifiers": {
+    "on": "auto",
+    "when": "UNSURE recorded: transfer",
+    "rules": [
+     "R11"
+    ],
+    "edges": [
+     "W11"
+    ],
+    "guard": "get('disposition') == 'UNSURE'",
+    "do": [
+     "set('reason', 'unsure_twice')"
+    ],
+    "discard": true
+   },
+   "gms": true
+  },
+  {
+   "id": "T0811",
+   "head": "CONFIRM_RECORDED",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "CONFIRM_RECORDED",
+   "source": "pdf.7",
+   "evidence": "If a required tool fails, transfer to a human.",
+   "qualifiers": {
+    "on": "auto",
+    "when": "get_card_action_options UNAVAILABLE; responses recorded: summarize, then transfer",
+    "rules": [
+     "R32",
+     "R19"
+    ],
+    "edges": [
+     "W20"
+    ],
+    "guard": "(get('disposition') == 'UNRECOGNIZED' and get('action') and not get('card_done') and call('get_card_action_options') == 'UNAVAILABLE') and recorded()",
+    "do": [
+     "set('reason', 'card_options_unavailable')",
+     "set('card_done', True)"
+    ],
+    "discard": true
+   },
+   "gms": true
+  },
+  {
+   "id": "T0812",
+   "head": "CONFIRM_RECORDED",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "CONFIRM_RECORDED",
+   "source": "pdf.7",
+   "evidence": "If a required tool fails, transfer to a human.",
+   "qualifiers": {
+    "on": "auto",
+    "when": "get_card_action_options UNAVAILABLE",
+    "rules": [
+     "R32"
+    ],
+    "edges": [
+     "W20"
+    ],
+    "guard": "get('disposition') == 'UNRECOGNIZED' and get('action') and not get('card_done') and call('get_card_action_options') == 'UNAVAILABLE'",
+    "do": [
+     "set('reason', 'card_options_unavailable')",
+     "set('card_done', True)"
+    ],
+    "discard": true
+   },
+   "gms": true
+  },
+  {
+   "id": "T0813",
+   "head": "CONFIRM_RECORDED",
+   "relation": "leads_to",
+   "tail": "INFORM_NO_CARD_ACTION",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "CONFIRM_RECORDED",
+   "source": "pdf.4",
+   "evidence": "Offer only returned options.",
+   "qualifiers": {
+    "on": "auto",
+    "when": "the requested card action is not returned",
+    "rules": [
+     "R15"
+    ],
+    "edges": [
+     "W13",
+     "W14"
+    ],
+    "guard": "get('disposition') == 'UNRECOGNIZED' and get('action') and not get('card_done') and get('action') not in options('get_card_action_options', 'options')",
+    "do": [
+     "set('card_done', True)"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0814",
+   "head": "CONFIRM_RECORDED",
+   "relation": "leads_to",
+   "tail": "DISCLOSE_FEE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "CONFIRM_RECORDED",
+   "source": "pdf.5",
+   "evidence": "Before selecting expedited delivery, the bot must tell the customer the $15 fee",
+   "qualifiers": {
+    "on": "auto",
+    "when": "UNRECOGNIZED with card intent and an eligible option; expedited delivery: disclose the fee first",
+    "rules": [
+     "R15",
+     "R26"
+    ],
+    "edges": [
+     "W9"
+    ],
+    "match": "get('disposition') == 'UNRECOGNIZED' and get('action') and not get('card_done')",
+    "guard": "tail(get('delivery'), 'requires_fee_confirmation') == 'yes'",
+    "do": [
+     "set('card_done', True)"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0815",
    "head": "CONFIRM_RECORDED",
    "relation": "leads_to",
    "tail": "CONFIRM_ACTION",
@@ -9615,62 +11532,46 @@
     "on": "auto",
     "when": "UNRECOGNIZED with card intent and an eligible option",
     "rules": [
-     "R15",
-     "R16"
-    ],
-    "edges": [
-     "W9"
-    ]
-   },
-   "gms": true
-  },
-  {
-   "id": "T0756",
-   "head": "CONFIRM_RECORDED",
-   "relation": "leads_to",
-   "tail": "DISCLOSE_FEE",
-   "tail_type": "entity",
-   "kind": "trajectory",
-   "state": "CONFIRM_RECORDED",
-   "source": "pdf.5",
-   "evidence": "Before selecting expedited delivery, the bot must tell the customer the $15 fee",
-   "qualifiers": {
-    "on": "auto",
-    "when": "expedited delivery requested and eligible",
-    "rules": [
-     "R26"
-    ],
-    "edges": [
-     "W9"
-    ]
-   },
-   "gms": true
-  },
-  {
-   "id": "T0757",
-   "head": "CONFIRM_RECORDED",
-   "relation": "leads_to",
-   "tail": "INFORM_NO_CARD_ACTION",
-   "tail_type": "entity",
-   "kind": "trajectory",
-   "state": "CONFIRM_RECORDED",
-   "source": "pdf.4",
-   "evidence": "Offer only returned options.",
-   "qualifiers": {
-    "on": "auto",
-    "when": "get_card_action_options returned NONE",
-    "rules": [
      "R15"
     ],
     "edges": [
-     "W13",
-     "W14"
+     "W9"
+    ],
+    "match": "get('disposition') == 'UNRECOGNIZED' and get('action') and not get('card_done')",
+    "do": [
+     "set('card_done', True)"
     ]
    },
    "gms": true
   },
   {
-   "id": "T0758",
+   "id": "T0816",
+   "head": "CONFIRM_RECORDED",
+   "relation": "leads_to",
+   "tail": "PRESENT_TXN",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "CONFIRM_RECORDED",
+   "source": "pdf.2D",
+   "evidence": "Call record_charge_response for the current transaction before advancing.",
+   "qualifiers": {
+    "on": "auto",
+    "when": "next transaction pending",
+    "rules": [
+     "R6"
+    ],
+    "edges": [
+     "W8"
+    ],
+    "guard": "pending()",
+    "do": [
+     "next_item()"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0817",
    "head": "CONFIRM_RECORDED",
    "relation": "leads_to",
    "tail": "EXPLAIN_LIMIT",
@@ -9685,12 +11586,13 @@
     "rules": [
      "R31"
     ],
-    "edges": []
+    "edges": [],
+    "guard": "overflow()"
    },
    "gms": true
   },
   {
-   "id": "T0759",
+   "id": "T0818",
    "head": "CONFIRM_RECORDED",
    "relation": "leads_to",
    "tail": "SUMMARIZE",
@@ -9712,29 +11614,7 @@
    "gms": true
   },
   {
-   "id": "T0760",
-   "head": "CONFIRM_RECORDED",
-   "relation": "leads_to",
-   "tail": "TRANSFER",
-   "tail_type": "entity",
-   "kind": "trajectory",
-   "state": "CONFIRM_RECORDED",
-   "source": "pdf.7",
-   "evidence": "If a required tool fails, transfer to a human.",
-   "qualifiers": {
-    "on": "auto",
-    "when": "get_card_action_options UNAVAILABLE",
-    "rules": [
-     "R32"
-    ],
-    "edges": [
-     "W20"
-    ]
-   },
-   "gms": true
-  },
-  {
-   "id": "T0761",
+   "id": "T0819",
    "head": "DISCLOSE_FEE",
    "relation": "leads_to",
    "tail": "CONFIRM_ACTION",
@@ -9746,15 +11626,119 @@
    "qualifiers": {
     "on": "auto",
     "when": "fee disclosed; ask for clear confirmation",
-    "rules": [
-     "R26"
-    ],
+    "rules": [],
     "edges": []
    },
    "gms": true
   },
   {
-   "id": "T0762",
+   "id": "T0820",
+   "head": "CONFIRM_ACTION",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "CONFIRM_ACTION",
+   "source": "program",
+   "evidence": "at max 20 turns",
+   "qualifiers": {
+    "on": "any",
+    "when": "max_turns reached before the journey completes; responses recorded: summarize, then transfer",
+    "rules": [
+     "R28",
+     "R19"
+    ],
+    "edges": [],
+    "guard": "(turns() >= limit('max_turns')) and recorded()",
+    "do": [
+     "set('reason', 'turn_limit')"
+    ],
+    "discard": true
+   },
+   "gms": true
+  },
+  {
+   "id": "T0821",
+   "head": "CONFIRM_ACTION",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "CONFIRM_ACTION",
+   "source": "program",
+   "evidence": "at max 20 turns",
+   "qualifiers": {
+    "on": "any",
+    "when": "max_turns reached before the journey completes",
+    "rules": [
+     "R28"
+    ],
+    "edges": [],
+    "guard": "turns() >= limit('max_turns')",
+    "do": [
+     "set('reason', 'turn_limit')"
+    ],
+    "discard": true
+   },
+   "gms": true
+  },
+  {
+   "id": "T0822",
+   "head": "CONFIRM_ACTION",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "CONFIRM_ACTION",
+   "source": "pdf.7",
+   "evidence": "If a required tool fails, transfer to a human.",
+   "qualifiers": {
+    "on": "CONFIRM",
+    "when": "submit_card_action UNAVAILABLE; responses recorded: summarize, then transfer",
+    "rules": [
+     "R16",
+     "R29",
+     "R19"
+    ],
+    "edges": [
+     "W17"
+    ],
+    "guard": "(call('submit_card_action') == 'UNAVAILABLE') and recorded()",
+    "do": [
+     "set('reason', 'submit_failed')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0823",
+   "head": "CONFIRM_ACTION",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "CONFIRM_ACTION",
+   "source": "pdf.7",
+   "evidence": "If a required tool fails, transfer to a human.",
+   "qualifiers": {
+    "on": "CONFIRM",
+    "when": "submit_card_action UNAVAILABLE",
+    "rules": [
+     "R16",
+     "R29"
+    ],
+    "edges": [
+     "W17"
+    ],
+    "guard": "call('submit_card_action') == 'UNAVAILABLE'",
+    "do": [
+     "set('reason', 'submit_failed')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0824",
    "head": "CONFIRM_ACTION",
    "relation": "leads_to",
    "tail": "ACTION_DONE",
@@ -9772,12 +11756,98 @@
     ],
     "edges": [
      "W12"
+    ],
+    "guard": "call('submit_card_action') == 'SUCCESS' and echoed('submit_card_action', 'action')",
+    "do": [
+     "claim_action()",
+     "fire('R18') if pending() else None"
     ]
    },
    "gms": true
   },
   {
-   "id": "T0763",
+   "id": "T0825",
+   "head": "CONFIRM_ACTION",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "CONFIRM_ACTION",
+   "source": "pdf.7",
+   "evidence": "Do not claim an action completed unless its API returns SUCCESS.",
+   "qualifiers": {
+    "on": "CONFIRM",
+    "when": "submit_card_action not SUCCESS; responses recorded: summarize, then transfer",
+    "rules": [
+     "R16",
+     "R17",
+     "R29",
+     "R19"
+    ],
+    "edges": [
+     "W17"
+    ],
+    "guard": "recorded()",
+    "do": [
+     "set('reason', 'submit_failed')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0826",
+   "head": "CONFIRM_ACTION",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "CONFIRM_ACTION",
+   "source": "pdf.7",
+   "evidence": "Do not claim an action completed unless its API returns SUCCESS.",
+   "qualifiers": {
+    "on": "CONFIRM",
+    "when": "submit_card_action not SUCCESS",
+    "rules": [
+     "R16",
+     "R17",
+     "R29"
+    ],
+    "edges": [
+     "W17"
+    ],
+    "do": [
+     "set('reason', 'submit_failed')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0827",
+   "head": "CONFIRM_ACTION",
+   "relation": "leads_to",
+   "tail": "DISCLOSE_FEE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "CONFIRM_ACTION",
+   "source": "pdf.5",
+   "evidence": "Before selecting expedited delivery, the bot must tell the customer the $15 fee",
+   "qualifiers": {
+    "on": "REQUEST_CARD_ACTION",
+    "when": "customer switches the card action or delivery option; expedited delivery: disclose the fee first",
+    "rules": [
+     "R26"
+    ],
+    "edges": [],
+    "guard": "tail(get('delivery'), 'requires_fee_confirmation') == 'yes'",
+    "pre": [
+     "set('action', slot('card_action') or get('action'))",
+     "set('delivery', slot('delivery') or get('delivery'))"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0828",
    "head": "CONFIRM_ACTION",
    "relation": "leads_to",
    "tail": "CONFIRM_ACTION",
@@ -9788,17 +11858,18 @@
    "evidence": "confirm the requested action",
    "qualifiers": {
     "on": "REQUEST_CARD_ACTION",
-    "when": "customer switches the delivery option",
-    "rules": [
-     "R16",
-     "R26"
-    ],
-    "edges": []
+    "when": "customer switches the card action or delivery option",
+    "rules": [],
+    "edges": [],
+    "pre": [
+     "set('action', slot('card_action') or get('action'))",
+     "set('delivery', slot('delivery') or get('delivery'))"
+    ]
    },
    "gms": true
   },
   {
-   "id": "T0764",
+   "id": "T0829",
    "head": "CONFIRM_ACTION",
    "relation": "leads_to",
    "tail": "ACK_DECLINED",
@@ -9810,61 +11881,38 @@
    "qualifiers": {
     "on": "DENY",
     "when": "customer declines the action",
-    "rules": [
-     "R16",
-     "R18"
-    ],
+    "rules": [],
     "edges": []
    },
    "gms": true
   },
   {
-   "id": "T0765",
-   "head": "CONFIRM_ACTION",
-   "relation": "leads_to",
-   "tail": "TRANSFER",
-   "tail_type": "entity",
-   "kind": "trajectory",
-   "state": "CONFIRM_ACTION",
-   "source": "pdf.7",
-   "evidence": "If a required tool fails, transfer to a human.",
-   "qualifiers": {
-    "on": "CONFIRM",
-    "when": "submit_card_action not SUCCESS",
-    "rules": [
-     "R29"
-    ],
-    "edges": [
-     "W17"
-    ]
-   },
-   "gms": true
-  },
-  {
-   "id": "T0766",
+   "id": "T0830",
    "head": "CONFIRM_ACTION",
    "relation": "leads_to",
    "tail": "SUMMARIZE",
    "tail_type": "entity",
    "kind": "trajectory",
    "state": "CONFIRM_ACTION",
-   "source": "pdf.7",
-   "evidence": "Do not claim an action completed unless its API returns SUCCESS.",
+   "source": "pdf.2F",
+   "evidence": "If the customer requests a human at any point, transfer the interaction.",
    "qualifiers": {
-    "on": "CONFIRM",
-    "when": "submit_card_action not SUCCESS and responses recorded",
+    "on": "REQUEST_HUMAN",
+    "when": "customer asks for a human; responses recorded: summarize, then transfer",
     "rules": [
-     "R19",
-     "R29"
+     "R20",
+     "R19"
     ],
-    "edges": [
-     "W17"
+    "edges": [],
+    "guard": "recorded()",
+    "do": [
+     "set('reason', 'customer_request')"
     ]
    },
    "gms": true
   },
   {
-   "id": "T0767",
+   "id": "T0831",
    "head": "CONFIRM_ACTION",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -9879,34 +11927,184 @@
     "rules": [
      "R20"
     ],
-    "edges": []
+    "edges": [],
+    "do": [
+     "set('reason', 'customer_request')"
+    ]
    },
    "gms": true
   },
   {
-   "id": "T0768",
+   "id": "T0832",
+   "head": "CONFIRM_ACTION",
+   "relation": "leads_to",
+   "tail": "ANSWER_KB",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "CONFIRM_ACTION",
+   "source": "pdf.7",
+   "evidence": "General policy questions may trigger a knowledge-base lookup.",
+   "qualifiers": {
+    "on": "ASK_KB",
+    "when": "general policy question",
+    "rules": [
+     "R25"
+    ],
+    "edges": [],
+    "do": [
+     "set('resume', 'CONFIRM_ACTION')",
+     "kb_log()",
+     "fire('R27') if slot('intent') == 'fraud' else None"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0833",
+   "head": "CONFIRM_ACTION",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "CONFIRM_ACTION",
+   "source": "pdf.3",
+   "evidence": "If the required information or decision is still unclear after that one retry, transfer to a human representative.",
+   "qualifiers": {
+    "on": "else",
+    "when": "still unclear after one retry; responses recorded: summarize, then transfer",
+    "rules": [
+     "R23",
+     "R19"
+    ],
+    "edges": [],
+    "match": "n('card_unclear') + 1 > limit('max_clarification_retries')",
+    "guard": "recorded()",
+    "do": [
+     "set('reason', 'ambiguity_persists')",
+     "inc('card_unclear')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0834",
+   "head": "CONFIRM_ACTION",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "CONFIRM_ACTION",
+   "source": "pdf.3",
+   "evidence": "If the required information or decision is still unclear after that one retry, transfer to a human representative.",
+   "qualifiers": {
+    "on": "else",
+    "when": "still unclear after one retry",
+    "rules": [
+     "R23"
+    ],
+    "edges": [],
+    "match": "n('card_unclear') + 1 > limit('max_clarification_retries')",
+    "do": [
+     "set('reason', 'ambiguity_persists')",
+     "inc('card_unclear')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0835",
+   "head": "CONFIRM_ACTION",
+   "relation": "leads_to",
+   "tail": "DISCLOSE_FEE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "CONFIRM_ACTION",
+   "source": "pdf.5",
+   "evidence": "Before selecting expedited delivery, the bot must tell the customer the $15 fee",
+   "qualifiers": {
+    "on": "else",
+    "when": "unclear reply: ask for confirmation again; expedited delivery: disclose the fee first",
+    "rules": [
+     "R26"
+    ],
+    "edges": [],
+    "guard": "tail(get('delivery'), 'requires_fee_confirmation') == 'yes'",
+    "do": [
+     "inc('card_unclear')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0836",
+   "head": "CONFIRM_ACTION",
+   "relation": "leads_to",
+   "tail": "CONFIRM_ACTION",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "CONFIRM_ACTION",
+   "source": "pdf.3",
+   "evidence": "ask one short clarification",
+   "qualifiers": {
+    "on": "else",
+    "when": "unclear reply: ask for confirmation again",
+    "rules": [],
+    "edges": [],
+    "do": [
+     "inc('card_unclear')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0837",
    "head": "ACTION_DONE",
    "relation": "leads_to",
    "tail": "PRESENT_TXN",
    "tail_type": "entity",
    "kind": "trajectory",
    "state": "ACTION_DONE",
-   "source": "pdf.2E",
-   "evidence": "This second intent must not erase the charge-review intent.",
+   "source": "pdf.2D",
+   "evidence": "Call record_charge_response for the current transaction before advancing.",
    "qualifiers": {
     "on": "auto",
-    "when": "SUCCESS and next transaction pending",
+    "when": "next transaction pending",
     "rules": [
-     "R18"
+     "R6"
     ],
     "edges": [
-     "W15"
+     "W8"
+    ],
+    "guard": "pending()",
+    "do": [
+     "next_item()"
     ]
    },
    "gms": true
   },
   {
-   "id": "T0769",
+   "id": "T0838",
+   "head": "ACTION_DONE",
+   "relation": "leads_to",
+   "tail": "EXPLAIN_LIMIT",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ACTION_DONE",
+   "source": "pdf.5",
+   "evidence": "The bot may review up to 4 recent transactions in one self-service session.",
+   "qualifiers": {
+    "on": "auto",
+    "when": "more reviewable transactions than max_transactions_per_session",
+    "rules": [
+     "R31"
+    ],
+    "edges": [],
+    "guard": "overflow()"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0839",
    "head": "ACTION_DONE",
    "relation": "leads_to",
    "tail": "SUMMARIZE",
@@ -9917,38 +12115,65 @@
    "evidence": "summarize the responses and any account action that actually completed",
    "qualifiers": {
     "on": "auto",
-    "when": "SUCCESS and no transaction pending",
+    "when": "no transaction pending",
     "rules": [
      "R19"
     ],
     "edges": [
-     "W16"
+     "W10"
     ]
    },
    "gms": true
   },
   {
-   "id": "T0770",
+   "id": "T0840",
    "head": "ACK_DECLINED",
    "relation": "leads_to",
    "tail": "PRESENT_TXN",
    "tail_type": "entity",
    "kind": "trajectory",
    "state": "ACK_DECLINED",
-   "source": "pdf.2E",
-   "evidence": "This second intent must not erase the charge-review intent.",
+   "source": "pdf.2D",
+   "evidence": "Call record_charge_response for the current transaction before advancing.",
    "qualifiers": {
     "on": "auto",
     "when": "next transaction pending",
     "rules": [
-     "R18"
+     "R6"
     ],
-    "edges": []
+    "edges": [
+     "W8"
+    ],
+    "guard": "pending()",
+    "do": [
+     "next_item()"
+    ]
    },
    "gms": true
   },
   {
-   "id": "T0771",
+   "id": "T0841",
+   "head": "ACK_DECLINED",
+   "relation": "leads_to",
+   "tail": "EXPLAIN_LIMIT",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ACK_DECLINED",
+   "source": "pdf.5",
+   "evidence": "The bot may review up to 4 recent transactions in one self-service session.",
+   "qualifiers": {
+    "on": "auto",
+    "when": "more reviewable transactions than max_transactions_per_session",
+    "rules": [
+     "R31"
+    ],
+    "edges": [],
+    "guard": "overflow()"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0842",
    "head": "ACK_DECLINED",
    "relation": "leads_to",
    "tail": "SUMMARIZE",
@@ -9963,34 +12188,61 @@
     "rules": [
      "R19"
     ],
-    "edges": []
+    "edges": [
+     "W10"
+    ]
    },
    "gms": true
   },
   {
-   "id": "T0772",
+   "id": "T0843",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "leads_to",
    "tail": "PRESENT_TXN",
    "tail_type": "entity",
    "kind": "trajectory",
    "state": "INFORM_NO_CARD_ACTION",
-   "source": "pdf.2E",
-   "evidence": "This second intent must not erase the charge-review intent.",
+   "source": "pdf.2D",
+   "evidence": "Call record_charge_response for the current transaction before advancing.",
    "qualifiers": {
     "on": "auto",
     "when": "next transaction pending",
     "rules": [
-     "R18"
+     "R6"
     ],
     "edges": [
-     "W13"
+     "W8"
+    ],
+    "guard": "pending()",
+    "do": [
+     "next_item()"
     ]
    },
    "gms": true
   },
   {
-   "id": "T0773",
+   "id": "T0844",
+   "head": "INFORM_NO_CARD_ACTION",
+   "relation": "leads_to",
+   "tail": "EXPLAIN_LIMIT",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "INFORM_NO_CARD_ACTION",
+   "source": "pdf.5",
+   "evidence": "The bot may review up to 4 recent transactions in one self-service session.",
+   "qualifiers": {
+    "on": "auto",
+    "when": "more reviewable transactions than max_transactions_per_session",
+    "rules": [
+     "R31"
+    ],
+    "edges": [],
+    "guard": "overflow()"
+   },
+   "gms": true
+  },
+  {
+   "id": "T0845",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "leads_to",
    "tail": "SUMMARIZE",
@@ -10006,13 +12258,13 @@
      "R19"
     ],
     "edges": [
-     "W14"
+     "W10"
     ]
    },
    "gms": true
   },
   {
-   "id": "T0774",
+   "id": "T0846",
    "head": "EXPLAIN_LIMIT",
    "relation": "leads_to",
    "tail": "SUMMARIZE",
@@ -10023,17 +12275,46 @@
    "evidence": "The bot may review up to 4 recent transactions in one self-service session.",
    "qualifiers": {
     "on": "auto",
-    "when": "limit explained; summarize, then transfer the rest",
+    "when": "limit explained; summarize, then transfer the rest; responses recorded: summarize, then transfer",
     "rules": [
      "R31",
      "R19"
     ],
-    "edges": []
+    "edges": [],
+    "guard": "recorded()",
+    "do": [
+     "set('reason', 'transaction_limit')"
+    ],
+    "flush": true
    },
    "gms": true
   },
   {
-   "id": "T0775",
+   "id": "T0847",
+   "head": "EXPLAIN_LIMIT",
+   "relation": "leads_to",
+   "tail": "TRANSFER",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "EXPLAIN_LIMIT",
+   "source": "pdf.5",
+   "evidence": "The bot may review up to 4 recent transactions in one self-service session.",
+   "qualifiers": {
+    "on": "auto",
+    "when": "limit explained; summarize, then transfer the rest",
+    "rules": [
+     "R31"
+    ],
+    "edges": [],
+    "do": [
+     "set('reason', 'transaction_limit')"
+    ],
+    "flush": true
+   },
+   "gms": true
+  },
+  {
+   "id": "T0848",
    "head": "EXPLAIN_NO_TXNS",
    "relation": "leads_to",
    "tail": "ASK_MORE_HELP",
@@ -10045,9 +12326,7 @@
    "qualifiers": {
     "on": "auto",
     "when": "no charges to review",
-    "rules": [
-     "R8"
-    ],
+    "rules": [],
     "edges": [
      "W6"
     ]
@@ -10055,29 +12334,7 @@
    "gms": true
   },
   {
-   "id": "T0776",
-   "head": "SUMMARIZE",
-   "relation": "leads_to",
-   "tail": "ASK_MORE_HELP",
-   "tail_type": "entity",
-   "kind": "trajectory",
-   "state": "SUMMARIZE",
-   "source": "pdf.7",
-   "evidence": "Summarize only recorded responses and account actions that actually completed; then end.",
-   "qualifiers": {
-    "on": "auto",
-    "when": "journey complete",
-    "rules": [
-     "R19"
-    ],
-    "edges": [
-     "W18"
-    ]
-   },
-   "gms": true
-  },
-  {
-   "id": "T0777",
+   "id": "T0849",
    "head": "SUMMARIZE",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -10085,33 +12342,52 @@
    "kind": "trajectory",
    "state": "SUMMARIZE",
    "source": "pdf.2F",
-   "evidence": "transfer the interaction",
+   "evidence": "If the customer requests a human at any point, transfer the interaction.",
    "qualifiers": {
     "on": "auto",
     "when": "a transfer is pending",
-    "rules": [
-     "R20"
-    ],
-    "edges": []
+    "rules": [],
+    "edges": [],
+    "guard": "get('reason')"
    },
    "gms": true
   },
   {
-   "id": "T0778",
-   "head": "ASK_MORE_HELP",
+   "id": "T0850",
+   "head": "SUMMARIZE",
    "relation": "leads_to",
    "tail": "END",
    "tail_type": "entity",
    "kind": "trajectory",
-   "state": "ASK_MORE_HELP",
-   "source": "pdf.7",
-   "evidence": "then end.",
+   "state": "SUMMARIZE",
+   "source": "program",
+   "evidence": "at max 20 turns",
    "qualifiers": {
-    "on": "END",
-    "when": "customer needs nothing else",
-    "rules": [
-     "R19"
-    ],
+    "on": "auto",
+    "when": "the turn limit was reached after the journey completed",
+    "rules": [],
+    "edges": [],
+    "guard": "get('ending')",
+    "do": [
+     "end()"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0851",
+   "head": "SUMMARIZE",
+   "relation": "leads_to",
+   "tail": "ASK_MORE_HELP",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "SUMMARIZE",
+   "source": "pdf.2B",
+   "evidence": "ask whether the customer needs other help",
+   "qualifiers": {
+    "on": "auto",
+    "when": "journey complete",
+    "rules": [],
     "edges": [
      "W18"
     ]
@@ -10119,7 +12395,80 @@
    "gms": true
   },
   {
-   "id": "T0779",
+   "id": "T0852",
+   "head": "ASK_MORE_HELP",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_MORE_HELP",
+   "source": "program",
+   "evidence": "at max 20 turns",
+   "qualifiers": {
+    "on": "any",
+    "when": "max_turns reached after the journey completed: summarize and end",
+    "rules": [],
+    "edges": [],
+    "guard": "turns() >= limit('max_turns')",
+    "do": [
+     "set('ending', True)"
+    ],
+    "discard": true
+   },
+   "gms": true
+  },
+  {
+   "id": "T0853",
+   "head": "ASK_MORE_HELP",
+   "relation": "leads_to",
+   "tail": "ANSWER_KB",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_MORE_HELP",
+   "source": "pdf.7",
+   "evidence": "General policy questions may trigger a knowledge-base lookup.",
+   "qualifiers": {
+    "on": "ASK_KB",
+    "when": "general policy question",
+    "rules": [
+     "R25"
+    ],
+    "edges": [],
+    "do": [
+     "set('resume', 'ASK_MORE_HELP')",
+     "kb_log()",
+     "fire('R27') if slot('intent') == 'fraud' else None"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0854",
+   "head": "ASK_MORE_HELP",
+   "relation": "leads_to",
+   "tail": "SUMMARIZE",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_MORE_HELP",
+   "source": "pdf.2F",
+   "evidence": "If the customer requests a human at any point, transfer the interaction.",
+   "qualifiers": {
+    "on": "REQUEST_HUMAN",
+    "when": "customer asks for a human; responses recorded: summarize, then transfer",
+    "rules": [
+     "R20",
+     "R19"
+    ],
+    "edges": [],
+    "guard": "recorded()",
+    "do": [
+     "set('reason', 'customer_request')"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0855",
    "head": "ASK_MORE_HELP",
    "relation": "leads_to",
    "tail": "TRANSFER",
@@ -10134,12 +12483,61 @@
     "rules": [
      "R20"
     ],
-    "edges": []
+    "edges": [],
+    "do": [
+     "set('reason', 'customer_request')"
+    ]
    },
    "gms": true
   },
   {
-   "id": "T0780",
+   "id": "T0856",
+   "head": "ASK_MORE_HELP",
+   "relation": "leads_to",
+   "tail": "END",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_MORE_HELP",
+   "source": "pdf.7",
+   "evidence": "then end.",
+   "qualifiers": {
+    "on": "END",
+    "when": "customer needs nothing else",
+    "rules": [],
+    "edges": [
+     "W18"
+    ],
+    "do": [
+     "end()"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0857",
+   "head": "ASK_MORE_HELP",
+   "relation": "leads_to",
+   "tail": "END",
+   "tail_type": "entity",
+   "kind": "trajectory",
+   "state": "ASK_MORE_HELP",
+   "source": "pdf.7",
+   "evidence": "then end.",
+   "qualifiers": {
+    "on": "else",
+    "when": "anything else ends the call",
+    "rules": [],
+    "edges": [
+     "W18"
+    ],
+    "do": [
+     "end()"
+    ]
+   },
+   "gms": true
+  },
+  {
+   "id": "T0858",
    "head": "TRANSFER",
    "relation": "leads_to",
    "tail": "END",
@@ -10150,158 +12548,362 @@
    "evidence": "End automated servicing.",
    "qualifiers": {
     "on": "auto",
-    "when": "transfer_to_human TRANSFERRED",
-    "rules": [
-     "R20"
-    ],
+    "when": "transfer_to_human (the call leaves self-service)",
+    "rules": [],
     "edges": [
      "W19"
-    ]
-   },
-   "gms": true
-  },
-  {
-   "id": "T0781",
-   "head": "ASK_AUTH",
-   "relation": "leads_to",
-   "tail": "TRANSFER",
-   "tail_type": "entity",
-   "kind": "trajectory",
-   "state": "ASK_AUTH",
-   "source": "program",
-   "evidence": "at max 20 turns",
-   "qualifiers": {
-    "on": "any",
-    "when": "max_turns reached before the journey completes",
-    "rules": [
-     "R28"
     ],
-    "edges": []
-   },
-   "gms": true
-  },
-  {
-   "id": "T0782",
-   "head": "ASK_AUTH_RETRY",
-   "relation": "leads_to",
-   "tail": "TRANSFER",
-   "tail_type": "entity",
-   "kind": "trajectory",
-   "state": "ASK_AUTH_RETRY",
-   "source": "program",
-   "evidence": "at max 20 turns",
-   "qualifiers": {
-    "on": "any",
-    "when": "max_turns reached before the journey completes",
-    "rules": [
-     "R28"
+    "do": [
+     "call('transfer_to_human')"
     ],
-    "edges": []
+    "flush": true,
+    "quiet": true
    },
    "gms": true
   },
   {
-   "id": "T0783",
+   "id": "T0859",
+   "head": "OPENING",
+   "relation": "carries",
+   "tail": "text",
+   "tail_type": "entity",
+   "kind": "flow",
+   "state": "OPENING",
+   "source": "design",
+   "evidence": "Added by this test harness's design: the fields each bot act carries in the expected trace, as expressions over the run (flow.GraphOracle evaluates them).",
+   "qualifiers": {
+    "from": "text('opening_statement')",
+    "order": 0
+   },
+   "gms": false
+  },
+  {
+   "id": "T0860",
    "head": "PRESENT_TXN",
-   "relation": "leads_to",
-   "tail": "TRANSFER",
+   "relation": "carries",
+   "tail": "txn",
    "tail_type": "entity",
-   "kind": "trajectory",
+   "kind": "flow",
    "state": "PRESENT_TXN",
-   "source": "program",
-   "evidence": "at max 20 turns",
+   "source": "design",
+   "evidence": "Added by this test harness's design: the fields each bot act carries in the expected trace, as expressions over the run (flow.GraphOracle evaluates them).",
    "qualifiers": {
-    "on": "any",
-    "when": "max_turns reached before the journey completes",
-    "rules": [
-     "R28"
-    ],
-    "edges": []
+    "from": "item()",
+    "order": 0
    },
-   "gms": true
+   "gms": false
   },
   {
-   "id": "T0784",
-   "head": "ASK_CLARIFY",
-   "relation": "leads_to",
-   "tail": "TRANSFER",
-   "tail_type": "entity",
-   "kind": "trajectory",
-   "state": "ASK_CLARIFY",
-   "source": "program",
-   "evidence": "at max 20 turns",
-   "qualifiers": {
-    "on": "any",
-    "when": "max_turns reached before the journey completes",
-    "rules": [
-     "R28"
-    ],
-    "edges": []
-   },
-   "gms": true
-  },
-  {
-   "id": "T0785",
+   "id": "T0861",
    "head": "PROVIDE_CONTEXT",
-   "relation": "leads_to",
-   "tail": "TRANSFER",
+   "relation": "carries",
+   "tail": "txn",
    "tail_type": "entity",
-   "kind": "trajectory",
+   "kind": "flow",
    "state": "PROVIDE_CONTEXT",
-   "source": "program",
-   "evidence": "at max 20 turns",
+   "source": "design",
+   "evidence": "Added by this test harness's design: the fields each bot act carries in the expected trace, as expressions over the run (flow.GraphOracle evaluates them).",
    "qualifiers": {
-    "on": "any",
-    "when": "max_turns reached before the journey completes",
-    "rules": [
-     "R28"
-    ],
-    "edges": []
+    "from": "item()",
+    "order": 0
    },
-   "gms": true
+   "gms": false
   },
   {
-   "id": "T0786",
+   "id": "T0862",
+   "head": "ASK_CLARIFY",
+   "relation": "carries",
+   "tail": "txn",
+   "tail_type": "entity",
+   "kind": "flow",
+   "state": "ASK_CLARIFY",
+   "source": "design",
+   "evidence": "Added by this test harness's design: the fields each bot act carries in the expected trace, as expressions over the run (flow.GraphOracle evaluates them).",
+   "qualifiers": {
+    "from": "item()",
+    "order": 0,
+    "optional": true
+   },
+   "gms": false
+  },
+  {
+   "id": "T0863",
+   "head": "ANSWER_KB",
+   "relation": "carries",
+   "tail": "intent",
+   "tail_type": "entity",
+   "kind": "flow",
+   "state": "ANSWER_KB",
+   "source": "design",
+   "evidence": "Added by this test harness's design: the fields each bot act carries in the expected trace, as expressions over the run (flow.GraphOracle evaluates them).",
+   "qualifiers": {
+    "from": "slot('intent')",
+    "order": 0
+   },
+   "gms": false
+  },
+  {
+   "id": "T0864",
+   "head": "ANSWER_KB",
+   "relation": "carries",
+   "tail": "answer",
+   "tail_type": "entity",
+   "kind": "flow",
+   "state": "ANSWER_KB",
+   "source": "design",
+   "evidence": "Added by this test harness's design: the fields each bot act carries in the expected trace, as expressions over the run (flow.GraphOracle evaluates them).",
+   "qualifiers": {
+    "from": "kb_answer()",
+    "order": 1
+   },
+   "gms": false
+  },
+  {
+   "id": "T0865",
+   "head": "CONFIRM_RECORDED",
+   "relation": "carries",
+   "tail": "txn",
+   "tail_type": "entity",
+   "kind": "flow",
+   "state": "CONFIRM_RECORDED",
+   "source": "design",
+   "evidence": "Added by this test harness's design: the fields each bot act carries in the expected trace, as expressions over the run (flow.GraphOracle evaluates them).",
+   "qualifiers": {
+    "from": "item()",
+    "order": 0
+   },
+   "gms": false
+  },
+  {
+   "id": "T0866",
+   "head": "CONFIRM_RECORDED",
+   "relation": "carries",
+   "tail": "disposition",
+   "tail_type": "entity",
+   "kind": "flow",
+   "state": "CONFIRM_RECORDED",
+   "source": "design",
+   "evidence": "Added by this test harness's design: the fields each bot act carries in the expected trace, as expressions over the run (flow.GraphOracle evaluates them).",
+   "qualifiers": {
+    "from": "get('disposition')",
+    "order": 1
+   },
+   "gms": false
+  },
+  {
+   "id": "T0867",
+   "head": "DISCLOSE_FEE",
+   "relation": "carries",
+   "tail": "fee",
+   "tail_type": "entity",
+   "kind": "flow",
+   "state": "DISCLOSE_FEE",
+   "source": "design",
+   "evidence": "Added by this test harness's design: the fields each bot act carries in the expected trace, as expressions over the run (flow.GraphOracle evaluates them).",
+   "qualifiers": {
+    "from": "enm('delivery_fee_usd', get('delivery'))",
+    "order": 0
+   },
+   "gms": false
+  },
+  {
+   "id": "T0868",
+   "head": "DISCLOSE_FEE",
+   "relation": "carries",
+   "tail": "delivery",
+   "tail_type": "entity",
+   "kind": "flow",
+   "state": "DISCLOSE_FEE",
+   "source": "design",
+   "evidence": "Added by this test harness's design: the fields each bot act carries in the expected trace, as expressions over the run (flow.GraphOracle evaluates them).",
+   "qualifiers": {
+    "from": "get('delivery')",
+    "order": 1
+   },
+   "gms": false
+  },
+  {
+   "id": "T0869",
    "head": "CONFIRM_ACTION",
-   "relation": "leads_to",
-   "tail": "TRANSFER",
+   "relation": "carries",
+   "tail": "action",
    "tail_type": "entity",
-   "kind": "trajectory",
+   "kind": "flow",
    "state": "CONFIRM_ACTION",
-   "source": "program",
-   "evidence": "at max 20 turns",
+   "source": "design",
+   "evidence": "Added by this test harness's design: the fields each bot act carries in the expected trace, as expressions over the run (flow.GraphOracle evaluates them).",
    "qualifiers": {
-    "on": "any",
-    "when": "max_turns reached before the journey completes",
-    "rules": [
-     "R28"
-    ],
-    "edges": []
+    "from": "get('action')",
+    "order": 0
    },
-   "gms": true
+   "gms": false
   },
   {
-   "id": "T0787",
-   "head": "ASK_MORE_HELP",
-   "relation": "leads_to",
-   "tail": "TRANSFER",
+   "id": "T0870",
+   "head": "CONFIRM_ACTION",
+   "relation": "carries",
+   "tail": "delivery",
    "tail_type": "entity",
-   "kind": "trajectory",
-   "state": "ASK_MORE_HELP",
-   "source": "program",
-   "evidence": "at max 20 turns",
+   "kind": "flow",
+   "state": "CONFIRM_ACTION",
+   "source": "design",
+   "evidence": "Added by this test harness's design: the fields each bot act carries in the expected trace, as expressions over the run (flow.GraphOracle evaluates them).",
    "qualifiers": {
-    "on": "any",
-    "when": "max_turns reached before the journey completes",
-    "rules": [
-     "R28"
-    ],
-    "edges": []
+    "from": "get('delivery')",
+    "order": 1
    },
-   "gms": true
+   "gms": false
   },
   {
-   "id": "T0788",
+   "id": "T0871",
+   "head": "ACTION_DONE",
+   "relation": "carries",
+   "tail": "action",
+   "tail_type": "entity",
+   "kind": "flow",
+   "state": "ACTION_DONE",
+   "source": "design",
+   "evidence": "Added by this test harness's design: the fields each bot act carries in the expected trace, as expressions over the run (flow.GraphOracle evaluates them).",
+   "qualifiers": {
+    "from": "get('action')",
+    "order": 0
+   },
+   "gms": false
+  },
+  {
+   "id": "T0872",
+   "head": "ACTION_DONE",
+   "relation": "carries",
+   "tail": "delivery",
+   "tail_type": "entity",
+   "kind": "flow",
+   "state": "ACTION_DONE",
+   "source": "design",
+   "evidence": "Added by this test harness's design: the fields each bot act carries in the expected trace, as expressions over the run (flow.GraphOracle evaluates them).",
+   "qualifiers": {
+    "from": "get('delivery')",
+    "order": 1
+   },
+   "gms": false
+  },
+  {
+   "id": "T0873",
+   "head": "SUMMARIZE",
+   "relation": "carries",
+   "tail": "recorded",
+   "tail_type": "entity",
+   "kind": "flow",
+   "state": "SUMMARIZE",
+   "source": "design",
+   "evidence": "Added by this test harness's design: the fields each bot act carries in the expected trace, as expressions over the run (flow.GraphOracle evaluates them).",
+   "qualifiers": {
+    "from": "recorded()",
+    "order": 0
+   },
+   "gms": false
+  },
+  {
+   "id": "T0874",
+   "head": "TRANSFER",
+   "relation": "carries",
+   "tail": "reason",
+   "tail_type": "entity",
+   "kind": "flow",
+   "state": "TRANSFER",
+   "source": "design",
+   "evidence": "Added by this test harness's design: the fields each bot act carries in the expected trace, as expressions over the run (flow.GraphOracle evaluates them).",
+   "qualifiers": {
+    "from": "get('reason')",
+    "order": 0
+   },
+   "gms": false
+  },
+  {
+   "id": "T0875",
+   "head": "authenticate_customer",
+   "relation": "has_arg",
+   "tail": "credential",
+   "tail_type": "entity",
+   "kind": "flow",
+   "source": "pdf.4",
+   "evidence": "authenticate_customer | Before account-specific servicing | AUTHENTICATED / FAILED | Continue only on AUTHENTICATED.",
+   "qualifiers": {
+    "from": "slot('credential')"
+   },
+   "gms": false
+  },
+  {
+   "id": "T0876",
+   "head": "record_charge_response",
+   "relation": "has_arg",
+   "tail": "transaction_id",
+   "tail_type": "entity",
+   "kind": "flow",
+   "source": "pdf.4",
+   "evidence": "record_charge_response | After customer gives a clear disposition | SUCCESS / FAILED | Advance only after SUCCESS; otherwise transfer.",
+   "qualifiers": {
+    "from": "item()"
+   },
+   "gms": false
+  },
+  {
+   "id": "T0877",
+   "head": "record_charge_response",
+   "relation": "has_arg",
+   "tail": "disposition",
+   "tail_type": "entity",
+   "kind": "flow",
+   "source": "pdf.4",
+   "evidence": "record_charge_response | After customer gives a clear disposition | SUCCESS / FAILED | Advance only after SUCCESS; otherwise transfer.",
+   "qualifiers": {
+    "from": "get('disposition')"
+   },
+   "gms": false
+  },
+  {
+   "id": "T0878",
+   "head": "submit_card_action",
+   "relation": "has_arg",
+   "tail": "action",
+   "tail_type": "entity",
+   "kind": "flow",
+   "source": "pdf.4",
+   "evidence": "submit_card_action | After customer confirms an eligible action | SUCCESS / FAILED | Claim completion only after SUCCESS.",
+   "qualifiers": {
+    "from": "get('action')"
+   },
+   "gms": false
+  },
+  {
+   "id": "T0879",
+   "head": "submit_card_action",
+   "relation": "has_arg",
+   "tail": "delivery",
+   "tail_type": "entity",
+   "kind": "flow",
+   "source": "pdf.4",
+   "evidence": "submit_card_action | After customer confirms an eligible action | SUCCESS / FAILED | Claim completion only after SUCCESS.",
+   "qualifiers": {
+    "from": "get('delivery')"
+   },
+   "gms": false
+  },
+  {
+   "id": "T0880",
+   "head": "transfer_to_human",
+   "relation": "has_arg",
+   "tail": "reason",
+   "tail_type": "entity",
+   "kind": "flow",
+   "source": "pdf.4",
+   "evidence": "transfer_to_human | On customer request or failed self-service | TRANSFERRED | End automated servicing.",
+   "qualifiers": {
+    "from": "get('reason')"
+   },
+   "gms": false
+  },
+  {
+   "id": "T0881",
    "head": "auth_failed",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH_RETRY",
@@ -10313,7 +12915,7 @@
    "gms": true
   },
   {
-   "id": "T0789",
+   "id": "T0882",
    "head": "auth_unavailable",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH",
@@ -10325,7 +12927,7 @@
    "gms": true
   },
   {
-   "id": "T0790",
+   "id": "T0883",
    "head": "auth_unavailable",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH_RETRY",
@@ -10337,7 +12939,7 @@
    "gms": true
   },
   {
-   "id": "T0791",
+   "id": "T0884",
    "head": "retrieve_unavailable",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH",
@@ -10349,7 +12951,7 @@
    "gms": true
   },
   {
-   "id": "T0792",
+   "id": "T0885",
    "head": "retrieve_unavailable",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH_RETRY",
@@ -10361,7 +12963,7 @@
    "gms": true
   },
   {
-   "id": "T0793",
+   "id": "T0886",
    "head": "record_failed",
    "relation": "fires_in_state",
    "tail": "PRESENT_TXN",
@@ -10373,7 +12975,7 @@
    "gms": true
   },
   {
-   "id": "T0794",
+   "id": "T0887",
    "head": "record_failed",
    "relation": "fires_in_state",
    "tail": "ASK_CLARIFY",
@@ -10385,7 +12987,7 @@
    "gms": true
   },
   {
-   "id": "T0795",
+   "id": "T0888",
    "head": "record_failed",
    "relation": "fires_in_state",
    "tail": "PROVIDE_CONTEXT",
@@ -10397,7 +12999,7 @@
    "gms": true
   },
   {
-   "id": "T0796",
+   "id": "T0889",
    "head": "unsure_twice",
    "relation": "fires_in_state",
    "tail": "PROVIDE_CONTEXT",
@@ -10409,7 +13011,7 @@
    "gms": true
   },
   {
-   "id": "T0797",
+   "id": "T0890",
    "head": "ambiguity_persists",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH",
@@ -10421,7 +13023,7 @@
    "gms": true
   },
   {
-   "id": "T0798",
+   "id": "T0891",
    "head": "ambiguity_persists",
    "relation": "fires_in_state",
    "tail": "ASK_CLARIFY",
@@ -10433,7 +13035,7 @@
    "gms": true
   },
   {
-   "id": "T0799",
+   "id": "T0892",
    "head": "submit_failed",
    "relation": "fires_in_state",
    "tail": "CONFIRM_ACTION",
@@ -10445,7 +13047,7 @@
    "gms": true
   },
   {
-   "id": "T0800",
+   "id": "T0893",
    "head": "customer_request",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH",
@@ -10457,7 +13059,7 @@
    "gms": true
   },
   {
-   "id": "T0801",
+   "id": "T0894",
    "head": "customer_request",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH_RETRY",
@@ -10469,7 +13071,7 @@
    "gms": true
   },
   {
-   "id": "T0802",
+   "id": "T0895",
    "head": "customer_request",
    "relation": "fires_in_state",
    "tail": "PRESENT_TXN",
@@ -10481,7 +13083,7 @@
    "gms": true
   },
   {
-   "id": "T0803",
+   "id": "T0896",
    "head": "customer_request",
    "relation": "fires_in_state",
    "tail": "ASK_CLARIFY",
@@ -10493,7 +13095,7 @@
    "gms": true
   },
   {
-   "id": "T0804",
+   "id": "T0897",
    "head": "customer_request",
    "relation": "fires_in_state",
    "tail": "PROVIDE_CONTEXT",
@@ -10505,7 +13107,7 @@
    "gms": true
   },
   {
-   "id": "T0805",
+   "id": "T0898",
    "head": "customer_request",
    "relation": "fires_in_state",
    "tail": "CONFIRM_ACTION",
@@ -10517,7 +13119,7 @@
    "gms": true
   },
   {
-   "id": "T0806",
+   "id": "T0899",
    "head": "customer_request",
    "relation": "fires_in_state",
    "tail": "ASK_MORE_HELP",
@@ -10529,7 +13131,7 @@
    "gms": true
   },
   {
-   "id": "T0807",
+   "id": "T0900",
    "head": "turn_limit",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH",
@@ -10541,7 +13143,7 @@
    "gms": true
   },
   {
-   "id": "T0808",
+   "id": "T0901",
    "head": "turn_limit",
    "relation": "fires_in_state",
    "tail": "ASK_AUTH_RETRY",
@@ -10553,7 +13155,7 @@
    "gms": true
   },
   {
-   "id": "T0809",
+   "id": "T0902",
    "head": "turn_limit",
    "relation": "fires_in_state",
    "tail": "PRESENT_TXN",
@@ -10565,7 +13167,7 @@
    "gms": true
   },
   {
-   "id": "T0810",
+   "id": "T0903",
    "head": "turn_limit",
    "relation": "fires_in_state",
    "tail": "ASK_CLARIFY",
@@ -10577,7 +13179,7 @@
    "gms": true
   },
   {
-   "id": "T0811",
+   "id": "T0904",
    "head": "turn_limit",
    "relation": "fires_in_state",
    "tail": "PROVIDE_CONTEXT",
@@ -10589,7 +13191,7 @@
    "gms": true
   },
   {
-   "id": "T0812",
+   "id": "T0905",
    "head": "turn_limit",
    "relation": "fires_in_state",
    "tail": "CONFIRM_ACTION",
@@ -10601,7 +13203,7 @@
    "gms": true
   },
   {
-   "id": "T0813",
+   "id": "T0906",
    "head": "turn_limit",
    "relation": "fires_in_state",
    "tail": "ASK_MORE_HELP",
@@ -10613,7 +13215,7 @@
    "gms": true
   },
   {
-   "id": "T0814",
+   "id": "T0907",
    "head": "transaction_limit",
    "relation": "fires_in_state",
    "tail": "CONFIRM_RECORDED",
@@ -10625,7 +13227,7 @@
    "gms": true
   },
   {
-   "id": "T0815",
+   "id": "T0908",
    "head": "card_options_unavailable",
    "relation": "fires_in_state",
    "tail": "CONFIRM_RECORDED",
@@ -10637,7 +13239,7 @@
    "gms": true
   },
   {
-   "id": "T0816",
+   "id": "T0909",
    "head": "get_review_transactions",
    "relation": "returns_field",
    "tail": "transaction_id",
@@ -10651,7 +13253,7 @@
    "gms": false
   },
   {
-   "id": "T0817",
+   "id": "T0910",
    "head": "get_review_transactions",
    "relation": "returns_field",
    "tail": "merchant",
@@ -10665,7 +13267,7 @@
    "gms": false
   },
   {
-   "id": "T0818",
+   "id": "T0911",
    "head": "get_review_transactions",
    "relation": "returns_field",
    "tail": "amount",
@@ -10679,7 +13281,7 @@
    "gms": false
   },
   {
-   "id": "T0819",
+   "id": "T0912",
    "head": "get_review_transactions",
    "relation": "returns_field",
    "tail": "date",
@@ -10693,7 +13295,7 @@
    "gms": false
   },
   {
-   "id": "T0820",
+   "id": "T0913",
    "head": "get_review_transactions",
    "relation": "returns_field",
    "tail": "age_days",
@@ -10709,7 +13311,7 @@
    "gms": false
   },
   {
-   "id": "T0821",
+   "id": "T0914",
    "head": "OPENING",
    "relation": "says",
    "tail": "opening",
@@ -10728,7 +13330,7 @@
    "gms": false
   },
   {
-   "id": "T0822",
+   "id": "T0915",
    "head": "ASK_AUTH",
    "relation": "spoken_cue",
    "tail": "last four",
@@ -10740,7 +13342,7 @@
    "gms": false
   },
   {
-   "id": "T0823",
+   "id": "T0916",
    "head": "ASK_AUTH",
    "relation": "spoken_cue",
    "tail": "digits",
@@ -10752,7 +13354,7 @@
    "gms": false
   },
   {
-   "id": "T0824",
+   "id": "T0917",
    "head": "ASK_AUTH",
    "relation": "spoken_cue",
    "tail": "verify you",
@@ -10764,7 +13366,7 @@
    "gms": false
   },
   {
-   "id": "T0825",
+   "id": "T0918",
    "head": "ASK_AUTH",
    "relation": "spoken_cue",
    "tail": "authenticate",
@@ -10776,7 +13378,7 @@
    "gms": false
   },
   {
-   "id": "T0826",
+   "id": "T0919",
    "head": "ASK_AUTH_RETRY",
    "relation": "spoken_cue",
    "tail": "didn't match",
@@ -10788,7 +13390,7 @@
    "gms": false
   },
   {
-   "id": "T0827",
+   "id": "T0920",
    "head": "ASK_AUTH_RETRY",
    "relation": "spoken_cue",
    "tail": "did not match",
@@ -10800,7 +13402,7 @@
    "gms": false
   },
   {
-   "id": "T0828",
+   "id": "T0921",
    "head": "ASK_AUTH_RETRY",
    "relation": "spoken_cue",
    "tail": "try again",
@@ -10812,7 +13414,7 @@
    "gms": false
   },
   {
-   "id": "T0829",
+   "id": "T0922",
    "head": "ASK_AUTH_RETRY",
    "relation": "spoken_cue",
    "tail": "doesn't match",
@@ -10824,7 +13426,7 @@
    "gms": false
   },
   {
-   "id": "T0830",
+   "id": "T0923",
    "head": "PRESENT_TXN",
    "relation": "says",
    "tail": "merchant",
@@ -10842,7 +13444,7 @@
    "gms": false
   },
   {
-   "id": "T0831",
+   "id": "T0924",
    "head": "PRESENT_TXN",
    "relation": "says",
    "tail": "amount",
@@ -10860,7 +13462,7 @@
    "gms": false
   },
   {
-   "id": "T0832",
+   "id": "T0925",
    "head": "PRESENT_TXN",
    "relation": "says",
    "tail": "date",
@@ -10878,7 +13480,7 @@
    "gms": false
   },
   {
-   "id": "T0833",
+   "id": "T0926",
    "head": "PRESENT_TXN",
    "relation": "spoken_cue",
    "tail": "do you recognize",
@@ -10890,7 +13492,7 @@
    "gms": false
   },
   {
-   "id": "T0834",
+   "id": "T0927",
    "head": "PRESENT_TXN",
    "relation": "spoken_cue",
    "tail": "do you recognise",
@@ -10902,7 +13504,7 @@
    "gms": false
   },
   {
-   "id": "T0835",
+   "id": "T0928",
    "head": "PRESENT_TXN",
    "relation": "spoken_cue",
    "tail": "recognize that charge",
@@ -10914,7 +13516,7 @@
    "gms": false
   },
   {
-   "id": "T0836",
+   "id": "T0929",
    "head": "PROVIDE_CONTEXT",
    "relation": "says",
    "tail": "merchant",
@@ -10933,7 +13535,7 @@
    "gms": false
   },
   {
-   "id": "T0837",
+   "id": "T0930",
    "head": "PROVIDE_CONTEXT",
    "relation": "says",
    "tail": "amount",
@@ -10952,7 +13554,7 @@
    "gms": false
   },
   {
-   "id": "T0838",
+   "id": "T0931",
    "head": "PROVIDE_CONTEXT",
    "relation": "says",
    "tail": "date",
@@ -10971,7 +13573,7 @@
    "gms": false
   },
   {
-   "id": "T0839",
+   "id": "T0932",
    "head": "PROVIDE_CONTEXT",
    "relation": "says",
    "tail": "age_days",
@@ -10990,7 +13592,7 @@
    "gms": false
   },
   {
-   "id": "T0840",
+   "id": "T0933",
    "head": "PROVIDE_CONTEXT",
    "relation": "spoken_cue",
    "tail": "do you recognize",
@@ -11002,7 +13604,7 @@
    "gms": false
   },
   {
-   "id": "T0841",
+   "id": "T0934",
    "head": "PROVIDE_CONTEXT",
    "relation": "spoken_cue",
    "tail": "do you recognise",
@@ -11014,7 +13616,7 @@
    "gms": false
   },
   {
-   "id": "T0842",
+   "id": "T0935",
    "head": "ASK_CLARIFY",
    "relation": "spoken_cue",
    "tail": "didn't catch",
@@ -11026,7 +13628,7 @@
    "gms": false
   },
   {
-   "id": "T0843",
+   "id": "T0936",
    "head": "ASK_CLARIFY",
    "relation": "spoken_cue",
    "tail": "did not catch",
@@ -11038,7 +13640,7 @@
    "gms": false
   },
   {
-   "id": "T0844",
+   "id": "T0937",
    "head": "ASK_CLARIFY",
    "relation": "spoken_cue",
    "tail": "say that again",
@@ -11050,7 +13652,7 @@
    "gms": false
   },
   {
-   "id": "T0845",
+   "id": "T0938",
    "head": "ASK_CLARIFY",
    "relation": "spoken_cue",
    "tail": "didn't understand",
@@ -11062,7 +13664,7 @@
    "gms": false
   },
   {
-   "id": "T0846",
+   "id": "T0939",
    "head": "ASK_CLARIFY",
    "relation": "spoken_cue",
    "tail": "could you repeat",
@@ -11074,7 +13676,7 @@
    "gms": false
   },
   {
-   "id": "T0847",
+   "id": "T0940",
    "head": "CONFIRM_RECORDED",
    "relation": "says",
    "tail": "disposition",
@@ -11093,7 +13695,7 @@
    "gms": false
   },
   {
-   "id": "T0848",
+   "id": "T0941",
    "head": "CONFIRM_RECORDED",
    "relation": "spoken_cue",
    "tail": "recorded",
@@ -11105,7 +13707,7 @@
    "gms": false
   },
   {
-   "id": "T0849",
+   "id": "T0942",
    "head": "CONFIRM_RECORDED",
    "relation": "spoken_cue",
    "tail": "i've noted",
@@ -11117,7 +13719,7 @@
    "gms": false
   },
   {
-   "id": "T0850",
+   "id": "T0943",
    "head": "CONFIRM_RECORDED",
    "relation": "spoken_cue",
    "tail": "noted that",
@@ -11129,7 +13731,7 @@
    "gms": false
   },
   {
-   "id": "T0851",
+   "id": "T0944",
    "head": "CONFIRM_RECORDED",
    "relation": "spoken_cue",
    "tail": "saved your answer",
@@ -11141,7 +13743,7 @@
    "gms": false
   },
   {
-   "id": "T0852",
+   "id": "T0945",
    "head": "DISCLOSE_FEE",
    "relation": "says",
    "tail": "delivery",
@@ -11160,7 +13762,7 @@
    "gms": false
   },
   {
-   "id": "T0853",
+   "id": "T0946",
    "head": "DISCLOSE_FEE",
    "relation": "says",
    "tail": "fee",
@@ -11178,7 +13780,7 @@
    "gms": false
   },
   {
-   "id": "T0854",
+   "id": "T0947",
    "head": "DISCLOSE_FEE",
    "relation": "says",
    "tail": "delivery_days",
@@ -11197,7 +13799,7 @@
    "gms": false
   },
   {
-   "id": "T0855",
+   "id": "T0948",
    "head": "DISCLOSE_FEE",
    "relation": "spoken_cue",
    "tail": "fee",
@@ -11209,7 +13811,7 @@
    "gms": false
   },
   {
-   "id": "T0856",
+   "id": "T0949",
    "head": "CONFIRM_ACTION",
    "relation": "says",
    "tail": "action",
@@ -11227,7 +13829,7 @@
    "gms": false
   },
   {
-   "id": "T0857",
+   "id": "T0950",
    "head": "CONFIRM_ACTION",
    "relation": "says",
    "tail": "delivery",
@@ -11246,7 +13848,7 @@
    "gms": false
   },
   {
-   "id": "T0858",
+   "id": "T0951",
    "head": "CONFIRM_ACTION",
    "relation": "spoken_cue",
    "tail": "shall i",
@@ -11258,7 +13860,7 @@
    "gms": false
   },
   {
-   "id": "T0859",
+   "id": "T0952",
    "head": "CONFIRM_ACTION",
    "relation": "spoken_cue",
    "tail": "should i",
@@ -11270,7 +13872,7 @@
    "gms": false
   },
   {
-   "id": "T0860",
+   "id": "T0953",
    "head": "CONFIRM_ACTION",
    "relation": "spoken_cue",
    "tail": "go ahead",
@@ -11282,7 +13884,7 @@
    "gms": false
   },
   {
-   "id": "T0861",
+   "id": "T0954",
    "head": "CONFIRM_ACTION",
    "relation": "spoken_cue",
    "tail": "would you like me to",
@@ -11294,7 +13896,7 @@
    "gms": false
   },
   {
-   "id": "T0862",
+   "id": "T0955",
    "head": "CONFIRM_ACTION",
    "relation": "spoken_cue",
    "tail": "do you want me to",
@@ -11306,7 +13908,7 @@
    "gms": false
   },
   {
-   "id": "T0863",
+   "id": "T0956",
    "head": "ACTION_DONE",
    "relation": "says",
    "tail": "action",
@@ -11325,7 +13927,7 @@
    "gms": false
   },
   {
-   "id": "T0864",
+   "id": "T0957",
    "head": "ACTION_DONE",
    "relation": "says",
    "tail": "delivery",
@@ -11344,7 +13946,7 @@
    "gms": false
   },
   {
-   "id": "T0865",
+   "id": "T0958",
    "head": "ACTION_DONE",
    "relation": "spoken_cue",
    "tail": "that's done",
@@ -11356,7 +13958,7 @@
    "gms": false
   },
   {
-   "id": "T0866",
+   "id": "T0959",
    "head": "ACTION_DONE",
    "relation": "spoken_cue",
    "tail": "it's done",
@@ -11368,7 +13970,7 @@
    "gms": false
   },
   {
-   "id": "T0867",
+   "id": "T0960",
    "head": "ACTION_DONE",
    "relation": "spoken_cue",
    "tail": "has been",
@@ -11380,7 +13982,7 @@
    "gms": false
   },
   {
-   "id": "T0868",
+   "id": "T0961",
    "head": "ACTION_DONE",
    "relation": "spoken_cue",
    "tail": "is complete",
@@ -11392,7 +13994,7 @@
    "gms": false
   },
   {
-   "id": "T0869",
+   "id": "T0962",
    "head": "ACTION_DONE",
    "relation": "spoken_cue",
    "tail": "completed",
@@ -11404,7 +14006,7 @@
    "gms": false
   },
   {
-   "id": "T0870",
+   "id": "T0963",
    "head": "ACK_DECLINED",
    "relation": "spoken_cue",
    "tail": "won't do that",
@@ -11416,7 +14018,7 @@
    "gms": false
   },
   {
-   "id": "T0871",
+   "id": "T0964",
    "head": "ACK_DECLINED",
    "relation": "spoken_cue",
    "tail": "will not do that",
@@ -11428,7 +14030,7 @@
    "gms": false
   },
   {
-   "id": "T0872",
+   "id": "T0965",
    "head": "ACK_DECLINED",
    "relation": "spoken_cue",
    "tail": "i won't",
@@ -11440,7 +14042,7 @@
    "gms": false
   },
   {
-   "id": "T0873",
+   "id": "T0966",
    "head": "ACK_DECLINED",
    "relation": "spoken_cue",
    "tail": "no problem, i",
@@ -11452,7 +14054,7 @@
    "gms": false
   },
   {
-   "id": "T0874",
+   "id": "T0967",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "says",
    "tail": "action",
@@ -11471,7 +14073,7 @@
    "gms": false
   },
   {
-   "id": "T0875",
+   "id": "T0968",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "spoken_cue",
    "tail": "isn't available",
@@ -11483,7 +14085,7 @@
    "gms": false
   },
   {
-   "id": "T0876",
+   "id": "T0969",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "spoken_cue",
    "tail": "is not available",
@@ -11495,7 +14097,7 @@
    "gms": false
   },
   {
-   "id": "T0877",
+   "id": "T0970",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "spoken_cue",
    "tail": "not available",
@@ -11507,7 +14109,7 @@
    "gms": false
   },
   {
-   "id": "T0878",
+   "id": "T0971",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "spoken_cue",
    "tail": "can't offer",
@@ -11519,7 +14121,7 @@
    "gms": false
   },
   {
-   "id": "T0879",
+   "id": "T0972",
    "head": "INFORM_NO_CARD_ACTION",
    "relation": "spoken_cue",
    "tail": "cannot offer",
@@ -11531,7 +14133,7 @@
    "gms": false
   },
   {
-   "id": "T0880",
+   "id": "T0973",
    "head": "EXPLAIN_LIMIT",
    "relation": "says",
    "tail": "limit",
@@ -11550,7 +14152,7 @@
    "gms": false
   },
   {
-   "id": "T0881",
+   "id": "T0974",
    "head": "EXPLAIN_LIMIT",
    "relation": "spoken_cue",
    "tail": "up to",
@@ -11562,7 +14164,7 @@
    "gms": false
   },
   {
-   "id": "T0882",
+   "id": "T0975",
    "head": "EXPLAIN_LIMIT",
    "relation": "spoken_cue",
    "tail": "at most",
@@ -11574,7 +14176,7 @@
    "gms": false
   },
   {
-   "id": "T0883",
+   "id": "T0976",
    "head": "EXPLAIN_LIMIT",
    "relation": "spoken_cue",
    "tail": "only review",
@@ -11586,7 +14188,7 @@
    "gms": false
   },
   {
-   "id": "T0884",
+   "id": "T0977",
    "head": "EXPLAIN_NO_TXNS",
    "relation": "spoken_cue",
    "tail": "no charges",
@@ -11598,7 +14200,7 @@
    "gms": false
   },
   {
-   "id": "T0885",
+   "id": "T0978",
    "head": "EXPLAIN_NO_TXNS",
    "relation": "spoken_cue",
    "tail": "no transactions",
@@ -11610,7 +14212,7 @@
    "gms": false
   },
   {
-   "id": "T0886",
+   "id": "T0979",
    "head": "EXPLAIN_NO_TXNS",
    "relation": "spoken_cue",
    "tail": "nothing to review",
@@ -11622,7 +14224,7 @@
    "gms": false
   },
   {
-   "id": "T0887",
+   "id": "T0980",
    "head": "SUMMARIZE",
    "relation": "says",
    "tail": "recorded",
@@ -11640,7 +14242,7 @@
    "gms": false
   },
   {
-   "id": "T0888",
+   "id": "T0981",
    "head": "SUMMARIZE",
    "relation": "says",
    "tail": "actions",
@@ -11658,7 +14260,7 @@
    "gms": false
   },
   {
-   "id": "T0889",
+   "id": "T0982",
    "head": "SUMMARIZE",
    "relation": "spoken_cue",
    "tail": "summary",
@@ -11670,7 +14272,7 @@
    "gms": false
   },
   {
-   "id": "T0890",
+   "id": "T0983",
    "head": "SUMMARIZE",
    "relation": "spoken_cue",
    "tail": "to summarize",
@@ -11682,7 +14284,7 @@
    "gms": false
   },
   {
-   "id": "T0891",
+   "id": "T0984",
    "head": "SUMMARIZE",
    "relation": "spoken_cue",
    "tail": "so far i recorded",
@@ -11694,7 +14296,7 @@
    "gms": false
   },
   {
-   "id": "T0892",
+   "id": "T0985",
    "head": "SUMMARIZE",
    "relation": "spoken_cue",
    "tail": "i recorded",
@@ -11706,7 +14308,7 @@
    "gms": false
   },
   {
-   "id": "T0893",
+   "id": "T0986",
    "head": "ASK_MORE_HELP",
    "relation": "spoken_cue",
    "tail": "anything else",
@@ -11718,7 +14320,7 @@
    "gms": false
   },
   {
-   "id": "T0894",
+   "id": "T0987",
    "head": "ASK_MORE_HELP",
    "relation": "spoken_cue",
    "tail": "other help",
@@ -11730,7 +14332,7 @@
    "gms": false
   },
   {
-   "id": "T0895",
+   "id": "T0988",
    "head": "ASK_MORE_HELP",
    "relation": "spoken_cue",
    "tail": "help with anything",
@@ -11742,7 +14344,7 @@
    "gms": false
   },
   {
-   "id": "T0896",
+   "id": "T0989",
    "head": "TRANSFER",
    "relation": "spoken_cue",
    "tail": "transfer you",
@@ -11754,7 +14356,7 @@
    "gms": false
   },
   {
-   "id": "T0897",
+   "id": "T0990",
    "head": "TRANSFER",
    "relation": "spoken_cue",
    "tail": "representative",
@@ -11766,7 +14368,7 @@
    "gms": false
   },
   {
-   "id": "T0898",
+   "id": "T0991",
    "head": "TRANSFER",
    "relation": "spoken_cue",
    "tail": "connect you",
@@ -11778,7 +14380,7 @@
    "gms": false
   },
   {
-   "id": "T0899",
+   "id": "T0992",
    "head": "TRANSFER",
    "relation": "spoken_cue",
    "tail": "an agent",
@@ -11790,7 +14392,7 @@
    "gms": false
   },
   {
-   "id": "T0900",
+   "id": "T0993",
    "head": "END",
    "relation": "spoken_cue",
    "tail": "goodbye",
@@ -11802,7 +14404,7 @@
    "gms": false
   },
   {
-   "id": "T0901",
+   "id": "T0994",
    "head": "END",
    "relation": "spoken_cue",
    "tail": "bye",
@@ -11814,7 +14416,7 @@
    "gms": false
   },
   {
-   "id": "T0902",
+   "id": "T0995",
    "head": "END",
    "relation": "spoken_cue",
    "tail": "thank you for calling",
@@ -11826,7 +14428,7 @@
    "gms": false
   },
   {
-   "id": "T0903",
+   "id": "T0996",
    "head": "RECOGNIZED",
    "relation": "spoken_as",
    "tail": "recognized",
@@ -11837,7 +14439,7 @@
    "gms": false
   },
   {
-   "id": "T0904",
+   "id": "T0997",
    "head": "RECOGNIZED",
    "relation": "spoken_as",
    "tail": "you recognize",
@@ -11848,7 +14450,7 @@
    "gms": false
   },
   {
-   "id": "T0905",
+   "id": "T0998",
    "head": "RECOGNIZED",
    "relation": "spoken_as",
    "tail": "recognize it",
@@ -11859,7 +14461,7 @@
    "gms": false
   },
   {
-   "id": "T0906",
+   "id": "T0999",
    "head": "RECOGNIZED",
    "relation": "spoken_as",
    "tail": "is yours",
@@ -11870,7 +14472,7 @@
    "gms": false
   },
   {
-   "id": "T0907",
+   "id": "T1000",
    "head": "RECOGNIZED",
    "relation": "spoken_as",
    "tail": "was yours",
@@ -11881,7 +14483,7 @@
    "gms": false
   },
   {
-   "id": "T0908",
+   "id": "T1001",
    "head": "RECOGNIZED",
    "relation": "spoken_as",
    "tail": "you made it",
@@ -11892,7 +14494,7 @@
    "gms": false
   },
   {
-   "id": "T0909",
+   "id": "T1002",
    "head": "RECOGNIZED",
    "relation": "spoken_as",
    "tail": "as yours",
@@ -11903,7 +14505,7 @@
    "gms": false
   },
   {
-   "id": "T0910",
+   "id": "T1003",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "not recognized",
@@ -11914,7 +14516,7 @@
    "gms": false
   },
   {
-   "id": "T0911",
+   "id": "T1004",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "unrecognized",
@@ -11925,7 +14527,7 @@
    "gms": false
   },
   {
-   "id": "T0912",
+   "id": "T1005",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "don't recognize",
@@ -11936,7 +14538,7 @@
    "gms": false
   },
   {
-   "id": "T0913",
+   "id": "T1006",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "do not recognize",
@@ -11947,7 +14549,7 @@
    "gms": false
   },
   {
-   "id": "T0914",
+   "id": "T1007",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "didn't recognize",
@@ -11958,7 +14560,7 @@
    "gms": false
   },
   {
-   "id": "T0915",
+   "id": "T1008",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "isn't yours",
@@ -11969,7 +14571,7 @@
    "gms": false
   },
   {
-   "id": "T0916",
+   "id": "T1009",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "is not yours",
@@ -11980,7 +14582,7 @@
    "gms": false
   },
   {
-   "id": "T0917",
+   "id": "T1010",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "not yours",
@@ -11991,7 +14593,7 @@
    "gms": false
   },
   {
-   "id": "T0918",
+   "id": "T1011",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "wasn't yours",
@@ -12002,7 +14604,7 @@
    "gms": false
   },
   {
-   "id": "T0919",
+   "id": "T1012",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "didn't make",
@@ -12013,7 +14615,7 @@
    "gms": false
   },
   {
-   "id": "T0920",
+   "id": "T1013",
    "head": "UNRECOGNIZED",
    "relation": "spoken_as",
    "tail": "not mine",
@@ -12024,7 +14626,7 @@
    "gms": false
   },
   {
-   "id": "T0921",
+   "id": "T1014",
    "head": "UNSURE",
    "relation": "spoken_as",
    "tail": "unsure",
@@ -12035,7 +14637,7 @@
    "gms": false
   },
   {
-   "id": "T0922",
+   "id": "T1015",
    "head": "UNSURE",
    "relation": "spoken_as",
    "tail": "not sure",
@@ -12046,7 +14648,7 @@
    "gms": false
   },
   {
-   "id": "T0923",
+   "id": "T1016",
    "head": "UNSURE",
    "relation": "spoken_as",
    "tail": "uncertain",
@@ -12057,7 +14659,7 @@
    "gms": false
   },
   {
-   "id": "T0924",
+   "id": "T1017",
    "head": "SECURE_CARD",
    "relation": "spoken_as",
    "tail": "secured",
@@ -12068,7 +14670,7 @@
    "gms": false
   },
   {
-   "id": "T0925",
+   "id": "T1018",
    "head": "SECURE_CARD",
    "relation": "spoken_as",
    "tail": "locked",
@@ -12079,7 +14681,7 @@
    "gms": false
   },
   {
-   "id": "T0926",
+   "id": "T1019",
    "head": "SECURE_CARD",
    "relation": "spoken_as",
    "tail": "frozen",
@@ -12090,7 +14692,7 @@
    "gms": false
   },
   {
-   "id": "T0927",
+   "id": "T1020",
    "head": "SECURE_CARD",
    "relation": "spoken_as",
    "tail": "blocked",
@@ -12101,7 +14703,7 @@
    "gms": false
   },
   {
-   "id": "T0928",
+   "id": "T1021",
    "head": "SECURE_CARD",
    "relation": "spoken_as",
    "tail": "secure your card",
@@ -12112,7 +14714,7 @@
    "gms": false
   },
   {
-   "id": "T0929",
+   "id": "T1022",
    "head": "SECURE_CARD",
    "relation": "spoken_as",
    "tail": "lock your card",
@@ -12123,7 +14725,7 @@
    "gms": false
   },
   {
-   "id": "T0930",
+   "id": "T1023",
    "head": "REPLACE_CARD",
    "relation": "spoken_as",
    "tail": "replaced",
@@ -12134,7 +14736,7 @@
    "gms": false
   },
   {
-   "id": "T0931",
+   "id": "T1024",
    "head": "REPLACE_CARD",
    "relation": "spoken_as",
    "tail": "replacement card",
@@ -12145,7 +14747,7 @@
    "gms": false
   },
   {
-   "id": "T0932",
+   "id": "T1025",
    "head": "REPLACE_CARD",
    "relation": "spoken_as",
    "tail": "a new card",
@@ -12156,7 +14758,7 @@
    "gms": false
   },
   {
-   "id": "T0933",
+   "id": "T1026",
    "head": "REPLACE_CARD",
    "relation": "spoken_as",
    "tail": "card replacement",
@@ -12167,7 +14769,7 @@
    "gms": false
   },
   {
-   "id": "T0934",
+   "id": "T1027",
    "head": "REPLACE_CARD",
    "relation": "spoken_as",
    "tail": "replace your card",
@@ -12178,7 +14780,7 @@
    "gms": false
   },
   {
-   "id": "T0935",
+   "id": "T1028",
    "head": "max_transactions_per_session",
    "relation": "spoken_as",
    "tail": "up to {n} charges",
@@ -12189,7 +14791,7 @@
    "gms": false
   },
   {
-   "id": "T0936",
+   "id": "T1029",
    "head": "max_transactions_per_session",
    "relation": "spoken_as",
    "tail": "up to {n} transactions",
@@ -12200,7 +14802,7 @@
    "gms": false
   },
   {
-   "id": "T0937",
+   "id": "T1030",
    "head": "max_transactions_per_session",
    "relation": "spoken_as",
    "tail": "up to {n} recent transactions",
@@ -12211,7 +14813,7 @@
    "gms": false
   },
   {
-   "id": "T0938",
+   "id": "T1031",
    "head": "max_transactions_per_session",
    "relation": "spoken_as",
    "tail": "at most {n} charges",
@@ -12222,7 +14824,7 @@
    "gms": false
   },
   {
-   "id": "T0939",
+   "id": "T1032",
    "head": "max_transactions_per_session",
    "relation": "spoken_as",
    "tail": "at most {n} transactions",
@@ -12233,7 +14835,7 @@
    "gms": false
   },
   {
-   "id": "T0940",
+   "id": "T1033",
    "head": "max_transactions_per_session",
    "relation": "spoken_as",
    "tail": "{n} charges per session",
@@ -12244,7 +14846,7 @@
    "gms": false
   },
   {
-   "id": "T0941",
+   "id": "T1034",
    "head": "max_transactions_per_session",
    "relation": "spoken_as",
    "tail": "{n} charges in one session",
@@ -12255,7 +14857,7 @@
    "gms": false
   },
   {
-   "id": "T0942",
+   "id": "T1035",
    "head": "max_transactions_per_session",
    "relation": "spoken_as",
    "tail": "{n} transactions in one session",
@@ -12266,7 +14868,7 @@
    "gms": false
   },
   {
-   "id": "T0943",
+   "id": "T1036",
    "head": "lookback_days",
    "relation": "spoken_as",
    "tail": "previous {n} days",
@@ -12277,7 +14879,7 @@
    "gms": false
   },
   {
-   "id": "T0944",
+   "id": "T1037",
    "head": "lookback_days",
    "relation": "spoken_as",
    "tail": "previous {n} calendar days",
@@ -12288,7 +14890,7 @@
    "gms": false
   },
   {
-   "id": "T0945",
+   "id": "T1038",
    "head": "lookback_days",
    "relation": "spoken_as",
    "tail": "last {n} days",
@@ -12299,7 +14901,7 @@
    "gms": false
   },
   {
-   "id": "T0946",
+   "id": "T1039",
    "head": "lookback_days",
    "relation": "spoken_as",
    "tail": "last {n} calendar days",
@@ -12310,7 +14912,7 @@
    "gms": false
   },
   {
-   "id": "T0947",
+   "id": "T1040",
    "head": "lookback_days",
    "relation": "spoken_as",
    "tail": "past {n} days",
@@ -12321,7 +14923,7 @@
    "gms": false
   },
   {
-   "id": "T0948",
+   "id": "T1041",
    "head": "lookback_days",
    "relation": "spoken_as",
    "tail": "{n}-day window",
@@ -12332,7 +14934,7 @@
    "gms": false
   },
   {
-   "id": "T0949",
+   "id": "T1042",
    "head": "lookback_days",
    "relation": "spoken_as",
    "tail": "{n} day window",
@@ -12343,7 +14945,7 @@
    "gms": false
   },
   {
-   "id": "T0950",
+   "id": "T1043",
    "head": "lookback_days",
    "relation": "spoken_as",
    "tail": "within {n} days",
@@ -12354,7 +14956,7 @@
    "gms": false
   },
   {
-   "id": "T0951",
+   "id": "T1044",
    "head": "max_auth_attempts",
    "relation": "spoken_as",
    "tail": "{n} attempts",
@@ -12365,7 +14967,7 @@
    "gms": false
   },
   {
-   "id": "T0952",
+   "id": "T1045",
    "head": "max_auth_attempts",
    "relation": "spoken_as",
    "tail": "{n} verification attempts",
@@ -12376,7 +14978,7 @@
    "gms": false
   },
   {
-   "id": "T0953",
+   "id": "T1046",
    "head": "max_auth_attempts",
    "relation": "spoken_as",
    "tail": "{n} authentication attempts",
@@ -12387,7 +14989,7 @@
    "gms": false
   },
   {
-   "id": "T0954",
+   "id": "T1047",
    "head": "max_auth_attempts",
    "relation": "spoken_as",
    "tail": "{n} tries",
@@ -12398,7 +15000,7 @@
    "gms": false
   },
   {
-   "id": "T0955",
+   "id": "T1048",
    "head": "R27",
    "relation": "asserted_by",
    "tail": "means fraud",
@@ -12409,7 +15011,7 @@
    "gms": false
   },
   {
-   "id": "T0956",
+   "id": "T1049",
    "head": "R27",
    "relation": "asserted_by",
    "tail": "is fraud",
@@ -12420,7 +15022,7 @@
    "gms": false
   },
   {
-   "id": "T0957",
+   "id": "T1050",
    "head": "R27",
    "relation": "asserted_by",
    "tail": "was fraud",
@@ -12431,7 +15033,7 @@
    "gms": false
   },
   {
-   "id": "T0958",
+   "id": "T1051",
    "head": "R27",
    "relation": "asserted_by",
    "tail": "confirms fraud",
@@ -12442,7 +15044,7 @@
    "gms": false
   },
   {
-   "id": "T0959",
+   "id": "T1052",
    "head": "R27",
    "relation": "asserted_by",
    "tail": "proves fraud",
@@ -12453,7 +15055,7 @@
    "gms": false
   },
   {
-   "id": "T0960",
+   "id": "T1053",
    "head": "R27",
    "relation": "asserted_by",
    "tail": "proof of fraud",
@@ -12464,7 +15066,7 @@
    "gms": false
   },
   {
-   "id": "T0961",
+   "id": "T1054",
    "head": "R27",
    "relation": "asserted_by",
    "tail": "confirmation of fraud",
@@ -12475,7 +15077,7 @@
    "gms": false
   },
   {
-   "id": "T0962",
+   "id": "T1055",
    "head": "R27",
    "relation": "asserted_by",
    "tail": "evidence of fraud",
@@ -12486,7 +15088,7 @@
    "gms": false
   },
   {
-   "id": "T0963",
+   "id": "T1056",
    "head": "R27",
    "relation": "denied_by",
    "tail": "not proof of fraud",
@@ -12497,7 +15099,7 @@
    "gms": false
   },
   {
-   "id": "T0964",
+   "id": "T1057",
    "head": "R27",
    "relation": "denied_by",
    "tail": "not, by itself",
@@ -12508,7 +15110,7 @@
    "gms": false
   },
   {
-   "id": "T0965",
+   "id": "T1058",
    "head": "R27",
    "relation": "denied_by",
    "tail": "not by itself",
@@ -12519,7 +15121,7 @@
    "gms": false
   },
   {
-   "id": "T0966",
+   "id": "T1059",
    "head": "R27",
    "relation": "denied_by",
    "tail": "doesn't mean fraud",
@@ -12530,7 +15132,7 @@
    "gms": false
   },
   {
-   "id": "T0967",
+   "id": "T1060",
    "head": "R27",
    "relation": "denied_by",
    "tail": "does not mean fraud",
@@ -12541,7 +15143,7 @@
    "gms": false
   },
   {
-   "id": "T0968",
+   "id": "T1061",
    "head": "R27",
    "relation": "denied_by",
    "tail": "isn't fraud",
@@ -12552,7 +15154,7 @@
    "gms": false
   },
   {
-   "id": "T0969",
+   "id": "T1062",
    "head": "R27",
    "relation": "denied_by",
    "tail": "is not fraud",
@@ -12563,7 +15165,7 @@
    "gms": false
   },
   {
-   "id": "T0970",
+   "id": "T1063",
    "head": "R27",
    "relation": "denied_by",
    "tail": "not necessarily fraud",
@@ -12574,7 +15176,7 @@
    "gms": false
   },
   {
-   "id": "T0971",
+   "id": "T1064",
    "head": "R27",
    "relation": "denied_by",
    "tail": "not confirmation of fraud",
@@ -12585,7 +15187,7 @@
    "gms": false
   },
   {
-   "id": "T0972",
+   "id": "T1065",
    "head": "R27",
    "relation": "denied_by",
    "tail": "doesn't prove",
@@ -12596,7 +15198,7 @@
    "gms": false
   },
   {
-   "id": "T0973",
+   "id": "T1066",
    "head": "R27",
    "relation": "denied_by",
    "tail": "does not prove",
@@ -12607,5 +15209,5 @@
    "gms": false
   }
  ],
- "sha256": "7c600fdf6e685f9dfcff40b4164d34f8b3757bba4b0440f877cad2d0ad370a82"
+ "sha256": "1e384d261a01dc58b5141ed4982e8395c1f4a32ba3e73bf85c1bed5270596dc9"
 }

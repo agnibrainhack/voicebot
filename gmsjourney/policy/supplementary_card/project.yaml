@@ -1,0 +1,382 @@
+# Project configuration of the Supplementary Card Application Voice-Bot Policy pack, drafted from its policy graph (python -m gmsjourney.project_draft).
+# Every name here is the graph's; check it with: python -m gmsjourney.project check /home/claude/voicebot_latest/gmsjourney/policy/supplementary_card/project.yaml
+# Edit it in the studio:  python -m gmsjourney.studio --pack supplementary_card
+#
+# A factor with relevant_when: reached is relevant when a case reaches its anchor (a tool call or a prompt), decided
+# by walking the case through the graph. Fixture keys tool:<name> list what that tool returns on its 1st, 2nd, ...
+# call (a status, or a result object); the last result repeats.
+
+project: {name: Supplementary Card Application Voice-Bot Policy}
+fixture:
+  credential: '7316'
+  defaults: {}
+customer:
+  answers: {ASK_AUTH: ask_auth, ASK_AUTH_RETRY: ask_auth_retry, ASK_RELATIONSHIP: ask_relationship, ASK_APPLICANT_AGE: ask_applicant_age,
+    ASK_CARD_CHOICE: ask_card_choice, CONFIRM_APPLICATION: confirm_application, ASK_MORE_HELP: ask_more_help}
+  scripts:
+    ask_auth:
+      default: PROVIDE_CREDENTIAL(credential=$credential)
+      exhausted:
+        repeat_last_answer: true
+        not_repeated: [ASK_KB, UNCLEAR]
+    ask_auth_retry:
+      default: PROVIDE_CREDENTIAL(credential=$credential)
+      exhausted:
+        repeat_last_answer: true
+        not_repeated: [ASK_KB, UNCLEAR]
+    ask_relationship:
+      default: INFORM_RELATIONSHIP(relationship=SPOUSE)
+      exhausted:
+        repeat_last_answer: true
+        not_repeated: [ASK_KB, UNCLEAR]
+    ask_applicant_age:
+      default: INFORM_AGE(age_band=ADULT)
+      exhausted:
+        repeat_last_answer: true
+        not_repeated: [ASK_KB, UNCLEAR]
+    ask_card_choice:
+      default: CHOOSE_CARD(card_product=STANDARD_SUPP)
+      exhausted:
+        repeat_last_answer: true
+        not_repeated: [ASK_KB, UNCLEAR]
+    confirm_application:
+      default: CONFIRM()
+      exhausted:
+        repeat_last_answer: true
+        not_repeated: [ASK_KB, UNCLEAR]
+    ask_more_help:
+      default: END()
+      exhausted:
+        repeat_last_answer: true
+        not_repeated: [ASK_KB, UNCLEAR]
+  questions: {script: ask_relationship, position: start}
+factors:
+- name: authenticate_customer
+  about: Verifies the caller from the last four digits of the primary card.
+  default: ok
+  anchor: {tool: authenticate_customer}
+  relevant_when: reached
+  levels:
+    ok: {}
+    retry_authenticated:
+      fixture:
+        tool:authenticate_customer: [FAILED, AUTHENTICATED]
+    failed_2x:
+      fixture:
+        tool:authenticate_customer: [FAILED, FAILED]
+      boundary: true
+    unavailable:
+      fixture:
+        tool:authenticate_customer: [UNAVAILABLE]
+- name: check_supplementary_eligibility
+  about: Says whether the account can take another supplementary card, and why not.
+  default: ok
+  anchor: {tool: check_supplementary_eligibility}
+  relevant_when: reached
+  levels:
+    ok: {}
+    not_eligible_account_too_new:
+      fixture:
+        tool:check_supplementary_eligibility:
+        - {status: NOT_ELIGIBLE, reason: ACCOUNT_TOO_NEW}
+    not_eligible_card_limit_reached:
+      fixture:
+        tool:check_supplementary_eligibility:
+        - {status: NOT_ELIGIBLE, reason: CARD_LIMIT_REACHED}
+    not_eligible_account_past_due:
+      fixture:
+        tool:check_supplementary_eligibility:
+        - {status: NOT_ELIGIBLE, reason: ACCOUNT_PAST_DUE}
+    refer:
+      fixture:
+        tool:check_supplementary_eligibility: [REFER]
+    unavailable:
+      fixture:
+        tool:check_supplementary_eligibility: [UNAVAILABLE]
+- name: submit_supplementary_application
+  about: Submits the application; echoes the card product and returns a reference.
+  default: ok
+  anchor: {tool: submit_supplementary_application}
+  relevant_when: reached
+  levels:
+    ok: {}
+    declined:
+      fixture:
+        tool:submit_supplementary_application: [DECLINED]
+    unavailable:
+      fixture:
+        tool:submit_supplementary_application: [UNAVAILABLE]
+    echo_mismatch:
+      fixture:
+        tool:submit_supplementary_application:
+        - {status: SUBMITTED, card_product: '@other'}
+- name: ask_relationship_relationship
+  about: the relationship the customer gives at ASK_RELATIONSHIP
+  default: spouse
+  anchor: {state: ASK_RELATIONSHIP}
+  relevant_when: reached
+  levels:
+    spouse: {}
+    domestic_partner:
+      customer:
+      - script: ask_relationship
+        say: [INFORM_RELATIONSHIP(relationship=DOMESTIC_PARTNER)]
+        position: replace
+    child:
+      customer:
+      - script: ask_relationship
+        say: [INFORM_RELATIONSHIP(relationship=CHILD)]
+        position: replace
+    parent:
+      customer:
+      - script: ask_relationship
+        say: [INFORM_RELATIONSHIP(relationship=PARENT)]
+        position: replace
+    sibling:
+      customer:
+      - script: ask_relationship
+        say: [INFORM_RELATIONSHIP(relationship=SIBLING)]
+        position: replace
+    friend:
+      customer:
+      - script: ask_relationship
+        say: [INFORM_RELATIONSHIP(relationship=FRIEND)]
+        position: replace
+- name: ask_applicant_age_age_band
+  about: the age band the customer gives at ASK_APPLICANT_AGE
+  default: adult
+  anchor: {state: ASK_APPLICANT_AGE}
+  relevant_when: reached
+  levels:
+    adult: {}
+    minor:
+      customer:
+      - script: ask_applicant_age
+        say: [INFORM_AGE(age_band=MINOR)]
+        position: replace
+- name: ask_card_choice_card_product
+  about: the card product the customer gives at ASK_CARD_CHOICE
+  default: standard_supp
+  anchor: {state: ASK_CARD_CHOICE}
+  relevant_when: reached
+  levels:
+    standard_supp: {}
+    premium_supp:
+      customer:
+      - script: ask_card_choice
+        say: [CHOOSE_CARD(card_product=PREMIUM_SUPP)]
+        position: replace
+- name: confirm_application
+  about: what the customer does at CONFIRM_APPLICATION
+  default: confirm
+  anchor: {state: CONFIRM_APPLICATION}
+  relevant_when: reached
+  levels:
+    confirm: {}
+    deny:
+      customer:
+      - script: confirm_application
+        say: [DENY(), CONFIRM()]
+        position: replace
+    choose_card_card_product_standard_supp:
+      customer:
+      - script: confirm_application
+        say: [CHOOSE_CARD(card_product=STANDARD_SUPP), CONFIRM()]
+        position: replace
+    choose_card_card_product_premium_supp:
+      customer:
+      - script: confirm_application
+        say: [CHOOSE_CARD(card_product=PREMIUM_SUPP), CONFIRM()]
+        position: replace
+- name: human_request
+  about: the customer asks for a person at a prompt
+  default: none
+  relevant_when: reached
+  levels:
+    none: {}
+    at_ask_auth:
+      customer:
+      - script: ask_auth
+        say: [REQUEST_HUMAN()]
+        position: start
+    at_ask_auth_retry:
+      customer:
+      - script: ask_auth_retry
+        say: [REQUEST_HUMAN()]
+        position: start
+    at_ask_relationship:
+      customer:
+      - script: ask_relationship
+        say: [REQUEST_HUMAN()]
+        position: start
+    at_ask_applicant_age:
+      customer:
+      - script: ask_applicant_age
+        say: [REQUEST_HUMAN()]
+        position: start
+    at_ask_card_choice:
+      customer:
+      - script: ask_card_choice
+        say: [REQUEST_HUMAN()]
+        position: start
+    at_confirm_application:
+      customer:
+      - script: confirm_application
+        say: [REQUEST_HUMAN()]
+        position: start
+    at_ask_more_help:
+      customer:
+      - script: ask_more_help
+        say: [REQUEST_HUMAN()]
+        position: start
+- name: unclear_answer
+  about: an answer that carries no decision, once (recovered) or past the clarification limit
+  default: none
+  relevant_when: reached
+  levels:
+    none: {}
+    once_at_ask_auth:
+      customer:
+      - script: ask_auth
+        say: [UNCLEAR()]
+        position: start
+    persists_at_ask_auth:
+      customer:
+      - script: ask_auth
+        say: [UNCLEAR(), UNCLEAR()]
+        position: start
+    once_at_ask_auth_retry:
+      customer:
+      - script: ask_auth_retry
+        say: [UNCLEAR()]
+        position: start
+    persists_at_ask_auth_retry:
+      customer:
+      - script: ask_auth_retry
+        say: [UNCLEAR(), UNCLEAR()]
+        position: start
+    once_at_ask_relationship:
+      customer:
+      - script: ask_relationship
+        say: [UNCLEAR()]
+        position: start
+    persists_at_ask_relationship:
+      customer:
+      - script: ask_relationship
+        say: [UNCLEAR(), UNCLEAR()]
+        position: start
+    once_at_ask_applicant_age:
+      customer:
+      - script: ask_applicant_age
+        say: [UNCLEAR()]
+        position: start
+    persists_at_ask_applicant_age:
+      customer:
+      - script: ask_applicant_age
+        say: [UNCLEAR(), UNCLEAR()]
+        position: start
+    once_at_ask_card_choice:
+      customer:
+      - script: ask_card_choice
+        say: [UNCLEAR()]
+        position: start
+    persists_at_ask_card_choice:
+      customer:
+      - script: ask_card_choice
+        say: [UNCLEAR(), UNCLEAR()]
+        position: start
+    once_at_confirm_application:
+      customer:
+      - script: confirm_application
+        say: [UNCLEAR()]
+        position: start
+    persists_at_confirm_application:
+      customer:
+      - script: confirm_application
+        say: [UNCLEAR(), UNCLEAR()]
+        position: start
+    once_at_ask_more_help:
+      customer:
+      - script: ask_more_help
+        say: [UNCLEAR()]
+        position: start
+    persists_at_ask_more_help:
+      customer:
+      - script: ask_more_help
+        say: [UNCLEAR(), UNCLEAR()]
+        position: start
+- name: policy_question
+  about: the customer asks a policy question at ASK_RELATIONSHIP
+  default: none
+  role: questions
+  anchor: {state: ASK_RELATIONSHIP}
+  relevant_when: reached
+  levels:
+    none: {}
+    ask: {questions: 1}
+- name: turn_pressure
+  about: how close the conversation runs to the turn limit
+  default: normal
+  role: turn_target
+  anchor: {state: ASK_RELATIONSHIP}
+  relevant_when: reached
+  levels:
+    normal: {}
+    at_limit: {turn_target: limit('max_turns'), exact: true, avoid_transfer: turn_limit, boundary: true}
+    over_limit: {turn_target: limit('max_turns') + 1, transfer: turn_limit, boundary: true}
+constraints: []
+categories:
+- {name: recovery, when: level('authenticate_customer') != 'ok' or level('check_supplementary_eligibility') != 'ok' or level('submit_supplementary_application')
+    != 'ok' or level('unclear_answer') != 'none'}
+- {name: boundary, when: level('turn_pressure') != 'normal'}
+- {name: governance_policy, when: level('human_request') != 'none'}
+- {name: procedural_ordering, when: 'True'}
+tags:
+- {name: procedural_ordering, when: 'True'}
+- {name: recovery, when: level('authenticate_customer') != 'ok' or level('check_supplementary_eligibility') != 'ok' or level('submit_supplementary_application')
+    != 'ok' or level('unclear_answer') != 'none'}
+- {name: boundary, when: level('turn_pressure') != 'normal'}
+- {name: governance_policy, when: level('human_request') != 'none'}
+generator:
+  policy_question_case: {policy_question: ask}
+  padding_questions: ['ASK_KB(attr=annual_fee_usd, entity=STANDARD_SUPP, intent=value)', 'ASK_KB(attr=annual_fee_usd, entity=PREMIUM_SUPP,
+      intent=value)', 'ASK_KB(attr=delivery_business_days, entity=STANDARD_SUPP, intent=value)', 'ASK_KB(attr=delivery_business_days,
+      entity=PREMIUM_SUPP, intent=value)', 'ASK_KB(intent=limit, key=max_auth_attempts)', 'ASK_KB(intent=limit, key=min_applicant_age)']
+  fault_only_rules: []
+evaluation:
+  severity: {CLAIM_WITHOUT_SUCCESS: critical, ACCOUNT_TOOL_BEFORE_AUTH: critical, SUBMIT_WITHOUT_CONFIRMATION: critical, FEE_NOT_DISCLOSED: critical,
+    TOOL_AFTER_TRANSFER: critical, WRONG_RECORD: critical, HALLUCINATION_DETECTED: critical, OUTCOME_INCORRECT: high, ESCALATION_MISSED: high,
+    AUTH_ATTEMPTS_EXCEEDED: high, TRANSACTION_LIMIT_EXCEEDED: high, FACT_INCORRECT: high, WRONG_CARD_ACTION: high, PROCESS_DEVIATION: moderate,
+    TURN_LIMIT_EXCEEDED: moderate, ESCALATION_INAPPROPRIATE: moderate, UNCLEAN_TERMINATION: moderate, STAGE_INCORRECT: moderate,
+    BUDGET_EXCEEDED: low, TOOL_LOOP: low, RUNTIME_INVARIANCE: low, SPEECH_CONTRADICTED: critical, SPEECH_UNSUPPORTED: critical,
+    SPEECH_UNFAITHFUL: high, SPEECH_MISSING: moderate, SPEECH_FLOW: low, POLICY_RULE_BROKEN: critical, LIMIT_EXCEEDED: high,
+    WRONG_STATEMENT: high}
+  tier_escalation:
+    action_taking: {moderate: high, high: critical}
+    informational: {}
+  release_gate:
+    informational:
+      accuracy_threshold: 0.8
+      max_critical: 0
+      max_high_rate: 0.1
+      min_within_budget: null
+      failure_budget: {HALLUCINATION_DETECTED: 0}
+    action_taking:
+      accuracy_threshold: 0.95
+      max_critical: 0
+      max_high_rate: 0.02
+      min_within_budget: 0.95
+      failure_budget: {HALLUCINATION_DETECTED: 0, CLAIM_WITHOUT_SUCCESS: 0, ACCOUNT_TOOL_BEFORE_AUTH: 0, SUBMIT_WITHOUT_CONFIRMATION: 0}
+speech:
+  also_allowed:
+    any: [ASK_CLARIFY, END]
+  signals:
+    condition_openers: [if, when, unless, in case]
+    recording: [recorded, i've noted, i have noted, noted that, noted it, noted the, saved, logged, marked, captured, i've
+        put, i have put]
+    completion: [has been, have been, is done, that's done, it's done, all done, done\b, completed, is complete, submitted,
+      'i''ve (?:secured|locked|replaced|frozen|blocked|ordered|sent|submitted)', 'i have (?:secured|locked|replaced|frozen|blocked|ordered|sent|submitted)',
+      is now]
+    offer: [shall i, should i, would you like, do you want, can i, may i, i can, want me to]
+    fee: [fee, fees, cost, costs, price, pay, charge for, 'charges? you']
+    free: [free, no fee, no charge, at no cost]

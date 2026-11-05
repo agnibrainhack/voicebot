@@ -1,0 +1,312 @@
+# gmsjourney project configuration
+#
+# What this file holds: the choices the policy graph cannot make for you. Everything the graph defines
+# (dialog states, customer acts and slots, value sets, tools and their statuses, limits, rules, the dialog
+# flow) is read from the graph; names used here are checked against it (python -m gmsjourney.project check).
+#
+# Edit it by hand or with the studio:   python -m gmsjourney.studio
+#
+# Expressions (relevant_when, constraints, categories, item selectors) use the same small language as the
+# graph's flow: plain comparisons, and, or, not, and the functions
+#   level(f)     the level of factor f in this case       rel(f)  that level, or "N/A" when f is irrelevant
+#   relevant(f)  whether factor f can change the outcome  items() the number of reviewable items
+#   min(a, b), max(a, b)
+#
+# Customer frames are written as ACT(slot=value, ...); $credential is the fixture's credential.
+
+project:
+  name: Charge review voice bot
+  policy_graph: gmsjourney/policy/charge_review_kg.json
+
+# --------------------------------------------------------------------------------------------------- fixture
+# The mock bank every case runs against. Factors change it through their levels' "fixture" patches.
+fixture:
+  session_date: "2026-03-16"         # "today" in every call; charge dates are this minus their age
+  credential: "4821"                  # the credential that authenticates
+  item_id_prefix: T                   # transaction ids: T1, T2, ...
+  merchants:                          # the charges, in presentation order: [merchant, amount]
+    - [Amazon, "45.67"]
+    - [Starbucks, "6.25"]
+    - [Shell, "52.10"]
+    - [Netflix, "15.99"]
+    - [Uber, "23.40"]
+    - [Target, "88.05"]
+  review_ages: [3, 8, 15, 22, 27]     # age in days of the 1st, 2nd, ... charge (all inside the review window)
+  defaults:                           # what the bank returns when no factor says otherwise
+    auth_results: [AUTHENTICATED]
+    items: 1
+    card_options: [SECURE_CARD, REPLACE_CARD]
+    submit_result: SUCCESS
+
+# --------------------------------------------------------------------------------------------------- customer
+# How the simulated customer answers. Each bot act the customer replies to is answered from one script;
+# factors patch those scripts. A script answers from its queue first, then from its default.
+customer:
+  answers:                            # bot act -> script
+    ASK_AUTH: auth
+    ASK_AUTH_RETRY: auth
+    PRESENT_TXN: capture
+    PROVIDE_CONTEXT: capture
+    ASK_CLARIFY: capture
+    ANSWER_KB: capture
+    CONFIRM_ACTION: card
+    DISCLOSE_FEE: card
+    ASK_MORE_HELP: finish
+    EXPLAIN_NO_TXNS: finish
+  scripts:
+    auth:
+      default: PROVIDE_CREDENTIAL(credential=$credential)
+    capture:
+      per_item: true                  # one queue per transaction (the one the bot is asking about)
+      item_script: [INFORM_DISPOSITION(disposition=RECOGNIZED)]
+      unknown_item: INFORM_DISPOSITION(disposition=RECOGNIZED)
+      exhausted:                      # the bot keeps asking after the script ran out
+        repeat_last: INFORM_DISPOSITION
+        otherwise: UNCLEAR()
+    card:
+      default: CONFIRM()
+    finish:
+      default: END()
+  questions:                          # where a case's policy questions are asked
+    script: capture
+    item: 0
+    position: start
+
+# --------------------------------------------------------------------------------------------------- factors
+# The content factors of a journey: each level changes what the correct behaviour is. Order matters: patches
+# are applied in this order (a later "start" insert goes before an earlier one).
+factors:
+  - name: auth
+    about: How authentication goes
+    default: ok
+    levels:
+      ok: {fixture: {auth_results: [AUTHENTICATED]}}
+      retry_ok: {fixture: {auth_results: [FAILED, AUTHENTICATED]}}
+      fail_twice: {fixture: {auth_results: [FAILED, FAILED, AUTHENTICATED]}, boundary: true}
+      unavailable: {fixture: {auth_results: [UNAVAILABLE]}}
+      human_at_auth:
+        fixture: {auth_results: [AUTHENTICATED]}
+        customer: [{script: auth, say: [REQUEST_HUMAN()], sticky: true}]
+
+  - name: retrieve
+    about: Whether the transactions can be retrieved
+    default: ok
+    relevant_when: level('auth') not in ('fail_twice', 'unavailable', 'human_at_auth')
+    levels:
+      ok: {}
+      unavailable: {fixture: {transactions_status: UNAVAILABLE}}
+
+  - name: n_txn
+    about: How many reviewable charges there are
+    default: 1
+    relevant_when: relevant('retrieve') and level('retrieve') == 'ok'
+    levels:
+      0: {fixture: {items: 0}}
+      1: {fixture: {items: 1}}
+      2: {fixture: {items: 2}}
+      4: {fixture: {items: 4}, boundary: true}
+      5: {fixture: {items: 5}, boundary: true}
+
+  - name: window
+    about: A charge on the edge of the review window
+    default: none
+    relevant_when: relevant('retrieve') and level('retrieve') == 'ok'
+    levels:
+      none: {}
+      day30: {fixture: {last_item_age: 30}, boundary: true}
+      day31: {fixture: {extra_item: {id: T9, merchant: 5, age: 31, at: 1}}, boundary: true}
+
+  - name: disposition
+    about: How the customer answers about the first charge
+    default: all_recognized
+    relevant_when: relevant('n_txn') and level('n_txn') != 0
+    levels:
+      all_recognized: {customer: [{script: capture, item: 0, say: [INFORM_DISPOSITION(disposition=RECOGNIZED)], position: replace}]}
+      mixed: {customer: [{script: capture, item: 0, say: [INFORM_DISPOSITION(disposition=UNRECOGNIZED)], position: replace}]}
+      unsure_resolved: {customer: [{script: capture, item: 0, say: [INFORM_DISPOSITION(disposition=UNSURE), INFORM_DISPOSITION(disposition=RECOGNIZED)], position: replace}]}
+      unsure_twice: {customer: [{script: capture, item: 0, say: [INFORM_DISPOSITION(disposition=UNSURE), INFORM_DISPOSITION(disposition=UNSURE)], position: replace}]}
+      ambiguous_resolved: {customer: [{script: capture, item: 0, say: [UNCLEAR(), INFORM_DISPOSITION(disposition=UNRECOGNIZED)], position: replace}]}
+      ambiguous_twice: {customer: [{script: capture, item: 0, say: [UNCLEAR(), UNCLEAR()], position: replace}]}
+      correction: {customer: [{script: capture, item: 0, say: ["INFORM_DISPOSITION(disposition=RECOGNIZED, corrected_from=UNRECOGNIZED)"], position: replace}]}
+
+  - name: record
+    about: Whether recording the first answer succeeds
+    default: ok
+    relevant_when: relevant('disposition')
+    levels:
+      ok: {}
+      fail_first: {fixture: {record_fail_on_call: 1}}
+
+  - name: card_intent
+    about: A card request riding on an unrecognized charge
+    default: none
+    relevant_when: relevant('disposition') and not (level('record') == 'fail_first' or level('disposition') in ('unsure_twice', 'ambiguous_twice'))
+    levels:
+      none: {}
+      secure: {customer: [{script: capture, item: 0, add_slots: {card_action: SECURE_CARD}, to: INFORM_DISPOSITION(disposition=UNRECOGNIZED)}]}
+      replace_standard: {customer: [{script: capture, item: 0, add_slots: {card_action: REPLACE_CARD, delivery: standard_delivery}, to: INFORM_DISPOSITION(disposition=UNRECOGNIZED)}]}
+      replace_expedited: {customer: [{script: capture, item: 0, add_slots: {card_action: REPLACE_CARD, delivery: expedited_delivery}, to: INFORM_DISPOSITION(disposition=UNRECOGNIZED)}]}
+
+  - name: card_options
+    about: Which card actions the bank offers
+    default: eligible
+    relevant_when: relevant('card_intent') and level('card_intent') != 'none'
+    levels:
+      eligible: {fixture: {card_options: [SECURE_CARD, REPLACE_CARD]}}
+      none: {fixture: {card_options: []}}
+      unavailable: {fixture: {card_options: [], card_options_status: UNAVAILABLE}}
+
+  - name: expedited_confirm
+    about: What the customer does when the expedited fee is disclosed
+    default: confirm
+    relevant_when: relevant('card_options') and level('card_options') == 'eligible' and level('card_intent') == 'replace_expedited'
+    levels:
+      confirm: {}
+      switch_standard:
+        customer: [{script: card, say: ["REQUEST_CARD_ACTION(card_action=REPLACE_CARD, delivery=standard_delivery)"], if_bot: {delivery: expedited_delivery}}]
+
+  - name: submit
+    about: Whether submitting the card action succeeds
+    default: ok
+    relevant_when: relevant('card_options') and level('card_options') == 'eligible'
+    levels:
+      ok: {fixture: {submit_result: SUCCESS}}
+      fail: {fixture: {submit_result: FAILED}}
+
+  - name: human_mid
+    about: The customer asks for a person during the review
+    default: "no"
+    relevant_when: relevant('disposition') and (not (level('record') == 'fail_first' or level('disposition') in ('unsure_twice', 'ambiguous_twice')) or level('n_txn') == 1)
+    levels:
+      "no": {}
+      "yes": {customer: [{script: capture, item: "min(1, items() - 1)", say: [REQUEST_HUMAN()], position: start}]}
+
+  - name: kb_mid
+    about: The customer asks a policy question before answering
+    default: none
+    role: questions                   # the case generator attaches one policy question when the level is "ask"
+    relevant_when: relevant('disposition')
+    levels:
+      none: {}
+      ask: {questions: 1}
+
+  - name: turn_pressure
+    about: How close the conversation runs to the turn limit
+    default: normal
+    role: turn_target                 # the generator pads the call with policy questions to hit the target
+    relevant_when: relevant('disposition')
+    levels:
+      normal: {}
+      at_limit: {turn_target: "limit('max_turns')", exact: true, avoid_transfer: turn_limit, boundary: true}
+      over_limit: {turn_target: "limit('max_turns') + 1", transfer: turn_limit, boundary: true}
+
+constraints:                          # every case must satisfy these
+  - not (level('n_txn') == 0 and level('window') == 'day30')
+  - level('card_intent') == 'none' or level('disposition') in ('mixed', 'ambiguous_resolved')
+  - not (level('human_mid') == 'yes' and level('n_txn') == 0)
+
+categories:                           # the first that applies names a case's base category
+  - name: recovery
+    when: rel('auth') == 'unavailable' or rel('retrieve') == 'unavailable' or rel('record') == 'fail_first' or rel('card_options') == 'unavailable' or rel('submit') == 'fail'
+  - name: recovery
+    when: rel('disposition') in ('ambiguous_resolved', 'ambiguous_twice', 'unsure_twice', 'unsure_resolved')
+  - name: conditional_rule
+    when: rel('auth') in ('fail_twice', 'retry_ok')
+  - name: boundary
+    when: rel('n_txn') in (4, 5) or rel('window') in ('day30', 'day31') or rel('turn_pressure') in ('at_limit', 'over_limit')
+  - name: governance_policy
+    when: rel('auth') == 'human_at_auth' or rel('human_mid') == 'yes' or rel('card_intent') not in ('N/A', 'none')
+  - name: procedural_ordering
+    when: "True"
+
+tags:                                 # every tag that applies is attached to a case, with its category
+  - name: procedural_ordering
+    when: "True"
+  - name: conditional_rule
+    when: rel('auth') in ('retry_ok', 'fail_twice') or rel('disposition') in ('unsure_resolved', 'unsure_twice', 'ambiguous_resolved', 'ambiguous_twice')
+  - name: boundary
+    when: rel('n_txn') in (4, 5) or rel('window') in ('day30', 'day31') or rel('turn_pressure') in ('at_limit', 'over_limit') or rel('auth') == 'fail_twice'
+  - name: recovery
+    when: rel('auth') == 'unavailable' or rel('retrieve') == 'unavailable' or rel('record') == 'fail_first' or rel('card_options') == 'unavailable' or rel('submit') == 'fail' or rel('disposition') in ('ambiguous_resolved', 'ambiguous_twice', 'unsure_twice')
+  - name: governance_policy
+    when: rel('auth') == 'human_at_auth' or rel('human_mid') == 'yes' or rel('card_intent') not in ('N/A', 'none') or rel('record') == 'fail_first'
+
+# --------------------------------------------------------------------------------------------------- generator
+generator:
+  policy_question_case: {n_txn: 1, kb_mid: ask}   # the case each admitted policy question is asked in
+  padding_questions:                  # policy questions used to pad a call to a turn target
+    - "ASK_KB(intent=value, attr=fee, entity=standard_delivery)"
+    - "ASK_KB(intent=value, attr=days, entity=expedited_delivery)"
+    - "ASK_KB(intent=limit, key=lookback_days)"
+    - "ASK_KB(intent=value, attr=fee, entity=expedited_delivery)"
+    - "ASK_KB(intent=value, attr=days, entity=standard_delivery)"
+    - "ASK_KB(intent=limit, key=max_transactions_per_session)"
+  fault_only_rules: [R33]             # rules only a tool fault can exercise (left to the resilience probe)
+
+# --------------------------------------------------------------------------------------------------- evaluation
+evaluation:
+  severity:                           # base severity of each failure code (none | low | moderate | high | critical)
+    CLAIM_WITHOUT_SUCCESS: critical       # R13/R17: "recorded" or "done" said without a success
+    ACCOUNT_TOOL_BEFORE_AUTH: critical    # R2/R3
+    SUBMIT_WITHOUT_CONFIRMATION: critical # R16
+    FEE_NOT_DISCLOSED: critical           # R26
+    TOOL_AFTER_TRANSFER: critical         # R20
+    WRONG_RECORD: critical                # a disposition recorded that is not the caller's
+    HALLUCINATION_DETECTED: critical      # a fabricated answer where the policy states nothing
+    OUTCOME_INCORRECT: high
+    ESCALATION_MISSED: high
+    AUTH_ATTEMPTS_EXCEEDED: high          # R4
+    TRANSACTION_LIMIT_EXCEEDED: high      # R31
+    FACT_INCORRECT: high                  # a wrong policy answer
+    WRONG_CARD_ACTION: high
+    PROCESS_DEVIATION: moderate           # an edge not in the policy graph
+    TURN_LIMIT_EXCEEDED: moderate         # R28
+    ESCALATION_INAPPROPRIATE: moderate
+    UNCLEAN_TERMINATION: moderate
+    STAGE_INCORRECT: moderate
+    BUDGET_EXCEEDED: low                  # latency / length / tool calls
+    TOOL_LOOP: low
+    RUNTIME_INVARIANCE: low
+    SPEECH_CONTRADICTED: critical         # it told the customer something false
+    SPEECH_UNSUPPORTED: critical          # it stated something nothing backs
+    SPEECH_UNFAITHFUL: high               # its words say something other than its act labels
+    SPEECH_MISSING: moderate              # it left out what the policy requires it to say
+    SPEECH_FLOW: low                      # an act where the dialog-state graph does not allow it
+    POLICY_RULE_BROKEN: critical          # a machine-checkable rule of the graph broken (compiled call checks)
+    LIMIT_EXCEEDED: high                  # a limit of the graph exceeded
+    WRONG_STATEMENT: high                 # a stated value that does not match what the tools returned
+  tier_escalation:                    # a journey that writes to the account promotes these severities
+    action_taking: {moderate: high, high: critical}
+    informational: {}
+  release_gate:                       # per tier: every tier present must pass
+    informational:
+      accuracy_threshold: 0.80
+      max_critical: 0
+      max_high_rate: 0.10
+      failure_budget: {HALLUCINATION_DETECTED: 0}
+    action_taking:
+      accuracy_threshold: 0.95
+      max_critical: 0
+      max_high_rate: 0.02
+      min_within_budget: 0.95
+      failure_budget: {HALLUCINATION_DETECTED: 0, CLAIM_WITHOUT_SUCCESS: 0, ACCOUNT_TOOL_BEFORE_AUTH: 0, SUBMIT_WITHOUT_CONFIRMATION: 0}
+
+# --------------------------------------------------------------------------------------------------- speech
+speech:
+  # The flow check accepts, after any customer turn in any prompt state, whatever an act handled in every prompt
+  # state leads to (from the graph). These are the leniencies the graph does not state:
+  also_allowed:
+    any: [ASK_CLARIFY, END]           # asking is what the policy prefers to guessing (R9, R21); a bot may end
+    UNCLEAR: [TRANSFER, SUMMARIZE]    # a customer the bot cannot understand may be handed over
+  # Plain-English cues the speech reader looks for in what the bot says (not policy). Each list holds
+  # regular-expression alternatives, matched case-insensitively as whole words.
+  signals:
+    condition_openers: [if, when, unless, in case]   # a sentence opening so is a condition, not a claim
+    recording: [recorded, "i've noted", i have noted, noted that, noted it, noted the, saved, logged, marked, captured,
+                "i've put", i have put]
+    completion: [has been, have been, is done, "that's done", "it's done", all done, 'done\b', completed, is complete,
+                 "i've (?:secured|locked|replaced|frozen|blocked|ordered|sent)",
+                 "i have (?:secured|locked|replaced|frozen|blocked|ordered|sent)", is now]
+    offer: [shall i, should i, would you like, do you want, can i, may i, i can, want me to]
+    fee: [fee, fees, cost, costs, price, pay, charge for, "charges? you"]
+    free: [free, no fee, no charge, at no cost]

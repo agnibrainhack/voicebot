@@ -97,9 +97,26 @@ def _on_device(x):
     return x.to(device()) if hasattr(x, "to") else x
 
 
-ENM_MAP = {"limit": ("limits", "{key}"), "delivery_fee_usd": ("delivery_options", "{key}/fee_usd"),
-           "delivery_days_min": ("delivery_options", "{key}/business_days_min"),
-           "delivery_days_max": ("delivery_options", "{key}/business_days_max")}
+def _enm_map() -> dict[str, tuple[str, str]]:
+    """ENM category -> (knowlytix register type, key format), from domain.yaml -> figures."""
+    from ..domain import current
+    return current().kx_enm_map()
+
+
+def _attribute_names() -> dict[str, str]:
+    """u-encoder class label (a relation) -> the attribute name the runtime checks use."""
+    from ..domain import current
+    f = current().section("figures")
+    out = {r: sp["attribute"] for r, sp in (f.get("relations") or {}).items() if sp.get("attribute")}
+    if f.get("limits", {}).get("attribute"):
+        out[f["limits"].get("attribute_label", "has_value")] = f["limits"]["attribute"]
+    return out
+
+
+def __getattr__(name: str):                       # backward-compatible module constant
+    if name == "ENM_MAP":
+        return _enm_map()
+    raise AttributeError(name)
 
 
 @contextlib.contextmanager
@@ -140,6 +157,27 @@ def _attribute_phrasings() -> dict[str, list[str]]:
                     ph.add(R.realize(fr, {"paraphrase_depth": pd, "question_format": qf}, "u"))
         out[rel] = sorted(ph)
     return out
+
+
+def _graph():
+    from ..domain import current
+    return current().graph
+
+
+def _render_view(store) -> str:
+    g = _graph()
+    if g is not None:
+        from ..graph.compile import render_gms_view
+        return render_gms_view(store, g)
+    return render_gms_markdown(store)
+
+
+def _phrasings() -> dict[str, list[str]]:
+    g = _graph()
+    if g is not None:
+        from ..graph.compile import attribute_phrasings
+        return attribute_phrasings(g)
+    return _attribute_phrasings()
 
 
 # the production store's DocGMSConfig unless overridden: cap admissibility, regex ingest
@@ -198,10 +236,10 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, geode_epoc
     from .policy_kg import resolve_policy
     compiled = build_store(policy_path)
     view = store_dir / "policy.gms.md"
-    view.write_text(render_gms_markdown(compiled.store))
+    view.write_text(_render_view(compiled.store))
     md_path, _ = resolve_policy(policy_path)
     corpus = Path(md_path).read_text().splitlines() + view.read_text().splitlines()
-    for rel, ph in _attribute_phrasings().items():
+    for rel, ph in _phrasings().items():
         corpus += ph
     enc = backend.resolve_encoders(corpus, encoder_mode)
     log(f"      encoders: {enc['kind']} ({enc['reason']})")
@@ -274,7 +312,7 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, geode_epoc
 
     # 3. tune u: contradiction SFT over per-relation phrasings (full mode)
     t = time.time()
-    phrasings = _attribute_phrasings()
+    phrasings = _phrasings()
     content_rels = sorted({r for _h, r, _t in kept if r.startswith("has_") and r != "has_alias"})
     for r in content_rels:
         phrasings.setdefault(r, [(r[4:] if r.startswith("has_") else r).replace("_", " ")])
@@ -515,11 +553,15 @@ class KXPolicyStore(GMSStore):
 
     # ------------------------------------------------------------------ exact reads
     def _kx_lookup(self, category: str, key: str):
-        if category not in ENM_MAP:
+        enm_map = _enm_map()
+        if category not in enm_map:
             return None
-        typ, fmt = ENM_MAP[category]
+        typ, fmt = enm_map[category]
         with _quiet():
-            return self.kx.lookup_enm(typ, fmt.format(key=key))
+            v = self.kx.lookup_enm(typ, fmt.format(key=key))
+            if v is None and key != key.lower():          # the ingest may lower-case row entities
+                v = self.kx.lookup_enm(typ, fmt.format(key=key.lower()))
+            return v
 
     def lookup_enm(self, category: str, key: str) -> int | float:
         """Exact read from knowlytix's integrity-checked ENM register."""
@@ -559,7 +601,7 @@ class KXPolicyStore(GMSStore):
 
     def tau(self, relation: str) -> float:
         """The relation's learned cap radius; else the judge's calibrated geodesic cut."""
-        rel = "has_value" if relation.startswith("has_") and relation[4:] in _LIMITS else relation
+        rel = "has_value" if relation.startswith("has_") and relation[4:] in _limit_names() else relation
         with _quiet():
             rho = self.kx.cap_radius(kx_relation(rel) if rel != "has_value" else rel)
         if rho is not None:
@@ -632,10 +674,14 @@ class KXPolicyStore(GMSStore):
         stance = "must" if rule.stance == "may" else rule.stance
         e = self.tension_energy(claimed, stance)
         cal = self.calibration["tension"]
+        if cal.get("status") == "degenerate":
+            return {"verdict": "unavailable", "energy": e, "rule": rule.rule_id, "reason": cal.get("reason")}
         v = "supported" if e <= cal["tau_agree"] else "contradicted" if e >= cal["tau_contra"] else "uncertain"
         return {"verdict": v, "energy": e, "rule": rule.rule_id, "attr_cos": 1.0}
 
     def find_contradictions(self, rules=None) -> list[dict[str, Any]]:
+        if self.calibration["tension"].get("status") == "degenerate":
+            raise RuntimeError(f"tension calibration is degenerate: {self.calibration['tension'].get('reason')}")
         rules = rules if rules is not None else self.rules
         out = []
         items = sorted(rules.items())
@@ -664,7 +710,7 @@ class KXPolicyStore(GMSStore):
         p = preds[0]
         sc = scores[0]
         conf = float(max(sc)) if hasattr(sc, "__iter__") else float(sc)
-        return ({"has_fee_usd": "fee", "has_business_days_max": "delivery_time", "has_value": "limit"}.get(p, p), conf)
+        return (_attribute_names().get(p, p), conf)
 
     def fuzzy_match_entity(self, surface: str, types=None, mode: str = "frame"):
         """Bind a surface form to an entity with the GEODE-tuned v encoder (model 1)."""
@@ -689,7 +735,8 @@ class KXPolicyStore(GMSStore):
         # the holonomy cut also goes onto the store's verify config, where knowlytix's own
         # is_path_consistent reads it
         self.__dict__["calibration"] = cal
-        self.kx_raw.config.verify.tau_path = float(cal["holonomy"]["tau_path"])
+        if cal["holonomy"].get("tau_path") is not None:
+            self.kx_raw.config.verify.tau_path = float(cal["holonomy"]["tau_path"])
 
     def _calibration_view(self, seed: int = 7) -> dict[str, Any]:
         """The operating points in the shape the rest of the framework reads, all taken
@@ -712,6 +759,10 @@ class KXPolicyStore(GMSStore):
             per_rel[rel] = {"tau": tau, "tar": float(np.mean([p <= tau for p in pos])) if pos else 0.0,
                             "far": float(np.mean([n <= tau for n in neg])) if neg else 0.0,
                             "n_pos": len(pos), "n_neg": len(neg), "source": "knowlytix cap_radius"}
+        if _graph() is not None:                        # a compact graph pack: cohorts from its own graph
+            return {"false_accept_ceiling": 0.05, "score_triple": per_rel,
+                    "holonomy": self._holonomy_from_graph(), "tension": self._tension_from_graph(thr),
+                    "judge": {k: v for k, v in thr.items() if isinstance(v, (int, float, str, tuple, list))}}
         hp = [self.check_holonomy(p, d) for p, d in ((["precedes", "precedes"], "precedes_two"),
                                                      (["has_session", "reviews", "governed_by"], "subject_to"))]
         hn = [self.check_holonomy(["precedes", "precedes"], u) for u in ("has_fee_usd", "delivered_by", "member_of")]
@@ -736,6 +787,103 @@ class KXPolicyStore(GMSStore):
                             "source": "GMSJudge" if thr.get("tau_contra") is not None else "store cohort"},
                 "judge": {k: v for k, v in thr.items() if isinstance(v, (int, float, str, tuple, list))}}
 
+    # ------------------------------------------------------------------ cohorts from the pack's graph
+    def _raw_tension(self, a: str, b: str) -> float | None:
+        with _quiet():
+            te = self.kx.tension_energy(str(a).lower(), str(b).lower())
+        return float(te) if te is not None else None
+
+    def _tension_from_graph(self, thr: dict[str, Any]) -> dict[str, Any]:
+        """Stance cuts for ``stance_check`` and ``find_contradictions``, from pairs the graph itself
+        declares opposite: the stances must / must_not, and every prompt's yes / no reading
+        (CONFIRM / DENY, RECOGNIZED / UNRECOGNIZED, ...). Agreement is each of those entities with
+        itself. GMSJudge's three-way cuts are used when it could fit them; otherwise the cuts are
+        the cohort's own zero-error band: agree up to the largest same-stance energy, contradict
+        from the smallest opposite-stance energy, uncertain in between (never collapsed into one
+        cut). If the cohort does not separate, the calibration is refused as degenerate (as
+        GMSJudge refuses it) and every check that needs it reports itself unavailable."""
+        g = _graph()
+        unclear = (g.glob.get("unclear") or {}).get("act")
+        pairs = [("must", "must_not")]
+        for st in g.prompt_states:
+            y, n = g.interprets(st)
+            if y and n and y != n and unclear not in (y, n) and (y, n) not in pairs and (n, y) not in pairs:
+                pairs.append((y, n))           # a yes and a no the prompt reads as opposite answers
+        opposite = [[a, b, e] for a, b in pairs if (e := self._raw_tension(a, b)) is not None]
+        ents = sorted({x for a, b, _ in opposite for x in (a, b)})
+        same = [[x, x, e] for x in ents if (e := self._raw_tension(x, x)) is not None]
+        out = {"attr_match": 0.8, "same": same, "opposite": opposite,
+               "cohort": "graph: stances must/must_not + every prompt's yes/no reading"}
+        if thr.get("tau_contra") is not None and thr.get("tau_ent") is not None and thr["tau_ent"] < thr["tau_contra"]:
+            return {**out, "status": "ok", "source": "GMSJudge", "tau_agree": float(thr["tau_ent"]),
+                    "tau_contra": float(thr["tau_contra"])}
+        if same and opposite and max(e for *_, e in same) < min(e for *_, e in opposite):
+            return {**out, "status": "ok", "source": "graph cohort (zero-error band)",
+                    "tau_agree": max(e for *_, e in same), "tau_contra": min(e for *_, e in opposite)}
+        why = ("no opposite pair is in the store" if not opposite else
+               "same-stance and opposite-stance energies overlap: the u-space does not separate them")
+        return {**out, "status": "degenerate", "source": "graph cohort", "reason": why,
+                "tau_agree": None, "tau_contra": None}
+
+    def _holonomy_from_graph(self, max_hops: int = 3, support: int = 2, negatives: int = 3) -> dict[str, Any]:
+        """Path-consistency cut from the compositions the pack's own facts close: a chain of
+        relations r1..rk whose every instance (a, c) is also asserted by one direct relation r
+        (at least ``support`` instances; r not on the chain, so a type edge such as is_a is not
+        mistaken for a rule). Negatives compare the same chain with relations that relate none of
+        its instances. A pack with no such composition has nothing for holonomy to certify (book
+        Ch. 3.6: it applies only to composed paths), and the cut is reported not applicable."""
+        from collections import defaultdict
+        known = {}
+
+        def carried(path, direct) -> float | None:
+            key = (tuple(path), direct)
+            if key not in known:
+                with _quiet():
+                    d = self.kx.check_holonomy([kx_relation(r) for r in path], kx_relation(direct))
+                known[key] = float(d) if d is not None else None
+            return known[key]
+
+        rels = {r: {(h, t) for h, _, t in trs} for r, trs in self.by_r.items()}
+        by_head = {r: defaultdict(set) for r in rels}
+        for r, ps in rels.items():
+            for a, b in ps:
+                by_head[r][a].add(b)
+        found, frontier = [], [((r,), set(ps)) for r, ps in sorted(rels.items())]
+        for _ in range(max_hops - 1):
+            nxt = []
+            for path, pairs in frontier:
+                for r2 in sorted(rels):
+                    comp = {(a, c) for a, b in pairs for c in by_head[r2].get(b, ()) if a != c}
+                    if len(comp) < support:
+                        continue
+                    chain = path + (r2,)
+                    nxt.append((chain, comp))
+                    for r3 in sorted(rels):
+                        if r3 not in chain and comp <= rels[r3]:
+                            found.append((list(chain), r3, comp))
+            frontier = nxt
+        pos, neg = [], []
+        for chain, direct, comp in found:
+            d = carried(chain, direct)
+            if d is None:
+                continue
+            pos.append({"path": chain, "direct": direct, "defect": d, "instances": len(comp)})
+            unrelated = [r for r in sorted(rels) if r not in chain and r != direct and not (rels[r] & comp)]
+            for r in unrelated:
+                if sum(1 for x in neg if x["path"] == chain) >= negatives:
+                    break
+                dn = carried(chain, r)
+                if dn is not None:
+                    neg.append({"path": chain, "direct": r, "defect": dn})
+        if not pos or not neg:
+            return {"status": "not_applicable", "tau_path": None, "positives": pos, "negatives": neg,
+                    "source": "graph compositions",
+                    "reason": "the pack's facts close no chain of relations into a direct one"}
+        op = GMSStore._operating_point([p["defect"] for p in pos], [n["defect"] for n in neg])
+        status = "ok" if op["tar"] == 1.0 and op["far"] == 0.0 else "degenerate"
+        return {"status": status, "tau_path": float(op["tau"]), "tar": op["tar"], "far": op["far"],
+                "positives": pos, "negatives": neg, "source": "graph compositions"}
+
     def summary(self) -> dict[str, Any]:
         out = GMSStore.summary(self)
         out["geometric_reads_cached"] = len(self.kx._cache)
@@ -746,3 +894,8 @@ class KXPolicyStore(GMSStore):
 
 _LIMITS = {"max_transactions_per_session", "lookback_days", "max_auth_attempts", "max_clarification_retries",
            "max_unsure_retries", "max_turns"}
+
+
+def _limit_names() -> set[str]:
+    g = _graph()
+    return set(g.limits) if g is not None else _LIMITS

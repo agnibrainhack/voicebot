@@ -39,3 +39,6 @@ gmsjourney/bases/sut/
 # OS / editor
 .DS_Store
 Thumbs.db
+
+# Backups written by gmsjourney.graph.factors.apply_edits
+*.bak

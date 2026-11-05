@@ -47,7 +47,10 @@ def _coerce(slot: str, v: Any) -> Any:
                 return None
         return tuple(out)
     if slot == "name":
+        from . import pack
         s = re.sub(r"[^a-z0-9]+", "_", str(v).lower()).strip("_")
+        if pack.active() is not None:
+            return s
         return s if s.endswith("_delivery") else f"{s}_delivery"
     return str(v)
 
@@ -66,9 +69,10 @@ KB_DEFAULT_ATTR = {"plausibility": "fee", "mcq": "fee", "unstated_fact": "fee"} 
 class LLMFrameExtractor:
     def __init__(self, llm: CachedLLM, store):
         from ...knowledge.policy_kg import ACT_SCHEMA
+        from . import pack
         self.llm, self.store = llm, store
         self.schema = extraction_schema(store)
-        self.acts = ACT_SCHEMA
+        self.acts = pack.act_schema(pack.active()) if pack.active() is not None else ACT_SCHEMA
         self.calls = 0
         self.failures = 0
 

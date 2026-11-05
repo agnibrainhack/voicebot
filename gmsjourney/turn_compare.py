@@ -38,9 +38,9 @@ from typing import Any
 
 import pandas as pd
 
+from .sut.tools import key_args
+
 ACT_FIELDS = ("txn", "intent", "answer", "reason", "recorded", "action", "delivery", "fee", "disposition")
-TOOL_ARGS = {"authenticate_customer": ("credential",), "record_charge_response": ("transaction_id", "disposition"),
-             "submit_card_action": ("action", "delivery", "transaction_id"), "transfer_to_human": ("reason",)}
 
 
 # ----------------------------------------------------------------------------- rendering
@@ -64,12 +64,15 @@ def describe_act(a: dict, merchants: dict[str, tuple[str, str]] | None = None) -
     if name == "SUMMARIZE" and a.get("recorded") is not None:
         rec = a["recorded"]
         parts.append(", ".join(f"{k}={v}" for k, v in (rec.items() if isinstance(rec, dict) else rec)) or "nothing")
+    # a pack's own act fields (the charge-review fields above are rendered their own way)
+    parts += [f"{k}={v}" for k, v in a.items()
+              if k not in ACT_FIELDS and k not in ("act", "text", "state") and v is not None and not isinstance(v, (dict, list))]
     return f"{name}({'; '.join(parts)})" if parts else name
 
 
 def describe_tool(e: dict) -> str:
     args = e.get("args") or {}
-    keep = {k: v for k, v in args.items() if k in TOOL_ARGS.get(e["tool"], tuple(args))}
+    keep = {k: v for k, v in args.items() if k in key_args().get(e["tool"], tuple(args))}
     res = e.get("result")
     status = (res.get("status") or res.get("error")) if isinstance(res, dict) else ("error" if e.get("ok") is False else res)
     a = ", ".join(f"{k}={v}" for k, v in keep.items())
@@ -107,7 +110,7 @@ def normalize_acts(acts: list[dict]) -> list[tuple]:
 
 def _tool_key(e: dict) -> tuple:
     args = e.get("args") or {}
-    return (e["tool"], tuple(sorted((k, str(v)) for k, v in args.items() if k in TOOL_ARGS.get(e["tool"], ()))))
+    return (e["tool"], tuple(sorted((k, str(v)) for k, v in args.items() if k in key_args().get(e["tool"], ()))))
 
 
 # ----------------------------------------------------------------------------- segmentation
@@ -170,7 +173,8 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
     """Expected (oracle) vs actual (bot) for one scenario, one row per customer turn."""
     item = scenario.base
     spec, fx = item.metadata["spec"], item.metadata["fixture"]
-    merchants = {t["transaction_id"]: (t["merchant"], t["amount"]) for t in fx["transactions"]}
+    merchants = {t["transaction_id"]: (t["merchant"], t["amount"]) for t in (fx.get("transactions") or [])
+                 if "transaction_id" in t and "merchant" in t}
     expected = oracle.run(spec, fx)
     path = validator.base_path(item) if validator is not None else None
     res = runner.run(scenario, faults=faults, oracle_path=path)

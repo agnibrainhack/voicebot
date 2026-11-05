@@ -20,13 +20,18 @@ from __future__ import annotations
 from typing import Any
 
 from ..sut.tools import FaultProfile, ToolGateway
+from .. import roles
 
-FAULT_TOOLS = ["authenticate_customer", "get_review_transactions", "record_charge_response",
-               "get_card_action_options", "submit_card_action"]
+def fault_tools() -> list[str]:
+    """Every tool of the pack but the handoff, in graph order (the auth tool and the account tools)."""
+    from ..names import graph_names
+    D = graph_names()
+    return [t for t in D.tools if t != D.transfer_tool]
 KINDS = ["error", "timeout", "stale", "plausible_wrong"]
 
 
-def probe(runner, oracle, scenarios, tools=FAULT_TOOLS, kinds=KINDS, show: bool = True) -> list[dict[str, Any]]:
+def probe(runner, oracle, scenarios, tools=None, kinds=KINDS, show: bool = True) -> list[dict[str, Any]]:
+    tools = list(tools) if tools is not None else fault_tools()
     from .runner import progress_bar
     out = []
     bar = progress_bar(len(tools) * len(kinds) * len(scenarios), "SUT · resilience (tool faults)", show)

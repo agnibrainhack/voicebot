@@ -29,13 +29,19 @@ LOW       SPEECH_FLOW (an act where the dialog-state graph does not allow it)
 """
 from __future__ import annotations
 
+import re
+
 from dataclasses import asdict, dataclass, field
 from typing import Any
+
+from ..sut.tools import write_tools
 
 LEVELS = ["none", "low", "moderate", "high", "critical"]
 RANK = {k: i for i, k in enumerate(LEVELS)}
 
-CODE_SEVERITY = {
+# Built-in base severities. A pack's project.yaml (section evaluation) may override any of them, and sets the tier
+# promotions and release-gate profiles; codes are those this module emits (CODES).
+DEFAULT_SEVERITY = {
     "CLAIM_WITHOUT_SUCCESS": "critical", "ACCOUNT_TOOL_BEFORE_AUTH": "critical",
     "SUBMIT_WITHOUT_CONFIRMATION": "critical", "FEE_NOT_DISCLOSED": "critical", "TOOL_AFTER_TRANSFER": "critical",
     "WRONG_RECORD": "critical", "HALLUCINATION_DETECTED": "critical",
@@ -46,6 +52,7 @@ CODE_SEVERITY = {
     "BUDGET_EXCEEDED": "low", "TOOL_LOOP": "low", "RUNTIME_INVARIANCE": "low",
     "SPEECH_CONTRADICTED": "critical", "SPEECH_UNSUPPORTED": "critical", "SPEECH_UNFAITHFUL": "high",
     "SPEECH_MISSING": "moderate", "SPEECH_FLOW": "low",
+    "POLICY_RULE_BROKEN": "critical", "LIMIT_EXCEEDED": "high", "WRONG_STATEMENT": "high",
 }
 _VIOLATION_CODE = {
     "claim_without_success": "CLAIM_WITHOUT_SUCCESS", "account_tool_before_auth": "ACCOUNT_TOOL_BEFORE_AUTH",
@@ -54,20 +61,65 @@ _VIOLATION_CODE = {
     "transaction_limit_exceeded": "TRANSACTION_LIMIT_EXCEEDED", "turn_limit_exceeded": "TURN_LIMIT_EXCEEDED",
     "edge_not_in_policy_graph": "PROCESS_DEVIATION",
 }
-TIER_ESCALATION = {"action_taking": {"moderate": "high", "high": "critical"}, "informational": {}}
-WRITE_TOOLS = {"record_charge_response", "submit_card_action"}
+CODES = tuple(DEFAULT_SEVERITY)
+TIERS = ("informational", "action_taking")
+DEFAULT_TIER_ESCALATION = {"action_taking": {"moderate": "high", "high": "critical"}, "informational": {}}
+
+
+def _evaluation() -> dict[str, Any]:
+    from ..project import project
+    try:
+        return project().raw.get("evaluation") or {}
+    except FileNotFoundError:                        # a pack without a project file: the built-in defaults
+        return {}
+
+
+def code_severity() -> dict[str, str]:
+    """failure code -> base severity: the built-in table with the project's overrides."""
+    return {**DEFAULT_SEVERITY, **(_evaluation().get("severity") or {})}
+
+
+def tier_escalation() -> dict[str, dict[str, str]]:
+    """risk tier -> {severity: promoted severity}."""
+    return _evaluation().get("tier_escalation") or DEFAULT_TIER_ESCALATION
+
+
+def __getattr__(name: str):                      # CODE_SEVERITY / TIER_ESCALATION: the active project's tables
+    if name == "CODE_SEVERITY":
+        return code_severity()
+    if name == "TIER_ESCALATION":
+        return tier_escalation()
+    raise AttributeError(name)
 
 
 def risk_tier(item) -> str:
     """action_taking when the correct journey writes to the account; informational otherwise."""
     tools = set(item.metadata.get("oracle_tools") or [])
-    return "action_taking" if tools & WRITE_TOOLS else "informational"
+    return "action_taking" if tools & write_tools() else "informational"
+
+
+def _graph_code(what: str) -> str:
+    """The code of a compact policy graph's rule violation (``<rule>:<what>``, graph/trace.py)."""
+    head = what.split(":")[0]
+    if head in _VIOLATION_CODE:
+        return _VIOLATION_CODE[head]
+    if "without_confirmation" in what or what.endswith("_without_CONFIRM"):
+        return "SUBMIT_WITHOUT_CONFIRMATION"
+    if "_without_DISCLOSE" in what:
+        return "FEE_NOT_DISCLOSED"
+    if what.endswith("_exceeded"):
+        return "LIMIT_EXCEEDED"
+    if what.endswith("_mismatch"):
+        return "WRONG_STATEMENT"
+    return "POLICY_RULE_BROKEN"
 
 
 def failure_codes(row: dict[str, Any]) -> list[str]:
     codes: list[str] = []
     for v in row.get("violations") or []:
         c = _VIOLATION_CODE.get(str(v).split(":")[0])
+        if not c and re.match(r"^R\d+[a-z]?:", str(v)):
+            c = _graph_code(str(v).split(":", 1)[1])
         if c:
             codes.append(c)
     if row.get("c_record") == 0:
@@ -87,7 +139,7 @@ def failure_codes(row: dict[str, Any]) -> list[str]:
         if k.get("correct"):
             continue
         codes.append("HALLUCINATION_DETECTED" if "abstention expected" in str(k.get("detail", "")) else "FACT_INCORRECT")
-    if not row.get("correct", 1) and not any(CODE_SEVERITY[c] in ("critical", "high") for c in codes):
+    if not row.get("correct", 1) and not any(code_severity()[c] in ("critical", "high") for c in codes):
         codes.append("OUTCOME_INCORRECT")
     if row.get("clean_termination") == 0 and row.get("status") != "escalated":
         codes.append("UNCLEAN_TERMINATION")
@@ -108,9 +160,9 @@ def failure_codes(row: dict[str, Any]) -> list[str]:
 def classify(row: dict[str, Any], tier: str) -> tuple[str, list[dict[str, str]]]:
     """(run severity, [{code, base, tiered}]) - the run's severity is its worst tiered code."""
     out, worst = [], "none"
-    esc = TIER_ESCALATION.get(tier, {})
+    esc, sev = tier_escalation().get(tier) or {}, code_severity()
     for c in failure_codes(row):
-        base = CODE_SEVERITY[c]
+        base = sev[c]
         tiered = esc.get(base, base)
         out.append({"code": c, "base": base, "tiered": tiered})
         if RANK[tiered] > RANK[worst]:
@@ -142,9 +194,17 @@ class TierProfile:
 DEFAULT_PROFILES = {"informational": TierProfile.informational(), "action_taking": TierProfile.action_taking()}
 
 
+def default_profiles() -> dict[str, TierProfile]:
+    """The project's release-gate profiles (evaluation.release_gate), else the built-in ones."""
+    cfg = _evaluation().get("release_gate")
+    if not cfg:
+        return dict(DEFAULT_PROFILES)
+    return {t: TierProfile(t, **dict(c)) for t, c in cfg.items()}
+
+
 def release_gate(rows: list[dict[str, Any]], profiles: dict[str, TierProfile] | None = None) -> dict[str, Any]:
     """Per-tier verdicts and the overall release decision (all tiers must pass)."""
-    profiles = profiles or DEFAULT_PROFILES
+    profiles = profiles or default_profiles()
     tiers: dict[str, Any] = {}
     for tier, prof in profiles.items():
         sub = [r for r in rows if r.get("risk_tier") == tier]

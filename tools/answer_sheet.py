@@ -349,7 +349,7 @@ footer{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--line);font-
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Answer sheet for every base case of a campaign.")
-    ap.add_argument("--policy", default=str(ROOT / "gmsjourney" / "policy" / "charge_review_kg.json"))
+    ap.add_argument("--policy", default=str(ROOT / "gmsjourney" / "policy" / "charge_review" / "charge_review_kg.json"))
     ap.add_argument("--campaign", default="output/campaign_llm",
                     help="campaign output dir (dataset/test_cases.csv, dataset/test_turns.csv)")
     ap.add_argument("--out", default=str(ROOT / "docs" / "ANSWER_SHEET.html"))
@@ -775,7 +775,7 @@ and is not used in the run.</p>
 <div class="tscroll">{state_table}</div>
 
 <h2>Policy graph: dialog-state transitions</h2>
-<p class="small">Every <code>leads_to</code> triple of the policy graph (<code>gmsjourney/policy/charge_review_kg.json</code>),
+<p class="small">Every <code>leads_to</code> triple of the policy graph (<code>gmsjourney/policy/charge_review/charge_review_kg.json</code>),
 with the condition, the rules and workflow edges it carries and the policy text it was built from. Each transition in a case
 links here; the last column counts how often the answer key uses it (greyed: no case in this sheet reaches it).</p>
 {graph_table}

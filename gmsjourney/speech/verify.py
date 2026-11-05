@@ -43,12 +43,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..names import N
+from .. import roles
 from .contract import SpeechContract
 from .reader import Claim, ReadUtterance, UtteranceReader, words_to_digits
 from .session import SessionFacts
 
 FAILING = ("contradicted", "unsupported")
-REASK_AFTER = {"ASK_CLARIFY", "ANSWER_KB"}     # after these the bot may re-ask the prompt that was pending
+def _reask_after() -> set[str]:                            # after these the bot may re-ask the prompt that was pending
+    return {a for a in ("ASK_CLARIFY", "ANSWER_KB") if a in N.state}
 
 
 # ------------------------------------------------------------------ results
@@ -167,6 +170,11 @@ class UtteranceVerifier:
     def __init__(self, store, contract: SpeechContract, corroborate: bool = True):
         self.store, self.c = store, contract
         self.reader = UtteranceReader(contract)
+        self.generic = None
+        if getattr(contract, "model", None) is not None:      # a compiled pack: fields from its graph
+            from .generic import GenericChecks, GenericReader
+            self.reader = GenericReader(contract, contract.model)
+            self.generic = GenericChecks(self, contract.model)
         self._geo: dict[tuple, dict | None] = {}
         # knowlytix's own claim checker (AnswerVerifier, geometric mode: no LLM) as an independent second
         # reader of policy figures; it reports the store facts a sentence states correctly. It reads with the
@@ -208,7 +216,8 @@ class UtteranceVerifier:
         presented = presented or set()
         for label, seg_text in segments:
             about = (label or {}).get("txn") or last_item
-            answering = question if (label is None or label.get("act") == "ANSWER_KB") else None
+            answering = question if (label is None or ("ANSWER_KB" in N.state and label.get("act") == N.state.ANSWER_KB)) \
+                else None
             read = self.reader.read(seg_text, facts, about_item=about, question=answering)
             report.heard += [h for h in read.heard if h not in report.heard]
             for cl in read.claims:
@@ -232,14 +241,16 @@ class UtteranceVerifier:
         label  the act label the claim's words belong to, if the bot gave one (a fee with no option named
                is then about the label's delivery option)
         """
+        if self.generic is not None:
+            return self.generic.verify_claim(cl, facts, label)
         f = cl.field
         if f in ("merchant", "amount", "date", "age_days"):
             return self._item_claim(cl, facts)
         if f == "disposition":
             if cl.mode == "recorded":
-                w = facts.write_for("record_charge_response", cl.about)
+                w = facts.write_for(roles.RECORD, cl.about)
                 if w is None:
-                    return ClaimVerdict(cl, "unsupported", None, "record_charge_response",
+                    return ClaimVerdict(cl, "unsupported", None, roles.RECORD,
                                         f"said to be recorded, but no record for {cl.about} succeeded (R13)")
                 truth = w["args"].get("disposition")
                 return self._compare(cl, truth, f"successful record_charge_response({cl.about})")
@@ -249,14 +260,14 @@ class UtteranceVerifier:
             return self._compare(cl, truth, "what the customer said")
         if f == "action":
             if cl.mode == "done":
-                w = facts.write_for("submit_card_action", None)
+                w = facts.write_for(roles.ACTION, None)
                 if w is None:
-                    return ClaimVerdict(cl, "unsupported", None, "submit_card_action",
+                    return ClaimVerdict(cl, "unsupported", None, roles.ACTION,
                                         "said to be done, but no card action succeeded (R17)")
                 return self._compare(cl, w["args"].get("action"), "successful submit_card_action")
             if cl.mode == "offered":
                 if facts.options is None:
-                    return ClaimVerdict(cl, "unsupported", None, "get_card_action_options",
+                    return ClaimVerdict(cl, "unsupported", None, roles.OPTIONS,
                                         "offered before any card option was returned (R15)")
                 ok = cl.value in facts.options
                 return ClaimVerdict(cl, "supported" if ok else "contradicted", facts.options,
@@ -265,7 +276,7 @@ class UtteranceVerifier:
             return ClaimVerdict(cl, "unverifiable", None, "", "mentioned, not asserted")
         if f == "delivery":
             if cl.mode == "done":
-                w = facts.write_for("submit_card_action", None)
+                w = facts.write_for(roles.ACTION, None)
                 if w is None:
                     return ClaimVerdict(cl, "unverifiable", None, "", "no card action has succeeded")
                 return self._compare(cl, w["args"].get("delivery"), "successful submit_card_action")
@@ -281,7 +292,7 @@ class UtteranceVerifier:
         if f == "opening":
             return ClaimVerdict(cl, "supported", self.c.opening, "required opening statement")
         if f == "recorded_count":
-            n = len(facts.writes.get("record_charge_response", []))
+            n = len(facts.writes.get(roles.RECORD, []))
             return ClaimVerdict(cl, "supported" if cl.value == n else "contradicted", n,
                                 "successful record_charge_response calls")
         return ClaimVerdict(cl, "unverifiable", None, "", f"no check for {f}")
@@ -295,7 +306,7 @@ class UtteranceVerifier:
     def _item_claim(self, cl: Claim, facts: SessionFacts) -> ClaimVerdict:
         """An account fact must be what the tool returned for that transaction (R7, R24)."""
         if not facts.items:
-            return ClaimVerdict(cl, "unsupported", None, "get_review_transactions",
+            return ClaimVerdict(cl, "unsupported", None, roles.ITEMS,
                                 "an account fact, but no transaction was returned (R7)")
         same = lambda a, b: _num_eq(a, b) if cl.field in ("amount", "age_days") else str(a).lower() == str(b).lower()  # noqa: E731
         if cl.about in facts.items:
@@ -310,7 +321,7 @@ class UtteranceVerifier:
         other = next((t for t, it in facts.items.items() if same(cl.value, it.get(cl.field))), None)
         if other:
             return ClaimVerdict(cl, "supported", cl.value, f"tool result: {other}.{cl.field}")
-        return ClaimVerdict(cl, "unsupported", None, "get_review_transactions",
+        return ClaimVerdict(cl, "unsupported", None, roles.ITEMS,
                             f"no returned transaction has {cl.field} {cl.value} (R7)")
 
     def _policy_figure(self, cl: Claim, facts: SessionFacts, label: dict[str, Any] | None) -> ClaimVerdict:
@@ -398,6 +409,8 @@ class UtteranceVerifier:
     # ---------------------------------------------------------------- the turn as a whole
     def _faithfulness(self, label: dict[str, Any], read: ReadUtterance) -> list[Finding]:
         """Do the words say what the label claims?"""
+        if self.generic is not None:
+            return self.generic.faithfulness(label, read)
         act = label["act"]
         spec = self.c.acts.get(act)
         out = []
@@ -431,6 +444,8 @@ class UtteranceVerifier:
                       about: str | None, presented: set[str] = frozenset()) -> list[Finding]:
         """Does the act say everything the policy requires it to say (when there is something to say)?
         A transaction's facts are required the first time it is presented, not when it is re-asked."""
+        if self.generic is not None:
+            return self.generic.completeness(act, label, read, facts)
         spec = self.c.acts.get(act)
         if spec is None:
             return []
@@ -455,14 +470,14 @@ class UtteranceVerifier:
         (pdf.2F, R19)."""
         tool = fs.source.split(".", 1)[1]
         out = []
-        if tool == "record_charge_response":
+        if tool == roles.RECORD:
             named = {c.about for c in read.of("merchant")} | {c.about for c in read.of("disposition")}
             for w in facts.writes.get(tool, []):
                 tid = w["args"].get("transaction_id")
                 if tid not in named:
                     out.append(Finding("missing", act, f"{act} does not mention the recorded response for {tid}",
                                        spec_source(self.c, act)))
-        elif tool == "submit_card_action":
+        elif tool == roles.ACTION:
             said = {c.value for c in read.of("action")}
             for w in facts.writes.get(tool, []):
                 if w["args"].get("action") not in said:
@@ -480,7 +495,7 @@ class UtteranceVerifier:
         out = []
         c = self.c
         if first:
-            if "OPENING" in c.acts and names[0] != "OPENING":
+            if "OPENING" in N.state and N.state.OPENING in c.acts and names[0] != N.state.OPENING:
                 out.append(Finding("not_allowed_here", names[0], "the call must start with the opening (R1)", "R1"))
         else:
             a0 = names[0]
@@ -491,7 +506,7 @@ class UtteranceVerifier:
                 out.append(Finding("not_allowed_here", a0, f"{a0} does not follow from {sorted(pending)} on "
                                                            f"{customer_act}"))
         for a, b in zip(names, names[1:]):
-            ok = b in c.next_states(a, "auto") or (a in REASK_AFTER and (b in pending or b in c.prompt_states))
+            ok = b in c.next_states(a, "auto") or (a in _reask_after() and (b in pending or b in c.prompt_states))
             if not ok:
                 out.append(Finding("not_allowed_here", b, f"{b} does not follow {a}"))
         return out
@@ -527,10 +542,10 @@ class ConversationChecker:
         customer_act = getattr(last, "act", None)
         rep = self.v.check_turn(acts, text, facts, turn=len(self.reports), last_item=self.last_item,
                                 pending_prompts=self.pending, customer_act=customer_act,
-                                question=last if customer_act == "ASK_KB" else None, presented=self.presented)
+                                question=last if customer_act == N.act.ASK_KB else None, presented=self.presented)
         self.reports.append(rep)
         for a in acts:                             # a presentation, said or not, counts once
-            if a.get("act") == "PRESENT_TXN" and a.get("txn"):
+            if a.get("txn") and "PRESENT_TXN" in N.state and a.get("act") == N.state.PRESENT_TXN:
                 self.presented.add(a["txn"])
         named = [a.get("txn") for a in acts if a.get("txn")] + \
                 [v.claim.about for v in rep.verdicts if v.claim.field == "merchant"]

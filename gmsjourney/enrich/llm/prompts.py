@@ -65,6 +65,10 @@ LABEL = {"standard_delivery": "standard delivery", "expedited_delivery": "expedi
 
 
 def state_question(state: str | None, ctx: dict[str, Any] | None) -> str:
+    from . import pack
+    dom = pack.active()
+    if dom is not None:
+        return pack.state_question(dom, state, ctx)
     q = STATE_QUESTIONS.get(state or "", DEFAULT_QUESTION)
     ctx = ctx or {}
     return q.replace("{merchant}", str(ctx.get("merchant") or "this")).replace("{amount}", str(ctx.get("amount") or "…"))
@@ -80,6 +84,12 @@ def _num(v: Any, spoken: bool, money: bool = False) -> str:
 
 def describe_meaning(f: F, spoken: bool = False) -> str:
     """The meaning card in plain words (no ground truth: what the customer *says*, not what is right)."""
+    from . import pack
+    dom = pack.active()
+    if dom is not None:
+        d = pack.describe_meaning(dom, f, spoken)
+        if d is not None:
+            return d
     a = f.act
     if a == "PROVIDE_CREDENTIAL":
         c = f.get("credential")
@@ -154,6 +164,23 @@ def _describe_kb(f: F, spoken: bool) -> str:
                            f"{'costs' if f.get('attr') == 'fee' else 'takes'} - use exactly that option name"),
         "unstated_fact": f"whether there is a fee to {LABEL.get(f.get('subject'), 'do that')}",
     }.get(i, str(i))
+
+
+def _lexicon() -> tuple[dict[str, list[str]], dict[str, str]]:
+    """(reader lexicon, labels) of the active pack."""
+    from . import pack
+    dom = pack.active()
+    if dom is None:
+        return READER_LEXICON, LABEL
+    lex = pack.reader_lexicon(dom)
+    return lex, {v: pack.label(dom, v) for v in lex}
+
+
+def _slot_values(f: F) -> list:
+    from . import pack
+    if pack.active() is not None:
+        return pack.slot_values(f)
+    return [f.get(k) for k in ("disposition", "delivery", "card_action", "entity", "subject")]
 
 
 def protected_tokens(f: F, levels: dict[str, str], ctx: dict[str, Any] | None) -> list[str]:
@@ -236,10 +263,10 @@ def factor_instructions(f: F, levels: dict[str, str], ctx: dict[str, Any] | None
             continue
         if k == "entity_aliasing":
             names = []
-            for slot in ("disposition", "delivery", "card_action", "entity", "subject"):
-                val = f.get(slot)
-                if val in READER_LEXICON:
-                    names.append(f"{LABEL.get(val, val)} -> one of {READER_LEXICON[val][1:]}")
+            lex, lab = _lexicon()
+            for val in _slot_values(f):
+                if val in lex:
+                    names.append(f"{lab.get(val, val)} -> one of {lex[val][1:]}")
             if names:
                 out.append("Do not use the official names; use an everyday alternative instead: " + "; ".join(names) + ".")
             continue
@@ -294,10 +321,11 @@ def build_rephrase_prompt(f: F, levels: dict[str, str], ctx: dict[str, Any] | No
     keep = protected_tokens(f, levels, ctx)
     # only the names for what this turn means: offering every name in the lexicon invites the model
     # to mention options, actions or decisions the customer is not talking about (a competing cue)
-    vals = [f.get(k) for k in ("disposition", "delivery", "card_action", "entity", "subject")]
-    if f.act in READER_LEXICON:
+    lex, lab = _lexicon()
+    vals = _slot_values(f)
+    if f.act in lex:
         vals.append(f.act)
-    understood = {LABEL.get(v, v).strip("'"): READER_LEXICON[v] for v in vals if v in READER_LEXICON}
+    understood = {lab.get(v, v).strip("'"): lex[v] for v in vals if v in lex}
     user = {
         "agent_question": state_question(state, ctx),
         "customer_means": describe_meaning(f, spoken),
@@ -314,6 +342,10 @@ def build_rephrase_prompt(f: F, levels: dict[str, str], ctx: dict[str, Any] | No
 # ----------------------------------------------------------------------------- independent reader
 def extraction_schema(store) -> dict[str, Any]:
     """The closed meaning-card schema the independent reader must fill (from the ontology)."""
+    from . import pack
+    dom = pack.active()
+    if dom is not None:
+        return pack.extraction_schema(dom)
     from ...knowledge.policy_kg import ACT_SCHEMA, EXTRA_VALUE_SETS
     vs = dict(store.value_sets)
     vs.update(EXTRA_VALUE_SETS)
@@ -360,6 +392,9 @@ def build_extract_prompt(text: str, state: str | None, ctx: dict[str, Any] | Non
     from .extractor import KB_INTENT_SLOTS
     intents = {k: v + (f" | slots: {', '.join(KB_INTENT_SLOTS[k])}" if k in KB_INTENT_SLOTS else " | no other slots")
                for k, v in intents.items()}
+    from . import pack
+    if pack.active() is not None:
+        intents = pack.kb_intents_text(pack.active())
     user = {"agent_question": state_question(state, ctx), "utterance": text, "schema": schema, "kb_intents": intents}
     return EXTRACT_SYSTEM, json.dumps(user, ensure_ascii=False, indent=1, default=str)
 

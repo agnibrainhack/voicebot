@@ -40,19 +40,40 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
+from ..names import N
 from .contract import SpeechContract
 from .session import SessionFacts
 
 # ------------------------------------------------------------------ plain-English signals (not policy)
-QUESTION_OR_CONDITION = re.compile(r"\?\s*$|^\s*(if|when|unless|in case)\b", re.I)
-RECORDING_VERBS = re.compile(r"\b(recorded|i've noted|i have noted|noted that|noted it|noted the|saved|logged|"
-                             r"marked|captured|i've put|i have put)\b", re.I)
-COMPLETION = re.compile(r"\b(has been|have been|is done|that's done|it's done|all done|done\b|completed|is complete|"
-                        r"i've (?:secured|locked|replaced|frozen|blocked|ordered|sent)|"
-                        r"i have (?:secured|locked|replaced|frozen|blocked|ordered|sent)|is now)\b", re.I)
-OFFER = re.compile(r"\b(shall i|should i|would you like|do you want|can i|may i|i can|want me to)\b", re.I)
-FEE_WORDS = re.compile(r"\b(fee|fees|cost|costs|price|pay|charge for|charges? you)\b", re.I)
-FREE = re.compile(r"\b(free|no fee|no charge|at no cost)\b", re.I)
+SIGNALS = ("condition_openers", "recording", "completion", "offer", "fee", "free")
+
+
+def signal_words() -> dict[str, list[str]]:
+    """The project's cue lists (config/project.yaml, speech.signals)."""
+    from ..project import project
+    return dict((project().raw.get("speech") or {}).get("signals") or {})
+
+
+def _words(name: str) -> str:
+    words = signal_words().get(name)
+    if not words:
+        raise ValueError(f"the project has no speech.signals.{name} cue list (config/project.yaml; "
+                         "python -m gmsjourney.project check)")
+    return "|".join(words)
+
+
+def _compile_signals() -> None:
+    """Compile the cue patterns from the active project (again on a pack switch)."""
+    global QUESTION_OR_CONDITION, RECORDING_VERBS, COMPLETION, OFFER, FEE_WORDS, FREE
+    QUESTION_OR_CONDITION = re.compile(rf"\?\s*$|^\s*({_words('condition_openers')})\b", re.I)
+    RECORDING_VERBS = re.compile(rf"\b({_words('recording')})\b", re.I)
+    COMPLETION = re.compile(rf"\b({_words('completion')})\b", re.I)
+    OFFER = re.compile(rf"\b({_words('offer')})\b", re.I)
+    FEE_WORDS = re.compile(rf"\b({_words('fee')})\b", re.I)
+    FREE = re.compile(rf"\b({_words('free')})\b", re.I)
+
+
+_compile_signals()
 MONEY = re.compile(r"\$\s?(\d+(?:\.\d{1,2})?)|\b(\d+(?:\.\d{1,2})?)\s*dollars?\b", re.I)
 BUSINESS_DAYS = re.compile(r"\b(\d+)(?:\s*(?:-|–|to)\s*(\d+))?\s+business\s+days?\b", re.I)
 AGE = re.compile(r"\b(\d+)\s+days?\s+ago\b", re.I)
@@ -297,8 +318,8 @@ class UtteranceReader:
             facts = [f.field for f in spec.says if f.required and f.source.split(".")[0] in ("item", "policy", "text")]
             if any(q.lower() in low for q in spec.cues) or (facts and all(f in said for f in facts)):
                 heard.append(act)
-        for mode, act in (("action:done", "ACTION_DONE"), ("action:offered", "CONFIRM_ACTION"),
-                          ("disposition:recorded", "CONFIRM_RECORDED")):
+        for mode, act in (("action:done", N.state.ACTION_DONE), ("action:offered", N.state.CONFIRM_ACTION),
+                          ("disposition:recorded", N.state.CONFIRM_RECORDED)):
             if mode in modes and act in self.c.acts and act not in heard:
                 heard.append(act)
         return heard
@@ -347,3 +368,8 @@ def _dedupe(claims: list[Claim]) -> list[Claim]:
             seen.add(k)
             out.append(c)
     return out
+
+
+from ..domain import on_switch as _on_switch  # noqa: E402
+
+_on_switch(_compile_signals)

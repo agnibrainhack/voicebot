@@ -66,7 +66,35 @@ def classifier_corpus(proofs, reader, ontology) -> dict[str, Any]:
             "distinct_messages": len({r["message"] for r in kept})}
 
 
+def _pack_goldens(store, dom) -> dict[str, dict]:
+    """A contract for every figure of a compiled pack: each numeric attribute of each member (cited by the member's
+    wording) and each customer-facing limit."""
+    g = dom.graph
+    lex = dom.get("lexicon.values") or {}
+    forbid = ["guarantee", "we promise"]
+    out = {}
+    for attr, spec in g.numeric_attributes().items():
+        for m in spec["members"]:
+            say = (lex.get(m) or {}).get("say") or {}
+            words = [w for w in (say.get("canonical"), *g.aliases(m)) if w]
+            key = (words[0].split()[-1] if words else m.lower()).strip(".")
+            out[f"value:{attr}:{m}"] = {"citation_keywords": [key], "required_numbers": [_n(store.lookup_enm(attr, m))],
+                                        "forbidden_phrases": forbid}
+    for k, lv in g.limits.items():
+        if not lv.get("internal"):
+            out[f"limit:{k}"] = {"citation_keywords": [], "required_numbers": [_n(store.lookup_enm("limit", k))],
+                                 "forbidden_phrases": forbid}
+    return out
+
+
+def _n(v) -> str:
+    return str(int(v)) if float(v).is_integer() else str(v)
+
+
 def goldens_from_store(store) -> dict[str, dict]:
+    from ..domain import current
+    if current().graph is not None:
+        return _pack_goldens(store, current())
     fee = store.lookup_enm("delivery_fee_usd", "expedited_delivery")
     std = store.lookup_enm("delivery_fee_usd", "standard_delivery")
     dmax = store.lookup_enm("delivery_days_max", "expedited_delivery")
@@ -105,5 +133,15 @@ def draft_corpus(store, kb_items, answer_fn, realizer) -> dict[str, Any]:
                                    goldens=goldens, source="gmsjourney")
     return {"kept": len(kept), "dropped": len(dropped), "records": kept, "dropped_records": dropped,
             "contracts": len(goldens), "covered_by_contract": sum(1 for s in scns if s.base.metadata["policy_id"] in goldens),
-            "contract_check": {"faithful": passes_contract("Expedited delivery has a $15 fee.", goldens["value:fee:expedited_delivery"]),
-                               "unauthorised": passes_contract("It's fraud, we will refund you.", goldens["fraud"])}}
+            "contract_check": _contract_check(goldens, passes_contract)}
+
+
+def _contract_check(goldens, passes_contract) -> dict[str, bool]:
+    """The contract checker on one faithful and one unauthorised answer."""
+    if "value:fee:expedited_delivery" in goldens:
+        return {"faithful": passes_contract("Expedited delivery has a $15 fee.", goldens["value:fee:expedited_delivery"]),
+                "unauthorised": passes_contract("It's fraud, we will refund you.", goldens["fraud"])}
+    key, gd = next((k, v) for k, v in goldens.items() if v["required_numbers"])
+    cite = " ".join(gd["citation_keywords"])
+    return {"faithful": passes_contract(f"The {cite} figure is {gd['required_numbers'][0]}.", gd),
+            "unauthorised": passes_contract(f"The {cite} figure is {gd['required_numbers'][0]}, we guarantee it.", gd)}

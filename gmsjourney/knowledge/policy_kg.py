@@ -1,6 +1,6 @@
 """The policy as one clean head / relation / tail graph, with dialog states (book Ch. 2-4).
 
-``policy/charge_review_kg.json`` is the single machine-readable source the rest of the
+``policy/charge_review/charge_review_kg.json`` is the single machine-readable source the rest of the
 pipeline reads. It is built once from the operating-procedure PDF by
 ``python -m gmsjourney.knowledge.policy_kg build`` and committed; every later step
 (GMS training, the oracle's limits, the state-aware ontology mapper, the exports) reads
@@ -42,9 +42,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-POLICY_DIR = Path(__file__).resolve().parents[1] / "policy"
+from . import flow_spec
+
+# authoring: build_kg below writes the charge-review graph into its domain pack
+POLICY_DIR = Path(__file__).resolve().parents[1] / "policy" / "charge_review"
 KG_PATH = POLICY_DIR / "charge_review_kg.json"
 TRANSCRIPTION = POLICY_DIR / "charge_review_policy.md"
+REPO_ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_ID = "gmsjourney.policy_kg/1"
 
 # --------------------------------------------------------------------------- the brief
@@ -182,125 +186,6 @@ STATES: dict[str, StateSpec] = {
     "END": StateSpec("end", False, "pdf.7", "then end."),
 }
 
-# (from, to, on, when, rules, edges, source, evidence); on = customer act or "auto"
-TRANSITIONS: list[tuple[str, str, str, str, tuple[str, ...], tuple[str, ...], str, str]] = [
-    ("OPENING", "ASK_AUTH", "auto", "always", ("R1", "R2"), ("W1",), "pdf.7",
-     "Authenticate customer. On failure, transfer to human. On success, continue."),
-    ("ASK_AUTH", "ASK_AUTH_RETRY", "PROVIDE_CREDENTIAL",
-     "authenticate_customer FAILED and attempts below max_auth_attempts", ("R3",), ("W2",), "program",
-     "at most 2 times incorrect authentication"),
-    ("ASK_AUTH", "PRESENT_TXN", "PROVIDE_CREDENTIAL", "AUTHENTICATED and transactions returned",
-     ("R3", "R6"), ("W3",), "pdf.2B", "Present one transaction at a time using merchant, amount and date."),
-    ("ASK_AUTH", "EXPLAIN_NO_TXNS", "PROVIDE_CREDENTIAL", "AUTHENTICATED and no transactions returned",
-     ("R8",), ("W3", "W6"), "pdf.2B", "If the tool returns no transactions"),
-    ("ASK_AUTH", "TRANSFER", "PROVIDE_CREDENTIAL", "authenticate_customer or get_review_transactions UNAVAILABLE",
-     ("R5", "R14"), ("W4", "W7"), "pdf.2A", "If authentication fails or the tool is unavailable, transfer to a human"),
-    ("ASK_AUTH", "ASK_AUTH", "UNCLEAR", "first unclear answer", ("R22",), (), "pdf.3",
-     "ask one short clarification"),
-    ("ASK_AUTH", "TRANSFER", "UNCLEAR", "still unclear after one retry", ("R23",), (), "pdf.3",
-     "transfer to a human representative"),
-    ("ASK_AUTH", "TRANSFER", "REQUEST_HUMAN", "customer asks for a human", ("R20",), ("W21",), "pdf.2F",
-     "If the customer requests a human at any point, transfer the interaction."),
-    ("ASK_AUTH_RETRY", "PRESENT_TXN", "PROVIDE_CREDENTIAL", "AUTHENTICATED and transactions returned",
-     ("R3", "R6"), ("W3",), "pdf.7", "On success, continue."),
-    ("ASK_AUTH_RETRY", "EXPLAIN_NO_TXNS", "PROVIDE_CREDENTIAL", "AUTHENTICATED and no transactions returned",
-     ("R8",), ("W3", "W6"), "pdf.2B", "If the tool returns no transactions"),
-    ("ASK_AUTH_RETRY", "TRANSFER", "PROVIDE_CREDENTIAL", "authenticate_customer FAILED at max_auth_attempts",
-     ("R4",), ("W4",), "pdf.7", "On failure, transfer to human."),
-    ("ASK_AUTH_RETRY", "TRANSFER", "REQUEST_HUMAN", "customer asks for a human", ("R20",), (), "pdf.2F",
-     "If the customer requests a human at any point, transfer the interaction."),
-    ("PRESENT_TXN", "CONFIRM_RECORDED", "INFORM_DISPOSITION",
-     "clear RECOGNIZED/UNRECOGNIZED and record_charge_response SUCCESS", ("R9", "R12"), ("W5",), "pdf.2C",
-     "A clear answer maps to RECOGNIZED or UNRECOGNIZED."),
-    ("PRESENT_TXN", "PROVIDE_CONTEXT", "INFORM_DISPOSITION", "disposition UNSURE (first time)", ("R10",), (),
-     "pdf.2C", "If the customer is unsure, provide available transaction context and ask once more."),
-    ("PRESENT_TXN", "ASK_CLARIFY", "UNCLEAR", "answer unclear (first time)", ("R22",), (), "pdf.3",
-     "ask one short clarification"),
-    ("PRESENT_TXN", "ANSWER_KB", "ASK_KB", "general policy question", ("R25",), (), "pdf.7",
-     "General policy questions may trigger a knowledge-base lookup."),
-    ("PRESENT_TXN", "TRANSFER", "INFORM_DISPOSITION", "record_charge_response not SUCCESS", ("R14",), ("W11",),
-     "pdf.4", "Advance only after SUCCESS; otherwise transfer."),
-    ("PRESENT_TXN", "TRANSFER", "REQUEST_HUMAN", "customer asks for a human", ("R20",), (), "pdf.2F",
-     "If the customer requests a human at any point, transfer the interaction."),
-    ("PRESENT_TXN", "SUMMARIZE", "REQUEST_HUMAN", "customer asks for a human after responses were recorded",
-     ("R19", "R20"), (), "pdf.2F", "summarize the responses"),
-    ("PRESENT_TXN", "SUMMARIZE", "INFORM_DISPOSITION", "record SUCCESS and no transaction pending",
-     ("R12", "R19"), ("W10",), "pdf.2F", "After the available charges are reviewed, summarize the responses"),
-    ("ANSWER_KB", "PRESENT_TXN", "auto", "re-ask the pending transaction", ("R6",), (), "pdf.7",
-     "Present one transaction and ask whether the customer recognizes it."),
-    ("ASK_CLARIFY", "CONFIRM_RECORDED", "INFORM_DISPOSITION", "clear answer after clarification and SUCCESS",
-     ("R9", "R12"), ("W5",), "pdf.3", "make only one additional attempt"),
-    ("ASK_CLARIFY", "PROVIDE_CONTEXT", "INFORM_DISPOSITION", "disposition UNSURE", ("R10",), (), "pdf.2C",
-     "provide available transaction context and ask once more"),
-    ("ASK_CLARIFY", "TRANSFER", "UNCLEAR", "still unclear after one retry", ("R23",), (), "pdf.3",
-     "If the required information or decision is still unclear after that one retry, transfer to a human "
-     "representative."),
-    ("ASK_CLARIFY", "TRANSFER", "REQUEST_HUMAN", "customer asks for a human", ("R20",), (), "pdf.2F",
-     "If the customer requests a human at any point, transfer the interaction."),
-    ("ASK_CLARIFY", "SUMMARIZE", "UNCLEAR", "still unclear after one retry and responses recorded",
-     ("R19", "R23"), (), "pdf.3", "transfer to a human representative"),
-    ("PROVIDE_CONTEXT", "CONFIRM_RECORDED", "INFORM_DISPOSITION", "clear answer after context and SUCCESS",
-     ("R9", "R12"), ("W5",), "pdf.2C", "A clear answer maps to RECOGNIZED or UNRECOGNIZED."),
-    ("PROVIDE_CONTEXT", "TRANSFER", "INFORM_DISPOSITION", "still UNSURE: record UNSURE, then transfer",
-     ("R11",), ("W11",), "pdf.2C", "If still unsure, record UNSURE and transfer."),
-    ("PROVIDE_CONTEXT", "SUMMARIZE", "INFORM_DISPOSITION", "still UNSURE and responses recorded",
-     ("R11", "R19"), ("W11",), "pdf.2C", "If still unsure, record UNSURE and transfer."),
-    ("PROVIDE_CONTEXT", "TRANSFER", "REQUEST_HUMAN", "customer asks for a human", ("R20",), (), "pdf.2F",
-     "If the customer requests a human at any point, transfer the interaction."),
-    ("CONFIRM_RECORDED", "PRESENT_TXN", "auto", "SUCCESS and next transaction pending", ("R6", "R12"), ("W8",),
-     "pdf.2D", "Call record_charge_response for the current transaction before advancing."),
-    ("CONFIRM_RECORDED", "CONFIRM_ACTION", "auto", "UNRECOGNIZED with card intent and an eligible option",
-     ("R15", "R16"), ("W9",), "pdf.2E", "If an eligible action is returned, confirm the requested action"),
-    ("CONFIRM_RECORDED", "DISCLOSE_FEE", "auto", "expedited delivery requested and eligible", ("R26",), ("W9",),
-     "pdf.5", "Before selecting expedited delivery, the bot must tell the customer the $15 fee"),
-    ("CONFIRM_RECORDED", "INFORM_NO_CARD_ACTION", "auto", "get_card_action_options returned NONE", ("R15",),
-     ("W13", "W14"), "pdf.4", "Offer only returned options."),
-    ("CONFIRM_RECORDED", "EXPLAIN_LIMIT", "auto", "more reviewable transactions than max_transactions_per_session",
-     ("R31",), (), "pdf.5", "The bot may review up to 4 recent transactions in one self-service session."),
-    ("CONFIRM_RECORDED", "SUMMARIZE", "auto", "no transaction pending", ("R19",), ("W10",), "pdf.2F",
-     "After the available charges are reviewed, summarize the responses"),
-    ("CONFIRM_RECORDED", "TRANSFER", "auto", "get_card_action_options UNAVAILABLE", ("R32",), ("W20",), "pdf.7",
-     "If a required tool fails, transfer to a human."),
-    ("DISCLOSE_FEE", "CONFIRM_ACTION", "auto", "fee disclosed; ask for clear confirmation", ("R26",), (), "pdf.5",
-     "obtain a clear confirmation"),
-    ("CONFIRM_ACTION", "ACTION_DONE", "CONFIRM", "submit_card_action SUCCESS", ("R16", "R17"), ("W12",), "pdf.2E",
-     "call submit_card_action, and describe it as completed only after SUCCESS"),
-    ("CONFIRM_ACTION", "CONFIRM_ACTION", "REQUEST_CARD_ACTION", "customer switches the delivery option",
-     ("R16", "R26"), (), "pdf.2E", "confirm the requested action"),
-    ("CONFIRM_ACTION", "ACK_DECLINED", "DENY", "customer declines the action", ("R16", "R18"), (), "pdf.2E",
-     "This second intent must not erase the charge-review intent."),
-    ("CONFIRM_ACTION", "TRANSFER", "CONFIRM", "submit_card_action not SUCCESS", ("R29",), ("W17",), "pdf.7",
-     "If a required tool fails, transfer to a human."),
-    ("CONFIRM_ACTION", "SUMMARIZE", "CONFIRM", "submit_card_action not SUCCESS and responses recorded",
-     ("R19", "R29"), ("W17",), "pdf.7", "Do not claim an action completed unless its API returns SUCCESS."),
-    ("CONFIRM_ACTION", "TRANSFER", "REQUEST_HUMAN", "customer asks for a human", ("R20",), (), "pdf.2F",
-     "If the customer requests a human at any point, transfer the interaction."),
-    ("ACTION_DONE", "PRESENT_TXN", "auto", "SUCCESS and next transaction pending", ("R18",), ("W15",), "pdf.2E",
-     "This second intent must not erase the charge-review intent."),
-    ("ACTION_DONE", "SUMMARIZE", "auto", "SUCCESS and no transaction pending", ("R19",), ("W16",), "pdf.2F",
-     "summarize the responses and any account action that actually completed"),
-    ("ACK_DECLINED", "PRESENT_TXN", "auto", "next transaction pending", ("R18",), (), "pdf.2E",
-     "This second intent must not erase the charge-review intent."),
-    ("ACK_DECLINED", "SUMMARIZE", "auto", "no transaction pending", ("R19",), (), "pdf.2F",
-     "After the available charges are reviewed, summarize the responses"),
-    ("INFORM_NO_CARD_ACTION", "PRESENT_TXN", "auto", "next transaction pending", ("R18",), ("W13",), "pdf.2E",
-     "This second intent must not erase the charge-review intent."),
-    ("INFORM_NO_CARD_ACTION", "SUMMARIZE", "auto", "no transaction pending", ("R19",), ("W14",), "pdf.2F",
-     "After the available charges are reviewed, summarize the responses"),
-    ("EXPLAIN_LIMIT", "SUMMARIZE", "auto", "limit explained; summarize, then transfer the rest", ("R31", "R19"),
-     (), "pdf.5", "The bot may review up to 4 recent transactions in one self-service session."),
-    ("EXPLAIN_NO_TXNS", "ASK_MORE_HELP", "auto", "no charges to review", ("R8",), ("W6",), "pdf.2B",
-     "ask whether the customer needs other help"),
-    ("SUMMARIZE", "ASK_MORE_HELP", "auto", "journey complete", ("R19",), ("W18",), "pdf.7",
-     "Summarize only recorded responses and account actions that actually completed; then end."),
-    ("SUMMARIZE", "TRANSFER", "auto", "a transfer is pending", ("R20",), (), "pdf.2F",
-     "transfer the interaction"),
-    ("ASK_MORE_HELP", "END", "END", "customer needs nothing else", ("R19",), ("W18",), "pdf.7", "then end."),
-    ("ASK_MORE_HELP", "TRANSFER", "REQUEST_HUMAN", "customer asks for a human", ("R20",), (), "pdf.2F",
-     "If the customer requests a human at any point, transfer the interaction."),
-    ("TRANSFER", "END", "auto", "transfer_to_human TRANSFERRED", ("R20",), ("W19",), "pdf.4",
-     "End automated servicing."),
-]
 # the turn limit can end any prompt state (R28)
 TURN_LIMIT_FROM = ("ASK_AUTH", "ASK_AUTH_RETRY", "PRESENT_TXN", "ASK_CLARIFY", "PROVIDE_CONTEXT", "CONFIRM_ACTION",
                    "ASK_MORE_HELP")
@@ -411,6 +296,8 @@ class SpeechSpec:
 
 _CONTEXT = "'available transaction context' is not itemised; the fields the tool returns are taken as that context"
 _AGE_DAYS = "age_days is not a field pdf.4 lists; the mock backend adds it so the 30-day window (pdf.5) can be checked"
+FLOW_NOTE = ("Added by this test harness's design: the fields each bot act carries in the expected trace, as "
+             "expressions over the run (flow.GraphOracle evaluates them).")
 DESIGN_NOTE = ("Added by this test harness's design, not stated in the PDF: fields the mock backend returns beyond "
                "pdf.4's list, and what dialog states this harness adds must say.")
 
@@ -669,7 +556,7 @@ def build_kg(transcription: str | Path = TRANSCRIPTION, pdf_path: str | Path | N
     ing = ingest_markdown(transcription)
     _, sec = _split_sections(md_text)
     if pdf_path is None:
-        cand = POLICY_DIR.parents[1] / "fictional_poc_operating_procedure_gpt_readable.pdf"
+        cand = REPO_ROOT / "fictional_poc_operating_procedure_gpt_readable.pdf"
         pdf_path = cand if cand.exists() else None
     if pdf_path is None:
         raise FileNotFoundError("the operating-procedure PDF is needed to attach evidence")
@@ -678,7 +565,7 @@ def build_kg(transcription: str | Path = TRANSCRIPTION, pdf_path: str | Path | N
     sections["program"] = PROGRAM_BRIEF
     sections["lexicon"] = LEXICON_NOTE
     sections["bot_lexicon"] = BOT_LEXICON_NOTE
-    sections["design"] = DESIGN_NOTE
+    sections["design"] = DESIGN_NOTE + " " + FLOW_NOTE
 
     triples: list[dict[str, Any]] = []
     seen: set[tuple] = set()
@@ -815,13 +702,19 @@ def build_kg(transcription: str | Path = TRANSCRIPTION, pdf_path: str | Path | N
             add(sid, "limited_by", lim, "state", row["source"], query=row["text"], state=sid, gms=True)
         for tl in st.tools:
             add(sid, "calls_tool", tl, "state", "pdf.4", query=tl, state=sid, gms=True)
-    for a, b, on, when, rules, edges, src, quote in TRANSITIONS:
-        add(a, "leads_to", b, "trajectory", src, evidence=quote, query=when, state=a,
-            qualifiers={"on": on, "when": when, "rules": list(rules), "edges": list(edges)}, gms=True)
-    for sid in TURN_LIMIT_FROM:
-        add(sid, "leads_to", "TRANSFER", "trajectory", "program", evidence="at max 20 turns", state=sid,
-            qualifiers={"on": "any", "when": "max_turns reached before the journey completes", "rules": ["R28"],
-                        "edges": []}, gms=True)
+    # the executable dialog flow (knowledge/flow_spec.py; run by flow.GraphOracle)
+    for row in flow_spec.rows():
+        add(row.src, "leads_to", row.dst, "trajectory", row.source, evidence=row.evidence, query=row.when,
+            state=row.src, qualifiers=row.qualifiers(), gms=True)
+    for act, fields in flow_spec.CARRIES.items():
+        for i, (name, expr, optional) in enumerate(fields):
+            q = {"from": expr, "order": i}
+            if optional:
+                q["optional"] = True
+            add(act, "carries", name, "flow", "design", evidence=FLOW_NOTE, state=act, qualifiers=q)
+    for tool, targs in flow_spec.TOOL_ARGS.items():
+        for name, expr in targs:
+            add(tool, "has_arg", name, "flow", "pdf.4", query=f"{tool} {name}", qualifiers={"from": expr})
     for tg, sts in TRIGGER_STATES.items():
         for sid in sts:
             add(tg, "fires_in_state", sid, "state", STATES[sid].source, evidence=STATES[sid].evidence, state=sid,
@@ -878,7 +771,11 @@ def _relation_docs() -> dict[str, str]:
         "asserted_by": "rule -> words that assert the rule's fact ('means fraud')",
         "denied_by": "rule -> words that deny the rule's fact ('not, by itself, proof of fraud')",
         "enables": "workflow node -> next workflow node (qualifiers: edge, condition)",
-        "leads_to": "dialog state -> next dialog state (qualifiers: on = customer act or auto, when, rules, edges)",
+        "leads_to": "dialog state -> next dialog state (qualifiers: on = customer act, auto, else or any; when = the "
+                    "procedure's words; match / pre / guard / do / say = executable flow (flow.py); rules = rules "
+                    "exercised when taken; edges = workflow edges; flush / quiet / discard = turn boundaries)",
+        "carries": "bot act -> a field it carries in the expected trace (qualifiers: from = expression, optional)",
+        "has_arg": "tool -> argument (qualifiers: from = expression over the run)",
         "in_stage": "dialog state -> journey stage",
         "accepts_act": "dialog state -> customer meaning card (act) admissible in that state",
         "interprets_yes_as": "dialog state -> what a bare 'yes' means there",
@@ -916,7 +813,10 @@ class PolicyKG:
 
     # ------------------------------------------------------------- io
     @classmethod
-    def load(cls, path: str | Path = KG_PATH) -> "PolicyKG":
+    def load(cls, path: str | Path | None = None) -> "PolicyKG":
+        if path is None:                         # the active domain pack's graph
+            from ..domain import current
+            path = current().graph_path
         p = Path(path)
         kg = cls(json.loads(p.read_text(encoding="utf-8")), p)
         errs = kg.validate()
@@ -1232,6 +1132,17 @@ def resolve_policy(path: str | Path) -> tuple[Path, PolicyKG | None]:
     p = Path(path)
     if p.suffix.lower() != ".json":
         return p, None
+    from ..graph.model import PolicyGraph, graph_kg, is_v2
+    if is_v2(p):
+        g = PolicyGraph.load(p)
+        kg = graph_kg(g)
+        from ..backend import CACHE
+        out = CACHE / "policy" / f"{p.stem}.{g.sha256[:16]}.md"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        text = kg.to_markdown()
+        if not out.exists() or out.read_text() != text:
+            out.write_text(text)
+        return out, kg
     kg = PolicyKG.load(p)
     from ..backend import CACHE
     out = CACHE / "policy" / f"{p.stem}.{kg.sha256[:16]}.md"

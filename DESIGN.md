@@ -67,6 +67,35 @@ equivalent and stay ours.
 The *policy oracle* is an executable reading of the policy that consumes semantic frames (never text), reads
 all limits from exact memory and records which rules fire and which workflow edges are traversed.
 
+*The oracle is the graph's flow, walked.* The dialog-state machine and everything the oracle does on each
+transition is in the policy graph: a `leads_to` triple's qualifiers say on which customer act it is taken (`on`;
+`auto`, `else` and `any` for the bot's own moves, an unhandled act, and a turn-limit pre-emption), the condition
+(`when`, an expression over the call so far: `call('record_charge_response')`, `tail(get('delivery'),
+'requires_fee_confirmation') == 'yes'`, `turns() > limit('max_turns')`), what it does (`do`: `set`, `inc`,
+`load`, `fire`, `end`), what the bot says on the way (`say`), the rules it exercises (`rules`), and the
+procedure text it implements. `carries` and `has_arg` say what a bot act carries and what a tool is called
+with, as expressions of the same language. The language is a vetted subset of Python expressions (names,
+literals, comparisons, boolean and arithmetic operators, calls to a fixed function table), compiled once; no
+attribute access, subscripts or builtins. `flow.py` reads it (`FlowSpec.from_kg`, validated: every state,
+function and act it names must exist) and `GraphOracle` walks it against the mock bank and the simulated
+customer. It replaced a hand-written oracle with identical results on 86 base cases, 1500 random cases, 2064
+faulted and 1092 replayed runs (`tests/test_flow_parity.py`, against the old oracle kept in `tests/`), and a
+mutation of a guard in the graph changes the walk.
+
+*Journey factors are data.* Each pack's `project.yaml` holds the mock bank, the customer's scripts and the factors.
+A level patches the bank (`auth_results: [FAILED, AUTHENTICATED]`) and the customer (an act said at a state
+before the scripted answer, once or every time; a different answer; an extra slot), so a new scenario needs no
+oracle code: the graph's flow decides what the bot should do with that bank and that customer. The project is
+checked against the graph (every act, slot, value, status, state, trigger and expression), and the old
+hand-written factor code is kept in `tests/` for the parity check (`tests/test_scenario_parity.py`: relevance and
+validity on every one of 1.2M level combinations, fixtures, categories and tags on 200k, the customer on 3000
+fuzzed runs, oracle walks and the generator's covering array and closure).
+
+*Names come from the graph.* `names.py` collects every name the graph defines; core code spells them through
+it (`N.state.PRESENT_TXN`) and finds tools by role (`roles.py`), so a renamed concept fails where it is used.
+Severities, release-gate profiles, speech-check leniencies and the speech reader's cue words are project
+settings, edited in the studio (`python -m gmsjourney.studio`).
+
 ## 3. Base cases
 
 **Policy questions (18-category taxonomy).** One generator per category, answers computed by the primitive
@@ -654,3 +683,39 @@ rerun.
 
   The tool field `age_days` is also marked design: pdf.4 lists transaction_id, merchant, amount and date, and the mock
   backend adds the age so the 30-day window can be checked.
+
+
+## 16. Domain packs: one engine, any journey
+
+A journey is a pack: its policy graph, `project.yaml`, `domain.yaml` (lexicon, tool behaviour, bot wording) and its
+enrichment catalogs. Charge review's graph is built from the PDF; supplementary card's is a compact graph
+(`gmsjourney.policy_graph/2`), compiled by `knowledge/pack_compile.py` into the same full graph. The compiler writes
+the compact state machine as executable flow: call states become quiet tool steps left on the tool's status (an
+echo of another value reads as a mismatch), the always-available behaviours become transitions out of every prompt
+in the interpreter's order of precedence (a person, a policy question, the state's own acts, an unclear answer),
+and the turn limit is checked before a prompt is said (`any` with `retract`). It also writes what each act carries,
+what each tool is called with, the outcome and claim acts, and the speech layer. The compiled flow walks every
+journey the compact interpreter mines identically (85 for supplementary card, `tests/test_pack_compile.py`).
+
+What differs between packs is read from the pack: the tools' roles (`has_role`), the scoring (the per-item scoring
+configured in charge review's `domain.yaml`, the graph-generic scoring of `graph/trace.py` for a compiled pack:
+every successful write, every outcome act, every machine-checkable rule), the policy questions (charge review's
+intents, the graph's figures for a compiled pack), the reference bot (charge review's own, or the graph's
+interpreter with the pack's wording), the invariance controls, the speech check (`speech/generic.py` reads any
+pack's value sets, figures and limits) and the LLM arm's prompts (`enrich/llm/pack.py`). A factor of a compiled pack
+is relevant when the case reaches its decision point (`relevant_when: reached`, decided by walking the case), and
+`project_draft.py` drafts a pack's factors from its graph.
+
+Two decisions that read differently across packs are derived, not named. The state a policy question is asked in
+when nothing else is pending (`GraphNames.question_state`) is the first prompt the journey reaches once the gate tool
+succeeds (charge review: the transaction being presented; supplementary card: the relationship question). A
+turn-pressure level that must end in a transfer pads to its target and, if the limit lets the last turn through
+(supplementary card counts the limit "before the application is complete", so a final goodbye is not over it),
+takes the smallest padding past the target that triggers the transfer; charge review's first try already does, so
+its cases are unchanged.
+
+Not compiled yet: a compact graph that loops over a returned list (an `each` state, e.g. `charge_review_graph`, the
+domain-packs branch's compact rewrite of charge review). The compiler refuses it by name
+(`tests/test_graph_engine.py`); charge review itself runs from its PDF-built graph, whose flow already loops over
+the transactions (`load`, `next_item`, `pending`). Compiling `each` means mapping it onto those functions plus a
+per-item binding of the loop variable and a reset of the per-item counters.

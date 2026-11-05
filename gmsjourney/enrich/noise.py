@@ -8,14 +8,12 @@ from __future__ import annotations
 import random
 import re
 
-# Voice-channel confusions a speech recogniser commonly makes.
-ASR_HOMOPHONES = {
-    "four": "for", "two": "to", "eight": "ate", "one": "won",
-    "card": "cart", "charge": "charged", "recognize": "recognise", "replace": "re place",
-    "expedited": "expedite it", "secure": "see cure", "transaction": "trans action",
-    "fee": "fee's", "know": "no", "no": "know", "yes": "yeah", "mine": "mind",
-    "right": "write", "there": "their", "human": "humane", "agent": "a gent",
-}
+# Voice-channel confusions a speech recogniser commonly makes: the active domain's
+# lexicon (domain.yaml -> lexicon.speech.confusions).
+def _confusions() -> dict[str, str]:
+    from .lexicon import Lexicon
+    return Lexicon.current().speech_confusions
+
 
 KEYBOARD_NEIGHBOURS = {
     "a": "s", "s": "a", "e": "r", "r": "e", "i": "o", "o": "i", "n": "m", "m": "n",
@@ -61,11 +59,13 @@ def typo(text: str, rng: random.Random, rate: float = 0.12, protect: set[str] | 
     return " ".join(words)
 
 
-def asr_noise(text: str, rng: random.Random, rate: float = 0.35, protect: set[str] | None = None) -> str:
+def asr_noise(text: str, rng: random.Random, rate: float = 0.35, protect: set[str] | None = None,
+              confusions: dict[str, str] | None = None) -> str:
     """Speech-recognition confusions: homophones and lowercasing.
 
     Sentence punctuation is kept, as modern recognisers restore it."""
     protect = {p.lower() for p in (protect or set())}
+    ASR_HOMOPHONES = confusions if confusions is not None else _confusions()
     toks = re.findall(r"[A-Za-z']+|\d+(?:\.\d+)?|[^\sA-Za-z\d]", text)
     out: list[str] = []
     hit = False

@@ -20,6 +20,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..names import N, graph_names
+
+
+def also_allowed() -> dict[str, set[str]]:
+    """Customer act (or "any") -> bot acts the speech-flow check accepts after it in any prompt state, beyond what
+    the graph's transitions allow (project config: speech.also_allowed)."""
+    from ..project import project
+    return {k: set(v) for k, v in ((project().raw.get("speech") or {}).get("also_allowed") or {}).items()}
+
 
 @dataclass(frozen=True)
 class FieldSpec:
@@ -103,7 +112,15 @@ class SpeechContract:
             says = tuple(FieldSpec(r["field"], r["from"], bool(r.get("required"))) for r in kg.says(st))
             src = next((t["source"] for t in kg.where("says", head=st)), None)
             acts[st] = ActContract(st, says, tuple(kg.spoken_cues(st)), src)
-        value_sets = {vs: kg.value_set(vs) for vs in ("disposition", "card_action", "delivery")}
+        g = getattr(kg, "graph", None)              # a pack compiled from a compact graph: generic fields
+        if g is None:
+            value_sets = {vs: kg.value_set(vs) for vs in (N.value_set.disposition, N.value_set.card_action,
+                                                          N.value_set.delivery)}
+        else:
+            from .generic import PackModel
+            from ..domain import current
+            model = PackModel(g, current().section("lexicon"))
+            value_sets = {vs: tuple(g.members(vs)) for vs in model.value_sets}
         phrases = {v: kg.spoken_as(v) for vals in value_sets.values() for v in vals}
         limits = [t["head"] for t in kg.where("is_a", tail="limit")]
         limit_phrases = {k: [p for p in kg.tails(k, "spoken_as") if "{n}" in p] for k in limits}
@@ -117,20 +134,64 @@ class SpeechContract:
             asserted, denied = kg.stance_phrases(rid)
             if fact:
                 stances[rid] = StanceSpec(rid, fact, stance, tuple(asserted), tuple(denied))
-        transitions = [(t["src"], t["dst"], t.get("on", "auto")) for t in kg.transitions()]
-        # what the policy allows from ANY prompt state (pdf.2F, pdf.3, R28): a person on request, a
-        # policy answer, and the turn limit's summary / transfer / end. A clarification is allowed after
-        # anything: the bot cannot know what the customer meant, and asking is what the policy prefers
-        # to guessing (R9, R21). An unneeded clarification costs a turn; the outcome and the turn-by-turn
-        # comparison grade that, not the flow of what was said.
-        global_acts = {"REQUEST_HUMAN": {"TRANSFER", "SUMMARIZE"}, "ASK_KB": {"ANSWER_KB"},
-                       "UNCLEAR": {"TRANSFER", "SUMMARIZE"}, "any": {"ASK_CLARIFY", "TRANSFER", "SUMMARIZE", "END"}}
+        dialog = set(kg.states)
+        transitions = []
+        for t in kg.transitions():
+            # a compiled transition may say acts on the way (a policy answer, a clarification, then the prompt again):
+            # each said act sits between the source and the target
+            said = [x.strip("'\"") for x in (t.get("say") or []) if isinstance(x, str)]
+            said = [x for x in said if x in dialog and x != t["dst"]]
+            hops = [t["src"], *said, t["dst"]]
+            transitions += [(a, b, t.get("on", "auto") if i == 0 else "auto") for i, (a, b) in enumerate(zip(hops, hops[1:]))]
+        if any(d not in dialog for _, d, _ in transitions):     # quiet tool steps: what the bot says next lies past them
+            out: dict[str, list[tuple[str, str]]] = {}
+            for s0, d0, o0 in transitions:
+                out.setdefault(s0, []).append((d0, o0))
+            flat = []
+            for s0, d0, o0 in transitions:
+                if s0 not in dialog:
+                    continue
+                todo, seen = [d0], set()
+                while todo:
+                    x = todo.pop()
+                    if x in seen:
+                        continue
+                    seen.add(x)
+                    if x in dialog:
+                        flat.append((s0, x, o0))
+                    else:
+                        todo += [d for d, _ in out.get(x, [])]
+            transitions = list(dict.fromkeys(flat))
+        # what may happen in ANY prompt state: an act every prompt state handles leads, anywhere, to the union
+        # of where it leads (pdf.2F, pdf.3, R28: a person on request, a policy answer, the turn limit's summary
+        # and transfer). The project adds the grading leniencies the graph does not state (speech.also_allowed).
+        prompt = set(kg.prompt_states)
+        handled: dict[str, dict[str, set[str]]] = {}
+        for src, dst, on in transitions:
+            if src in prompt and on not in ("auto", "else"):
+                handled.setdefault(on, {}).setdefault(src, set()).add(dst)
+        global_acts = {on: set().union(*m.values()) for on, m in handled.items() if set(m) == prompt}
+        for on, extra in also_allowed().items():
+            global_acts.setdefault(on, set()).update(extra)
         opening = (kg.tails("opening_statement", "has_text") or [""])[0]
-        return cls(acts=acts, phrases=phrases, value_sets=value_sets, stances=stances,
-                   item_fields=kg.returned_fields("get_review_transactions"), opening=opening,
+        if g is not None:
+            phrases = {v: list(ps) for v, ps in model.phrases.items()}
+        c = cls(acts=acts, phrases=phrases, value_sets=value_sets, stances=stances,
+                   item_fields=kg.returned_fields(graph_names().item_tool) if graph_names().item_tool else {}, opening=opening,
                    limits=limits, limit_phrases={k: v for k, v in limit_phrases.items() if v}, transitions=transitions,
                    prompt_states=set(kg.prompt_states), global_acts=global_acts,
                    success_values={t["head"]: str(t["tail"]) for t in kg.where("success_value")})
+        c.model = model if g is not None else None
+        return c
+
+    model: Any = None                              # generic.PackModel for a pack compiled from a compact graph
+
+    def claim_field(self, fs) -> str | None:
+        """The claim field a required ``says`` field is read as (the field name itself for charge review)."""
+        if self.model is None:
+            return fs.field
+        from .generic import claim_field
+        return claim_field(self.model, fs.source)
 
     # ------------------------------------------------------------------ lookups
     def value_set_of(self, value: str) -> str | None:
@@ -139,7 +200,8 @@ class SpeechContract:
 
     def next_states(self, state: str, on: str | None = None) -> set[str]:
         """States the graph lets the bot move to from ``state`` (on a customer act, or automatically)."""
-        return {dst for src, dst, o in self.transitions if src == state and (on is None or o in (on, "any"))}
+        return {dst for src, dst, o in self.transitions if src == state and
+                (on is None or o in (on, "any") or (o == "else" and on not in ("auto",)))}
 
     def as_dict(self) -> dict[str, Any]:
         """A JSON-ready view of the contract (for reports and debugging)."""

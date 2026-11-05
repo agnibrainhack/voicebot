@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
 
 _TAG = re.compile(r"<[^>]+>")
 
@@ -49,9 +48,12 @@ def turn_hops(kg, st: str | None, trigger: str | None, steps: list[tuple[str, di
         elif x.get("act") in known:
             hops.append({"src": cur, "on": trig, "tools": tools, "dst": x.get("act"), "act": x})
             cur, trig, tools = x.get("act"), "auto", []
-    ended = bool(tools and tools[-1].get("tool") == "transfer_to_human") or cur in ("TRANSFER", "END")
-    if tools or (ended and cur != "END"):
-        hops.append({"src": cur, "on": trig, "tools": tools, "dst": "END" if ended else None, "act": None})
+    from . import roles
+    from .names import N
+    end = N.state.END
+    ended = bool(tools and tools[-1].get("tool") == roles.TRANSFER) or cur in (N.state.TRANSFER, end)
+    if tools or (ended and cur != end):
+        hops.append({"src": cur, "on": trig, "tools": tools, "dst": end if ended else None, "act": None})
     return hops
 
 

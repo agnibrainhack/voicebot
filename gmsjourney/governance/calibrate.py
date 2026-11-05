@@ -37,6 +37,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+from ..names import N
 
 BOOK_GRID = [0.5, 0.7, 0.9, 1.1, 1.3, 1.5, 1.7, 1.9]
 
@@ -233,7 +234,9 @@ def plan_cohort(store, journeys: list[list[str]], seed: int = 0) -> tuple[list[l
                 t = s[:i] + [s[i + 1], s[i]] + s[i + 2:]
                 if not admissible(t):
                     neg.add(tuple(t))
-        for tool in ("get_review_transactions", "record_charge_response", "submit_card_action"):
+        from .. import roles
+        early = ([roles.ITEMS] + sorted(roles.WRITE_TOOLS)) if roles.ITEMS else sorted(roles.ACCOUNT_TOOLS)
+        for tool in early:
             t = [tool] + s                                        # act before authenticating
             if not admissible(t):
                 neg.add(tuple(t))
@@ -266,21 +269,24 @@ def multi_threshold_design(store, theta_cal: float, n_runs: int = 12, seed: int 
     from ..design.doe import balanced_design, coverage_report
     from ..knowledge.ingest import Rule
     tens = store.calibration["tension"]
-    hol = store.calibration["holonomy"]
+    hol = store.calibration.get("holonomy") or {}
     factors = {
         "theta_plausibility": [round(theta_cal * 0.8, 3), round(theta_cal, 3), round(theta_cal * 1.2, 3), 1.5],
         "tau_contra": [round(tens["tau_contra"], 3), 1.5, 1.7, 1.9],
         "numeric_tolerance": [0.005, 0.01, 0.02],
-        "holonomy_threshold": [round(hol["tau_path"], 3), 0.3, 0.5],
     }
+    if hol.get("tau_path") is not None:                  # a policy with path rules (charge review's precedes)
+        factors["holonomy_threshold"] = [round(hol["tau_path"], 3), 0.3, 0.5]
     design = balanced_design(factors, n_runs, seed)
     cohort = workflow_cohort(store)
     scored = [(store.score_triple(e.context, e.relation, e.tail), e.label) for e in cohort]
     planted = dict(store.rules)
-    r13 = store.rules["R13"]
-    planted["R13x"] = Rule("R13x", "must", r13.subject, r13.predicate, r13.obj, "reversed copy", r13.source)
+    base = (store.rules.get(N.rule.R13) if "R13" in N.rule else None) or \
+        next(r for r in store.rules.values() if r.stance == "must_not")
+    planted[f"{base.rule_id}x"] = Rule(f"{base.rule_id}x", "must" if base.stance == "must_not" else "must_not",
+                                       base.subject, base.predicate, base.obj, "reversed copy", base.source)
     enm_vals = [e.as_number() for e in store.enm.values()]
-    hp, hn = hol["positives"], hol["negatives"]
+    hp, hn = hol.get("positives") or [], hol.get("negatives") or []
     rows = []
     saved = dict(tens)
     try:
@@ -296,7 +302,8 @@ def multi_threshold_design(store, theta_cal: float, n_runs: int = 12, seed: int 
                                       (v * 1.05 + (1 if v == 0 else 0), False), (v + 1, False)):
                     ok = abs(claim - v) <= tol * max(abs(v), 1.0)
                     n_err += ok != should
-            h_err = sum(p > row["holonomy_threshold"] for p in hp) + sum(n <= row["holonomy_threshold"] for n in hn)
+            h_err = sum(p > row["holonomy_threshold"] for p in hp) + sum(n <= row["holonomy_threshold"] for n in hn) \
+                if "holonomy_threshold" in row else 0
             rows.append({**row, "plausibility_errors": pl["false_admits"] + pl["false_rejects"],
                          "contradiction_errors": c_err, "numeric_errors": n_err, "holonomy_errors": h_err,
                          "total_errors": pl["false_admits"] + pl["false_rejects"] + c_err + n_err + h_err})
@@ -354,14 +361,17 @@ def gate_probe_sweep(store, theta: float, relation: str = "enables") -> dict[str
     """Book 12.5.1: every (previous step, proposed tool) pair through the geometric gate,
     compared with the policy graph. Escalation actions are safe-harboured (never denied)."""
     edges = {(w.src, w.dst) for w in store.workflow}
-    tools = sorted({w.dst for w in store.workflow} - {"summarize", "end"})
-    prevs = ["start"] + tools
+    from ..domain import current
+    wf = current().get("flow.workflow")
+    tools = sorted({w.dst for w in store.workflow} - {wf["summary"], wf["end"]})
+    prevs = [wf["start"]] + tools
     rows, conf = [], {"tp": 0, "fp": 0, "tn": 0, "fn": 0}
     for p in prevs:
         for t in tools:
             s = store.score_triple(p, relation, t)
             admit = s <= theta
-            decision = "allow" if admit else ("escalate" if t == "transfer_to_human" else "deny")
+            from .. import roles
+            decision = "allow" if admit else ("escalate" if t == roles.TRANSFER else "deny")
             truth = (p, t) in edges
             conf["tp" if admit and truth else "fp" if admit else "fn" if truth else "tn"] += 1
             rows.append({"prev": p, "proposed": t, "score": round(s, 4), "decision": decision, "in_policy_graph": truth})

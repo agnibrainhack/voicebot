@@ -33,21 +33,25 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..core import QAItem
+from ..flow import evaluate
 from ..journey import DIMENSIONS, NA, JourneySpec, build_fixture, is_valid, relevant_dims
+from ..journey import primary_category as _category
 from ..ontology import SemanticFrame as F
+from ..project import CaseView, project
+from ..names import N
 
-PADDING_POOL = [
-    F.make("ASK_KB", intent="value", attr="fee", entity="standard_delivery"),
-    F.make("ASK_KB", intent="value", attr="days", entity="expedited_delivery"),
-    F.make("ASK_KB", intent="limit", key="lookback_days"),
-    F.make("ASK_KB", intent="value", attr="fee", entity="expedited_delivery"),
-    F.make("ASK_KB", intent="value", attr="days", entity="standard_delivery"),
-    F.make("ASK_KB", intent="limit", key="max_transactions_per_session"),
-]
-# rules / edges only reachable by tool faults or by the KB pathway
-FAULT_ONLY = {"R33"}
-BOUNDARIES = {"n_txn=4", "n_txn=5", "window=day30", "window=day31", "auth=fail_twice",
-              "turn_pressure=at_limit", "turn_pressure=over_limit"}
+def _activate(proj=None) -> None:
+    """Read the generator's settings from a project (default: the active pack's); run again on a pack switch."""
+    global _P, PADDING_POOL, FAULT_ONLY, BOUNDARIES, _QUESTIONS, _TURNS
+    _P = proj or project()
+    PADDING_POOL = _P.padding_questions()                # questions that pad a call to a turn target
+    FAULT_ONLY = set(_P.generator.get("fault_only_rules") or [])   # rules only tool faults reach
+    BOUNDARIES = _P.boundaries()                         # levels marked boundary: true
+    _QUESTIONS = _P.factor_with_role("questions")        # the factor whose level asks a policy question
+    _TURNS = _P.factor_with_role("turn_target")          # the factor whose level pads to a turn target
+
+
+_activate()
 
 
 @dataclass
@@ -105,26 +109,37 @@ class JourneyBaseGenerator:
         default = JourneySpec()
         spec = spec.with_(**{d: getattr(default, d) for d in DIMENSIONS if rel[d] == NA})   # canonical form
         kb: list[F] = []
-        if rel.get("kb_mid") == "ask" and self.kb_pool:
-            kb.append(self.kb_pool[self._kb_i % len(self.kb_pool)])
-            self._kb_i += 1
+        if _QUESTIONS is not None:
+            lv = _QUESTIONS.levels.get(rel.get(_QUESTIONS.name))
+            for _ in range(lv.questions if lv is not None and self.kb_pool else 0):
+                kb.append(self.kb_pool[self._kb_i % len(self.kb_pool)])
+                self._kb_i += 1
         spec = spec.with_(kb_frames=tuple(kb), extra_kb=0)
-        tp = rel.get("turn_pressure", NA)
-        if tp in (NA, "normal"):
-            if tp == NA and spec.turn_pressure != "normal":
-                spec = spec.with_(turn_pressure="normal")
+        if _TURNS is None:
+            return spec
+        tp = rel.get(_TURNS.name, NA)
+        level = _TURNS.levels.get(tp)
+        if level is None or not level.turn_target:
+            if tp == NA and getattr(spec, _TURNS.name) != _TURNS.default:
+                spec = spec.with_(**{_TURNS.name: _TURNS.default})
             return spec
         natural = self._long_oracle.run(spec).turns
-        target = self.oracle.limits.max_turns + (0 if tp == "at_limit" else 1)
+        target = int(evaluate(level.turn_target, CaseView(_P, spec.dims(), limits=self.oracle.limits)))
         extra = target - natural
         if extra < 0:
             return None
-        pad = tuple(PADDING_POOL[i % len(PADDING_POOL)] for i in range(extra))
-        spec = spec.with_(kb_frames=tuple(kb) + pad, extra_kb=extra)
-        tr = self.oracle.run(spec)
-        if tp == "at_limit" and (tr.turns != target or tr.transfer_reason == "turn_limit"):
+        # a level that must end in a transfer takes the smallest padding at or past the target that triggers it: a
+        # limit counted "before the journey is complete" lets a last wrap-up turn through
+        for more in range(4 if level.transfer else 1):
+            pad = tuple(PADDING_POOL[i % len(PADDING_POOL)] for i in range(extra + more))
+            cand = spec.with_(kb_frames=tuple(kb) + pad, extra_kb=extra + more)
+            tr = self.oracle.run(cand)
+            if not level.transfer or tr.transfer_reason == level.transfer:
+                break
+        spec = cand
+        if level.exact and (tr.turns != target or (level.avoid_transfer and tr.transfer_reason == level.avoid_transfer)):
             return None
-        if tp == "over_limit" and tr.transfer_reason != "turn_limit":
+        if level.transfer and tr.transfer_reason != level.transfer:
             return None
         return spec
 
@@ -149,13 +164,13 @@ class JourneyBaseGenerator:
 
     # -------------------------------------------------------------- covering
     def covering(self, candidates: int = 40, max_rows: int = 200) -> tuple[list[JourneySpec], CoverageReport]:
-        if self.max_turn_limit_cases is not None:          # pairs over normal-length conversations only
-            saved = DIMENSIONS["turn_pressure"]
-            DIMENSIONS["turn_pressure"] = ["normal"]
+        if self.max_turn_limit_cases is not None and _TURNS is not None:   # pairs over normal-length calls only
+            saved = DIMENSIONS[_TURNS.name]
+            DIMENSIONS[_TURNS.name] = [_TURNS.default]
             try:
                 return self._covering(candidates, max_rows)
             finally:
-                DIMENSIONS["turn_pressure"] = saved
+                DIMENSIONS[_TURNS.name] = saved
         return self._covering(candidates, max_rows)
 
     def _covering(self, candidates: int = 40, max_rows: int = 200) -> tuple[list[JourneySpec], CoverageReport]:
@@ -188,7 +203,7 @@ class JourneyBaseGenerator:
                 continue
             fin = self.finalize(best)
             if fin is None:                        # turn target infeasible: fall back to normal
-                fin = self.finalize(best.with_(turn_pressure="normal"))
+                fin = self.finalize(best.with_(**{_TURNS.name: _TURNS.default})) if _TURNS else None
             if fin is None:
                 stall += 1
                 continue
@@ -229,16 +244,17 @@ class JourneyBaseGenerator:
         added: list[JourneySpec] = []
         tries = 0
         cap = self.max_turn_limit_cases
-        padded = lambda sp: sp.turn_pressure in ("at_limit", "over_limit")
+        padded = lambda sp: _TURNS is not None and bool(getattr(_TURNS.levels.get(getattr(sp, _TURNS.name)),  # noqa: E731
+                                                                 "turn_target", None))
         n_padded = sum(padded(s) for s in rows)
         while ((all_rules - r) or (all_edges - e) or (all_triggers - t) or (BOUNDARIES - b)) and tries < budget:
             tries += 1
-            fixed = {"turn_pressure": "normal"} if cap is not None and n_padded >= cap else None
+            fixed = {_TURNS.name: _TURNS.default} if cap is not None and n_padded >= cap and _TURNS else None
             spec = self.finalize(self.random_spec(fixed))
             if spec is None:
                 continue
             r2, e2, t2, b2 = goals([spec])
-            if cap is not None and padded(spec) and not ({x for x in b2 - b if x.startswith("turn_pressure")}
+            if cap is not None and padded(spec) and not ({x for x in b2 - b if x.startswith(f"{_TURNS.name}=")}
                                                         or ((all_rules - r) & r2)):
                 continue                       # a long conversation only for a boundary or rule nothing else reaches
             n_padded += int(padded(spec))
@@ -256,20 +272,8 @@ class JourneyBaseGenerator:
 # Base items
 # --------------------------------------------------------------------------
 def primary_category(spec: JourneySpec) -> str:
-    """Map a journey to the base category its distinguishing content exercises."""
-    rel = relevant_dims(spec)
-    if rel["auth"] in ("unavailable",) or rel.get("retrieve") == "unavailable" or rel.get("record") == "fail_first" \
-            or rel.get("card_options") == "unavailable" or rel.get("submit") == "fail":
-        return "recovery"
-    if rel.get("disposition") in ("ambiguous_resolved", "ambiguous_twice", "unsure_twice", "unsure_resolved"):
-        return "recovery"
-    if rel["auth"] in ("fail_twice", "retry_ok"):
-        return "conditional_rule"
-    if rel.get("n_txn") in (4, 5) or rel.get("window") in ("day30", "day31") or rel.get("turn_pressure") in ("at_limit", "over_limit"):
-        return "boundary"
-    if rel["auth"] == "human_at_auth" or rel.get("human_mid") == "yes" or rel.get("card_intent") not in (NA, "none"):
-        return "governance_policy"
-    return "procedural_ordering"
+    """Map a journey to the base category its distinguishing content exercises (project ``categories``)."""
+    return _category(spec)
 
 
 def to_item(spec: JourneySpec, oracle, qid: str, category: str | None = None, kb_item=None) -> QAItem:
@@ -278,7 +282,7 @@ def to_item(spec: JourneySpec, oracle, qid: str, category: str | None = None, kb
     comps = {f"expected_{k}": v for k, v in tr.components().items()}
     from ..enrich.realizers import Realizer
     R = Realizer()
-    first = tr.user_frames[0] if tr.user_frames else F.make("UNCLEAR")
+    first = tr.user_frames[0] if tr.user_frames else F.make(N.act.UNCLEAR)
     return QAItem(
         qid=qid, query=R.realize(first, {}, f"{qid}|0|base"), answer=tr.signature(),
         answer_type="decision", base=category or primary_category(spec), components=comps,
@@ -290,3 +294,8 @@ def to_item(spec: JourneySpec, oracle, qid: str, category: str | None = None, kb
                   "transfer_reason": tr.transfer_reason,
                   "kb": (kb_item.category if kb_item else None), "kb_qid": (kb_item.qid if kb_item else None)},
     )
+
+
+from ..domain import on_switch as _on_switch  # noqa: E402
+
+_on_switch(_activate)
