@@ -745,3 +745,37 @@ everything else at its default. The design follows Vercel's web interface guidel
 visible focus, labelled controls, the URL as state (`#/factors?f=...`, `#/run/<id>?step=7`), `aria-live` for runs
 and previews, confirmation before discarding or cancelling, status in words and colour together, light and dark
 themes, and reduced motion respected.
+
+
+## 18. Amounts and policy in what the bot says
+
+The readers read what the graph names in the wordings it lists, so everything else used to pass unread. Three
+changes close that gap, and all three use only what every graph provides.
+
+**Figures are tied to their subject.** The reader attaches a figure to the member named nearest it. A figure that
+names nothing goes to the asked member the first time and to `ANY` after that (checked against every member),
+because "There's also a $15 option" is about some option, not the one already priced. The policy-answer grade
+(`kb_truth.anchored_figures`) uses the same reading: every figure tied to the asked subject must be the truth, so a
+correct answer is correct in any order. A figure about a sibling of the asked subject (same value set, or another
+limit when a limit was asked) is `volunteered`. Siblings are the only case the graph can call irrelevant without
+guessing; a fee volunteered in answer to a fraud question is not flagged.
+
+**Every clause has an outcome** (`speech/policy.py`). `PolicyCorpus` collects the graph's statements (its `has_text`
+triples, plus a compact graph's `knowledge`), figures (limits with units, members' numeric triples), actions (tool
+verbs, write-value names) and forbidden stances (PDF phrase lists, a compact rule's `pattern`). A clause no reader
+claimed is checked in order:
+1. a number with a unit the graph uses is compared with the graph's figure for that subject;
+2. a forbidden stance asserted is `contradicted`;
+3. a commitment's main verb must be an action;
+4. a clause with a policy marker must match a statement (rare shared stems plus equal figures, at least two pieces of
+   evidence);
+5. otherwise the clause is `unread` (advisory).
+
+Invented policy, wrong figures and promises of actions the graph lacks become claims with `unsupported` or
+`contradicted` verdicts, so they flow into the existing SPEECH_* codes. Internal limits (a compact graph's flag) and
+the project's `never_volunteer` list give `disclosed`.
+
+**Limits.** Topic matching is not entailment: a matched statement whose polarity flipped, with no figure and no
+stance pattern, is still `supported`. `judge: llm` covers that, restricted to the candidate statements it is shown.
+Promise checking is lenient for any clause that names a write value ("I'll waive the expedited fee" passes), and
+strict for verbs outside the graph. The marker lists are plain English and can be overridden per project.

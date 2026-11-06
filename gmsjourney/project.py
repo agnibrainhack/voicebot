@@ -422,6 +422,36 @@ def check(proj: Project, domain) -> list[str]:
     for name in sig:
         if name not in SIGNALS:
             issues.append(f"speech.signals: unknown cue list {name!r} (lists: {', '.join(SIGNALS)})")
+    issues += _check_speech_policy((proj.raw.get("speech") or {}).get("policy") or {})
+    return issues
+
+
+POLICY_FINDINGS = ("unread", "volunteered", "disclosed", "text_contradicts_label", "label_not_said", "missing")
+
+
+def _check_speech_policy(sp: dict[str, Any]) -> list[str]:
+    """speech.policy: advisory finding kinds, never_volunteer subjects (limits and values of the graph), the judge and
+    marker lists (speech/policy.py)."""
+    from .domain import current
+    from .speech.policy import MARKERS
+    issues = []
+    for k in sp:
+        if k not in ("advisory", "never_volunteer", "judge", "llm_model", "markers"):
+            issues.append(f"speech.policy: unknown key {k!r} (advisory, never_volunteer, judge, llm_model, markers)")
+    for k in sp.get("advisory") or []:
+        if k not in POLICY_FINDINGS:
+            issues.append(f"speech.policy.advisory: {k!r} is not a finding kind ({', '.join(POLICY_FINDINGS)})")
+    if sp.get("judge") not in (None, "graph", "llm"):
+        issues.append(f"speech.policy.judge: {sp.get('judge')!r} must be graph or llm")
+    names = {t["head"] for t in current().kg.triples}
+    for x in sp.get("never_volunteer") or []:
+        if x not in names:
+            issues.append(f"speech.policy.never_volunteer: {x!r} is not a limit or value in the graph")
+    for k, v in (sp.get("markers") or {}).items():
+        if k not in MARKERS:
+            issues.append(f"speech.policy.markers: unknown list {k!r} (lists: {', '.join(MARKERS)})")
+        elif not isinstance(v, list) or not v:
+            issues.append(f"speech.policy.markers.{k}: needs a list of words")
     return issues
 
 

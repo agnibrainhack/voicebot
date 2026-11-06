@@ -16,8 +16,12 @@ Output  a ``TurnReport`` per turn:
                       label_not_said          an act is labelled but the words do not express it
                       missing                 a required piece of information is not said (R6, R19, R26 ...)
                       not_allowed_here        the act does not follow from the dialog-state graph (flow)
+                      disclosed               an internal figure, or one the project never volunteers (policy.py)
+                      volunteered             in a policy answer, a figure about something not asked (advisory)
+                      unread                  a clause no check could read (advisory)
+          policy clauses (policy.py) add claims: policy_figure, promise and policy, with the same verdicts
         ``TurnReport.ok`` is True when no claim is contradicted or unsupported and there is no
-        finding other than flow (flow is reported separately: ``flow_ok``).
+        finding other than flow and the advisory kinds (flow is reported separately: ``flow_ok``).
 
 Where each claim's truth is read:
   merchant / amount / date / age_days    the transactions the tool returned           (SessionFacts.items)
@@ -46,7 +50,7 @@ from typing import Any
 from ..names import N
 from .. import roles
 from .contract import SpeechContract
-from .reader import Claim, ReadUtterance, UtteranceReader, words_to_digits
+from .reader import ANY, Claim, ReadUtterance, UtteranceReader, words_to_digits
 from .session import SessionFacts
 
 FAILING = ("contradicted", "unsupported")
@@ -91,8 +95,12 @@ class ClaimVerdict:
             return "successful write" if mode == "recorded" else "what the customer said"
         if f in ("action", "delivery"):
             return "tool result" if mode == "offered" else "successful write"
-        if f in ("fee", "delivery_days", "limit"):
+        if f in ("fee", "delivery_days", "limit", "policy_figure"):
             return "GMS exact register"
+        if f == "promise":
+            return "graph actions"
+        if f == "policy":
+            return "policy text"
         if f == "stance":
             return "GMS stance check"
         if f == "recorded_count":
@@ -142,10 +150,13 @@ class TurnReport:
         """The ``not_allowed_here`` findings (flow is graded on its own, as ``c_flow``)."""
         return [f for f in self.findings if f.kind == "not_allowed_here"]
 
+    advisory: frozenset = frozenset({"unread", "volunteered"})   # finding kinds that never fail the turn
+
     @property
     def ok(self) -> bool:
         """Every claim supported (or unverifiable) and the words say what the labels and the policy require."""
-        return not any(v.failed for v in self.verdicts) and not [f for f in self.findings if f.kind != "not_allowed_here"]
+        return not any(v.failed for v in self.verdicts) and not [
+            f for f in self.findings if f.kind != "not_allowed_here" and f.kind not in self.advisory]
 
     @property
     def flow_ok(self) -> bool:
@@ -176,6 +187,14 @@ class UtteranceVerifier:
             self.reader = GenericReader(contract, contract.model)
             self.generic = GenericChecks(self, contract.model)
         self._geo: dict[tuple, dict | None] = {}
+        # what the readers leave: figures in other words, promises, policy-sounding statements (policy.py)
+        from .policy import PolicyChecker, settings as _policy_settings
+        kg = getattr(store, "kg", None)
+        self.policy = PolicyChecker(contract, kg, getattr(kg, "graph", None)) if kg is not None else None
+        self.advisory = frozenset(_policy_settings()["advisory"])
+        if self.policy is not None and self.policy.cfg["judge"] == "llm":
+            from .policy import LLMPolicyJudge
+            self.policy.judge = LLMPolicyJudge(self.policy.cfg.get("llm_model"))
         # knowlytix's own claim checker (AnswerVerifier, geometric mode: no LLM) as an independent second
         # reader of policy figures; it reports the store facts a sentence states correctly. It reads with the
         # store's tuned encoders (v from the embed loop, u from the contradiction SFT), the same ones the
@@ -213,15 +232,40 @@ class UtteranceVerifier:
         per_act = labelled and all("text" in a for a in labelled)
         segments = [(a, a.get("text") or "") for a in labelled] if per_act else [(None, text or "")]
         report = TurnReport(turn, text or "", [a.get("act") for a in labelled], [])
+        report.advisory = self.advisory
         presented = presented or set()
+        asked = self.policy.asked_subjects(question) if self.policy is not None else set()
         for label, seg_text in segments:
             about = (label or {}).get("txn") or last_item
             answering = question if (label is None or ("ANSWER_KB" in N.state and label.get("act") == N.state.ANSWER_KB)) \
                 else None
             read = self.reader.read(seg_text, facts, about_item=about, question=answering)
             report.heard += [h for h in read.heard if h not in report.heard]
+            mine = []
             for cl in read.claims:
-                report.verdicts.append(self._corroborated(self.verify_claim(cl, facts, label)))
+                mine.append(self._corroborated(self.verify_claim(cl, facts, label)))
+            if self.policy is not None:
+                act = (label or {}).get("act")
+                for cv in self.policy.check(read):
+                    if cv.outcome == "unread":
+                        report.findings.append(Finding("unread", act, f"not read as policy: {cv.clause!r}"))
+                        continue
+                    v = ClaimVerdict(cv.as_claim(), cv.status, cv.truth, cv.cites or "", cv.why)
+                    mine.append(v)
+                    why = self.policy.never(cv.subjects, cv.internal) if not cv.failed_for_disclosure(asked) else None
+                    if why:
+                        report.findings.append(Finding("disclosed", act, f"{cv.clause!r}: {why}"))
+                if answering is not None:                  # a policy answer: what else did it tell?
+                    for v in mine:
+                        if v.status in ("supported", "contradicted") and self.policy.volunteered(v.claim.about, asked):
+                            report.findings.append(Finding("volunteered", act, f"asked about {', '.join(sorted(asked))}; "
+                                                           f"also told {v.claim.field} of {v.claim.about}: {v.claim.words!r}"))
+                for v in mine:                             # a reader's figure about a never-volunteer subject
+                    if v.claim.field not in ("policy_figure", "promise", "policy") and v.claim.about not in asked:
+                        why = self.policy.never((v.claim.about,), False) if v.claim.about else None
+                        if why:
+                            report.findings.append(Finding("disclosed", act, f"{v.claim.words!r}: {why}"))
+            report.verdicts += mine
             if label is not None:
                 report.findings += self._faithfulness(label, read)
                 report.findings += self._completeness(label["act"], label, read, facts, about, presented)
@@ -333,7 +377,7 @@ class UtteranceVerifier:
             ok = _num_eq(cl.value, truth)
             return ClaimVerdict(cl, "supported" if ok else "contradicted", truth, f"exact register limit/{cl.about}",
                                 "" if ok else f"{cl.about} is {truth}", geo)
-        option = cl.about or (label or {}).get("delivery") or facts.caller.get("delivery")
+        option = None if cl.about == ANY else cl.about or (label or {}).get("delivery") or facts.caller.get("delivery")
         options = self.c.value_sets.get("delivery", [])
         if cl.field == "fee":
             if option is None:
@@ -371,7 +415,7 @@ class UtteranceVerifier:
         passed: one that names the option and gives the figure as a number. "No, it's $0." (the option is in
         the customer's question) and "standard delivery is free" (no number) are left unchecked by it, so
         the agreement count measures knowlytix where it had something to read."""
-        if self._kx_verifier is None or v.claim.field not in ("fee", "delivery_days") or not v.claim.about:
+        if self._kx_verifier is None or v.claim.field not in ("fee", "delivery_days") or v.claim.about in (None, ANY):
             return v
         sent = v.claim.sentence
         names_option = any(m.value == v.claim.about
@@ -567,7 +611,13 @@ class ConversationChecker:
         kinds = lambda k: sum(f.kind == k for f in fs)    # noqa: E731
         kx = [v for v in vs if (v.geometry or {}).get("knowlytix")]
         agree = sum((v.status == "supported") == (v.geometry["knowlytix"] == "confirmed") for v in kx)
+        adv = self.v.advisory
+        policy = [v for v in vs if v.claim.field in ("policy_figure", "promise", "policy")]
         return {"speech_claims": len(vs), "speech_supported": count("supported"),
+                "speech_policy_checked": len(policy), "speech_policy_failed": sum(v.failed for v in policy),
+                "speech_unread": kinds("unread"), "speech_volunteered": kinds("volunteered"),
+                "speech_volunteered_blocking": 0 if "volunteered" in adv else kinds("volunteered"),
+                "speech_disclosed": kinds("disclosed"),
                 "speech_kx_checked": len(kx), "speech_kx_agree": agree,
                 "speech_contradicted": count("contradicted"), "speech_unsupported": count("unsupported"),
                 "speech_unverifiable": count("unverifiable"), "speech_unfaithful": kinds("text_contradicts_label")
@@ -588,6 +638,8 @@ class ConversationChecker:
                                 "truth": v.truth if not isinstance(v.truth, tuple) else list(v.truth),
                                 "why": v.why, "sentence": v.claim.sentence})
             for f in r.findings:
+                if f.kind in r.advisory:                  # advisory (unread, volunteered): counted, not a problem
+                    continue
                 out.append({"turn": r.turn, "where": where, "kind": f.kind, "act": f.act, "why": f.detail,
                             "rule": f.rule})
         return out[:limit]

@@ -175,14 +175,30 @@ def _s7(R):
     comps = [(k[len("component_"):], v) for k, v in (res.get("base_level") or {}).items() if k.startswith("component_")]
     ecomps = res.get("enriched") or {}
     gate = R.get("release_gate") or {}
-    sp = (R.get("speech") or {}).get("controls") or {}
+    spr = R.get("speech") or {}
+    ctl = (spr.get("controls") or {}).get("controls") or {}
+    pol = []
+    for arm, label in (("base_level", "Original wording"), ("enriched", "Reworded")):
+        a = spr.get(arm) or {}
+        if a:
+            pol.append([label, a.get("policy_checked"), a.get("policy_failed"), a.get("disclosed"), a.get("volunteered"),
+                        a.get("unread")])
+    ex = []
+    for kind, xs in ((spr.get("base_level") or {}).get("advisory_examples") or {}).items():
+        ex += [[kind, x.get("sid"), x.get("where"), x.get("why")] for x in xs[:6]]
     return _out([_m("Bot", res.get("bot")), _m("Accuracy, original", _pct((res.get("base_level") or {}).get("accuracy"))),
                  _m("Accuracy, reworded", _pct((res.get("enriched") or {}).get("accuracy"))),
                  _m("Release gate", "passed" if (gate.get("base_level") or {}).get("passed") else "not passed")],
                 [_t("Results", ["Wording", "Cases", "Correct", "Outcome right", "Words grounded", "Flow right", "Policy answers"], rows),
                  _t("Per stage", ["Stage", "Original", "Reworded"],
-                    [[k, _pct(v), _pct(ecomps.get(f"component_{k}"))] for k, v in comps])],
-                [f"Speech check controls: {sp}" if sp and not isinstance(sp, dict) else ""])
+                    [[k, _pct(v), _pct(ecomps.get(f"component_{k}"))] for k, v in comps]),
+                 _t("Policy in what the bot said", ["Wording", "Policy clauses checked", "Failed", "Disclosed",
+                                                    "Volunteered (advisory)", "Unread (advisory)"], pol) if pol else None,
+                 _t("Planted wording errors the speech check must flag", ["Control", "Flagged", "Applied", "Rate"],
+                    [[k, v.get("detected"), v.get("applied"), _pct(v.get("detection_rate"))] for k, v in ctl.items()])
+                 if ctl else None,
+                 _t("Advisory findings (examples)", ["Kind", "Case", "Where", "What"], ex) if ex else None],
+                [])
 
 
 def _s8(R):

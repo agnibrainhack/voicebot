@@ -186,6 +186,9 @@ textarea.input { height: auto; padding: 7px 9px; resize: vertical; }
 .patch .kind { font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: .06em; padding-top: 6px; }
 .patch .kind.bank { color: var(--proj); } .patch .kind.cust { color: var(--accent); } .patch .kind.other { color: var(--ink-3); }
 .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+label.row:has(> input[type=checkbox]) { flex-wrap: nowrap; }
+label.row > input[type=checkbox] { margin-top: 3px; flex: none; }
+label.row > input[type=checkbox] + span { flex: 1; min-width: 0; }
 .seq { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .seq .arrow { color: var(--ink-3); font-size: 12px; }
 .savebar { position: sticky; bottom: 14px; z-index: 15; display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin-top: 16px;
@@ -368,6 +371,7 @@ function render() {
   const fn = { overview, graph, factors, bank, scoring, run: runView, runs: runsView }[r.view] || overview;
   const out = fn(r);
   if (out) main.replaceChildren(...[out].flat().filter(x => x != null && x !== false));
+  if (S.dirty && !["run", "runs"].includes(r.view)) savebar();      // a re-render keeps the unsaved-changes bar
   document.title = `${({ overview: "Overview", graph: "Graph", factors: "Journey Factors", bank: "Bank & Customer", scoring: "Rules & Scoring", run: "Run Campaign", runs: "Runs" })[r.view] || "Journey Console"} · Journey Console`;
 }
 function nav(view) {
@@ -699,11 +703,41 @@ function scoring() {
         ...Object.entries(ev.release_gate).map(([tier, g]) => h("div", {}, h("h3", { style: "margin-bottom:6px" }, tier.replace(/_/g, " ")),
           h("div", { class: "form" }, ...["accuracy_threshold", "max_critical", "max_high_rate", "min_within_budget"].flatMap(k => [h("label", { for: `g-${tier}-${k}` }, k.replace(/_/g, " ")),
             h("input", { class: "input num", id: `g-${tier}-${k}`, type: "number", step: "any", value: g[k] ?? "", placeholder: "none…", oninput: e => { g[k] = e.target.value === "" ? null : Number(e.target.value); changed(); } })])))))),
+      policyCard(),
       h("section", { class: "card", style: "grid-column:1/-1" }, h("div", { class: "hd" }, h("h2", {}, "Severity of Each Failure Code")), h("div", { class: "bd" },
         table(["Failure code", "Severity"], Object.entries(ev.severity).map(([k, v]) => [h("span", { class: "mono" }, k),
           h("select", { class: "select", style: "height:28px", "aria-label": `severity of ${k}`, onchange: e => { ev.severity[k] = e.target.value; changed(); } }, ...sev.map(s => h("option", { selected: s === v }, s)))]), { max: 420 })))),
     h("details", { class: "card", style: "margin-top:16px", ontoggle: async e => { if (!e.target.open) return; const pre = e.target.querySelector("pre"); pre.textContent = "Rendering…"; try { pre.textContent = (await api(`api/journey/${S.pack}/yaml`, { project: S.P })).yaml; } catch (x) { pre.textContent = x.message; } } },
       h("summary", {}, "What Save Writes (YAML)"), h("pre", { class: "log", style: "max-height:520px;margin:0 14px 14px" }, ""))];
+}
+
+function policyCard() {
+  const P = S.P; P.speech = P.speech || {}; const sp = P.speech.policy = P.speech.policy || {};
+  sp.advisory = sp.advisory || ["unread", "volunteered"]; sp.never_volunteer = sp.never_volunteer || []; sp.judge = sp.judge || "graph";
+  const d = D();
+  const internal = d.internal_limits || [];
+  const choices = [...Object.keys(d.limits), ...Object.values(d.value_sets).flat().map(v => v.value)].filter(x => !sp.never_volunteer.includes(x));
+  const adv = (k, label, hint) => h("label", { class: "row", style: "gap:8px;align-items:flex-start" },
+    h("input", { type: "checkbox", checked: !sp.advisory.includes(k), onchange: e => { sp.advisory = e.target.checked ? sp.advisory.filter(x => x !== k) : [...sp.advisory, k]; changed(); } }),
+    h("span", {}, label, h("span", { class: "small muted", style: "display:block" }, hint)));
+  return h("section", { class: "card", style: "grid-column:1/-1" }, h("div", { class: "hd" }, h("h2", {}, "Policy in What the Bot Says"), h("span", { class: "src proj" }, "speech.policy")),
+    h("div", { class: "bd grid2" },
+      h("div", { class: "stack", style: "gap:8px" },
+        h("p", { class: "small muted" }, "Every clause the readers do not read is checked against the graph: figures against its limits and attributes, promises against its tools, policy-sounding statements against its rules, limits and knowledge lines. Invented policy, wrong figures and promises of actions the graph has no tool for always fail."),
+        h("h3", {}, "Also fail a case when the bot…"),
+        adv("volunteered", "Volunteers information", "In a policy answer, tells a figure about something of the same kind that was not asked (asked the standard fee, also told the expedited fee)."),
+        adv("unread", "Says something no check can read", "A clause with no figure, promise or policy statement the checks recognise. Usually small talk; strict."),
+        h("div", { class: "form", style: "margin-top:6px" }, h("label", { for: "pj" }, "Policy judge"),
+          h("select", { class: "input", id: "pj", onchange: e => { sp.judge = e.target.value; changed(); } },
+            h("option", { value: "graph", selected: sp.judge === "graph" }, "Graph only (deterministic)"),
+            h("option", { value: "llm", selected: sp.judge === "llm" }, "Graph, then an LLM re-reads policy statements")))),
+      h("div", { class: "stack", style: "gap:8px" },
+        h("h3", {}, "Never volunteer"),
+        h("p", { class: "small muted" }, internal.length ? `The graph marks ${internal.join(", ")} internal: telling the customer always fails. Add anything else the bot must not tell unless asked.` : "Telling the customer any of these fails the case unless they asked for it."),
+        h("div", { class: "chips" }, ...internal.map(x => h("span", { class: "chip graph", title: "internal in the graph" }, x)),
+          ...sp.never_volunteer.map(x => h("span", { class: "chip proj" }, x, h("button", { class: "btn s ghost", style: "height:18px;padding:0 4px", "aria-label": `remove ${x}`, onclick: () => { sp.never_volunteer = sp.never_volunteer.filter(y => y !== x); changed(); render(); } }, "×")))),
+        h("select", { class: "select", style: "height:28px;max-width:280px", "aria-label": "Add to never volunteer", onchange: e => { if (!e.target.value) return; sp.never_volunteer.push(e.target.value); changed(); render(); } },
+          h("option", { value: "" }, "+ Add a limit or value…"), ...choices.map(x => h("option", { value: x }, x))))));
 }
 
 // ---------------------------------------------------------------- run campaign

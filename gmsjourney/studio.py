@@ -103,6 +103,7 @@ class Studio:
         return {
             "title": D.title, "sha": self.kg.sha256[:12], "summary": D.summary(), "stages": list(D.stages),
             "states": states, "tools": tools, "acts": acts, "limits": D.limits,
+            "internal_limits": self._internal_limits(),
             "value_sets": {k: [{"value": v, "aliases": len(D.aliases.get(v, ()))} for v in vals]
                            for k, vals in D.value_sets.items()},
             "rules": [{"id": r.rid, "stance": r.stance, "text": r.text, "fact": r.fact, "source": r.source}
@@ -132,6 +133,13 @@ class Studio:
                 "window": {f: {k: (v, g.limit_value(v)) for k, v in lim.items()} for f, lim in lp["where"].items()},
                 "id": lp["id"], "age": lp["age"], "records": fx.get("records") or [], "ages": fx.get("ages") or [],
                 "id_prefix": fx.get("id_prefix", "I")}
+
+    @staticmethod
+    def _internal_limits() -> list[str]:
+        """Limits the graph marks internal (a compact graph's ``internal: true``): never told to the customer."""
+        from .domain import current
+        g = current().graph
+        return sorted(k for k, lv in ((g.limits if g is not None else {}) or {}).items() if lv.get("internal"))
 
     def _figures(self) -> dict[str, dict[str, Any]]:
         """value -> attribute -> the figure the policy states (a pack compiled from a compact graph)."""

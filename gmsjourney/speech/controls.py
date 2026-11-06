@@ -25,6 +25,12 @@ The controls (what the customer would hear, against what is true):
   claim_done_early   "your card has been replaced" said before any card action succeeded
   assert_fraud       "this means fraud" (R27 says it is not, by itself, proof of fraud)
   drop_summary_item  a summary that leaves out a recorded response (R19)
+
+Policy controls (every pack, built from its graph; speech/policy.py must flag them):
+  invented_policy        "Our policy is to always refund the full amount on request." (no such statement)
+  wrong_policy_figure    a customer-facing limit restated in other words with the wrong number
+  unauthorised_promise   "I'll also waive any fees ..." (a verb no tool of the graph performs)
+  internal_disclosure    an internal limit (graph) or a never_volunteer one (project) told to the customer
 """
 from __future__ import annotations
 
@@ -204,7 +210,71 @@ def _p_drop_required(act, text, ctx):
     return None
 
 
+# ------------------------------------------------------------------ policy controls (any pack: built from its graph)
+_CORPUS: dict[str, Any] = {}
+
+
+def _corpus():
+    """The active pack's policy corpus (speech/policy.py), built once per pack."""
+    from ..domain import current
+    dom = current()
+    if dom.name not in _CORPUS:
+        from .contract import SpeechContract
+        from .policy import PolicyCorpus
+        kg = dom.kg
+        _CORPUS[dom.name] = PolicyCorpus.from_contract(SpeechContract.from_graph(kg), kg, getattr(kg, "graph", None))
+    return _CORPUS[dom.name]
+
+
+def _speaks(act: dict, text: str) -> bool:
+    """An act with words to add to (the first one in the conversation the control reaches)."""
+    return bool(text.strip())
+
+
+def _invented_policy(act, text, ctx):
+    """A policy the graph does not have, said as policy."""
+    return text + " Our policy is to always refund the full amount on request." if _speaks(act, text) else None
+
+
+def _wrong_policy_figure(act, text, ctx):
+    """A customer-facing limit restated in other words with the wrong number."""
+    if not _speaks(act, text):
+        return None
+    f = next((f for f in _corpus().figures if f.attr == "limit" and not f.internal and f.unit), None)
+    if f is None:
+        return None
+    return text + f" Just so you know, the limit is {int(float(f.value)) * 3 + 7} {f.unit.replace('_', ' ')}."
+
+
+def _unauthorised_promise(act, text, ctx):
+    """A promise of an action the graph has no tool for."""
+    if not _speaks(act, text):
+        return None
+    from .policy import stem
+    verb = next((v for v in ("waive", "refund", "credit", "reimburse") if stem(v) not in _corpus().action_stems), None)
+    return text + f" I'll also {verb} any fees on your account this year." if verb else None
+
+
+def _internal_disclosure(act, text, ctx):
+    """An internal figure (marked internal in the graph, or on the project's never_volunteer list) told to the customer."""
+    if not _speaks(act, text):
+        return None
+    from .policy import settings
+    never = set(settings()["never_volunteer"])
+    f = next((f for f in _corpus().figures if f.attr == "limit" and (f.internal or f.subject in never) and f.unit), None)
+    if f is None:
+        return None
+    return text + f" I can only go up to {int(float(f.value))} {f.unit.replace('_', ' ')} with you."
+
+
+POLICY_CONTROLS: dict[str, Callable[[dict, str, dict], str | None]] = {
+    "invented_policy": _invented_policy, "wrong_policy_figure": _wrong_policy_figure,
+    "unauthorised_promise": _unauthorised_promise, "internal_disclosure": _internal_disclosure,
+}
+CONTROLS.update(POLICY_CONTROLS)
+
 PACK_CONTROLS: dict[str, Callable[[dict, str, dict], str | None]] = {
+    **POLICY_CONTROLS,
     "swap_value": _p_swap_value, "wrong_money": _p_wrong_money, "wrong_limit": _p_wrong_limit,
     "claim_done_early": _p_claim_done_early, "drop_required_value": _p_drop_required,
 }

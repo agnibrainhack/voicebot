@@ -338,6 +338,36 @@ each one, and neither decides the verdict: the GMS distance of the claimed value
 cap, and knowlytix's own `AnswerVerifier` (geometric mode), which confirms a correct figure and does not find a wrong
 one.
 
+**Policy in everything else the bot says** (`speech/policy.py`). The readers above read the facts the graph names, in
+the wordings it lists. Every clause they leave is read against what the graph states, so nothing that sounds like
+policy passes unchecked. That means the graph's rule, limit and tool texts, a compact graph's `knowledge` lines, its
+figures (limits with units, members' numeric attributes), its actions (tool verbs, the values its write tools take)
+and its forbidden stances:
+
+| The bot says | Outcome |
+|---|---|
+| "You can review charges up to 120 days old." | `contradicted`: lookback_days is 30 (a figure in other words) |
+| "Our policy is to always refund the full amount on request." | `unsupported`: no rule, limit or knowledge line states it |
+| "I'll also waive your annual fee this year." | `unsupported`: no tool or write value of the graph is a waiver |
+| "Not recognizing a purchase doesn't automatically make it fraudulent." | `supported`: restates R27 |
+| "I can only go up to 20 turns with you." | finding `disclosed`: max_turns is internal |
+| "Let me check that for you." | finding `unread` (advisory): no policy content |
+
+In an answer to a policy question, a figure about a sibling of what was asked (asked the standard fee, also told the
+expedited fee) is the finding `volunteered`. It is advisory by default, and the answer is graded on the figure tied
+to what was asked, in any word order. A second figure that names nothing is checked against every member, not pinned
+to the asked one. `speech.policy` in `project.yaml` sets:
+- `advisory`: the finding kinds that never fail a turn;
+- `never_volunteer`: limits or values that are a disclosure unless asked, on top of what the graph marks internal;
+- `judge: llm`: an LLM re-reads policy-sounding clauses and must cite a statement id it was given; its answers are
+  cached;
+- `markers`: the plain-English cue words.
+
+The console edits these under Rules & Scoring. Four planted errors per journey (`invented_policy`,
+`wrong_policy_figure`, `unauthorised_promise`, `internal_disclosure`) measure that the checks fire. Matching a clause
+to a statement uses shared word stems and equal figures: it finds which statement a clause is about, not whether a
+paraphrase keeps its meaning. That second part is what the LLM judge is for.
+
 **Scores per case** (in `results.csv`):
 
 - `c_speech`: every turn's claims are supported, faithful to the labels and complete;

@@ -224,13 +224,59 @@ def _first_option(text: str) -> str | None:
     return min(pos, key=pos.get) if pos else None
 
 
+_READERS: dict[tuple, Any] = {}
+
+
+def anchored_figures(store, frame: SemanticFrame, answer_text: str) -> list[Any] | None:
+    """The figures the answer states about what the question asked, read by the speech reader (which ties each
+    figure to the thing named nearest it): "Standard delivery is free, and expedited is $15" answers a question
+    about standard delivery with [0], whatever order the options are named in. None when the reader is not
+    available for this store or the words tie no figure to the asked thing (the grader then reads the first
+    figure, as before)."""
+    from .domain import current
+    from .speech.reader import ANY
+    kg = getattr(store, "kg", None)
+    subject = frame.get("entity") or frame.get("key")
+    if kg is None or not subject:
+        return None
+    try:
+        key = (id(store), current().name)
+        if key not in _READERS:
+            from .speech import SpeechContract, UtteranceVerifier
+            _READERS[key] = UtteranceVerifier(store, SpeechContract.from_graph(kg), corroborate=False).reader
+        from .speech.session import SessionFacts
+        read = _READERS[key].read(answer_text or "", SessionFacts.from_run([], [], None, {}), question=frame)
+    except Exception:                                        # noqa: BLE001 - the plain reading still grades it
+        return None
+    attr = str(frame.get("attr") or "")
+    def fits(field: str) -> bool:
+        if frame.get("intent") == "limit":
+            return field == "limit"
+        return field == attr or (attr == "fee" and field == "fee") or ("days" in attr and "days" in field)
+    vals = [c.value for c in read.claims if c.about == subject and c.about != ANY and fits(c.field)]
+    return vals or None
+
+
 def judge_kb_answer(store, frame: SemanticFrame, answer_text: str) -> dict[str, Any]:
-    """Return {'correct': bool, 'tier': str, 'detail': str} for one KB answer."""
+    """Return {'correct': bool, 'tier': str, 'detail': str} for one KB answer.
+
+    A figure answer is graded on the figure the words tie to what was asked (``anchored_figures``): every figure
+    said about it must be the truth, and figures about other things are not this answer's (the speech check
+    grades those). Only when the words tie no figure to the asked thing is the first figure read."""
     truth = kb_answer(store, frame)
     text = (answer_text or "").lower()
     at, gt = truth.answer_type, truth.answer
     ok, tier, detail = False, "incorrect", ""
-    if at == "money":
+    anchored = anchored_figures(store, frame, answer_text) if at in ("money", "days", "number") else None
+    if anchored is not None:
+        def same(v: Any) -> bool:
+            if isinstance(gt, (tuple, list)):
+                lo, hi = (v if isinstance(v, (tuple, list)) else (v, v))
+                return float(gt[0]) <= float(lo) and float(hi) <= float(gt[1])
+            return not isinstance(v, (tuple, list)) and abs(float(v) - float(gt)) < 1e-9
+        ok = all(same(v) for v in anchored)
+        detail = f"about {frame.get('entity') or frame.get('key')}: {anchored} truth={gt}"
+    elif at == "money":
         mm = money_mentions(text) or extract_numbers(text)
         ok = bool(mm) and mm[0] == float(gt)
         detail = f"mentions={mm} truth={gt}"

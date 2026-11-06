@@ -101,6 +101,12 @@ def words_to_digits(text: str) -> str:
     return _NUMBER_WORDS.sub(sub, text)
 
 
+# A figure that names nothing, said after the asked-about thing already got its figure ("Standard delivery is free.
+# There's also a $15 option."): it is about one of the members, not necessarily the asked one, so it is checked
+# against all of them (``about == ANY``).
+ANY = "*"
+
+
 # ------------------------------------------------------------------ the output
 @dataclass(frozen=True)
 class Claim:
@@ -187,14 +193,17 @@ class UtteranceReader:
         if self._opening and self._opening in _squash(text or ""):
             out.claims.append(Claim("opening", True, self.c.opening, text))
         year = int(facts.session_date[:4]) if facts.session_date else date.today().year
+        seen: set[tuple[str, Any]] = set()                     # (field, about) of the figures said so far
         for sent in out.sentences:
-            out.claims += self._read_sentence(sent, facts, about_item, year, question)
+            new = self._read_sentence(sent, facts, about_item, year, question, seen)
+            seen.update((c.field, c.about) for c in new)
+            out.claims += new
         out.heard = self._heard(out)
         return out
 
     # ---------------------------------------------------------------- one sentence
     def _read_sentence(self, sent: str, facts: SessionFacts, about_item: str | None, year: int,
-                       question: Any = None) -> list[Claim]:
+                       question: Any = None, seen: set | None = None) -> list[Claim]:
         """Every claim in one sentence. Facts attach to the nearest thing named in the sentence (a merchant
         for account facts, a delivery option for policy figures), else to ``about_item`` / the question."""
         low = words_to_digits(sent).lower()
@@ -205,7 +214,11 @@ class UtteranceReader:
         asked_option = question.get("entity") if question is not None else None
         account_talk = question is None or bool(items)             # an answer speaks of the account only by name
         near_item = lambda pos: _nearest(items, pos) or about_item  # noqa: E731
-        near_option = lambda pos: _nearest(options, pos) or asked_option  # noqa: E731
+        seen = seen if seen is not None else set()
+
+        def near_option(pos: int, fld: str) -> str | None:
+            """The option named nearest; else the asked one, unless it already has this figure (then any option)."""
+            return _nearest(options, pos) or fallback(asked_option, fld, seen)
 
         for m in items:
             claims.append(Claim("merchant", facts.items[m.value]["merchant"], m.words, sent, m.value))
@@ -216,12 +229,12 @@ class UtteranceReader:
         for m in MONEY.finditer(low):
             v = m.group(1) or m.group(2)
             if about_fee:
-                claims.append(Claim("fee", _num(v), m.group(0), sent, near_option(m.start())))
+                claims.append(Claim("fee", _num(v), m.group(0), sent, near_option(m.start(), "fee")))
             else:
                 claims.append(Claim("amount", v, m.group(0), sent, near_item(m.start())))
         if options and FREE.search(low):
             fm = FREE.search(low)
-            claims.append(Claim("fee", 0, fm.group(0), sent, near_option(fm.start())))
+            claims.append(Claim("fee", 0, fm.group(0), sent, near_option(fm.start(), "fee")))
 
         if account_talk:
             for m, iso in self._dates(low, year):
@@ -231,7 +244,7 @@ class UtteranceReader:
         for m in BUSINESS_DAYS.finditer(low):
             lo = int(m.group(1))
             hi = int(m.group(2) or m.group(1))
-            claims.append(Claim("delivery_days", (lo, hi), m.group(0), sent, near_option(m.start())))
+            claims.append(Claim("delivery_days", (lo, hi), m.group(0), sent, near_option(m.start(), "delivery_days")))
         for key, regs in self._limit_res.items():
             for rx in regs:
                 for m in rx.finditer(low):
@@ -349,6 +362,13 @@ def _iso(y: int, mo: int, d: int) -> str | None:
         return date(y, mo, d).isoformat()
     except ValueError:
         return None
+
+
+def fallback(asked: str | None, fld: str, seen: set) -> str | None:
+    """What a figure that names nothing is about: the asked-about thing the first time, ``ANY`` after that."""
+    if asked is None:
+        return None
+    return ANY if (fld, asked) in seen else asked
 
 
 def _nearest(mentions: list[_Mention], pos: int) -> str | None:

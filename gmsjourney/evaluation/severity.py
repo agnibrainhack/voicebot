@@ -23,9 +23,13 @@ CRITICAL  SPEECH_CONTRADICTED (it told the customer something false: the wrong f
           what was recorded), SPEECH_UNSUPPORTED (it stated something nothing backs: "recorded" or
           "done" without a success, a charge no tool returned)
 HIGH      SPEECH_UNFAITHFUL (its words say something other than its act labels)
+HIGH      SPEECH_DISCLOSED (it told the customer an internal figure, or one the project never volunteers)
 MODERATE  SPEECH_MISSING (it left out what the policy requires it to say: the date of a charge, the
           fee before an expedited confirmation, the summary of what was recorded)
-LOW       SPEECH_FLOW (an act where the dialog-state graph does not allow it)
+LOW       SPEECH_FLOW (an act where the dialog-state graph does not allow it), SPEECH_VOLUNTEERED (in a policy
+          answer, a figure about something else of the kind asked; only when speech.policy.advisory leaves it out)
+          A wrong policy figure in other words, invented policy and promises of actions the graph has no tool for
+          are claims (speech/policy.py) and count as SPEECH_CONTRADICTED / SPEECH_UNSUPPORTED.
 """
 from __future__ import annotations
 
@@ -51,7 +55,7 @@ DEFAULT_SEVERITY = {
     "UNCLEAN_TERMINATION": "moderate", "STAGE_INCORRECT": "moderate",
     "BUDGET_EXCEEDED": "low", "TOOL_LOOP": "low", "RUNTIME_INVARIANCE": "low",
     "SPEECH_CONTRADICTED": "critical", "SPEECH_UNSUPPORTED": "critical", "SPEECH_UNFAITHFUL": "high",
-    "SPEECH_MISSING": "moderate", "SPEECH_FLOW": "low",
+    "SPEECH_MISSING": "moderate", "SPEECH_FLOW": "low", "SPEECH_DISCLOSED": "high", "SPEECH_VOLUNTEERED": "low",
     "POLICY_RULE_BROKEN": "critical", "LIMIT_EXCEEDED": "high", "WRONG_STATEMENT": "high",
 }
 _VIOLATION_CODE = {
@@ -151,7 +155,8 @@ def failure_codes(row: dict[str, Any]) -> list[str]:
         codes.append("RUNTIME_INVARIANCE")
     for k, code in (("speech_contradicted", "SPEECH_CONTRADICTED"), ("speech_unsupported", "SPEECH_UNSUPPORTED"),
                     ("speech_unfaithful", "SPEECH_UNFAITHFUL"), ("speech_missing", "SPEECH_MISSING"),
-                    ("speech_flow", "SPEECH_FLOW")):
+                    ("speech_flow", "SPEECH_FLOW"), ("speech_disclosed", "SPEECH_DISCLOSED"),
+                    ("speech_volunteered_blocking", "SPEECH_VOLUNTEERED")):
         if row.get(k):
             codes.append(code)
     return sorted(set(codes))

@@ -29,8 +29,8 @@ import re
 from typing import Any
 
 from . import reader as _r
-from .reader import (BUSINESS_DAYS, MONEY, Claim, ReadUtterance, UtteranceReader, _dedupe, _nearest, _num, _sentences,
-                     _squash, words_to_digits)
+from .reader import (ANY, BUSINESS_DAYS, MONEY, Claim, ReadUtterance, UtteranceReader, _dedupe, _nearest, _num,
+                     _sentences, _squash, fallback, words_to_digits)
 
 
 def _kind(attr: str) -> str:
@@ -95,12 +95,15 @@ class GenericReader(UtteranceReader):
         out = ReadUtterance(text=text or "", sentences=_sentences(text or ""))
         if self._opening and self._opening in _squash(text or ""):
             out.claims.append(Claim("opening", True, self.c.opening, text))
+        seen: set = set()                                       # (field, about) of the figures said so far
         for sent in out.sentences:
-            out.claims += self._sentence(sent, facts, question)
+            new = self._sentence(sent, facts, question, seen)
+            seen.update((c.field, c.about) for c in new)
+            out.claims += new
         out.heard = self._heard(out)
         return out
 
-    def _sentence(self, sent: str, facts, question: Any = None) -> list[Claim]:
+    def _sentence(self, sent: str, facts, question: Any = None, seen: set | None = None) -> list[Claim]:
         low = words_to_digits(sent).lower()
         asks = bool(_r.QUESTION_OR_CONDITION.search(sent.strip()))
         mode = "offered" if asks or _r.OFFER.search(low) else "done" if _r.COMPLETION.search(low) else "states"
@@ -113,7 +116,10 @@ class GenericReader(UtteranceReader):
 
         def about(attr: str, pos: int) -> str | None:
             vs = self.m.numeric[attr]["set"]
-            return _nearest(named.get(vs) or [], pos) or asked or facts.caller.get(self.m.slot_of_set.get(vs, ""))
+            hit = _nearest(named.get(vs) or [], pos)
+            if hit or asked:
+                return hit or fallback(asked, attr, seen if seen is not None else set())
+            return facts.caller.get(self.m.slot_of_set.get(vs, ""))
 
         days_spans = [(m.start(), m.end()) for m in BUSINESS_DAYS.finditer(low)]
         for mt in MONEY.finditer(low):
@@ -177,7 +183,7 @@ class GenericChecks:
             truth_of = lambda x: store.lookup_enm(f, x)                       # noqa: E731
             fits = (lambda t: _num_eq(cl.value, t)) if not isinstance(cl.value, tuple) else \
                 (lambda t: cl.value[0] <= float(t) and float(t) <= cl.value[1] or _num_eq(cl.value[1], t))
-            who = cl.about or (label or {}).get(m.slot_of_set.get(m.numeric[f]["set"], ""))
+            who = None if cl.about == ANY else cl.about or (label or {}).get(m.slot_of_set.get(m.numeric[f]["set"], ""))
             if who in members:
                 truth = truth_of(who)
                 ok = fits(truth)

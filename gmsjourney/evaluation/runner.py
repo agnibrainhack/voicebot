@@ -217,6 +217,9 @@ def summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
         claims = sum(r["speech_claims"] for r in sp)
         out["speech_claims"] = claims
         out["speech_claims_supported"] = sum(r["speech_supported"] for r in sp) / max(1, claims)
+        for k in ("speech_policy_checked", "speech_policy_failed", "speech_unread", "speech_volunteered",
+                  "speech_disclosed"):                   # policy in what was said (speech/policy.py)
+            out[k] = sum(r.get(k, 0) for r in sp)
     for stage in _stages():
         vals = [r[f"c_{stage}"] for r in rows if f"c_{stage}" in r]
         if vals:

@@ -202,7 +202,16 @@ def speech_section(store, base_rows: list[dict], rows: list[dict], llm_rows: lis
                 kinds[k] += 1
                 examples.setdefault(k, {"sid": r["sid"], **p})
         tot = lambda k: sum(r.get(k, 0) for r in sp)  # noqa: E731
+        advisory: dict[str, list] = {"unread": [], "volunteered": []}
+        for r in sp:                                   # advisory findings are not problems: keep a few to read
+            for t in r.get("speech_turns") or []:
+                for f in t.get("findings") or []:
+                    if f.get("kind") in advisory and len(advisory[f["kind"]]) < 12:
+                        advisory[f["kind"]].append({"sid": r["sid"], "where": t.get("where"), "why": f.get("detail")})
         return {"runs": len(sp), "grounded_runs": sum(r["c_speech"] for r in sp),
+                "policy_checked": tot("speech_policy_checked"), "policy_failed": tot("speech_policy_failed"),
+                "unread": tot("speech_unread"), "volunteered": tot("speech_volunteered"),
+                "disclosed": tot("speech_disclosed"), "advisory_examples": advisory,
                 "outcome_right_words_wrong": sum(r["outcome_correct"] and not r["c_speech"] for r in sp),
                 "claims": tot("speech_claims"), "supported": tot("speech_supported"),
                 "contradicted": tot("speech_contradicted"), "unsupported": tot("speech_unsupported"),
