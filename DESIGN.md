@@ -746,6 +746,12 @@ visible focus, labelled controls, the URL as state (`#/factors?f=...`, `#/run/<i
 and previews, confirmation before discarding or cancelling, status in words and colour together, light and dark
 themes, and reduced motion respected.
 
+The console shares its process with the notebook, so every journey call puts back the journey that was active
+before it (`server._on`); the console never leaves the kernel on a journey it chose. A run's worker is the leader
+of its own process group, so Cancel stops everything the campaign started. Its pid is in the run's first event, so
+a run started before a kernel restart is still found and can still be cancelled. The headline carries both release
+gates. Showing only the original-wording gate made a bot that fails every reworded case look releasable.
+
 
 ## 18. Amounts and policy in what the bot says
 

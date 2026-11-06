@@ -40,6 +40,17 @@ def main(run_dir: str) -> int:
 
     emit(type="start", job=job, pid=os.getpid())
     try:
+        from ..knowledge.kx_store import device as _device
+        dev = _device()                            # what "auto" resolved to on this machine
+        name = None
+        if dev.startswith("cuda"):
+            import torch
+            idx = int(dev.split(":")[1]) if ":" in dev else torch.cuda.current_device()
+            name = torch.cuda.get_device_name(idx)
+        emit(type="device", device=dev, name=name)
+    except Exception as e:                         # noqa: BLE001 - the run reports it and carries on
+        emit(type="log", text=f"could not resolve the device: {type(e).__name__}: {e}")
+    try:
         from ..pipeline import CampaignConfig, run_campaign
         from . import summaries as S
         sent: set[str] = set()

@@ -42,6 +42,7 @@ a { color: var(--accent); }
 code, .mono { font-family: var(--mono); font-size: .88em; }
 .num { font-variant-numeric: tabular-nums; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .skip { position: absolute; left: 8px; top: -40px; background: var(--panel); padding: 6px 10px; border-radius: 6px; z-index: 50; }
 .skip:focus { top: 8px; }
 h1, h2, h3 { margin: 0; line-height: 1.25; text-wrap: balance; }
@@ -56,7 +57,8 @@ p { margin: 0; max-width: 72ch; }
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 650; letter-spacing: -.01em; margin-right: 6px; }
 .brand svg { color: var(--graph); }
 .field-inline { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
-#pack { max-width: min(460px, 100%); }
+#pack { width: min(340px, 34vw); text-overflow: ellipsis; }
+.top .field-inline { flex: 0 1 auto; }
 .field-inline label { font-size: 12px; color: var(--ink-3); }
 .top .spacer { flex: 1; }
 .select { height: 32px; border: 1px solid var(--line-strong); border-radius: var(--radius-s); padding: 0 8px; min-width: 0; }
@@ -122,6 +124,26 @@ main { padding: 22px 26px 80px; min-width: 0; }
 .notice { border-radius: 8px; padding: 10px 12px; font-size: 13px; }
 .notice.ok { background: var(--ok-bg); color: var(--ok); } .notice.bad { background: var(--bad-bg); color: var(--bad); }
 .notice.warn { background: var(--warn-bg); color: var(--warn); }
+.notice.info { background: var(--accent-bg); color: var(--ink); }
+.hint { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 16px; }
+.hint svg { flex: none; margin-top: 2px; color: var(--accent); }
+.hint .txt { flex: 1; min-width: 0; }
+.guide ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.guide li { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 8px 10px; border-radius: 8px; }
+.guide li.next { background: var(--accent-bg); }
+.guide .n { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font: 600 11px var(--mono); border: 1.5px solid var(--line-strong); color: var(--ink-3); }
+.guide li.done .n { background: var(--ok); border-color: var(--ok); color: var(--bg); }
+.guide li.done .t { color: var(--ink-2); }
+.guide .t { font-weight: 600; } .guide .p { font-size: 12.5px; color: var(--ink-3); }
+.fhelp { grid-column: 2; margin-top: -4px; font-size: 12px; color: var(--ink-3); }
+.lsum { font-size: 13px; color: var(--ink-2); }
+.lsum b { color: var(--ink); font-weight: 600; }
+kbd { font: 11px var(--mono); border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--panel); }
+dialog.help { max-width: 760px; width: calc(100vw - 32px); max-height: calc(100vh - 48px); overflow: auto; }
+dialog.help dl { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 8px 14px; font-size: 13px; margin: 8px 0 0; }
+dialog.help dt { font-weight: 600; } dialog.help dd { margin: 0; color: var(--ink-2); }
+.meaning ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.look { font-size: 12.5px; color: var(--ink-2); background: var(--sunk); border-radius: 8px; padding: 8px 10px; margin-bottom: 12px; }
 .notice ul { margin: 6px 0 0; padding-left: 18px; }
 .empty { padding: 28px; text-align: center; color: var(--ink-3); }
 
@@ -240,9 +262,10 @@ dialog::backdrop { background: rgba(0,0,0,.3); }
 .kv { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 6px 12px; font-size: 13px; }
 .kv dt { color: var(--ink-3); } .kv dd { margin: 0; }
 @media (max-width: 1100px) { .fx, .runlayout { grid-template-columns: minmax(0, 1fr); } .flist { position: static; max-height: 300px; } }
+@media (max-width: 1100px) { .field-inline label { display: none; } #pack { width: min(260px, 30vw); } #help-btn .lbl { display: none; } .top { gap: 10px; } }
 @media (max-width: 760px) { .shell { grid-template-columns: minmax(0, 1fr); } nav.rail { position: static; height: auto; flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); }
   nav.rail .group { display: none; }
-  .top { gap: 8px; } .top .field-inline { flex: 1 1 100%; } #pack { flex: 1; } .top .spacer { display: none; } .grid2, .grid3 { grid-template-columns: minmax(0, 1fr); } main { padding: 16px; } .form { grid-template-columns: minmax(0, 1fr); } }
+  .top { gap: 8px; } .top .field-inline { flex: 1 1 100%; } #pack { flex: 1; width: auto; } .top .spacer { display: none; } .grid2, .grid3 { grid-template-columns: minmax(0, 1fr); } main { padding: 16px; } .form { grid-template-columns: minmax(0, 1fr); } }
 </style>
 </head>
 <body>
@@ -254,6 +277,7 @@ dialog::backdrop { background: rgba(0,0,0,.3); }
   <div class="spacer"></div>
   <span id="device-pill"></span>
   <span id="run-pill"></span>
+  <button class="btn ghost" id="help-btn" type="button" aria-haspopup="dialog" aria-label="Help" title="Help (press ?)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6.2 6.1a1.9 1.9 0 1 1 2.6 1.8c-.5.2-.8.6-.8 1.1v.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="11.6" r=".8" fill="currentColor"/></svg><span class="lbl">Help</span></button>
   <a class="btn primary" id="go-run" href="#/run">Run Campaign</a>
 </header>
 <div class="shell">
@@ -331,6 +355,9 @@ async function boot() {
     await loadJourney(); render();
   });
   devicePill();
+  $("#help-btn").addEventListener("click", openHelp);
+  document.addEventListener("keydown", e => { if (e.key === "?" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "") && !$("#dlg").open) { e.preventDefault(); openHelp(); } });
+  try { S.runsList = (await api("api/runs")).runs; } catch { S.runsList = []; }
   await loadJourney();
   window.addEventListener("hashchange", render);
   window.addEventListener("beforeunload", e => { if (S.dirty) { e.preventDefault(); e.returnValue = ""; } });
@@ -360,6 +387,78 @@ function validityPill() {
   const n = S.issues.length;
   el.replaceChildren(h("a", { class: `pill ${n ? "bad" : "ok"}`, href: "#/overview" }, h("span", { class: "dot" }),
     n ? `${n} problem${n > 1 ? "s" : ""}` : "Valid against the graph"));
+}
+
+// ---------------------------------------------------------------- guidance: the getting-started path, page hints, help
+const GUIDE = [
+  ["valid", "Check the journey is valid", "The project may only use names the policy graph defines. Problems show at the top of Overview.", "#/overview"],
+  ["graph", "Look at what the graph decides", "States, tools, rules and limits come from the policy. You read them here; you do not edit them.", "#/graph"],
+  ["factors", "Review the journey factors", "Each factor is one thing a test case can vary in; each level is one value of it.", "#/factors"],
+  ["preview", "Preview a level", "Press Preview on a level to see the conversation the graph expects for it.", "#/factors"],
+  ["saved", "Save your changes", "Runs read the saved project. Save Project, or Ctrl/⌘ S.", null],
+  ["ran", "Run a campaign", "Start small (10 to 40 cases). Each step reports what it produced as it finishes.", "#/run"],
+  ["read", "Read the results", "Open the finished run: what each step found, what it means and the reports.", "#/runs"],
+];
+function gGet() { try { return JSON.parse(localStorage.getItem(`jc.guide.${S.pack}`) || "{}"); } catch { return {}; } }
+function gMark(k) { const g = gGet(); if (g[k]) return; g[k] = Date.now(); try { localStorage.setItem(`jc.guide.${S.pack}`, JSON.stringify(g)); } catch {} }
+function guideState() {
+  const g = gGet();
+  const runs = (S.runsList || []).filter(x => x.job.pack === S.pack);
+  return { valid: !S.issues.length, graph: !!g.graph, factors: !!g.factors, preview: !!g.preview, saved: !S.dirty && (!!g.saved || !!g.preview),
+           ran: !!g.ran || runs.length > 0, read: !!g.read };
+}
+function guideHidden() { try { return localStorage.getItem("jc.guide.hidden") === "1"; } catch { return false; } }
+function guideCard() {
+  if (guideHidden()) return null;
+  const st = guideState();
+  const next = GUIDE.find(([k]) => !st[k]);
+  const done = GUIDE.filter(([k]) => st[k]).length;
+  return h("section", { class: "card guide", style: "margin-bottom:16px", "aria-labelledby": "guide-h" },
+    h("div", { class: "hd" }, h("div", {}, h("h2", { id: "guide-h" }, "Start Here"),
+        h("p", { class: "small muted" }, next ? `Step ${GUIDE.indexOf(next) + 1} of ${GUIDE.length} is next. Steps tick themselves off as you go.` : "All steps done for this journey. Change a factor and run again to compare.")),
+      h("div", { class: "row" }, h("span", { class: "small muted num" }, `${done}/${GUIDE.length}`),
+        h("button", { class: "btn s ghost", onclick: () => { try { localStorage.setItem("jc.guide.hidden", "1"); } catch {} render(); toast("Guide hidden. Bring it back from Help."); } }, "Hide Guide"))),
+    h("div", { class: "bd" }, h("ol", {}, ...GUIDE.map(([k, t, p, href], i) => h("li", { class: `${st[k] ? "done" : ""} ${next && next[0] === k ? "next" : ""}` },
+      h("span", { class: "n", "aria-hidden": "true" }, st[k] ? "✓" : String(i + 1)),
+      h("span", {}, h("div", { class: "t" }, t, h("span", { class: "sr-only" }, st[k] ? " (done)" : "")), h("div", { class: "p" }, p)),
+      next && next[0] === k ? (k === "saved" ? h("button", { class: "btn s primary", onclick: () => S.dirty ? save() : (gMark("saved"), render()) }, S.dirty ? "Save Project" : "Nothing to Save")
+        : h("a", { class: "btn s primary", href: href }, k === "valid" ? "See Problems" : "Go")) : h("span"))))));
+}
+const ICON_INFO = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 7v4.2M8 4.6v.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+function hint(id, ...kids) {
+  let off = false; try { off = localStorage.getItem(`jc.hint.${id}`) === "off"; } catch {}
+  if (off) return null;
+  const el = h("div", { class: "notice info hint", role: "note" }, h("span", { html: ICON_INFO }), h("div", { class: "txt" }, ...kids),
+    h("button", { class: "btn s ghost", onclick: () => { try { localStorage.setItem(`jc.hint.${id}`, "off"); } catch {} el.remove(); } }, "Got It"));
+  return el;
+}
+const GLOSSARY = [
+  ["Policy graph", "The policy as the engine reads it: dialog states, what the customer can say at each, tools, rules, limits. Everything marked graph comes from it."],
+  ["Project", "Your test plan for the journey (project.yaml): the mock bank, the simulated customer, the journey factors, scoring."],
+  ["Journey factor", "One thing a test case can vary in, at a decision point of the graph: a tool's answer, or what the customer says at a prompt."],
+  ["Level", "One value of a factor. It patches the mock bank (Bank) or the customer (Customer); the graph then decides what the bot should do."],
+  ["Default level", "What every case uses for this factor unless a pair needs another level."],
+  ["Boundary", "A level at an edge of the policy (the last item inside a limit, one past it). Reported separately."],
+  ["Preview", "Walks the graph for one level with every other factor at its default and shows the expected conversation."],
+  ["Case", "One generated conversation plan. The generator covers every feasible pair of levels, then adds cases until every rule is reached."],
+  ["Original / reworded", "Each case is run as scripted and again with the customer's words reworded. Reworded cases are proved to mean the same before they count."],
+  ["Planted defects", "Copies of the reference bot with one deliberate error each. A suite that cannot catch them cannot be trusted."],
+  ["Release gate", "Pass or fail per risk tier: accuracy, critical failures, high-severity rate. Shown for the original and the reworded wording."],
+  ["Volunteered / unread", "Advisory speech findings: a figure about something not asked; a clause no check could read. Counted, not failed, unless you say so (Rules & Scoring)."],
+];
+function openHelp() {
+  const d = $("#dlg"); d.className = "help";
+  d.replaceChildren(h("div", { class: "row", style: "justify-content:space-between" }, h("h2", {}, "How to Use the Console"), h("button", { class: "btn s ghost", onclick: () => d.close(), "aria-label": "Close help" }, "Close")),
+    h("p", { class: "muted", style: "margin:6px 0 12px" }, "Everything green comes from the policy graph and is read-only; everything amber is your project, which you edit and save. The campaign tests a bot against cases built from your journey factors."),
+    h("h3", {}, "The usual path"), h("ol", { style: "margin:6px 0 14px;padding-left:20px;display:grid;gap:4px" }, ...GUIDE.map(([, t, p]) => h("li", {}, h("b", {}, t), ": ", p))),
+    h("h3", {}, "Words used here"), h("dl", {}, ...GLOSSARY.flatMap(([t, x]) => [h("dt", {}, t), h("dd", {}, x)])),
+    h("h3", { style: "margin-top:14px" }, "Keys"), h("p", { class: "small" }, h("kbd", {}, "?"), " this help · ", h("kbd", {}, "Ctrl/⌘"), " ", h("kbd", {}, "S"), " save the project · ", h("kbd", {}, "Esc"), " close a dialog"),
+    h("div", { class: "row", style: "justify-content:flex-end;margin-top:14px" },
+      guideHidden() ? h("button", { class: "btn", onclick: () => { try { localStorage.removeItem("jc.guide.hidden"); } catch {} d.close(); go("#/overview"); } }, "Show the Start Here Guide") : null,
+      h("button", { class: "btn", onclick: () => { try { Object.keys(localStorage).filter(k => k.startsWith("jc.hint.")).forEach(k => localStorage.removeItem(k)); } catch {} d.close(); render(); toast("Page hints are back."); } }, "Show Page Hints Again"),
+      h("button", { class: "btn primary", onclick: () => d.close() }, "Done")));
+  d.addEventListener("close", () => { d.className = ""; }, { once: true });
+  d.showModal();
 }
 
 // ---------------------------------------------------------------- render
@@ -399,11 +498,16 @@ function overview() {
   const levels = (P.factors || []).reduce((a, f) => a + Object.keys(f.levels || {}).length, 0);
   const meta = S.meta.packs.find(p => p.name === S.pack) || {};
   const gaps = [];
-  for (const [t, xs] of Object.entries(cov.tool_outcomes_missing || {})) if (xs.length) gaps.push([t, xs.join(", "), "No level makes this tool answer so"]);
-  for (const [st, xs] of Object.entries(cov.customer_choices_missing || {})) if (xs.length) gaps.push([st, xs.join(", "), "No script makes the customer say this here"]);
+  const fixBtn = (kind, where, what) => {
+    const f = (P.factors || []).find(x => x.anchor && (kind === "tool" ? x.anchor.tool === where : x.anchor.state === where));
+    return h("a", { class: "btn s", href: `#/factors?${f ? `f=${encodeURIComponent(f.name)}&` : ""}gap=${encodeURIComponent(`${kind}|${where}|${what}`)}` }, f ? `Fix in ${f.name}` : "Add a Factor…");
+  };
+  for (const [t, xs] of Object.entries(cov.tool_outcomes_missing || {})) if (xs.length) gaps.push([t, xs.join(", "), `No case has ${t} answer ${xs.join(" or ")}, so how the bot handles it is never tested.`, fixBtn("tool", t, xs[0])]);
+  for (const [st, xs] of Object.entries(cov.customer_choices_missing || {})) if (xs.length) gaps.push([st, xs.join(", "), `No case has the customer say ${xs.join(" or ")} at ${st}, so that branch is never tested.`, fixBtn("say", st, xs[0])]);
   return [
     head(d.title, `${S.pack} · ${meta.graph || ""} · ${meta.compiled ? "compact graph, compiled" : "graph built from the PDF"}${d.loop ? " · loops over " + d.loop.tool + "." + d.loop.field : ""}`,
       h("a", { class: "btn", href: "#/factors" }, "Edit Journey Factors"), h("a", { class: "btn primary", href: "#/run" }, "Run Campaign")),
+    guideCard(),
     S.issues.length ? h("div", { class: "notice bad", style: "margin-bottom:16px" }, `${S.issues.length} problem(s) against the graph:`, h("ul", {}, ...S.issues.slice(0, 12).map(i => h("li", { class: "mono" }, i))))
       : h("div", { class: "notice ok", style: "margin-bottom:16px" }, "The project is valid against the policy graph: every name it uses is one the graph defines."),
     h("div", { class: "grid2" },
@@ -421,7 +525,8 @@ function overview() {
     h("section", { class: "card", style: "margin-top:16px" }, h("div", { class: "hd" }, h("h2", {}, "What the levels reach"),
         h("span", { class: "muted small num" }, cov.transitions_total ? `${cov.transitions_reached}/${cov.transitions_total} transitions` : "")),
       h("div", { class: "bd stack" },
-        gaps.length ? table(["Where", "Never produced", "Why it matters"], gaps, { mono: [0, 1] }) : h("p", { class: "muted" }, "Every tool outcome and customer choice is produced by some level."),
+        gaps.length ? [h("p", { class: "small muted" }, "Gaps are behaviours of the policy no test case exercises. Each Fix opens the factor at that point and says what level to add."),
+          table(["Where", "Never produced", "Why it matters", ""], gaps, { mono: [0, 1] })] : h("p", { class: "muted" }, "Every tool outcome and customer choice is produced by some level."),
         (cov.rules_not_reached || []).length ? h("div", { class: "notice warn" }, `Rules no level reaches: ${cov.rules_not_reached.join(", ")}`) : null)),
   ];
 }
@@ -430,6 +535,8 @@ function overview() {
 function graph(r) {
   const tab = r.q.get("tab") || "states";
   const d = D();
+  gMark("graph");
+  const dialog = new Set(d.states.map(x => x.name));
   const tabs = h("div", { class: "tabs", role: "navigation", "aria-label": "Graph views" }, ...[["states", "State Machine"], ["tools", "Tools"], ["vocab", "Vocabulary"], ["rules", "Rules & Triggers"], ["limits", "Limits & Figures"]]
     .map(([id, l]) => h("a", { href: `#/graph?tab=${id}`, "aria-current": tab === id ? "page" : null }, l)));
   let body;
@@ -449,7 +556,8 @@ function graph(r) {
             (st.carries || []).length ? [h("dt", {}, "Says"), h("dd", {}, h("div", { class: "chips" }, ...st.carries.map(c => h("span", { class: "chip", title: c.from }, c.field))))] : null,
             h("dt", {}, "Rules"), h("dd", {}, h("div", { class: "chips" }, ...(st.rules || []).map(x => h("span", { class: "chip graph" }, x))))),
           h("h3", {}, `Where it can go (${st.out.length})`),
-          table(["On", "To", "When"], st.out.map(t => [t.on, h("a", { href: `#/graph?tab=states&s=${encodeURIComponent(t.dst)}` }, t.dst), t.when || t.guard || ""]), { mono: [0], max: 420 }))));
+          table(["On", "To", "When"], st.out.map(t => [t.on, dialog.has(t.dst) ? h("a", { href: `#/graph?tab=states&s=${encodeURIComponent(t.dst)}` }, t.dst)
+            : h("span", { title: "a tool step: the bot calls a tool, then moves on by its answer" }, t.dst, h("span", { class: "small muted" }, " (tool step)")), t.when || t.guard || ""]), { mono: [0], max: 420 }))));
   } else if (tab === "tools") {
     body = table(["Tool", "Stage", "Answers", "Called with"], d.tools.map(t => [h("span", { class: "mono" }, t.name), t.stage || "",
       h("div", { class: "chips" }, h("span", { class: "chip ok" }, t.success), ...t.failures.map(f => h("span", { class: "chip bad" }, f))),
@@ -470,7 +578,9 @@ function graph(r) {
         : Object.keys(d.fees || {}).length ? table(["Option", "Fee"], Object.entries(d.fees).map(([k, v]) => [k, `$${v.fee}`])) : h("p", { class: "muted" }, "No figures."))),
       d.loop ? loopCard(d.loop) : null);
   }
-  return [head("Graph", "Everything here is read from the policy graph. Change it by changing the graph; the project below only refers to these names.", h("span", { class: "src graph" }, "read-only")), tabs, body];
+  return [head("Graph", "Everything here is read from the policy graph. Change it by changing the graph; the project only refers to these names.", h("span", { class: "src graph" }, "read-only")),
+    hint("graph", "Click a state to see what it accepts, the rules it applies and where it can go next, and when. Solid outline: the bot asks the customer something; dashed: it only speaks. Journey factors attach to these states and to the tools."),
+    tabs, body];
 }
 function loopCard(lp) {
   return h("section", { class: "card", style: "grid-column:1/-1" }, h("div", { class: "hd" }, h("h2", {}, `Loop: ${lp.state} over ${lp.tool}.${lp.field}`), h("span", { class: "src graph" }, "graph")),
@@ -499,7 +609,7 @@ function savebar() {
 }
 async function save() {
   const b = $("#savebtn"); b.disabled = true; b.replaceChildren(h("span", { class: "spin" }), "Saving…");
-  try { const r = await api(`api/journey/${S.pack}/save`, { project: S.P }); S.J.project = clone(S.P); S.dirty = false; S.issues = r.issues || []; validityPill(); toast(`Saved ${r.saved.split("/").slice(-2).join("/")}${S.issues.length ? ` with ${S.issues.length} problem(s)` : ""}`); savebar(); render(); }
+  try { const r = await api(`api/journey/${S.pack}/save`, { project: S.P }); S.J.project = clone(S.P); S.dirty = false; S.issues = r.issues || []; gMark("saved"); validityPill(); toast(`Saved ${r.saved.split("/").slice(-2).join("/")}${S.issues.length ? ` with ${S.issues.length} problem(s)` : ""}`); savebar(); render(); }
   catch (e) { toast(`Not saved: ${e.message}`); b.disabled = false; b.replaceChildren("Save Project"); }
 }
 function factors(r) {
@@ -516,11 +626,47 @@ function factors(r) {
         h("span", { class: "fn" }, f.name), h("span", { class: "err", hidden: !has, "aria-label": "has problems" }),
         h("span", { class: "fm num" }, `${Object.keys(f.levels || {}).length} levels · ${a.tool ? "tool " + a.tool : a.state ? "at " + a.state : f.role || "anywhere"}`)); }),
     h("div", { style: "padding:10px" }, h("button", { class: "btn s", onclick: addFactor }, "Add Factor…")));
-  const editor = sel ? factorEditor(sel) : h("div", { class: "card empty" }, "No factors yet. Add one, or draft the project from the graph.");
+  const editor = sel ? factorEditor(sel) : h("div", { class: "card empty" }, h("p", {}, "No factors yet."), h("div", { class: "row", style: "justify-content:center;margin-top:10px" }, h("button", { class: "btn primary", onclick: addFactor }, "Add Factor…")));
+  gMark("factors");
+  const gap = r.q.get("gap");
+  let gapNote = null;
+  if (gap) {
+    const [kind, where, what] = gap.split("|");
+    const scripts = Object.entries(((S.P.customer || {}).answers) || {}).filter(([st]) => st === where).map(([, sc]) => sc);
+    gapNote = h("div", { class: "notice warn", style: "margin-bottom:16px" }, h("strong", {}, "To close this gap: "),
+      kind === "tool" ? [`add a level${sel && sel.anchor && sel.anchor.tool === where ? " here" : " to a factor at tool " + where}, choose `, h("b", {}, "+ Bank Setting… → tool:" + where), ", and set it to return ", h("b", {}, what), ". Then Preview it to see how the bot must handle it."]
+        : [`add a level${sel && sel.anchor && sel.anchor.state === where ? " here" : " to a factor at " + where}, choose `, h("b", {}, "+ Customer Says…"), `, pick the script that answers ${where}${scripts.length ? " (" + scripts.join(", ") + ")" : ""}, and type the frame `, h("code", {}, `${what}(…)`), ". Suggestions appear as you type."],
+      " ", gapAction(kind, where, what), " ", h("a", { href: `#/factors${sel ? "?f=" + encodeURIComponent(sel.name) : ""}` }, "Dismiss"));
+  }
   const out = [head("Journey Factors", "Each factor is one thing a case can differ in; each level is one value of it. A level patches the mock bank or the simulated customer, and the graph decides what should happen. The case generator covers every feasible pair of levels.",
-    h("span", { class: "src proj" }, "project.yaml")), h("div", { class: "fx" }, list, editor)];
+    h("span", { class: "src proj" }, "project.yaml")),
+    hint("factors", "Pick a factor on the left. Read each level's summary, press ", h("b", {}, "Preview"), " to see the conversation the graph expects for it, and add or change levels with ", h("b", {}, "+ Bank Setting"), " (what a tool returns) or ", h("b", {}, "+ Customer Says"), " (what the customer answers). Every change is checked against the graph as you type; ", h("b", {}, "Save Project"), " (", h("kbd", {}, "Ctrl/⌘"), " ", h("kbd", {}, "S"), ") when you are done."),
+    gapNote, h("div", { class: "fx" }, list, editor)];
   setTimeout(savebar, 0);
   return out;
+}
+function gapAction(kind, where, what) {
+  // one click: add the missing level, filled in, to the factor at that point (or create that factor)
+  const P = S.P; P.factors = P.factors || [];
+  const at = f => f.anchor && (kind === "tool" ? f.anchor.tool === where : f.anchor.state === where);
+  const f = P.factors.find(at);
+  const lvName = String(what).toLowerCase().replace(/[^a-z0-9]+/g, "_");
+  const script = Object.entries((P.customer || {}).answers || {}).find(([st]) => st === where)?.[1];
+  const level = kind === "tool" ? { fixture: { [`tool:${where}`]: [what] } }
+    : { customer: [{ script: script || Object.keys((P.customer || {}).scripts || {})[0], say: [`${what}()`], position: "replace" }] };
+  return h("button", { class: "btn s primary", onclick: () => {
+    let target = f;
+    if (!target) {
+      const name = `${where.toLowerCase()}_${kind === "tool" ? "answer" : "says"}`.replace(/[^a-z0-9_]+/g, "_");
+      target = { name, about: kind === "tool" ? `What ${where} answers` : `What the customer says at ${where}`, anchor: { [kind === "tool" ? "tool" : "state"]: where },
+                 default: "usual", relevant_when: "reached", levels: { usual: {} } };
+      P.factors.push(target);
+    }
+    if (!target.levels[lvName]) target.levels[lvName] = level;
+    changed(); toast(`Added level ${lvName} to ${target.name}. Preview it, adjust it, then save.`);
+    go(`#/factors?f=${encodeURIComponent(target.name)}`);
+    setTimeout(() => { const card = [...document.querySelectorAll(".level")].find(x => x.querySelector("input")?.value === lvName); card?.scrollIntoView({ block: "center" }); card?.querySelector(".btn.s")?.focus(); }, 60);
+  } }, f ? `Add Level ${lvName} to ${f.name}` : `Create Factor at ${where}`);
 }
 function addFactor() {
   const d = $("#dlg"); const inp = h("input", { class: "input mono", id: "nf", placeholder: "e.g. delivery_choice…", autocomplete: "off", spellcheck: "false" });
@@ -546,12 +692,16 @@ function factorEditor(f) {
         h("div", { "data-issues-for": `factors.${f.name}` }),
         h("div", { class: "form" },
           h("label", { for: id("about") }, "What varies"), h("textarea", { class: "input", id: id("about"), rows: 2, oninput: e => { f.about = e.target.value; changed(); } }, f.about || ""),
+          h("span", { class: "fhelp" }, "Your description, shown in the reports. Drafted factors start with the graph's own text."),
           h("label", { for: id("anchor") }, "Decision point"), h("select", { class: "input", id: id("anchor"), onchange: e => { const v = e.target.value; if (!v) delete f.anchor; else { const [k, n] = v.split(":"); f.anchor = { [k]: n }; } changed(); } },
             ...anchors.map(([v, l]) => h("option", { value: v, selected: v === curA }, l))),
+          h("span", { class: "fhelp" }, "Where in the graph the factor matters: a tool call (its answer varies) or a prompt (the customer's answer varies)."),
           h("label", { for: id("rel") }, "Relevant when"), h("div", { class: "row" }, h("input", { class: "input mono", id: id("rel"), style: "flex:1", value: f.relevant_when || "", placeholder: "reached, or an expression like level('x') == 'ok'…", spellcheck: "false", autocomplete: "off",
-            oninput: e => { f.relevant_when = e.target.value; changed(); } }), h("span", { class: "small muted" }, "reached: when a case gets to the decision point")),
+            oninput: e => { f.relevant_when = e.target.value; changed(); } })),
+          h("span", { class: "fhelp" }, h("code", {}, "reached"), ": whenever a case gets to the decision point. An expression narrows it, e.g. ", h("code", {}, "level('get_card_action_options') == 'ok'"), "."),
           h("label", { for: id("default") }, "Default level"), h("select", { class: "input", id: id("default"), onchange: e => { f.default = e.target.value; changed(); render(); } },
-            ...levelNames.map(n => h("option", { value: n, selected: String(f.default) === n }, n)))))),
+            ...levelNames.map(n => h("option", { value: n, selected: String(f.default) === n }, n))),
+          h("span", { class: "fhelp" }, "What every case uses for this factor unless covering a pair needs another level.")))),
     h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, `Levels (${levelNames.length})`), h("div", { class: "row" },
         h("input", { class: "input mono", id: id("newlv"), style: "width:200px", placeholder: "new level name…", autocomplete: "off", spellcheck: "false", "aria-label": "New level name",
           onkeydown: e => { if (e.key === "Enter") addLevel(); } }), h("button", { class: "btn s", onclick: addLevel }, "Add Level"))),
@@ -578,8 +728,30 @@ function levelCard(f, name) {
       ...(L.customer || []).map((op, i) => customerPatch(L, op, i)),
       ...other.map(k => h("div", { class: "patch" }, h("span", { class: "kind other" }, "Case"), h("div", { class: "row" }, h("code", {}, k), h("input", { class: "input mono", style: "flex:1;height:28px", value: typeof L[k] === "string" ? L[k] : JSON.stringify(L[k]), "aria-label": `${name} ${k}`,
         onchange: e => { const t = e.target.value; try { L[k] = JSON.parse(t); } catch { L[k] = t; } changed(); } })), h("button", { class: "btn s ghost", "aria-label": `remove ${k}`, onclick: () => { delete L[k]; changed(); render(); } }, "×"))),
-      !Object.keys(L).filter(k => k !== "boundary").length ? h("p", { class: "small muted" }, isDef ? "The default: the bank's defaults and every customer script as written." : "No patch yet: add what this level changes.") : null,
+      h("p", { class: "lsum" }, ...describeLevel(L, isDef)),
       h("div", { class: "row" }, addBankSelect(L), h("button", { class: "btn s", onclick: () => { (L.customer = L.customer || []).push({ script: Object.keys((S.P.customer || {}).scripts || {})[0], say: [""], position: "start" }); changed(); render(); } }, "+ Customer Says…"))));
+}
+function describeLevel(L, isDef) {
+  // the level in one plain sentence: what the bank answers and what the customer says, the rest stays default
+  const parts = [];
+  const answers = (S.P.customer || {}).answers || {};
+  const promptsOf = sc => Object.entries(answers).filter(([, x]) => x === sc).map(([st]) => st);
+  for (const [k, v] of Object.entries(L.fixture || {})) {
+    if (k.startsWith("tool:")) {
+      const calls = Array.isArray(v) ? v : [v];
+      parts.push([h("b", {}, k.slice(5)), " answers ", calls.map(c => typeof c === "string" ? c : (c && c.status) || JSON.stringify(c)).join(", then ")]);
+    } else parts.push([h("b", {}, k), ` is ${v}`]);
+  }
+  for (const op of L.customer || []) {
+    const at = promptsOf(op.script);
+    const said = (op.say || []).filter(Boolean);
+    const when = op.position === "replace" ? "instead of the usual answer" : op.position === "append" ? "after the usual answer" : "first";
+    if (op.add_slots) parts.push(["at ", h("b", {}, at.join("/") || op.script), ` the customer also gives ${Object.entries(op.add_slots).map(([k, v]) => `${k} = ${v}`).join(", ")}`]);
+    if (said.length) parts.push(["at ", h("b", {}, at.join("/") || op.script), op.item != null ? ` (item ${op.item})` : "", " the customer says ", said.join(", then "), ` ${when}`, op.sticky ? ", every time" : ""]);
+  }
+  const lead = isDef ? "Default: " : "This level: ";
+  if (!parts.length) return [lead, isDef ? "the bank's defaults and every customer script as written." : "no change yet. Add what it changes with the buttons below."];
+  return [lead, ...parts.flatMap((p, i) => [i ? "; " : "", ...p]), ". Everything else stays at its default.", L.boundary ? " Marked boundary: an edge of the policy." : ""];
 }
 function addBankSelect(L) {
   const keys = S.J.fixture_keys || {};
@@ -638,14 +810,17 @@ function frameOptions() {   // every act with each value of its first required s
 }
 async function preview(f, lv) {
   S.preview = { factor: f.name, level: lv, loading: true }; renderPreview();
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  $("#preview")?.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+  gMark("preview");
   try { const r = await api(`api/journey/${S.pack}/preview`, { project: S.P, levels: { [f.name]: lv }, questions: [] }); S.preview = { factor: f.name, level: lv, r }; }
   catch (e) { S.preview = { factor: f.name, level: lv, error: e.message }; }
   renderPreview();
 }
-function previewPanel(f) { return h("section", { class: "card", id: "preview", "aria-live": "polite" }, ...previewBody(f)); }
+function previewPanel(f) { S.previewFor = f.name; return h("section", { class: "card", id: "preview", "aria-live": "polite" }, ...previewBody(f)); }
 function renderPreview() { const el = $("#preview"); if (el) el.replaceChildren(...previewBody()); }
 function previewBody() {
-  const p = S.preview;
+  const p = S.preview && S.preview.factor === S.previewFor ? S.preview : null;     // a preview belongs to its factor
   if (!p) return [h("div", { class: "hd" }, h("h2", {}, "Expected Conversation")), h("div", { class: "bd" }, h("p", { class: "muted" }, "Choose Preview on a level to walk the graph with that level and every other factor at its default."))];
   if (p.loading) return [h("div", { class: "hd" }, h("h2", {}, `Walking the graph: ${p.factor} = ${p.level}`)), h("div", { class: "bd row muted" }, h("span", { class: "spin" }), "Walking the graph…")];
   if (p.error) return [h("div", { class: "hd" }, h("h2", {}, `${p.factor} = ${p.level}`)), h("div", { class: "bd" }, h("div", { class: "notice bad" }, p.error))];
@@ -661,7 +836,8 @@ function previewBody() {
         : t.role === "customer" ? h("div", { class: "turn customer" }, h("span", { class: "who" }, "Customer"), h("div", { class: "what" }, t.frame))
         : h("div", { class: "turn tool" }, h("span", { class: "who" }, "Tool"), h("div", { class: "what" }, `${t.tool}(${Object.entries(t.args || {}).map(([k, v]) => `${k}=${v}`).join(", ")}) → ${t.ok ? ((t.result || {}).status ?? "") : "error"}`)))),
       h("dl", { class: "kv" }, h("dt", {}, "Writes"), h("dd", { class: "mono small" }, (sig.writes || []).map(([t, a]) => `${t}(${Object.entries(a || {}).map(([k, v]) => `${k}=${v}`).join(", ")})`).join("; ") || "none"),
-        h("dt", {}, "Category"), h("dd", {}, r.category), h("dt", {}, "Rules exercised"), h("dd", {}, h("div", { class: "chips" }, ...r.rules.map(x => h("span", { class: "chip graph" }, x))))))];
+        h("dt", {}, "Category"), h("dd", {}, r.category), h("dt", {}, "Rules exercised"), h("dd", {}, h("div", { class: "chips" }, ...r.rules.map(x => h("span", { class: "chip graph" }, x))))),
+      h("p", { class: "small muted" }, "This is what the graph says the bot must do with this level and every other factor at its default. If the policy should behave differently, the graph is wrong, not the level. The campaign pairs this level with the other factors' levels."))];
 }
 
 // ---------------------------------------------------------------- bank & customer
@@ -671,6 +847,7 @@ function bank() {
   const scripts = Object.keys(cust.scripts);
   const defaultsLevel = { fixture: fx.defaults };
   return [head("Bank & Customer", "The mock bank every case runs against, and the simulated customer's answer at each prompt. Levels of the journey factors patch both.", h("span", { class: "src proj" }, "project.yaml")),
+    hint("bank", "Change a default here when it should hold for every case. When it is one of the things cases should vary in, add it as a level of a journey factor instead, so the generator pairs it with everything else."),
     h("div", { class: "grid2" },
       h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "The Mock Bank")), h("div", { class: "bd stack" },
         h("div", { class: "form" }, h("label", { for: "cred" }, "Credential that authenticates"), h("input", { class: "input mono", id: "cred", value: fx.credential || "", autocomplete: "off", spellcheck: "false", oninput: e => { fx.credential = e.target.value; changed(); } })),
@@ -695,6 +872,7 @@ function scoring() {
     h("div", {}, h("button", { class: "btn s", onclick: () => { arr.push(placeholder); changed(); render(); } }, `+ ${label}`)));
   P.constraints = P.constraints || [];
   return [head("Rules & Scoring", "Which combinations of levels are valid, how cases are grouped, how failures are graded, and what the release gate requires.", h("span", { class: "src proj" }, "project.yaml")),
+    hint("scoring", "Case rules remove combinations of levels that cannot happen. Categories group cases in the report. Severities say what each kind of failure costs, and the release gate turns that into pass or fail. The defaults suit most journeys; change them when your risk appetite differs."),
     h("div", { class: "grid2" },
       h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Case Rules")), h("div", { class: "bd stack" },
         h("p", { class: "small muted" }, "Every case must satisfy each rule, e.g. level('x') == 'ok' or level('y') == 'none'."), listEditor(P.constraints, "Rule", "True"),
@@ -747,6 +925,20 @@ const STEPS = [["1", "Knowledge store", "Load or build the knowlytix store from 
   ["7", "Bot under test", "Every case run; every utterance checked"], ["8", "Attribution", "Which factors and stages explain failures"],
   ["9", "Tool faults", "Tools erroring or answering wrongly"], ["10", "Planted defects", "Mutant bots the suites must catch"],
   ["11", "Training data", "Corpora from the proved cases"], ["12", "Outputs", "Report, release gate, datasets"]];
+const LOOK = {
+  "1": "A cached store loads in about a minute; building one takes much longer. Self-tests must pass.",
+  "2": "Every question's answer must be computable from the graph (100%). A failed self-test means the store does not reproduce the graph.",
+  "3": "Pairs covered should equal the feasible pairs, and rules reached should be all or nearly all. Rules never reached are untested policy.",
+  "4": "Which aspects of the customer's wording are varied, and how many variants each case gets.",
+  "5": "Reworded cases that are not proved to mean the same are left out. Below 100% means some rewordings changed the meaning.",
+  "6": "Separable and a high AUC mean the runtime monitor can tell good turns from bad ones on this graph.",
+  "7": "Compare original and reworded accuracy: a large drop means the bot depends on exact wording. Words grounded below 100% means it said something false or unchecked.",
+  "8": "Which stage and which factor explain the failures: start fixing the bot where most failures are charged.",
+  "9": "Silent failures (a tool fault the bot did not notice) are the dangerous ones; there should be none.",
+  "10": "Each planted defect should be caught by some suite. Survivors are either equivalent to the correct bot or need cases the design does not have.",
+  "11": "Corpora built from the proved cases, for training a classifier or drafting responses.",
+  "12": "The report and datasets of this run; download them from the files listed or the buttons above.",
+};
 function runView(r) {
   if (r.arg) return runDetail(r.arg, r.q.get("step"));
   const devs = S.meta.devices.options;
@@ -760,7 +952,7 @@ function runView(r) {
   const form = h("form", { class: "card", onsubmit: async e => { e.preventDefault(); startBtn.disabled = true; startBtn.replaceChildren(h("span", { class: "spin" }), "Starting…");
       if (S.dirty && !(await confirmBox("Save Before Running?", "The run reads the saved project. Your unsaved edits would not be used.", "Run Without Them"))) { startBtn.disabled = false; startBtn.replaceChildren("Start Run"); return; }
       try { const body = { ...F, max_cases: F.max_cases === "" ? null : Number(F.max_cases), runs_per_base: Number(F.runs_per_base) || 1, seed: Number(F.seed) || 42 };
-        const { id } = await api("api/runs", body); S.meta.active_run = id; toast(`Run ${id} started`); go(`#/run/${id}`); }
+        const { id } = await api("api/runs", body); S.meta.active_run = id; gMark("ran"); toast(`Run ${id} started. You can leave this page; it keeps running.`); go(`#/run/${id}`); }
       catch (x) { toast(x.message); startBtn.disabled = false; startBtn.replaceChildren("Start Run"); } } },
     h("div", { class: "hd" }, h("h2", {}, "Run Settings"), h("span", { class: "small muted" }, "The run uses the saved project of the journey.")),
     h("div", { class: "bd stack" },
@@ -779,9 +971,15 @@ function runView(r) {
           chk("llm_arm", "LLM rewording", "Adds an arm reworded by an LLM, proved like the rest"),
           h("div", { class: "row", style: "padding-left:26px" }, h("label", { for: "rf-llm", class: "small muted" }, "mode"), h("select", { class: "select", id: "rf-llm", style: "height:28px", onchange: e => set("llm_mode", e.target.value) }, ...["replay", "live"].map(m => h("option", { selected: F.llm_mode === m }, m))),
             h("label", { for: "rf-model", class: "small muted" }, "model"), h("input", { class: "input mono", id: "rf-model", style: "width:140px;height:28px", value: F.llm_model, placeholder: "gpt-41…", autocomplete: "off", spellcheck: "false", oninput: e => set("llm_model", e.target.value) })))),
-      active ? h("div", { class: "notice warn" }, "A run is in progress. ", h("a", { href: `#/run/${active}` }, "View it"), " or cancel it before starting another.") : null,
-      h("div", { class: "row", style: "justify-content:flex-end" }, startBtn)));
-  return [head("Run Campaign", "Build or reload the knowledge store, generate the cases from your journey factors, prove the rewording, run the bot and check everything it says. Each step shows what it produced as it finishes."), form];
+      active ? h("div", { class: "notice warn" }, "A run is in progress, and one runs at a time. ", h("a", { href: `#/run/${active}` }, "View it"), " or cancel it before starting another.") : null,
+      h("div", { class: "row", style: "justify-content:space-between;gap:12px" }, h("div", { id: "pastnote", style: "flex:1;min-width:0" }), startBtn)));
+  const past = (S.runsList || []).filter(x => x.job.pack === S.pack && x.status === "finished" && x.elapsed).slice(0, 4);
+  const pastNote = past.length ? h("p", { class: "small muted" }, "Earlier runs of this journey here: ",
+      past.map(x => `${x.headline && x.headline.tested ? x.headline.tested : (x.job.max_cases || "all")} cases took ${Math.max(1, Math.round(x.elapsed / 60))} min (${x.job.device || "auto"})`).join("; "), ".")
+    : h("p", { class: "small muted" }, "No earlier runs of this journey here. A first run of about 10 cases takes a few minutes on a CPU when the knowledge store is cached; building the store takes longer.");
+  return [head("Run Campaign", "Build or reload the knowledge store, generate the cases from your journey factors, prove the rewording, run the bot and check everything it says. Each step shows what it produced as it finishes."),
+    hint("run", "Start with 10 to 40 cases to see the whole pipeline, then run everything. The run is its own process: it carries on if you leave this page or close the tab, and the header shows its progress. Change the journey in the top bar."),
+    (form.querySelector("#pastnote").append(pastNote), form)];
 }
 function runDetail(id, stepSel) {
   if (!S.run || S.run.id !== id) { S.run = { id, next: 0, events: [], steps: {}, logs: [], status: "starting", job: null, sel: stepSel }; pollRun(); }
@@ -811,9 +1009,15 @@ function runDetailBody() {
   else if (st.status === "running") detail = h("div", { class: "stack" }, h("div", { class: "row muted" }, h("span", { class: "spin" }), "Working on this step…"), h("div", { class: "log" }, R.logs.slice(-12).join("\n")));
   else if (R.status === "failed" && !st.status) detail = h("p", { class: "muted" }, "The run stopped before this step.");
   else detail = h("p", { class: "muted" }, st.status === "skipped" || (R.status === "finished" && !st.status) ? "This step was turned off for this run." : "This step has not started yet.");
+  if (R.status === "finished") gMark("read");
+  const fromList = (S.runsList || []).find(x => x.id === R.id);
+  if (R.headline && fromList && fromList.headline) R.headline = Object.assign({}, fromList.headline, R.headline,
+    R.headline.gate_reworded == null ? { gate_reworded: fromList.headline.gate_reworded } : {});
   const outputs = R.status === "finished" ? h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Results")), h("div", { class: "bd stack" },
       R.headline ? h("div", { class: "tiles" }, tile(R.headline.tested != null && R.headline.tested !== R.headline.bases ? `${R.headline.tested} of ${R.headline.bases}` : R.headline.bases, "cases tested"), tile(pct(R.headline.accuracy_original), "correct, original wording"), tile(pct(R.headline.accuracy_reworded), "correct, reworded"),
-        tile(pct(R.headline.proved), "reworded cases proved"), tile(pct(R.headline.defects_caught), "planted defects caught"), tile(R.headline.gate ? "Passed" : "Not passed", "release gate")) : null,
+        tile(pct(R.headline.proved), "reworded cases proved"), tile(pct(R.headline.defects_caught), "planted defects caught"),
+        tile(R.headline.gate ? "Passed" : "Not passed", "release gate, original"), R.headline.gate_reworded != null ? tile(R.headline.gate_reworded ? "Passed" : "Not passed", "release gate, reworded") : null) : null,
+      R.headline ? meaning(R.headline) : null,
       h("div", { class: "row" }, ...["report.html", "bot_validation.html", "case_comparison.html"].map(f => h("a", { class: "btn", href: `runs/${R.id}/${f}`, target: "_blank", rel: "noopener" }, { "report.html": "Open Report", "bot_validation.html": "Open Bot Validation", "case_comparison.html": "Open Case Comparison" }[f]))))) : null;
   const err = R.error ? h("div", { class: "notice bad" }, h("strong", {}, "The run stopped with an error."), h("pre", { class: "log", style: "margin-top:8px;background:transparent" }, R.error)) : null;
   return [head(`Run ${R.id}`, `${job.pack || ""} · device ${job.device || "auto"} · ${job.max_cases ? job.max_cases + " cases" : "all cases"} · ${elapsed}s`,
@@ -821,8 +1025,23 @@ function runDetailBody() {
       R.status === "running" || R.status === "starting" ? h("button", { class: "btn danger", onclick: async () => { if (await confirmBox("Cancel This Run?", "The campaign stops now; what it wrote so far stays in the run folder.", "Cancel Run")) { try { await api(`api/runs/${R.id}/cancel`, {}); toast("Run cancelled"); } catch (e) { toast(e.message); } } } }, "Cancel Run") : h("a", { class: "btn", href: "#/run" }, "New Run")),
     err, outputs,
     h("div", { class: "runlayout" }, steps, h("section", { class: "card", "aria-live": "polite" }, h("div", { class: "hd" }, h("div", {}, h("h2", {}, `${info[0]} · ${info[1]}`), h("p", { class: "small muted" }, info[2])),
-        st.status ? h("span", { class: `pill ${st.status === "done" ? "ok" : st.status === "running" ? "run" : ""}` }, st.status) : null), h("div", { class: "bd" }, detail))),
+        st.status ? h("span", { class: `pill ${st.status === "done" ? "ok" : st.status === "running" ? "run" : ""}` }, st.status) : null),
+        h("div", { class: "bd" }, LOOK[sel] ? h("div", { class: "look" }, h("b", {}, "What to look for: "), LOOK[sel]) : null, detail))),
     h("details", { class: "card", style: "margin-top:16px", open: R.status !== "finished" }, h("summary", {}, `Log (${R.logs.length} lines)`), h("div", { class: "log", id: "runlog", style: "margin:0 14px 14px" }, R.logs.slice(-400).join("\n")))];
+}
+function meaning(H) {
+  // what the numbers mean and what to do next, in plain words
+  const out = [];
+  const link = (href, text) => h("a", { href, target: "_blank", rel: "noopener" }, text);
+  const id = S.run && S.run.id;
+  if (H.accuracy_original != null && H.accuracy_original < 1) out.push([`${pct(1 - H.accuracy_original)} of the cases failed even as scripted. `, link(`runs/${id}/bot_validation.html`, "Bot Validation"), " shows each failure turn by turn; step 8 says which stage they are charged to."]);
+  if (H.accuracy_original != null && H.accuracy_reworded != null && H.accuracy_original - H.accuracy_reworded > 0.2)
+    out.push([`The bot gets ${pct(H.accuracy_original)} right as scripted but ${pct(H.accuracy_reworded)} when the customer's words are reworded (with the same meaning, proved). It depends on exact wording. `, link(`runs/${id}/case_comparison.html`, "Case Comparison"), " shows the turns that changed."]);
+  if (H.gate && H.gate_reworded === false) out.push(["The release gate passes on the scripted wording only. Judge the bot on the reworded gate if real customers will not follow the script."]);
+  if (H.proved != null && H.proved < 1) out.push([`${pct(1 - H.proved)} of the reworded cases changed meaning and were left out (step 5).`]);
+  if (H.defects_caught != null && H.defects_caught < 1) out.push([`${pct(1 - H.defects_caught)} of the planted defects were not caught. Step 10 lists them: some are equivalent to the correct bot, others need cases the design does not have.`]);
+  if (!out.length) out.push(["Everything checked passed: original and reworded wording, the meaning proof and the planted defects."]);
+  return h("div", { class: "notice info meaning" }, h("strong", {}, "What this means"), h("ul", { style: "margin-top:6px" }, ...out.map(x => h("li", {}, ...x))));
 }
 function stepDetails(d) {
   return h("div", { class: "stack" },
@@ -872,8 +1091,9 @@ async function pollActive() {   // the header pill follows an active run from an
 function runsView() {
   const el = h("div", {}, head("Runs", "Every campaign run on this machine, newest first."), h("div", { class: "card empty" }, "Loading runs…"));
   api("api/runs").then(r => {
-    const rows = r.runs.map(x => [x.id, x.job.pack, x.job.device || "auto", x.status, pct(x.headline?.accuracy_original), pct(x.headline?.accuracy_reworded), pct(x.headline?.proved), pct(x.headline?.defects_caught),
-      x.headline ? (x.headline.gate ? "passed" : "not passed") : "–", x.files.includes("report.html") ? h("a", { href: `runs/${x.id}/report.html`, target: "_blank", rel: "noopener", onclick: e => e.stopPropagation() }, "Report") : "–"]);
+    S.runsList = r.runs;
+    const rows = r.runs.map(x => [x.id, x.job.pack, x.job.device || "auto", x.status + (x.elapsed ? ` · ${Math.max(1, Math.round(x.elapsed / 60))} min` : ""), pct(x.headline?.accuracy_original), pct(x.headline?.accuracy_reworded), pct(x.headline?.proved), pct(x.headline?.defects_caught),
+      x.headline ? `${x.headline.gate ? "passed" : "not passed"}${x.headline.gate_reworded == null ? "" : x.headline.gate_reworded ? " · reworded passed" : " · reworded not passed"}` : "–", x.files.includes("report.html") ? h("a", { href: `runs/${x.id}/report.html`, target: "_blank", rel: "noopener", onclick: e => e.stopPropagation() }, "Report") : "–"]);
     el.replaceChildren(head("Runs", "Every campaign run on this machine, newest first.", h("a", { class: "btn primary", href: "#/run" }, "New Run")),
       rows.length ? table(["Run", "Journey", "Device", "Status", "Correct, original", "Correct, reworded", "Proved", "Defects caught", "Release gate", ""], rows, { mono: [0, 2], onclick: row => go(`#/run/${row[0]}`) })
         : h("div", { class: "card empty" }, "No runs yet. ", h("a", { href: "#/run" }, "Start one"), "."));

@@ -15,8 +15,10 @@ in their own processes (runs.py).
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import mimetypes
+import socket
 import threading
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -52,11 +54,23 @@ def packs() -> list[dict[str, Any]]:
     return out
 
 
-def _studio(pack: str, fresh: bool = False):
-    from ..domain import set_current
-    from ..studio import Studio
+@contextlib.contextmanager
+def _on(pack: str):
+    """Work on one journey, then put back the journey that was active: the console shares the process (a Jupyter
+    kernel) with whatever else runs there, and must not leave its own choice behind."""
+    from ..domain import current, set_current
     with _LOCK:
-        set_current(pack)
+        keep = current().name
+        try:
+            yield set_current(pack)
+        finally:
+            if current().name != keep:
+                set_current(keep)
+
+
+def _studio(pack: str, fresh: bool = False):
+    from ..studio import Studio
+    with _on(pack):
         if fresh or pack not in _STUDIOS:
             _STUDIOS[pack] = Studio(pack=pack)
         return _STUDIOS[pack]
@@ -66,8 +80,7 @@ def _draft(pack: str) -> dict[str, Any]:
     from ..domain import set_current
     from ..project import dump_yaml
     from ..project_draft import HEADER, draft
-    with _LOCK:
-        dom = set_current(pack)
+    with _on(pack) as dom:
         if dom.project_path.exists():
             return {"drafted": False, "path": str(dom.project_path)}
         raw = draft(dom)
@@ -110,9 +123,7 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                                        "active_run": runs.active()})
                 if parts[:2] == ["api", "journey"] and len(parts) == 3:
                     st = _studio(parts[2], fresh=parse_qs(u.query).get("fresh") == ["1"])
-                    with _LOCK:
-                        from ..domain import set_current
-                        set_current(parts[2])
+                    with _on(parts[2]):
                         return self._json({"pack": parts[2], **st.state()})
                 if parts == ["api", "runs"]:
                     return self._json({"runs": runs.list(), "active": runs.active()})
@@ -141,9 +152,7 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                     if action == "draft":
                         return self._json(_draft(pack))
                     st = _studio(pack)
-                    with _LOCK:
-                        from ..domain import set_current
-                        set_current(pack)
+                    with _on(pack):
                         raw = body.get("project") or st.project.raw
                         if action == "check":
                             return self._json(st.check(raw))
@@ -166,24 +175,55 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                 return self._err(e)
             return self._send(404, b"not found", "text/plain")
 
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        print(f"journey console: listening on {host}: anyone who can reach this port can edit projects and start "
+              "campaigns (there is no login); prefer 127.0.0.1 with port forwarding or a Jupyter proxy")
     ThreadingHTTPServer.allow_reuse_address = True
     return ThreadingHTTPServer((host, port), H)
+
+
+def free_port(port: int, host: str = "127.0.0.1", tries: int = 20) -> int:
+    """``port`` if nothing listens there, else the next free one (another kernel may hold the console's port)."""
+    for p in range(port, port + tries):
+        with socket.socket() as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind((host, p))
+                return p
+            except OSError:
+                continue
+    raise OSError(f"no free port in {port}-{port + tries - 1}")
 
 
 _SERVERS: dict[int, ThreadingHTTPServer] = {}
 
 
 def start(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path | None = None) -> str:
-    """Start the console in a background thread (from Jupyter or Python); returns its URL."""
-    if port in _SERVERS:
-        return f"http://{host}:{port}/"
-    srv = make_server(port, host, runs_dir)
-    threading.Thread(target=srv.serve_forever, daemon=True, name=f"journey-console-{port}").start()
-    _SERVERS[port] = srv
-    return f"http://{host}:{port}/"
+    """Start the console in a background thread (from Jupyter or Python); returns its URL. Running it again returns
+    the same server; if another process holds ``port``, the next free port is used (and said)."""
+    if _SERVERS:
+        p = port if port in _SERVERS else next(iter(_SERVERS))
+        return f"http://{host}:{p}/"
+    p = free_port(port, host)
+    if p != port:
+        print(f"journey console: port {port} is in use (another kernel?); using {p}")
+    srv = make_server(p, host, runs_dir)
+    threading.Thread(target=srv.serve_forever, daemon=True, name=f"journey-console-{p}").start()
+    _SERVERS[p] = srv
+    return f"http://{host}:{p}/"
 
 
-def stop(port: int = 8790) -> None:
+def running() -> dict[int, str]:
+    """The consoles this process serves: port -> URL."""
+    return {p: f"http://{s.server_address[0]}:{p}/" for p, s in _SERVERS.items()}
+
+
+def stop(port: int | None = None) -> None:
+    """Stop the console (the one on ``port``, or every one this process started). Runs in progress keep going."""
+    if port is None:
+        for p in list(_SERVERS):
+            stop(p)
+        return
     srv = _SERVERS.pop(port, None)
     if srv is not None:
         srv.shutdown()

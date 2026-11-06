@@ -240,12 +240,12 @@ def anchored_figures(store, frame: SemanticFrame, answer_text: str) -> list[Any]
     if kg is None or not subject:
         return None
     try:
-        key = (id(store), current().name)
-        if key not in _READERS:
+        key = (id(store), id(kg), current().name)
+        if key not in _READERS or _READERS[key][0] is not store:     # the store is held, so its id is never reused
             from .speech import SpeechContract, UtteranceVerifier
-            _READERS[key] = UtteranceVerifier(store, SpeechContract.from_graph(kg), corroborate=False).reader
+            _READERS[key] = (store, UtteranceVerifier(store, SpeechContract.from_graph(kg), corroborate=False).reader)
         from .speech.session import SessionFacts
-        read = _READERS[key].read(answer_text or "", SessionFacts.from_run([], [], None, {}), question=frame)
+        read = _READERS[key][1].read(answer_text or "", SessionFacts.from_run([], [], None, {}), question=frame)
     except Exception:                                        # noqa: BLE001 - the plain reading still grades it
         return None
     attr = str(frame.get("attr") or "")

@@ -96,6 +96,48 @@ def test_every_step_has_a_summary_and_skips_cleanly():
         assert set(out) >= {"metrics", "tables", "notes"}
 
 
+def test_a_busy_port_falls_back_and_the_url_can_be_set():
+    import os
+    from gmsjourney.app import url_for
+    from gmsjourney.app.server import free_port
+    with socket.socket() as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen(1)
+        taken = busy.getsockname()[1]
+        assert free_port(taken) != taken
+    os.environ["GMSJOURNEY_CONSOLE_URL"] = "https://hub.example/user/me/proxy/{port}/"
+    try:
+        assert url_for(8790) == "https://hub.example/user/me/proxy/8790/"
+    finally:
+        del os.environ["GMSJOURNEY_CONSOLE_URL"]
+    assert url_for(8790, proxy=False) == "http://127.0.0.1:8790/"
+
+
+def test_a_run_outlives_the_server_that_started_it():
+    """A worker still running after a kernel restart is reported running (its pid is in its start event), and a run
+    whose worker is gone without a last event is 'stopped'."""
+    import json
+    import os
+    import subprocess
+    import time
+    from gmsjourney.app.runs import Runs
+    root = Path(tempfile.mkdtemp())
+    live = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
+    try:
+        for rid, pid in (("r-live", live.pid), ("r-gone", 2 ** 22 + 7)):
+            (root / rid).mkdir()
+            (root / rid / "job.json").write_text(json.dumps({"pack": "supplementary_card", "id": rid}))
+            (root / rid / "events.jsonl").write_text(json.dumps({"type": "start", "pid": pid, "t": time.time()}) + "\n")
+        runs = Runs(root)                                   # a fresh server: it started neither
+        assert runs.status("r-live") == "running" and runs.active() == "r-live"
+        assert runs.status("r-gone") == "stopped"
+        assert runs.cancel("r-live") and live.wait(10) is not None
+        assert runs.status("r-live") == "cancelled"
+    finally:
+        if live.poll() is None:
+            os.killpg(live.pid, 9)
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):

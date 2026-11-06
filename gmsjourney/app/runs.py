@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -63,10 +64,15 @@ class Runs:
 
     # ------------------------------------------------------------------ start / cancel
     def active(self) -> str | None:
+        """The run in progress: one this server started, or one still alive from before a restart (its worker's
+        pid is in its start event)."""
         with self.lock:
             for rid, p in list(self.procs.items()):
                 if p.poll() is None:
                     return rid
+        for run in sorted((d for d in self.root.iterdir() if d.is_dir()), reverse=True)[:5]:
+            if self.status(run.name) == "running":
+                return run.name
         return None
 
     def start(self, job: dict[str, Any]) -> str:
@@ -84,22 +90,31 @@ class Runs:
         if job.get("device") and job["device"] != "auto":
             env["GMSJOURNEY_DEVICE"] = job["device"]
         log = open(run / "console.log", "w")
+        # its own process group, so cancelling stops everything the campaign started
         p = subprocess.Popen([sys.executable, "-m", "gmsjourney.app.worker", str(run)], cwd=str(ROOT), env=env,
-                             stdout=log, stderr=subprocess.STDOUT)
+                             stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         with self.lock:
             self.procs[rid] = p
         return rid
 
     def cancel(self, rid: str) -> bool:
+        """Stop a run and every process it started (its process group); works for a run started before a restart."""
         with self.lock:
             p = self.procs.get(rid)
-        if p is None or p.poll() is not None:
+        pid = p.pid if p is not None and p.poll() is None else (self._pid(rid) if self.status(rid) == "running" else None)
+        if pid is None:
             return False
-        p.terminate()
-        try:
-            p.wait(10)
-        except subprocess.TimeoutExpired:
-            p.kill()
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(os.getpgid(pid), sig)
+            except (ProcessLookupError, PermissionError, OSError):
+                break
+            for _ in range(50):
+                if not _alive(pid) or (p is not None and p.poll() is not None):
+                    break
+                time.sleep(0.2)
+            if not _alive(pid) or (p is not None and p.poll() is not None):
+                break
         with open(self.root / rid / "events.jsonl", "a") as f:
             f.write(json.dumps({"type": "cancelled", "t": time.time()}) + "\n")
         return True
@@ -134,15 +149,38 @@ class Runs:
             p = self.procs.get(rid)
         if p is not None and p.poll() is None:
             return "running"
+        pid = self._pid(rid, lines)
+        if p is None and pid and _alive(pid):
+            return "running"                       # started before this server (a kernel restart): still going
         return "stopped" if last else "starting"
+
+    def _pid(self, rid: str, lines: list[str] | None = None) -> int | None:
+        """The worker's pid, from the run's start event."""
+        if lines is None:
+            f = self.root / rid / "events.jsonl"
+            lines = f.read_text(encoding="utf-8").splitlines()[:1] if f.exists() else []
+        for ln in lines[:1]:
+            try:
+                return int(json.loads(ln).get("pid") or 0) or None
+            except (ValueError, TypeError):
+                return None
+        return None
 
     def list(self) -> list[dict[str, Any]]:
         out = []
         for run in sorted((d for d in self.root.iterdir() if d.is_dir() and (d / "job.json").exists()), reverse=True):
             job = json.loads((run / "job.json").read_text())
             head = json.loads((run / "headline.json").read_text()) if (run / "headline.json").exists() else None
+            if head is not None and "gate_reworded" not in head and (run / "out" / "report.json").exists():
+                try:                                       # runs from before the reworded gate was shown: once
+                    rep = json.loads((run / "out" / "report.json").read_text())
+                    head["gate_reworded"] = ((rep.get("release_gate") or {}).get("enriched_template") or {}).get("passed")
+                    (run / "headline.json").write_text(json.dumps(head, default=str))
+                except (OSError, ValueError):
+                    pass
             files = [f for f in ("report.html", "bot_validation.html", "case_comparison.html") if (run / "out" / f).exists()]
-            out.append({"id": run.name, "job": job, "status": self.status(run.name), "headline": head, "files": files})
+            out.append({"id": run.name, "job": job, "status": self.status(run.name), "headline": head, "files": files,
+                        "elapsed": _elapsed(run / "events.jsonl")})
         return out
 
     def file(self, rid: str, rel: str) -> Path:
@@ -152,3 +190,25 @@ class Runs:
         if base not in p.parents and p != base or not p.is_file():
             raise KeyError(rel)
         return p
+
+
+def _alive(pid: int) -> bool:
+    """True while a process with this pid exists (and is not a zombie)."""
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, PermissionError):
+        return False
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            return f.read().split(")")[-1].split()[0] != "Z"
+    except OSError:
+        return True
+
+
+def _elapsed(events) -> float | None:
+    """Seconds from a run's first event to its last (for the run list and time estimates)."""
+    try:
+        lines = events.read_text(encoding="utf-8").splitlines()
+        return round(json.loads(lines[-1])["t"] - json.loads(lines[0])["t"], 1) if len(lines) > 1 else None
+    except (OSError, ValueError, KeyError, IndexError):
+        return None

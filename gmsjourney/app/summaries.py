@@ -60,7 +60,7 @@ def summarize(step: str, R: dict[str, Any]) -> dict[str, Any]:
 
 
 def _out(metrics=(), tables=(), notes=()) -> dict[str, Any]:
-    return {"metrics": list(metrics), "tables": list(tables), "notes": [n for n in notes if n]}
+    return {"metrics": [m for m in metrics if m], "tables": list(tables), "notes": [n for n in notes if n]}
 
 
 # ----------------------------------------------------------------------------- per step
@@ -188,7 +188,9 @@ def _s7(R):
         ex += [[kind, x.get("sid"), x.get("where"), x.get("why")] for x in xs[:6]]
     return _out([_m("Bot", res.get("bot")), _m("Accuracy, original", _pct((res.get("base_level") or {}).get("accuracy"))),
                  _m("Accuracy, reworded", _pct((res.get("enriched") or {}).get("accuracy"))),
-                 _m("Release gate", "passed" if (gate.get("base_level") or {}).get("passed") else "not passed")],
+                 _m("Release gate, original", "passed" if (gate.get("base_level") or {}).get("passed") else "not passed"),
+                 _m("Release gate, reworded", "passed" if (gate.get("enriched_template") or {}).get("passed") else "not passed")
+                 if gate.get("enriched_template") else None],
                 [_t("Results", ["Wording", "Cases", "Correct", "Outcome right", "Words grounded", "Flow right", "Policy answers"], rows),
                  _t("Per stage", ["Stage", "Original", "Reworded"],
                     [[k, _pct(v), _pct(ecomps.get(f"component_{k}"))] for k, v in comps]),
@@ -257,7 +259,8 @@ def headline(R: dict[str, Any]) -> dict[str, Any]:
             "accuracy_reworded": (res.get("enriched") or {}).get("accuracy"),
             "proved": ((R.get("invariance") or {}).get("summary") or {}).get("acceptance_rate"),
             "defects_caught": (m.get("mutation_score") or {}).get("all_suites_combined"),
-            "gate": ((R.get("release_gate") or {}).get("base_level") or {}).get("passed")}
+            "gate": ((R.get("release_gate") or {}).get("base_level") or {}).get("passed"),
+            "gate_reworded": ((R.get("release_gate") or {}).get("enriched_template") or {}).get("passed")}
 
 
 def clean(x: Any) -> Any:

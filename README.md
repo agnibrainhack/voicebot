@@ -139,8 +139,23 @@ Jupyter: `from gmsjourney import app; app.show()` in a notebook (`notebooks/jour
   rewording, the proof, the gates, the bot's results, attribution, tool faults, planted defects, training data,
   the release gate), then links the report. Runs are kept under `output/console_runs/<id>/`.
 
-On a remote GPU kernel, `app.show()` goes through jupyter-server-proxy on JupyterHub; elsewhere forward the port.
-The page talks to the server with relative paths, so it works under a proxy prefix. `CampaignConfig(device=...)`
+`app.show()` finds the right address for your browser. On JupyterHub, or on any Jupyter server with
+jupyter-server-proxy (it checks that `<server>/proxy/<port>/` reaches the console), the page is shown through
+Jupyter, which works when the kernel runs on a remote GPU machine. Otherwise it uses `http://127.0.0.1:<port>/` and
+says which port to forward. `GMSJOURNEY_CONSOLE_URL` overrides the address. If another kernel holds the port, the
+next free one is used. The page talks to the server with relative paths, so it works under any proxy prefix.
+
+The page guides a new user:
+- **Start Here** on Overview: seven steps that tick themselves off.
+- **Help** (or `?`): the workflow and a glossary.
+- A dismissible hint on each page.
+- Help under every factor field, and a one-line summary of what each level changes.
+- **Fix** on each coverage gap: adds the missing level, or creates the factor at that point.
+- After a run, **What this means**: both release gates (original and reworded wording), the gap between them, and
+  where to look next. Each pipeline step also says what to look for.
+
+A campaign keeps running if the tab closes or the kernel restarts. The console finds it again by its worker's pid
+when it next starts, and Cancel stops the worker's whole process group. `CampaignConfig(device=...)`
 (or `GMSJOURNEY_DEVICE`) sets the device for the knowledge store; `CampaignConfig(on_step=...)` reports each step.
 
 ## Quick start
