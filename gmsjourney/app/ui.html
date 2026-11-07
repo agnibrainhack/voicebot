@@ -1105,14 +1105,15 @@ function runDetailBody() {
   const st = R.steps[sel] || {}, info = STEPS.find(s => s[0] === sel) || [sel, sel, ""];
   let detail;
   if (st.details) detail = stepDetails(st.details);
-  if (sel === "13" && R.status === "finished") detail = h("div", { class: "stack" }, h("div", { class: "notice info row", style: "justify-content:space-between" },
-      h("span", {}, "The one page to judge the bot by, then every case with the policy's expected run on the left and the bot's on the right."),
-      h("span", { class: "row" }, h("a", { class: "btn s primary", href: `#/verdict/${R.id}` }, "Open the Verdict"), h("a", { class: "btn s", href: `runs/${R.id}/verdict.html`, target: "_blank", rel: "noopener" }, "verdict.html"))), detail);
-  if (sel === "11" && R.status === "finished") detail = h("div", { class: "stack" }, h("div", { class: "notice info row", style: "justify-content:space-between" },
-      h("span", {}, "See every generated case next to its reworded versions, the bot's result on each and the coverage, as pictures."), h("a", { class: "btn s primary", href: `#/cases/${R.id}` }, "Explore Cases")), detail);
   else if (st.status === "running") detail = h("div", { class: "stack" }, h("div", { class: "row muted" }, h("span", { class: "spin" }), "Working on this step…"), h("div", { class: "log" }, R.logs.slice(-12).join("\n")));
   else if (R.status === "failed" && !st.status) detail = h("p", { class: "muted" }, "The run stopped before this step.");
   else detail = h("p", { class: "muted" }, st.status === "skipped" || (R.status === "finished" && !st.status) ? "This step was turned off for this run." : "This step has not started yet.");
+  if (sel === "13" && R.status === "finished") detail = h("div", { class: "stack" }, h("div", { class: "notice info row", style: "justify-content:space-between" },
+      h("span", {}, "The one page to judge the bot by, then every case with the policy's expected run on the left and the bot's on the right."),
+      h("span", { class: "row" }, h("a", { class: "btn s primary", href: `#/verdict/${R.id}` }, "Open the Verdict"), st.details ? h("a", { class: "btn s", href: `runs/${R.id}/verdict.html`, target: "_blank", rel: "noopener" }, "verdict.html") : null)),
+    st.details ? detail : h("p", { class: "muted" }, "This run finished before step 13 existed; the verdict is built from its files when you open it."));
+  if (sel === "11" && R.status === "finished") detail = h("div", { class: "stack" }, h("div", { class: "notice info row", style: "justify-content:space-between" },
+      h("span", {}, "See every generated case next to its reworded versions, the bot's result on each and the coverage, as pictures."), h("a", { class: "btn s primary", href: `#/cases/${R.id}` }, "Explore Cases")), detail);
   if (R.status === "finished") gMark("read");
   const fromList = (S.runsList || []).find(x => x.id === R.id);
   if (R.headline && fromList && fromList.headline) R.headline = Object.assign({}, fromList.headline, R.headline,
