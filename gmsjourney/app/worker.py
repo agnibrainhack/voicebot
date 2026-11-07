@@ -72,11 +72,33 @@ def main(run_dir: str) -> int:
             emit(type="log", text=" ".join(str(x) for x in (msg, *a)))
 
         opts = {k: job[k] for k in OPTIONS if job.get(k) is not None}
+        sut = job.get("sut") or {}
+        if (run / "sut.json").exists():            # the full prompt and attachments (runs.Runs.start)
+            sut = json.loads((run / "sut.json").read_text(encoding="utf-8"))
+        fac = None
+        if sut.get("kind") == "llm":               # the tester's LLM bot instead of the journey's reference bot
+            from ..domain import set_current
+            from .sut import make_factory
+            set_current(job["pack"])
+            fac, name, _ = make_factory(sut)
+            (run / "out").mkdir(parents=True, exist_ok=True)
+            (run / "out" / "sut_prompt.txt").write_text(fac.system_prompt, encoding="utf-8")
+            opts.update(bot_factory=fac, bot_name=name)
+            refs = [r.get("name") for r in sut.get("references") or [] if r.get("text")]
+            log(f"bot under test: {name}; prompt {len(fac.system_prompt):,} characters"
+                + (f", with {', '.join(refs)} attached" if refs else "") + " (out/sut_prompt.txt); "
+                "planted defects (step 10) need the reference bot and are skipped")
         cfg = CampaignConfig(domain=job["pack"], out_dir=str(run / "out"), device=job.get("device") or None,
                              on_step=on_step, progress=False, **opts)
-        R = run_campaign(cfg, log=log)
+        try:
+            R = run_campaign(cfg, log=log)
+        finally:
+            if fac is not None:                    # what the model was asked and answered, even when the run stops
+                (run / "out" / "sut_llm.json").write_text(json.dumps(
+                    {"bot": fac.stats.as_dict(), "llm": fac.llm.report()}, indent=1, default=str))
         finished(R)
         head = S.headline(R)
+        head["bot"] = (R.get("results") or {}).get("bot")
         (run / "headline.json").write_text(json.dumps(head, default=str))
         emit(type="done", headline=head)
         return 0

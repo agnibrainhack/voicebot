@@ -85,6 +85,13 @@ class Runs:
         rid = time.strftime("%Y%m%d-%H%M%S") + "-" + re.sub(r"[^a-z0-9_]+", "-", job["pack"].lower())
         run = self.root / rid
         run.mkdir(parents=True)
+        sut = dict(job.get("sut") or {})
+        if sut.get("kind") == "llm":                # the prompt and attachments live beside the job, not in it
+            (run / "sut.json").write_text(json.dumps(sut, indent=1, ensure_ascii=False), encoding="utf-8")
+            job = {**job, "sut": {"kind": "llm", "model": sut.get("model") or "", "mode": sut.get("mode") or "live",
+                                  "custom_prompt": bool(sut.get("custom_prompt")),
+                                  "references": [{"name": r.get("name"), "chars": len(r.get("text") or "")}
+                                                 for r in sut.get("references") or []]}}
         (run / "job.json").write_text(json.dumps({**job, "id": rid, "created": time.time()}, indent=1))
         env = {**os.environ, "PYTHONPATH": str(ROOT) + os.pathsep + os.environ.get("PYTHONPATH", "")}
         if job.get("device") and job["device"] != "auto":

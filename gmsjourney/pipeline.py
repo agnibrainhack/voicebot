@@ -333,6 +333,12 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         it.metadata["tags"] = [k.category]
         bases.append(it)
     R["coverage"] = asdict(rep)
+    with open(out / "case_specs.jsonl", "w") as f:   # every case exactly as generated (the console's playground rebuilds them)
+        for b in bases:
+            sp = b.metadata["spec"]
+            f.write(json.dumps({"qid": b.qid, "category": b.base, "levels": sp.dims(), "extra_kb": sp.extra_kb,
+                                "kb_frames": [{"act": fr.act, "slots": dict(fr.slots)} for fr in sp.kb_frames],
+                                "signature": json.loads(b.answer)}, default=str) + "\n")
     R["bases"] = [{"qid": b.qid, "category": b.base, "tags": b.metadata["tags"], "query": b.query,
                    "relevant": {k: v for k, v in b.metadata["relevant"].items() if v != NA},
                    "expected": json.loads(b.answer), "turns": b.metadata["oracle_turns"],

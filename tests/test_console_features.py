@@ -1,0 +1,230 @@
+"""The console's bot-under-test choice, the case explorer and the playground. No knowledge store, no gateway: the
+LLM bot runs on a scripted stand-in model (tests/fake_sut_model.py).
+
+    python tests/test_console_features.py
+"""
+from __future__ import annotations
+
+import base64
+import io
+import json
+import os
+import socket
+import sys
+import tempfile
+import threading
+import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tests"))
+
+from gmsjourney import domain  # noqa: E402
+
+FAKE = "fake_sut_model:HappyPath"
+
+
+def _with_fake(fn):
+    def run():
+        old = os.environ.get("GMSJOURNEY_SUT_FAKE_MODEL")
+        os.environ["GMSJOURNEY_SUT_FAKE_MODEL"] = FAKE
+        try:
+            fn()
+        finally:
+            if old is None:
+                os.environ.pop("GMSJOURNEY_SUT_FAKE_MODEL", None)
+            else:
+                os.environ["GMSJOURNEY_SUT_FAKE_MODEL"] = old
+            domain.set_current("charge_review")
+    run.__name__ = fn.__name__
+    return run
+
+
+# ----------------------------------------------------------------------------- the LLM bot's prompt, any journey
+def test_llm_bot_prompt_is_built_from_the_active_journey():
+    from gmsjourney.sut.llm_bot import act_inventory, build_system_prompt, protocol_text, suggested_instructions, transfer_reasons
+    try:
+        domain.set_current("supplementary_card")
+        acts = act_inventory()
+        assert "ASK_RELATIONSHIP" in acts and "PRESENT_TXN" not in acts           # the pack's own dialog states
+        assert acts["CONFIRM_APPLICATION"][1] == ["relationship", "card_product"]   # fields from the graph's carries
+        reasons = transfer_reasons()
+        assert "manual_review" in reasons and "card_options_unavailable" not in reasons
+        assert "submit_card_action" not in reasons["submit_failed"]                 # no other journey's tool named
+        proto = protocol_text()
+        assert "submit_supplementary_application" in proto and "SPOUSE | DOMESTIC_PARTNER" in proto
+        assert "Supplementary" in suggested_instructions()
+        sp = build_system_prompt(instructions="You are a test bot.", references=[{"name": "faq.txt", "text": "Premium costs more."}])
+        assert sp.startswith("You are a test bot.") and "REFERENCE MATERIAL: faq.txt" in sp and "HOW TO REPLY" in sp
+        assert sp.index("faq.txt") < sp.index("BACKEND TOOLS")                       # references before the protocol
+        domain.set_current("charge_review")
+        assert "OPERATING PROCEDURE" in build_system_prompt() and "card_options_unavailable" in transfer_reasons()
+    finally:
+        domain.set_current("charge_review")
+
+
+# ----------------------------------------------------------------------------- attachments
+def test_attachments_are_read_as_text_and_refused_clearly():
+    from gmsjourney.app.attachments import MAX_CHARS, extract
+    r = extract("faq.md", "# FAQ\n\nStandard delivery is free.".encode())
+    assert r["kind"] == "md" and "free" in r["text"] and not r["truncated"]
+    assert "a | b" in extract("t.csv", b"a,b\n1,2\n")["text"]
+    assert '"fee": 15' in extract("x.json", b'{"fee":15}')["text"]
+    big = extract("big.txt", ("x" * (MAX_CHARS + 10)).encode())
+    assert big["truncated"] and big["chars"] == MAX_CHARS and big["note"]
+    import docx
+    d = docx.Document()
+    d.add_paragraph("Expedited delivery costs $15.")
+    buf = io.BytesIO()
+    d.save(buf)
+    assert "$15" in extract("sop.docx", buf.getvalue())["text"]
+    for name, data in (("pic.png", b"\x89PNG"), ("empty.txt", b"   ")):
+        try:
+            extract(name, data)
+            raise AssertionError(f"{name} should be refused")
+        except ValueError as e:
+            assert name in str(e)
+
+
+# ----------------------------------------------------------------------------- case explorer
+def _fake_run(root: Path) -> Path:
+    out = root / "out"
+    (out / "dataset").mkdir(parents=True)
+    traj = lambda texts: [{"actor": "bot", "acts": ["OPENING", "ASK_AUTH"], "state": "ASK_AUTH"}] + [   # noqa: E731
+        {"actor": "customer", "turn": i, "state": "ASK_AUTH", "card": {"act": "PROVIDE_CREDENTIAL", "slots": {"credential": "4821"}}, "text": t}
+        for i, t in enumerate(texts)]
+    rows = [{"case_id": "J000~base", "case_type": "base", "arm": "base", "base_id": "J000", "category": "happy", "tags": ["t"],
+             "n_turns": 1, "base_case": "T0 [ASK_AUTH] 4821.", "trajectory": traj(["4821."]), "expected_outcome": {"end": "ENDED"},
+             "meaning_cards": [], "rules_fired": ["R1"], "states_visited": []},
+            {"case_id": "J000~0001", "case_type": "enriched", "arm": "template", "base_id": "J000", "category": "happy", "tags": ["t"],
+             "n_turns": 1, "trajectory": traj(["um, four eight two one"]), "enrichment": {"noise": "asr", "style": "terse"},
+             "enrichment_changed": "noise=asr", "proof_accepted": True, "proof_status": "accepted", "proof_layers": "L1=True",
+             "surface_cosine_mean": 0.3}]
+    (out / "dataset" / "test_cases.jsonl").write_text("\n".join(json.dumps(r) for r in rows))
+    (out / "dataset" / "case_results.jsonl").write_text("\n".join(json.dumps(r) for r in (
+        {"sid": "J000~base", "correct": 1, "status": "ok", "failure_codes": [], "turns": 1},
+        {"sid": "J000~0001", "correct": 0, "status": "failed", "failure_codes": ["OUTCOME_INCORRECT"], "turns": 1})))
+    (out / "scenarios.jsonl").write_text(json.dumps({"sid": "J000~0001", "turns": [{"turn": 0, "equivalent": True, "read_back": "PROVIDE_CREDENTIAL(credential=4821)", "surface_cosine": 0.3}]}))
+    (out / "report.json").write_text(json.dumps({"results": {"bot": "LLM bot (x)"}, "bases": [{"qid": "J000", "relevant": {"auth": "ok", "items": "one"}, "rules": ["R1"]}],
+                                                 "coverage": {"pairs_required": 1, "pairs_covered": 1, "rules_covered": ["R1"], "rules_missing": ["R2"]}}))
+    return out
+
+
+def test_case_explorer_reads_a_runs_cases_back():
+    from gmsjourney.app.cases import detail, index
+    out = _fake_run(Path(tempfile.mkdtemp()))
+    I = index(out)
+    assert I["totals"] == {"cases": 1, "reworded": 1, "proved": 1, "tested": 1, "accuracy_original": 1.0, "accuracy_reworded": 0.0}
+    c = I["cases"][0]
+    assert c["levels"] == {"auth": "ok", "items": "one"} and c["reworded_results"][0]["codes"] == ["OUTCOME_INCORRECT"]
+    assert I["wording"] == {"noise": {"asr": 1}, "style": {"terse": 1}} and I["coverage"]["rules_missing"] == ["R2"]
+    D = detail(out, "J000")
+    base, rew = D["versions"]
+    assert base["type"] == "base" and base["turns"][0]["text"] == "4821."
+    assert rew["changed"] == ["noise"] and rew["turns"][0]["equivalent"] is True and rew["result"]["correct"] is False
+
+
+# ----------------------------------------------------------------------------- playground
+@_with_fake
+def test_playground_plays_a_case_with_the_reference_bot_and_the_llm_bot():
+    from gmsjourney.app import playground as PG
+    domain.set_current("supplementary_card")
+    L = PG.cases("project", None)
+    assert L["source"] == "project" and L["cases"][0]["id"] == "default" and len(L["cases"]) > 5
+    case = L["cases"][0]
+    v = PG.start("project", "default", None)
+    assert v["bot"] == "reference" and v["turns"][0]["match"]
+    s = PG.get(v["id"])
+    for ln in case["lines"]:                         # the scripted lines: the reference bot does what the graph expects
+        t = s.say(ln["text"])
+        assert t["match"], (ln, t["expected"], t["bot"])
+        assert t["speech"] is None or t["speech"]["ok"], t["speech"]
+    assert s.view()["ended"] and s.view()["diverged_at"] is None
+    try:
+        s.say("hello?")
+        raise AssertionError("a finished conversation takes no more turns")
+    except ValueError:
+        pass
+    domain.set_current("charge_review_graph")        # the stand-in model plays charge review
+    PG.cases("project", None)
+    v = PG.start("project", "default", {"kind": "llm", "instructions": "Be brief.", "references": [{"name": "a.txt", "text": "x"}]})
+    assert v["bot"] == "llm" and "stand-in" in v["bot_name"] and v["llm"]["stats"]["turns"] == 1
+    s = PG.get(v["id"])
+    t = s.say("The last four digits of my card are 4821.")
+    assert [x["tool"] for x in t["tools"]][:2] == ["authenticate_customer", "get_review_transactions"] and t["match"]
+    assert "Be brief." in s.llm.system_prompt and "a.txt" in s.llm.system_prompt
+
+
+# ----------------------------------------------------------------------------- the API
+def _port() -> int:
+    with socket.socket() as so:
+        so.bind(("127.0.0.1", 0))
+        return so.getsockname()[1]
+
+
+@_with_fake
+def test_console_api_for_the_bot_cases_and_playground():
+    from gmsjourney.app import make_server
+    runs = Path(tempfile.mkdtemp())
+    port = _port()
+    srv = make_server(port, "127.0.0.1", runs)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{port}/"
+
+    def call(path, body=None):
+        req = urllib.request.Request(base + path, data=None if body is None else json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b"{}")
+    try:
+        code, sg = call("api/journey/supplementary_card/sut")
+        assert code == 200 and "OPERATING PROCEDURE" in sg["instructions"] and "HOW TO REPLY" in sg["protocol"]
+        code, a = call("api/attach", {"name": "n.txt", "data": base64.b64encode(b"hello").decode()})
+        assert code == 200 and a["text"] == "hello"
+        code, e = call("api/attach", {"name": "n.exe", "data": ""})
+        assert code == 400 and "n.exe" in e["error"]
+        code, ck = call("api/llm/check", {"model": ""})
+        assert code == 200 and ck["ok"] and ck["fake"]
+        rid = "20990101-000000-charge_review_graph"            # a finished run with cases, for the explorer
+        (runs / rid).mkdir()
+        (runs / rid / "job.json").write_text(json.dumps({"pack": "charge_review_graph", "id": rid}))
+        _fake_run(runs / rid)
+        code, I = call(f"api/runs/{rid}/cases")
+        assert code == 200 and I["totals"]["cases"] == 1
+        code, D = call(f"api/runs/{rid}/cases/J000")
+        assert code == 200 and len(D["versions"]) == 2
+        code, L = call("api/play/charge_review_graph/cases?source=project")
+        assert code == 200 and L["cases"]
+        code, v = call("api/play/charge_review_graph/start", {"source": "project", "case": L["cases"][0]["id"], "sut": {"kind": "reference"}})
+        assert code == 200 and v["turns"]
+        code, r = call(f"api/play/s/{v['id']}/say", {"text": L["cases"][0]["lines"][0]["text"]})
+        assert code == 200 and r["turn"]["match"] and len(r["turns"]) == 2
+        code, e = call("api/play/s/nope/say", {"text": "x"})
+        assert code == 404
+        # a run with the LLM bot keeps its prompt and files beside the job, not in it
+        from gmsjourney.app.runs import Runs
+        R = Runs(runs)
+        import gmsjourney.app.runs as runs_mod
+        real = runs_mod.subprocess.Popen
+        runs_mod.subprocess.Popen = lambda *a, **k: type("P", (), {"poll": lambda self: 0, "pid": 0})()
+        try:
+            rid2 = R.start({"pack": "charge_review_graph", "sut": {"kind": "llm", "instructions": "secret sauce",
+                                                                   "references": [{"name": "f.txt", "text": "abc"}]}})
+        finally:
+            runs_mod.subprocess.Popen = real
+        job = json.loads((runs / rid2 / "job.json").read_text())
+        assert job["sut"]["references"] == [{"name": "f.txt", "chars": 3}] and "secret sauce" not in json.dumps(job)
+        assert json.loads((runs / rid2 / "sut.json").read_text())["instructions"] == "secret sauce"
+    finally:
+        srv.shutdown()
+
+
+if __name__ == "__main__":
+    for name, fn in list(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            fn()
+            print("ok", name)

@@ -9,6 +9,14 @@
     GET  /api/runs/<id>?since=N             a run's status and its events from N on
     POST /api/runs/<id>/cancel              stop a run
     GET  /runs/<id>/<file>                  a run's outputs (report.html, dataset/..., ...)
+    GET  /api/runs/<id>/cases[/<case>]      a finished run's generated cases (cases.py): the index, or one case
+    GET  /api/journey/<pack>/sut            the suggested prompt for an LLM bot, and the fixed part the harness adds
+    POST /api/attach                        text from a file for the LLM bot's prompt (body: {name, data: base64})
+    POST /api/llm/check                     one tiny call through the model gateway (body: {model})
+    GET  /api/play/<pack>/cases?source=S    the playground's cases: "latest" run, a run id, or "project"
+    POST /api/play/<pack>/start             a conversation (body: {source, case, sut})
+    GET  /api/play/s/<sid>                  a conversation so far
+    POST /api/play/s/<sid>/say              the customer's next turn (body: {text})
 
 The graph and project calls share one process-wide active journey, so they are serialised; campaign runs happen
 in their own processes (runs.py).
@@ -127,6 +135,23 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                         return self._json({"pack": parts[2], **st.state()})
                 if parts == ["api", "runs"]:
                     return self._json({"runs": runs.list(), "active": runs.active()})
+                if parts[:2] == ["api", "runs"] and len(parts) in (4, 5) and parts[3] == "cases":
+                    from . import cases as C
+                    out = runs._dir(parts[2]) / "out"
+                    return self._json(C.index(out) if len(parts) == 4 else C.detail(out, parts[4]))
+                if parts[:2] == ["api", "journey"] and len(parts) == 4 and parts[3] == "sut":
+                    from .sut import suggested
+                    with _on(parts[2]):
+                        return self._json(suggested())
+                if parts[:2] == ["api", "play"] and len(parts) == 4 and parts[3] == "cases":
+                    from . import playground as PG
+                    with _on(parts[2]):
+                        return self._json(PG.cases((parse_qs(u.query).get("source") or ["latest"])[0], runs.root))
+                if parts[:3] == ["api", "play", "s"] and len(parts) == 4:
+                    from . import playground as PG
+                    sess = PG.get(parts[3])
+                    with _on(sess.pack):
+                        return self._json(sess.view())
                 if parts[:2] == ["api", "runs"] and len(parts) == 3:
                     since = int((parse_qs(u.query).get("since") or ["0"])[0])
                     return self._json(runs.events(parts[2], since))
@@ -163,6 +188,24 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                         if action == "yaml":
                             from ..studio import to_yaml
                             return self._json({"yaml": to_yaml(raw)})
+                if parts == ["api", "attach"]:
+                    import base64
+                    from .attachments import extract
+                    return self._json(extract(str(body.get("name") or ""), base64.b64decode(body.get("data") or "")))
+                if parts == ["api", "llm", "check"]:
+                    from .sut import check_gateway
+                    return self._json(check_gateway(str(body.get("model") or "")))
+                if parts[:2] == ["api", "play"] and len(parts) == 4 and parts[3] == "start":
+                    from . import playground as PG
+                    with _on(parts[2]):
+                        return self._json(PG.start(str(body.get("source") or "project"), str(body.get("case") or ""),
+                                                   body.get("sut")))
+                if parts[:3] == ["api", "play", "s"] and len(parts) == 5 and parts[4] == "say":
+                    from . import playground as PG
+                    sess = PG.get(parts[3])
+                    with _on(sess.pack):
+                        turn = sess.say(str(body.get("text") or ""))
+                        return self._json({"turn": turn, **sess.view()})
                 if parts == ["api", "runs"]:
                     if not body.get("pack"):
                         raise ValueError("choose a journey to run")

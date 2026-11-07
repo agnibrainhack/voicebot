@@ -124,7 +124,7 @@ against the graph as you type; Save writes the YAML (the previous file is kept a
 
 **The journey console** (`gmsjourney/app/`) puts the studio and the campaign behind one page, served from Python or
 Jupyter: `from gmsjourney import app; app.show()` in a notebook (`notebooks/journey_console.ipynb`), or
-`python -m gmsjourney.app --port 8790`. It has three parts:
+`python -m gmsjourney.app --port 8790`. Its parts:
 
 - **Journey**: the pack picker, an overview that sets what the graph decides (states, acts, tools, value sets,
   limits, rules, triggers, transitions) beside what the project configures, the coverage gaps, and a read-only
@@ -138,6 +138,32 @@ Jupyter: `from gmsjourney import app; app.show()` in a notebook (`notebooks/jour
   its 12 steps live and shows what each produced (metrics and tables: the store, the questions, the cases, the
   rewording, the proof, the gates, the bot's results, attribution, tool faults, planted defects, training data,
   the release gate), then links the report. Runs are kept under `output/console_runs/<id>/`.
+- **Bot under test** (Run Campaign, shared with the Playground): the journey's reference bot, or an **LLM bot
+  through the model gateway** (`sut/llm_bot.py`). For the LLM bot the page shows a suggested prompt (who the bot is,
+  how it behaves, the journey's operating procedure: its transcription, or the graph as text) that you edit
+  freely, and takes files (text, Markdown, JSON, YAML, CSV, PDF, Word, Excel; `app/attachments.py`) that are added
+  after it as reference material. The journey's tools with their allowed values, the transfer reasons, the
+  dialog acts and the JSON reply format are always appended (read-only on the page), because the harness needs
+  them to run the bot's tool calls and read what it says. Model, live or replay, temperature and the tool-call
+  budget per turn are set there; **Check Gateway** makes one tiny call. The prompt and files are stored beside the
+  run (`sut.json`, `out/sut_prompt.txt`), the model's call statistics in `out/sut_llm.json`. Step 10 is skipped
+  for an LLM bot (it plants errors in copies of the reference bot).
+- **Explore Cases** (a finished run, from its results or step 11; `app/cases.py`): every generated case with its
+  customer turns in the original words next to each reworded version (the wording factors that changed, and per
+  turn the meaning card it was read back as, equivalent or not, and its surface similarity), the expected run,
+  and, where the case was run, the bot's result with its turn-by-turn comparison against the graph. **Bot Results**
+  charts original vs reworded accuracy by category and lists every case run; **Coverage** draws any two journey
+  factors as a grid of how many cases combine each pair of levels (click a cell to list them), the rules and
+  transfer triggers reached, and the rewording design. All of it is read from the run's files.
+- **Playground** (`app/playground.py`): talk to the bot under test yourself. Pick a case (from the latest finished
+  run, any run, or the project's default and one-per-level cases); it sets the mock bank and offers its customer
+  lines, the scripted words and the reworded versions that run proved, to send with a click, or type your own.
+  Under every bot turn: the tools it called with their results, whether that is what the graph expects at this
+  point (the oracle replays your turns, each read into its meaning card; after the first difference the turns are
+  marked as such), and the speech check of what it said. It runs on the store compiled from the graph, so it
+  needs no training and no licence; the transcript can be downloaded as JSON.
+  `GMSJOURNEY_SUT_FAKE_MODEL=module:Class` puts a stand-in model behind the LLM bot (tests, demos without the
+  gateway; `tests/fake_sut_model.py`).
 
 `app.show()` finds the right address for your browser. On JupyterHub, or on any Jupyter server with
 jupyter-server-proxy (it checks that `<server>/proxy/<port>/` reaches the console), the page is shown through
