@@ -42,23 +42,8 @@ def devices() -> dict[str, Any]:
 
 
 def _provenance(pack: str) -> dict[str, Any]:
-    """What a run can be reproduced from: the code commit (and whether the tree had uncommitted edits) and the hash
-    of the journey's graph file, recorded when the run starts."""
-    import hashlib
-    out: dict[str, Any] = {}
-    try:
-        commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True, timeout=10)
-        dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, capture_output=True, text=True, timeout=10)
-        if commit.returncode == 0:
-            out["code"] = {"commit": commit.stdout.strip(), "uncommitted_changes": bool(dirty.stdout.strip())}
-    except (OSError, subprocess.SubprocessError):
-        pass
-    try:
-        from ..domain import load
-        out["graph_sha"] = hashlib.sha256(load(pack).graph_path.read_bytes()).hexdigest()[:12]
-    except Exception:                              # noqa: BLE001 - provenance is best effort
-        pass
-    return out
+    from ..verdict import provenance
+    return provenance(pack)
 
 
 def check_device(dev: str | None) -> str | None:
@@ -102,13 +87,23 @@ class Runs:
         why = check_device(job.get("device"))
         if why:
             raise ValueError(why)
+        if (job.get("sut") or {}).get("provider") == "local" and (job.get("sut") or {}).get("kind") == "llm":
+            from ..sut.local_llm import status as local_status
+            st = local_status()
+            if not st["usable"]:
+                raise ValueError(f"the local model cannot be used: {st['detail']}")
         rid = time.strftime("%Y%m%d-%H%M%S") + "-" + re.sub(r"[^a-z0-9_]+", "-", job["pack"].lower())
         run = self.root / rid
         run.mkdir(parents=True)
         sut = dict(job.get("sut") or {})
         if sut.get("kind") == "llm":                # the prompt and attachments live beside the job, not in it
             (run / "sut.json").write_text(json.dumps(sut, indent=1, ensure_ascii=False), encoding="utf-8")
-            job = {**job, "sut": {"kind": "llm", "model": sut.get("model") or "", "mode": sut.get("mode") or "live",
+            if sut.get("provider") == "local":
+                from ..sut.local_llm import status as local_status
+                sut["model"] = f"local-{local_status()['name']}"
+                (run / "sut.json").write_text(json.dumps(sut, indent=1, ensure_ascii=False), encoding="utf-8")
+            job = {**job, "sut": {"kind": "llm", "provider": sut.get("provider") or "gateway", "model": sut.get("model") or "",
+                                  "mode": sut.get("mode") or "live",
                                   "custom_prompt": bool(sut.get("custom_prompt")),
                                   "references": [{"name": r.get("name"), "chars": len(r.get("text") or "")}
                                                  for r in sut.get("references") or []]}}

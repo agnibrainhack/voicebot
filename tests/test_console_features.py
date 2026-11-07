@@ -126,7 +126,7 @@ def test_case_explorer_reads_a_runs_cases_back():
 
 
 def test_verdict_puts_expected_beside_actual_and_explains_the_gate():
-    from gmsjourney.app.verdict import _plain_reason, _speech, build
+    from gmsjourney.verdict import _plain_reason, _speech, build
     root = Path(tempfile.mkdtemp())
     out = _fake_run(root)
     R = json.loads((out / "report.json").read_text())
@@ -154,6 +154,115 @@ def test_verdict_puts_expected_beside_actual_and_explains_the_gate():
     ok = V["cases"][1]
     assert ok["correct"] and ok["actual"] == ok["expected"]
     assert _plain_reason("within-budget rate 0.333 < 0.95").startswith("33% of runs within") and _speech("ok") == ""
+
+
+def test_verdict_is_written_as_files():
+    from gmsjourney.verdict import write
+    out = _fake_run(Path(tempfile.mkdtemp()))
+    w = write(out)
+    assert w["runs"] == 2 and w["failed"] == 1 and (out / "verdict.json").exists()
+    page = (out / "verdict.html").read_text()
+    assert "Not ready to release" in page or "Ready to release" in page
+    assert "id='case-J000~0001'" in page and "Expected outcome (policy graph)" in page
+
+
+# ----------------------------------------------------------------------------- a local model for the bot (vLLM)
+class _Out:
+    def __init__(self, text):
+        self.outputs = [type("O", (), {"text": text, "token_ids": [1, 2]})()]
+        self.prompt_token_ids = [1, 2, 3]
+
+
+class _Engine:
+    """Stands in for vllm.LLM: chat(messages, params) -> [RequestOutput]."""
+    def __init__(self):
+        self.seen = []
+
+    def chat(self, messages, params):
+        self.seen.append(messages)
+        return [_Out('{"say": [{"act": "END", "text": "Goodbye."}], "end": true}')]
+
+
+def test_local_model_status_chat_and_the_campaign_only_rule():
+    from gmsjourney.sut.local_llm import ENV, LocalChat, status
+    from gmsjourney.enrich.llm.client import _messages
+    old = {k: os.environ.pop(k, None) for k in (ENV, "GMSJOURNEY_VLLM_URL")}
+    try:
+        assert not status()["usable"] and ENV in status()["detail"]
+        folder = Path(tempfile.mkdtemp()) / "Meta-Llama-3.1-8B-Instruct"
+        folder.mkdir()
+        os.environ[ENV] = str(folder)
+        assert not status()["folder_ok"] and "not a model folder" in status()["detail"]
+        (folder / "config.json").write_text("{}")
+        st = status()
+        assert st["folder_ok"] and st["name"] == "Meta-Llama-3.1-8B-Instruct"
+        eng = _Engine()
+        chat = LocalChat(engine=eng)
+        r = chat.invoke(_messages("You are a bot.", '{"conversation": []}'))
+        assert '"END"' in r.content and r.usage_metadata == {"input_tokens": 3, "output_tokens": 2}
+        assert [m["role"] for m in eng.seen[0]] == ["system", "user"] and chat.name == "local-Meta-Llama-3.1-8B-Instruct"
+        from gmsjourney.app import playground as PG          # the Playground never loads the local model
+        try:
+            PG.start("project", "default", {"kind": "llm", "provider": "local"})
+            raise AssertionError("the playground must refuse the local model")
+        except ValueError as e:
+            assert "campaign" in str(e)
+    finally:
+        for k, v in old.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+
+
+def test_local_model_through_a_vllm_server_runs_the_llm_bot():
+    """GMSJOURNEY_VLLM_URL: the bot's model calls go to an OpenAI-compatible vLLM server (a stub here)."""
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from fake_sut_model import HappyPath
+    from types import SimpleNamespace
+    from gmsjourney.sut.local_llm import ENV
+    model = HappyPath()
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):                                    # noqa: N802
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            msgs = [SimpleNamespace(content=m["content"]) for m in body["messages"]]
+            text = model.invoke(msgs).content
+            out = json.dumps({"choices": [{"message": {"content": text}}], "usage": {"prompt_tokens": 5, "completion_tokens": 7}}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+    port = _port()
+    srv = ThreadingHTTPServer(("127.0.0.1", port), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    old = {k: os.environ.pop(k, None) for k in (ENV, "GMSJOURNEY_VLLM_URL", "GMSJOURNEY_SUT_FAKE_MODEL", "GMSJOURNEY_CACHE")}
+    os.environ.update({ENV: "llama-8b-test", "GMSJOURNEY_VLLM_URL": f"http://127.0.0.1:{port}/v1"})
+    try:
+        domain.set_current("charge_review_graph")
+        from gmsjourney.app.sut import make_factory
+        from gmsjourney.sut.tools import ToolEnvironment
+        from gmsjourney.app import playground as PG
+        PG.cases("project", None)
+        case = PG.find_case("project", "default")
+        fac, name, _ = make_factory({"kind": "llm", "provider": "local", "mode": "live"}, PG.bench().store)
+        assert "llama-8b-test" in name and "vLLM server" in name
+        env = ToolEnvironment(json.loads(json.dumps(case["fixture"])))
+        bot = fac(env)
+        assert bot.start().acts[-1]["act"] == "ASK_AUTH"
+        turn = bot.respond("The last four digits of my card are 4821.")
+        assert [c["tool"] for c in env.log][:2] == ["authenticate_customer", "get_review_transactions"] and turn.acts
+        assert fac.llm.report()["calls"] >= 3 and model.calls >= 3
+    finally:
+        srv.shutdown()
+        for k, v in old.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+        domain.set_current("charge_review")
 
 
 # ----------------------------------------------------------------------------- playground

@@ -4,8 +4,11 @@ gateway with the tester's prompt and attached files.
 A console job carries ``sut``::
 
     {"kind": "reference"}                                    the pack's reference bot (the default)
-    {"kind": "llm", "model": "gpt-41", "mode": "live" | "replay", "temperature": 0.0, "max_steps": 6,
-     "instructions": "...", "references": [{"name": "faq.pdf", "text": "..."}]}
+    {"kind": "llm", "provider": "gateway" | "local", "model": "gpt-41", "mode": "live" | "replay", "temperature": 0.0,
+     "max_steps": 6, "instructions": "...", "references": [{"name": "faq.pdf", "text": "..."}]}
+
+``provider`` "local" runs Llama (or any chat model) with vLLM from the folder in GMSJOURNEY_SUT_LOCAL_MODEL
+(sut/local_llm.py); campaign runs only, the Playground refuses it.
 
 ``instructions`` is the editable part of the prompt (who the bot is, how it behaves, the operating procedure); the
 references are added after it as reference material; the tools, dialog acts and reply format the harness needs are
@@ -42,11 +45,21 @@ def make_factory(sut: dict[str, Any] | None, store=None):
         return None, None, None
     from ..sut.llm_bot import fake_model, make_llm_factory
     s = settings_for(sut)
-    fac = make_llm_factory(store, s, instructions=sut.get("instructions") or None,
+    llm, where = None, "gateway"
+    if sut.get("provider") == "local":              # Llama on vLLM, on this machine (campaign runs only)
+        from ..enrich.llm.client import CachedLLM
+        from ..sut.local_llm import LocalChat, status
+        st = status()
+        if not st["usable"]:
+            raise RuntimeError(f"the local model cannot be used: {st['detail']}")
+        chat = LocalChat(temperature=s.temperature, max_tokens=s.max_tokens)
+        s.model = chat.name
+        llm, where = CachedLLM(s, model=chat, tag="sut"), "vLLM" + (" server" if st["url"] else ", this machine")
+    fac = make_llm_factory(store, s, llm=llm, instructions=sut.get("instructions") or None,
                            references=[r for r in (sut.get("references") or []) if r.get("text")],
                            max_steps=int(sut.get("max_steps") or 6))
-    name = f"LLM bot ({fac.llm.settings.model}" + (", replay" if s.mode == "replay" else "") + \
-        (", stand-in model" if fake_model() is not None else "") + ")"
+    name = f"LLM bot ({fac.llm.settings.model}" + (f", {where}" if llm is not None else "") + \
+        (", replay" if s.mode == "replay" else "") + (", stand-in model" if llm is None and fake_model() is not None else "") + ")"
     return fac, name, fac
 
 

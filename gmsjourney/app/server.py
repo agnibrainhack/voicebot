@@ -128,8 +128,9 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                 if not parts:
                     return self._send(200, UI.read_bytes(), "text/html; charset=utf-8")
                 if parts == ["api", "meta"]:
+                    from ..sut.local_llm import status as local_status
                     return self._json({"packs": packs(), "devices": devices(), "runs_dir": str(runs.root),
-                                       "active_run": runs.active()})
+                                       "active_run": runs.active(), "sut_local": local_status()})
                 if parts[:2] == ["api", "journey"] and len(parts) == 3:
                     st = _studio(parts[2], fresh=parse_qs(u.query).get("fresh") == ["1"])
                     with _on(parts[2]):
@@ -137,7 +138,7 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                 if parts == ["api", "runs"]:
                     return self._json({"runs": runs.list(), "active": runs.active()})
                 if parts[:2] == ["api", "runs"] and len(parts) == 4 and parts[3] == "verdict":
-                    from .verdict import build
+                    from ..verdict import build
                     return self._json(build(runs._dir(parts[2])))
                 if parts[:2] == ["api", "runs"] and len(parts) in (4, 5) and parts[3] == "cases":
                     from . import cases as C
@@ -198,6 +199,10 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                     return self._json(extract(str(body.get("name") or ""), base64.b64decode(body.get("data") or "")))
                 if parts == ["api", "llm", "check"]:
                     from .sut import check_gateway
+                    if body.get("provider") == "local":
+                        from ..sut.local_llm import status as local_status
+                        st = local_status()
+                        return self._json({"ok": st["usable"], "detail": st["detail"], "local": True})
                     return self._json(check_gateway(str(body.get("model") or "")))
                 if parts[:2] == ["api", "play"] and len(parts) == 4 and parts[3] == "start":
                     from . import playground as PG

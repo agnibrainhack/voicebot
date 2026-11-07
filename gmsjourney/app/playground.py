@@ -366,6 +366,8 @@ def start(source: str, case_id: str, sut: dict | None) -> dict:
     """A new conversation on a case with the reference bot (``sut`` None or kind "reference") or the LLM bot."""
     from ..sut.tools import ToolEnvironment
     from .sut import make_factory
+    if (sut or {}).get("kind") == "llm" and (sut or {}).get("provider") == "local":
+        raise ValueError("the local model is for campaign runs only; in the Playground use the gateway or the reference bot")
     B = bench()
     case = find_case(source, case_id)
     env = ToolEnvironment(json.loads(json.dumps(case["fixture"])))

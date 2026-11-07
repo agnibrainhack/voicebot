@@ -21,6 +21,7 @@ STEPS = [
     ("10", "Planted defects", "Mutant bots each suite must catch", ("mutation",)),
     ("11", "Training data", "Corpora emitted from the proved cases", ("sft",)),
     ("12", "Outputs", "Report, release gate, datasets", ("dataset", "bot_validation", "release_gate")),
+    ("13", "Verdict", "One page: release decision, top risks, how to reproduce; every case, expected beside actual", ("verdict",)),
 ]
 MAX_ROWS = 300
 
@@ -268,3 +269,15 @@ def clean(x: Any) -> Any:
     if isinstance(x, dict) and "tables" in x:
         x["tables"] = [t for t in x["tables"] if t]
     return x
+
+
+def _s13(R: dict[str, Any]) -> dict[str, Any]:
+    V = R.get("verdict") or {}
+    if V.get("error"):
+        return _out(notes=[f"The verdict could not be written: {V['error']}"])
+    return _out([_m("Release decision", "Ready to release" if V.get("ready") else "Not ready to release"),
+                 _m("Runs", V.get("runs")), _m("Failed runs", V.get("failed"))],
+                [_t("Release gates", ["Wording", "Passed", "Why not"], [[g["wording"], g["passed"], "; ".join(g["reasons"])] for g in V.get("gates") or []]),
+                 _t("Top risks", ["Severity", "What the bot did", "Code", "Runs", "Example"],
+                    [[r["severity"], r["what"], r["code"], r["runs"], r["example"]] for r in V.get("risks") or []]) if V.get("risks") else None],
+                ["Open the verdict for the one page and every case with the expected run beside the bot's; out/verdict.html is the same page as a file."])

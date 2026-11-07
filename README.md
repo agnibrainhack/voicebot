@@ -135,7 +135,7 @@ Jupyter: `from gmsjourney import app; app.show()` in a notebook (`notebooks/jour
   is checked against the graph as you type; Save writes `project.yaml` and keeps a `.bak`.
 - **Campaign**: run settings, including the device (`auto`, `cpu`, `cuda:0`-`cuda:3`; those torch cannot see
   are shown but disabled). Each run is a separate process (`python -m gmsjourney.app.worker`). The page follows
-  its 12 steps live and shows what each produced (metrics and tables: the store, the questions, the cases, the
+  its 13 steps live and shows what each produced (metrics and tables: the store, the questions, the cases, the
   rewording, the proof, the gates, the bot's results, attribution, tool faults, planted defects, training data,
   the release gate), then links the report. Runs are kept under `output/console_runs/<id>/`.
 - **Bot under test** (Run Campaign, shared with the Playground): the journey's reference bot, or an **LLM bot
@@ -155,7 +155,9 @@ Jupyter: `from gmsjourney import app; app.show()` in a notebook (`notebooks/jour
   charts original vs reworded accuracy by category and lists every case run; **Coverage** draws any two journey
   factors as a grid of how many cases combine each pair of levels (click a cell to list them), the rules and
   transfer triggers reached, and the rewording design. All of it is read from the run's files.
-- **Verdict** (a finished run: **Open the Verdict** on its results, or *Verdict* in the run list; `app/verdict.py`):
+- **Verdict**, step 13 of every campaign (`verdict.py`; written as `out/verdict.html` and `out/verdict.json`, from the
+  console or from code; **Open the Verdict** on a run's results or *Verdict* in the run list, also for runs older
+  than step 13):
   one page to judge the bot. Ready to release or not, with each release gate's reasons in words; the headline
   numbers; the top risks (failure codes ranked by severity and by runs hit, each in plain words with an example
   case); and how to reproduce the run (journey, graph file and its hash, code commit, bot, model and prompt hash,
@@ -171,6 +173,14 @@ Jupyter: `from gmsjourney import app; app.show()` in a notebook (`notebooks/jour
   point (the oracle replays your turns, each read into its meaning card; after the first difference the turns are
   marked as such), and the speech check of what it said. It runs on the store compiled from the graph, so it
   needs no training and no licence; the transcript can be downloaded as JSON.
+  **A local model as the bot under test** (campaign runs only; `sut/local_llm.py`): set
+  `GMSJOURNEY_SUT_LOCAL_MODEL` to the folder of a Llama 3.1 8B Instruct (or any chat model vLLM serves) before
+  opening the console (`LOCAL_SUT_MODEL` in the notebook's first cell). Bot Under Test then offers *Model runs on:
+  Local model (vLLM)*. The campaign's own process loads it with vLLM when the run starts (greedy, temperature 0,
+  replies cached by content like the gateway's); `GMSJOURNEY_VLLM_GPU_UTIL` (default 0.80), `GMSJOURNEY_VLLM_MAX_LEN`
+  (16384), `GMSJOURNEY_VLLM_TP` (1) and `GMSJOURNEY_VLLM_DTYPE` tune it, and `GMSJOURNEY_VLLM_URL` sends the calls to
+  an OpenAI-compatible vLLM server instead. The Playground refuses it, so a chat never loads an 8B model into the
+  console's process.
   `GMSJOURNEY_SUT_FAKE_MODEL=module:Class` puts a stand-in model behind the LLM bot (tests, demos without the
   gateway; `tests/fake_sut_model.py`).
 
@@ -643,7 +653,7 @@ gmsjourney/
   knowledge/pack_compile.py  compact graph -> full graph (executable flow, speech layer)
   studio.py          the local studio server (studio_ui.html)
   app/               the journey console: server.py (page + JSON API), runs.py (one process per run), worker.py,
-                     summaries.py (what each of the 12 steps produced), ui.html
+                     summaries.py (what each of the 13 steps produced), ui.html
   ontology.py journey.py oracle.py kb_truth.py bases/ enrich/ design/ sut/ evaluation/ pipeline.py report.py
 run_campaign.py · tests/ · notebooks/ · DESIGN.md · NOTICE
 tools/             check_llm (one-call transport preflight), llm_rejections (why LLM turns were rejected),

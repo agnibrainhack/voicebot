@@ -1017,7 +1017,8 @@ const STEPS = [["1", "Knowledge store", "Load or build the knowlytix store from 
   ["5", "Meaning proof", "Reworded cases must mean the same"], ["6", "Runtime gates", "Monitor thresholds calibrated on the graph"],
   ["7", "Bot under test", "Every case run; every utterance checked"], ["8", "Attribution", "Which factors and stages explain failures"],
   ["9", "Tool faults", "Tools erroring or answering wrongly"], ["10", "Planted defects", "Mutant bots the suites must catch"],
-  ["11", "Training data", "Corpora from the proved cases"], ["12", "Outputs", "Report, release gate, datasets"]];
+  ["11", "Training data", "Corpora from the proved cases"], ["12", "Outputs", "Report, release gate, datasets"],
+  ["13", "Verdict", "One page: ready or not, risks, expected vs actual"]];
 const LOOK = {
   "1": "A cached store loads in about a minute; building one takes much longer. Self-tests must pass.",
   "2": "Every question's answer must be computable from the graph (100%). A failed self-test means the store does not reproduce the graph.",
@@ -1031,6 +1032,7 @@ const LOOK = {
   "10": "Each planted defect should be caught by some suite. Survivors are either equivalent to the correct bot or need cases the design does not have.",
   "11": "Corpora built from the proved cases, for training a classifier or drafting responses.",
   "12": "The report and datasets of this run; download them from the files listed or the buttons above.",
+  "13": "Ready to release or not and why, the worst risks, how to reproduce the run, and every case with the expected run beside the bot's. Written for every run as out/verdict.html.",
 };
 function runView(r) {
   if (r.arg) return runDetail(r.arg, r.q.get("step"));
@@ -1093,8 +1095,8 @@ function runDetailBody() {
   const sel = R.sel || cur || order.filter(k => R.steps[k]?.status === "done").pop() || "1";
   const statusPill = { running: ["run", "Running"], finished: ["ok", "Finished"], failed: ["bad", "Failed"], cancelled: ["warn", "Cancelled"], starting: ["run", "Starting"], stopped: ["warn", "Stopped"] }[R.status] || ["", R.status];
   const elapsed = R.t0 ? Math.round(((R.tEnd || Date.now() / 1000) - R.t0)) : 0;
-  const steps = h("nav", { class: "card", "aria-label": "Pipeline steps" }, h("div", { class: "hd" }, h("h2", {}, "Pipeline"), h("span", { class: "small muted num" }, `${done}/12 done`)),
-    h("div", { style: "padding:10px 14px 0" }, h("div", { class: "bar", role: "progressbar", "aria-valuenow": done, "aria-valuemin": 0, "aria-valuemax": 12, "aria-label": "Steps done" }, h("i", { style: `width:${(done / 12) * 100}%` }))),
+  const steps = h("nav", { class: "card", "aria-label": "Pipeline steps" }, h("div", { class: "hd" }, h("h2", {}, "Pipeline"), h("span", { class: "small muted num" }, `${done}/${STEPS.length} done`)),
+    h("div", { style: "padding:10px 14px 0" }, h("div", { class: "bar", role: "progressbar", "aria-valuenow": done, "aria-valuemin": 0, "aria-valuemax": STEPS.length, "aria-label": "Steps done" }, h("i", { style: `width:${(done / STEPS.length) * 100}%` }))),
     h("ol", { class: "steps" }, ...STEPS.map(([k, t, p]) => { const st = R.steps[k] || {}; const s = st.status || (R.status === "running" || R.status === "starting" ? "pending" : (R.status === "finished" ? "skipped" : "pending"));
       return h("li", { class: `st-${s}` }, h("button", { "aria-current": sel === k ? "true" : "false", onclick: () => { R.sel = k; history.replaceState(null, "", `#/run/${R.id}?step=${k}`); paintRun(); } },
         h("span", { class: "n" }, s === "done" ? "✓" : s === "failed" ? "!" : s === "running" ? h("span", { class: "spin", style: "width:11px;height:11px" }) : k),
@@ -1103,6 +1105,9 @@ function runDetailBody() {
   const st = R.steps[sel] || {}, info = STEPS.find(s => s[0] === sel) || [sel, sel, ""];
   let detail;
   if (st.details) detail = stepDetails(st.details);
+  if (sel === "13" && R.status === "finished") detail = h("div", { class: "stack" }, h("div", { class: "notice info row", style: "justify-content:space-between" },
+      h("span", {}, "The one page to judge the bot by, then every case with the policy's expected run on the left and the bot's on the right."),
+      h("span", { class: "row" }, h("a", { class: "btn s primary", href: `#/verdict/${R.id}` }, "Open the Verdict"), h("a", { class: "btn s", href: `runs/${R.id}/verdict.html`, target: "_blank", rel: "noopener" }, "verdict.html"))), detail);
   if (sel === "11" && R.status === "finished") detail = h("div", { class: "stack" }, h("div", { class: "notice info row", style: "justify-content:space-between" },
       h("span", {}, "See every generated case next to its reworded versions, the bot's result on each and the coverage, as pictures."), h("a", { class: "btn s primary", href: `#/cases/${R.id}` }, "Explore Cases")), detail);
   else if (st.status === "running") detail = h("div", { class: "stack" }, h("div", { class: "row muted" }, h("span", { class: "spin" }), "Working on this step…"), h("div", { class: "log" }, R.logs.slice(-12).join("\n")));
@@ -1179,7 +1184,7 @@ function runPill(R) {
   const el = $("#run-pill");
   if (!R) { el.replaceChildren(); return; }
   const cur = STEPS.filter(s => R.steps && R.steps[s[0]]?.status === "running").pop();
-  el.replaceChildren(h("a", { class: "pill run", href: `#/run/${R.id}` }, h("span", { class: "spin", style: "width:10px;height:10px" }), cur ? `Running · ${cur[0]}/12 ${cur[1]}` : "Run starting…"));
+  el.replaceChildren(h("a", { class: "pill run", href: `#/run/${R.id}` }, h("span", { class: "spin", style: "width:10px;height:10px" }), cur ? `Running · ${cur[0]}/${STEPS.length} ${cur[1]}` : "Run starting…"));
 }
 async function pollActive() {   // the header pill follows an active run from any page
   try { const r = await api("api/runs"); S.meta.active_run = r.active; if (r.active && (!S.run || S.run.id !== r.active)) { const ev = await api(`api/runs/${r.active}`); const tmp = { id: r.active, steps: {}, logs: [] }; ev.events.forEach(e => applyEvent(tmp, e)); runPill(tmp); } else if (!r.active) runPill(null); }
@@ -1204,13 +1209,13 @@ function runsView() {
 // ---------------------------------------------------------------- bot under test: the reference bot, or an LLM bot with your prompt and files
 function botLabel(job) {
   const s = (job || {}).sut || {};
-  return s.kind === "llm" ? `LLM bot ${s.model || "gpt-41"}${s.mode === "replay" ? " (replay)" : ""}` : "reference bot";
+  return s.kind === "llm" ? `LLM bot ${s.model || "gpt-41"}${s.provider === "local" ? " (local, vLLM)" : ""}${s.mode === "replay" ? " (replay)" : ""}` : "reference bot";
 }
 function sutState() {
   S.sut = S.sut || {};
   if (!S.sut[S.pack]) {
     let saved = {}; try { saved = JSON.parse(localStorage.getItem(`jc.sut.${S.pack}`) || "{}"); } catch {}
-    S.sut[S.pack] = Object.assign({ kind: "reference", model: "", mode: "live", temperature: 0, max_steps: 6, instructions: null, references: [] }, saved, { suggested: null, check: null });
+    S.sut[S.pack] = Object.assign({ kind: "reference", provider: "gateway", model: "", mode: "live", temperature: 0, max_steps: 6, instructions: null, references: [] }, saved, { suggested: null, check: null });
   }
   return S.sut[S.pack];
 }
@@ -1222,7 +1227,7 @@ function sutSave() {
 function sutBody() {
   const t = sutState();
   if (t.kind !== "llm") return { kind: "reference" };
-  return { kind: "llm", model: t.model || "", mode: t.mode, temperature: Number(t.temperature) || 0, max_steps: Number(t.max_steps) || 6,
+  return { kind: "llm", provider: t.provider === "local" ? "local" : "gateway", model: t.model || "", mode: t.mode, temperature: Number(t.temperature) || 0, max_steps: Number(t.max_steps) || 6,
            instructions: t.instructions, custom_prompt: t.instructions != null, references: t.references };
 }
 function fileB64(f) {
@@ -1250,7 +1255,22 @@ function sutEditor(opts = {}) {
     const sg = t.suggested;
     if (!sg) { api(`api/journey/${S.pack}/sut`).then(x => { t.suggested = x; paint(); }).catch(e => toast(e.message)); }
     const ck = t.check;
-    const model = h("div", { class: "form" },
+    const loc = S.meta.sut_local || {};
+    const localHere = opts.id !== "pg";                    // the local model is for campaign runs only
+    if (t.provider === "local" && !localHere) t.provider = "gateway";
+    const provider = h("div", { class: "form" }, h("span", { id: `${opts.id}-prov-l`, style: "font-size:12.5px;color:var(--ink-2)" }, "Model runs on"),
+      h("div", { class: "stack", style: "gap:4px" }, h("div", { class: "devs", role: "radiogroup", "aria-labelledby": `${opts.id}-prov-l` },
+        h("label", {}, h("input", { type: "radio", name: `${opts.id}-prov`, checked: t.provider !== "local", onchange: () => { t.provider = "gateway"; t.check = null; sutSave(); paint(); } }),
+          h("span", { class: "dn" }, "Model gateway"), h("span", { class: "dd" }, "Microsoft, through the network")),
+        h("label", { title: localHere ? loc.detail : "campaign runs only" }, h("input", { type: "radio", name: `${opts.id}-prov`, checked: t.provider === "local", disabled: !localHere || !loc.usable,
+            onchange: () => { t.provider = "local"; t.check = null; sutSave(); paint(); } }),
+          h("span", { class: "dn" }, "Local model (vLLM)"), h("span", { class: "dd" }, loc.name ? loc.name : "not set up"))),
+        h("span", { class: "small muted" }, !localHere ? "The local model runs in campaigns only; chats here use the gateway." : loc.usable ? `Local: ${loc.path} (${loc.detail}).` : `Local model: ${loc.detail || "not set up"}.`)));
+    const model = t.provider === "local" ? h("div", { class: "form" },
+      h("label", {}, "Model"), h("div", { class: "row" }, h("span", { class: "chip" }, loc.path || "–"),
+        h("label", { class: "small muted", for: `${opts.id}-mode` }, "Replies"), h("select", { class: "select", id: `${opts.id}-mode`, onchange: e => { t.mode = e.target.value; sutSave(); } },
+          h("option", { value: "live", selected: t.mode === "live" }, "live (cached for re-runs)"), h("option", { value: "replay", selected: t.mode === "replay" }, "replay (cache only)"))),
+      h("span", {}), h("span", { class: "small muted" }, "Loaded with vLLM in the campaign's own process when the run starts (set GMSJOURNEY_VLLM_GPU_UTIL lower if the knowledge store shares the GPU). Temperature 0, so a run can be repeated exactly.")) : h("div", { class: "form" },
       h("label", { for: `${opts.id}-model` }, "Model"), h("div", { class: "row" },
         h("input", { class: "input mono", id: `${opts.id}-model`, style: "width:150px", value: t.model, placeholder: "gpt-41", autocomplete: "off", spellcheck: "false", oninput: e => { t.model = e.target.value.trim(); t.check = null; sutSave(); } }),
         h("label", { class: "small muted", for: `${opts.id}-mode` }, "Replies"), h("select", { class: "select", id: `${opts.id}-mode`, onchange: e => { t.mode = e.target.value; sutSave(); } },
@@ -1289,7 +1309,7 @@ function sutEditor(opts = {}) {
     const fixed = h("details", { class: "card" }, h("summary", {}, "Added by the harness (not editable)"),
       h("p", { class: "small muted", style: "margin:0 14px 8px" }, "The journey's tools with their arguments and allowed values, the transfer reasons, the dialog acts the bot labels its turns with, and the JSON reply format."),
       h("pre", { class: "fixed" }, sg ? sg.protocol : "Loading…"));
-    return [choice, model, prompt, h("div", { class: "stack", style: "gap:6px" }, h("span", { style: "font-weight:600" }, "Reference Files"), drop, refs), fixed,
+    return [choice, provider, model, prompt, h("div", { class: "stack", style: "gap:6px" }, h("span", { style: "font-weight:600" }, "Reference Files"), drop, refs), fixed,
       opts.campaign ? h("div", { class: "notice warn" }, "With the LLM bot, step 10 (planted defects) is skipped: it plants errors in copies of the reference bot. Everything else runs the same way.") : null];
   }
   paint();

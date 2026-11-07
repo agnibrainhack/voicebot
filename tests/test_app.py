@@ -90,7 +90,7 @@ def test_console_api_reads_checks_and_previews_a_journey():
 
 
 def test_every_step_has_a_summary_and_skips_cleanly():
-    assert [s[0] for s in STEPS] == [str(i) for i in range(1, 13)]
+    assert [s[0] for s in STEPS] == [str(i) for i in range(1, 14)]
     for sid, *_ in STEPS:
         out = summarize(sid, {})                             # a step that did not run reads as nothing, not a crash
         assert set(out) >= {"metrics", "tables", "notes"}

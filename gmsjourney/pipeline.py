@@ -178,10 +178,10 @@ def build_gms(policy_path: str | Path | None = None, *, kx_store_dir: str | None
                                     default=str).encode()).hexdigest()[:16]
     sdir = Path(kx_store_dir) if kx_store_dir else backend.CACHE / "stores" / key
     if (sdir / "gms_build_report.json").exists() and (sdir / "kx" / "model.pt").exists() and not rebuild:
-        log(f"[1/12] loading the knowlytix GMS store ({sdir})")
+        log(f"[1/13] loading the knowlytix GMS store ({sdir})")
         kb = load_kx_store(policy_path, sdir)
     else:
-        log(f"[1/12] building the knowlytix GMS store: GEODE loop -> embed loop -> contradiction SFT -> "
+        log(f"[1/13] building the knowlytix GMS store: GEODE loop -> embed loop -> contradiction SFT -> "
             f"production store -> GMSJudge calibration ({sdir})")
         kb = build_kx_store(policy_path, sdir, seed=seed, store_overrides=overrides, log=log, **params)
     return kb.store, {**kb.report, "store_dir": str(sdir)}, info
@@ -251,6 +251,8 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         raise _domain.DomainError(f"domain pack {dom.name} does not match its graph:\n  - " + "\n  - ".join(problems))
     policy_path = cfg.policy_path or str(dom.graph_path)
     R["domain"] = {"name": dom.name, "dir": str(dom.dir), "graph": dom.graph_path.name}
+    from .verdict import provenance
+    R["provenance"] = provenance(dom.name)          # code commit and graph hash, for the verdict's reproduction line
 
     # 1 -------------------------------------------------------------- store
     store, build_report, R["backend"] = build_gms(policy_path,
@@ -300,7 +302,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     oracle = PolicyOracle(store)
 
     # 2 -------------------------------------------------------------- KB bases
-    log("[2/12] mining policy-question bases (two-way admission; knowlytix substrate generators)")
+    log("[2/13] mining policy-question bases (two-way admission; knowlytix substrate generators)")
     if dom.graph is not None:                    # questions over the graph's figures (graph/kb.py)
         from .graph.kb import mine_kb_items as mine_graph_kb
         kb_items, kb_info = mine_graph_kb(store, cfg.seed)
@@ -316,7 +318,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
                           "recovery_detail": k.recovery_detail} for k in kb_items], **kb_info}
 
     # 3 -------------------------------------------------------------- journey bases
-    log("[3/12] generating journey bases (covering array + closure)")
+    log("[3/13] generating journey bases (covering array + closure)")
     gen = JourneyBaseGenerator(oracle, kb_pool=[k.frame for k in admitted], seed=cfg.seed,
                                max_turn_limit_cases=cfg.max_turn_limit_cases)
     cover, rep = gen.covering()
@@ -346,7 +348,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     log(f"      {len(specs)} journey bases + {len(admitted)} policy-question bases")
 
     # 4-5 ------------------------------------------------------------ suite + design
-    log("[4/12] resolving the factor suite (official catalogs + application layer) and composing the design")
+    log("[4/13] resolving the factor suite (official catalogs + application layer) and composing the design")
     cat = Catalog.load()
     errs = validate(cat)
     suite = resolve_profile(cat, cfg.profile)
@@ -367,7 +369,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         R["design"]["power"] = power_curve(ls, [n_runs // 4, n_runs // 2, n_runs], reps=120)
 
     # 6 -------------------------------------------------------------- invariance proof
-    log("[5/12] proving base/enriched equivalence for every scenario")
+    log("[5/13] proving base/enriched equivalence for every scenario")
     realizer, reader = Realizer(), FrameReader(store)
     if dom.graph is not None:
         from .graph.invariance import GraphInvarianceValidator
@@ -386,7 +388,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     # 5b ------------------------------------------------------------- LLM enrichment arm
     llm_scns, llm_proofs, llm_realizer, llm_validator, llm_controls = [], [], None, None, None
     if cfg.llm_arm:
-        log("[5b/12] LLM enrichment arm (Microsoft gateway): generate blind, gate every turn, prove "
+        log("[5b/13] LLM enrichment arm (Microsoft gateway): generate blind, gate every turn, prove "
             "separately, controls on LLM text")
         from .enrich.llm import LLMSettings, LLMUnavailable, build_llm_arm
         settings = cfg.llm_settings or LLMSettings(model=cfg.llm_model or "", temperature=cfg.llm_temperature,
@@ -445,7 +447,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     # 6 -------------------------------------------------------------- runtime gates (Appendix C)
     gcfg = None
     if cfg.run_governance:
-        log("[6/12] calibrating the runtime gates (Appendix C) and sweeping the gate probes")
+        log("[6/13] calibrating the runtime gates (Appendix C) and sweeping the gate probes")
         from .governance.calibrate import (calibrate_plan, calibrate_plausibility, gate_probe_sweep,
                                            multi_threshold_design, policy_fingerprint, store_fingerprint)
         from .governance.monitor import GovernanceConfig
@@ -464,7 +466,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
                            "engine": "forgeloop GMSPlausibilityGate + AuditLogger on the knowlytix store"}
 
     # 7 -------------------------------------------------------------- run SUT
-    log("[7/12] running the system under test (runtime monitor on; every utterance checked)")
+    log("[7/13] running the system under test (runtime monitor on; every utterance checked)")
     from .evaluation import runner as _runner_mod
     _runner_mod.SPEECH_GATE = cfg.speech_gate
     ref_factory, mutants, runner_kw = _reference(dom, store)
@@ -518,7 +520,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         R["governance"]["calibration_record"]["reference"] = "gate scores on the base-level runs of the bot under test"
 
     # 8 -------------------------------------------------------------- attribution
-    log("[8/12] attributing failures (deviance tests; per component, weak link)")
+    log("[8/13] attributing failures (deviance tests; per component, weak link)")
     R["diagnosis"] = attribution.diagnose(rows, suite.factor_names)
     if llm_rows:
         # the LLM arm is attributed on the factor levels that actually reached the bot (realised levels)
@@ -532,12 +534,12 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         probe_scns = [s for s in base_scns if not s.base.metadata.get("kb_qid")
                       and s.base.metadata["oracle_tool_calls"] > 2][:40]
     if cfg.run_resilience:
-        log("[9/12] probing resilience under tool faults")
+        log("[9/13] probing resilience under tool faults")
         R["resilience"] = resilience.probe(runner, oracle, probe_scns, show=cfg.progress)
 
     # 10 ------------------------------------------------------------- mutation analysis
     if cfg.run_mutation and cfg.bot_factory is None:
-        log(f"[10/12] mutation analysis ({len(mutants)} seeded defects; runtime monitor watching)")
+        log(f"[10/13] mutation analysis ({len(mutants)} seeded defects; runtime monitor watching)")
         rgen = JourneyBaseGenerator(oracle, kb_pool=[k.frame for k in admitted], seed=cfg.seed + 1)
         rand_specs = []
         while len(rand_specs) < len(specs):
@@ -559,12 +561,12 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         R["governance"]["runtime"] = _runtime_summary(rows, R["governance"]["calibration_record"], store)
 
     # 11 ------------------------------------------------------------- training corpora
-    log("[11/12] emitting training corpora (proofloop emitters)" if importlib.util.find_spec("proofloop") is not None else "[11/12] training corpora skipped (proofloop not installed)")
+    log("[11/13] emitting training corpora (proofloop emitters)" if importlib.util.find_spec("proofloop") is not None else "[11/13] training corpora skipped (proofloop not installed)")
     R["sft"] = _training_corpora(store, proofs, reader, realizer, admitted, out)
 
     # 12 ------------------------------------------------------------- outputs
     R["failure_modes"] = _failure_modes(R)
-    log("[12/12] writing outputs")
+    log("[12/13] writing outputs")
     R["state_mapping"] = _state_mapping_summary(proofs, kg)
     # turn by turn: what the oracle says the bot should do at each customer turn, next to what
     # the bot did (diagnostic view of the same runs; grading above is outcome + stages + admissibility)
@@ -620,6 +622,17 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     (out / "report.html").write_text(render_html(R))
     from .case_compare import write_case_comparison
     write_case_comparison(out)
+
+    # 13 ------------------------------------------------------------- verdict
+    log("[13/13] writing the verdict: release decision, top risks, how to reproduce; every case, expected beside actual")
+    try:
+        from .verdict import write as write_verdict
+        R["verdict"] = write_verdict(out)
+    except Exception as e:                       # noqa: BLE001 - the verdict never costs the run its report
+        R["verdict"] = {"error": f"{type(e).__name__}: {e}"}
+        log(f"      the verdict could not be written: {R['verdict']['error']}")
+    R["elapsed_seconds"] = round(time.time() - t0, 1)
+    (out / "report.json").write_text(json.dumps(R, indent=1, default=str))
     log(f"done in {R['elapsed_seconds']} s -> {out}")
     return R
 
