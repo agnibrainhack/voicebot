@@ -125,6 +125,37 @@ def test_case_explorer_reads_a_runs_cases_back():
     assert rew["changed"] == ["noise"] and rew["turns"][0]["equivalent"] is True and rew["result"]["correct"] is False
 
 
+def test_verdict_puts_expected_beside_actual_and_explains_the_gate():
+    from gmsjourney.app.verdict import _plain_reason, _speech, build
+    root = Path(tempfile.mkdtemp())
+    out = _fake_run(root)
+    R = json.loads((out / "report.json").read_text())
+    R["release_gate"] = {"base_level": {"passed": False, "tiers": {"action_taking": {"reasons": ["accuracy 0.500 < 0.95", "1 critical failures > 0"]}}},
+                         "enriched_template": {"passed": True, "tiers": {}}}
+    R["results"]["base_level"] = {"accuracy": 1.0}
+    (out / "report.json").write_text(json.dumps(R))
+    (out / "failures.jsonl").write_text(json.dumps({"sid": "J000~0001", "why": {
+        "expected": {"end": "ENDED", "writes": [["record", {"id": "T1", "answer": "NO"}]]},
+        "actual": {"end": "TRANSFERRED", "transfer_reason": "ambiguity", "writes": []},
+        "stages": {"record": {"expected": "record:SUCCESS", "actual": "-"}}}}))
+    (out / "dataset" / "turn_by_turn.csv").write_text(
+        "case_id,turn,state,customer_text,expected_tools,actual_tools,expected_bot,actual_bot_acts,actual_bot_text,speech_check,turn_match,after_divergence\n"
+        "J000~0001,0,ASK_AUTH,um four eight,auth() -> OK,-,PRESENT_TXN(T1),ASK_CLARIFY,Sorry?,unread X: y ; contradicted fee '$9',False,False\n")
+    (root / "job.json").write_text(json.dumps({"pack": "charge_review_graph", "id": "r1", "code": {"commit": "abc123", "uncommitted_changes": False}}))
+    V = build(root)
+    assert not V["ready"] and V["gates"][0]["reasons"][0] == "correct 50% of runs, needs 95% (action-taking cases)"
+    assert V["risks"][0]["code"] == "OUTCOME_INCORRECT" and V["risks"][0]["what"] and V["fingerprint"]["code"]["commit"] == "abc123"
+    fail = V["cases"][0]                                       # failed runs first
+    assert fail["sid"] == "J000~0001" and not fail["correct"]
+    assert fail["expected"]["writes"] == ["record(id=T1, answer=NO)"] and fail["actual"]["end"] == "TRANSFERRED"
+    assert fail["stages"][0]["stage"] == "record" and fail["first_difference"] == "0"
+    t = fail["turns"][0]
+    assert t["exp_tools"] == "auth() -> OK" and t["bot_tools"] == "" and t["speech"] == "contradicted fee '$9'"   # advisory notes dropped
+    ok = V["cases"][1]
+    assert ok["correct"] and ok["actual"] == ok["expected"]
+    assert _plain_reason("within-budget rate 0.333 < 0.95").startswith("33% of runs within") and _speech("ok") == ""
+
+
 # ----------------------------------------------------------------------------- playground
 @_with_fake
 def test_playground_plays_a_case_with_the_reference_bot_and_the_llm_bot():
@@ -197,6 +228,8 @@ def test_console_api_for_the_bot_cases_and_playground():
         assert code == 200 and I["totals"]["cases"] == 1
         code, D = call(f"api/runs/{rid}/cases/J000")
         assert code == 200 and len(D["versions"]) == 2
+        code, V = call(f"api/runs/{rid}/verdict")
+        assert code == 200 and len(V["cases"]) == 2 and V["fingerprint"]["journey"] == "charge_review_graph"
         code, L = call("api/play/charge_review_graph/cases?source=project")
         assert code == 200 and L["cases"]
         code, v = call("api/play/charge_review_graph/start", {"source": "project", "case": L["cases"][0]["id"], "sut": {"kind": "reference"}})
@@ -209,14 +242,18 @@ def test_console_api_for_the_bot_cases_and_playground():
         from gmsjourney.app.runs import Runs
         R = Runs(runs)
         import gmsjourney.app.runs as runs_mod
-        real = runs_mod.subprocess.Popen
-        runs_mod.subprocess.Popen = lambda *a, **k: type("P", (), {"poll": lambda self: 0, "pid": 0})()
+        import subprocess
+        from types import SimpleNamespace
+        real = runs_mod.subprocess                          # no worker started; git still answers for provenance
+        runs_mod.subprocess = SimpleNamespace(Popen=lambda *a, **k: type("P", (), {"poll": lambda self: 0, "pid": 0})(),
+                                              run=subprocess.run, SubprocessError=subprocess.SubprocessError, STDOUT=subprocess.STDOUT)
         try:
             rid2 = R.start({"pack": "charge_review_graph", "sut": {"kind": "llm", "instructions": "secret sauce",
                                                                    "references": [{"name": "f.txt", "text": "abc"}]}})
         finally:
-            runs_mod.subprocess.Popen = real
+            runs_mod.subprocess = real
         job = json.loads((runs / rid2 / "job.json").read_text())
+        assert len(job.get("graph_sha") or "") == 12                     # provenance recorded at start
         assert job["sut"]["references"] == [{"name": "f.txt", "chars": 3}] and "secret sauce" not in json.dumps(job)
         assert json.loads((runs / rid2 / "sut.json").read_text())["instructions"] == "secret sauce"
     finally:

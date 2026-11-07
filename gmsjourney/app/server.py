@@ -10,6 +10,7 @@
     POST /api/runs/<id>/cancel              stop a run
     GET  /runs/<id>/<file>                  a run's outputs (report.html, dataset/..., ...)
     GET  /api/runs/<id>/cases[/<case>]      a finished run's generated cases (cases.py): the index, or one case
+    GET  /api/runs/<id>/verdict             the one-page verdict (verdict.py): gates, risks, fingerprint, case by case
     GET  /api/journey/<pack>/sut            the suggested prompt for an LLM bot, and the fixed part the harness adds
     POST /api/attach                        text from a file for the LLM bot's prompt (body: {name, data: base64})
     POST /api/llm/check                     one tiny call through the model gateway (body: {model})
@@ -135,6 +136,9 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                         return self._json({"pack": parts[2], **st.state()})
                 if parts == ["api", "runs"]:
                     return self._json({"runs": runs.list(), "active": runs.active()})
+                if parts[:2] == ["api", "runs"] and len(parts) == 4 and parts[3] == "verdict":
+                    from .verdict import build
+                    return self._json(build(runs._dir(parts[2])))
                 if parts[:2] == ["api", "runs"] and len(parts) in (4, 5) and parts[3] == "cases":
                     from . import cases as C
                     out = runs._dir(parts[2]) / "out"

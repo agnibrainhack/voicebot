@@ -320,6 +320,36 @@ table.heat th.rowh { position: static; background: var(--sunk); text-align: left
 .line .st { font: 11px var(--mono); color: var(--ink-3); overflow-wrap: anywhere; }
 .line button.use { justify-self: start; }
 .typing { justify-self: start; color: var(--ink-3); display: flex; gap: 8px; align-items: center; font-size: 12.5px; }
+/* verdict */
+.vbanner { border-radius: 10px; padding: 14px 16px; display: grid; gap: 6px; }
+.vbanner.ok { background: var(--ok-bg); color: var(--ok); } .vbanner.bad { background: var(--bad-bg); color: var(--bad); }
+.vbanner .big { font-size: 24px; font-weight: 700; letter-spacing: -.01em; } .vbanner .why { font-size: 13px; display: grid; gap: 2px; }
+.kv.fp { grid-template-columns: 170px minmax(0, 1fr); font-size: 12.5px; } .kv.fp dd { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.vcase { margin-bottom: 14px; } .vcase.fail { border-left: 3px solid var(--bad); }
+.vgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.vside { border-radius: 8px; padding: 8px 10px; display: grid; gap: 3px; align-content: start; overflow-wrap: anywhere; }
+.vside.exp { background: var(--graph-bg); } .vside.bot { background: var(--sunk); } .vside.bot.diff { box-shadow: inset 3px 0 0 var(--bad); }
+.vside .lbl { font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-3); }
+.vside .said { font-size: 13px; margin-top: 3px; }
+.vhead { font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-3); padding: 0 10px; }
+.vrest > summary { padding: 4px 0; font-weight: 500; color: var(--ink-2); }
+.vturn { border: 1px solid var(--line); border-radius: 8px; padding: 8px; display: grid; gap: 8px; }
+.vturn.bad { border-color: var(--bad); } .vturn.after { opacity: .75; }
+.vcust { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 13px; }
+.vcust .who { font: 600 11px var(--mono); color: var(--ink-3); } .vcust .mark { margin-left: auto; font-size: 12px; }
+@media print {
+  .top, nav.rail, .no-print, .hint, .toast, #savebar, .savebar { display: none !important; }
+  .shell { display: block; } main { padding: 0; } body { background: #fff; color: #000; font-size: 11.5px; }
+  .card { box-shadow: none; } .vpage { break-after: page; border: 0; } .vturn, .vcase > .hd, .vgrid.head { break-inside: avoid; } .vcase > .hd, .vcases > .row { break-after: avoid; }
+  .tw { max-height: none !important; overflow: visible; } a { color: inherit; text-decoration: none; }
+  .vgrid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important; } .vside .mono, .vside .small { font-size: 10.5px; } .vside .said { font-size: 11.5px; }
+  .vpage > .bd { padding: 0; gap: 10px; } .vpage .tiles { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+  .vpage .tile { padding: 6px 8px; } .vpage .tile .v { font-size: 16px; } .vpage .tile .l { font-size: 10.5px; }
+  .vbanner { padding: 10px 12px; } .vbanner .big { font-size: 20px; } .vbanner .why { font-size: 11.5px; }
+  .vpage table { font-size: 11px; } .vpage th, .vpage td { padding: 4px 6px; }
+  .kv.fp { grid-template-columns: 110px minmax(0, 1fr) 110px minmax(0, 1fr); gap: 3px 10px; font-size: 10.5px; } .kv.fp dd { font-size: 10.5px; }
+}
+@media (max-width: 760px) { .vgrid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 1100px) { .fx, .runlayout, .cx, .pg, .pg-set { grid-template-columns: minmax(0, 1fr); } .flist, .clist { position: static; max-height: 300px; } }
 @media (max-width: 1100px) { .field-inline label { display: none; } #pack { width: min(260px, 30vw); } #help-btn .lbl { display: none; } .top { gap: 10px; } }
 @media (max-width: 760px) { .shell { grid-template-columns: minmax(0, 1fr); } nav.rail { position: static; height: auto; flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); }
@@ -528,15 +558,15 @@ function render() {
   const r = route();
   nav(r.view);
   const main = $("#main");
-  if (!S.J && !["run", "runs", "cases"].includes(r.view)) { main.replaceChildren(h("div", { class: "notice bad" }, `This journey could not be read: ${S.err || "unknown error"}`)); return; }
-  const fn = { overview, graph, factors, bank, scoring, run: runView, runs: runsView, cases: casesView, play: playView }[r.view] || overview;
+  if (!S.J && !["run", "runs", "cases", "verdict"].includes(r.view)) { main.replaceChildren(h("div", { class: "notice bad" }, `This journey could not be read: ${S.err || "unknown error"}`)); return; }
+  const fn = { overview, graph, factors, bank, scoring, run: runView, runs: runsView, cases: casesView, play: playView, verdict: verdictView }[r.view] || overview;
   const out = fn(r);
   if (out) main.replaceChildren(...[out].flat().filter(x => x != null && x !== false));
-  if (S.dirty && !["run", "runs", "cases", "play"].includes(r.view)) savebar();      // a re-render keeps the unsaved-changes bar
-  document.title = `${({ overview: "Overview", graph: "Graph", factors: "Journey Factors", bank: "Bank & Customer", scoring: "Rules & Scoring", run: "Run Campaign", runs: "Runs", cases: "Cases", play: "Playground" })[r.view] || "Journey Console"} · Journey Console`;
+  if (S.dirty && !["run", "runs", "cases", "play", "verdict"].includes(r.view)) savebar();      // a re-render keeps the unsaved-changes bar
+  document.title = `${({ overview: "Overview", graph: "Graph", factors: "Journey Factors", bank: "Bank & Customer", scoring: "Rules & Scoring", run: "Run Campaign", runs: "Runs", cases: "Cases", play: "Playground", verdict: "Verdict" })[r.view] || "Journey Console"} · Journey Console`;
 }
 function nav(view) {
-  if (view === "cases") view = "runs";
+  if (view === "cases" || view === "verdict") view = "runs";
   const facN = S.P ? (S.P.factors || []).length : "";
   $("#nav").replaceChildren(...VIEWS.flatMap(([g, items]) => [h("div", { class: "group" }, g),
     ...items.map(([id, label]) => h("a", { href: `#/${id}`, "aria-current": view === id ? "page" : null },
@@ -1087,7 +1117,7 @@ function runDetailBody() {
         tile(pct(R.headline.proved), "reworded cases proved"), tile(pct(R.headline.defects_caught), "planted defects caught"),
         tile(R.headline.gate ? "Passed" : "Not passed", "release gate, original"), R.headline.gate_reworded != null ? tile(R.headline.gate_reworded ? "Passed" : "Not passed", "release gate, reworded") : null) : null,
       R.headline ? meaning(R.headline) : null,
-      h("div", { class: "row" }, h("a", { class: "btn primary", href: `#/cases/${R.id}` }, "Explore Cases"), ...["report.html", "bot_validation.html", "case_comparison.html"].map(f => h("a", { class: "btn", href: `runs/${R.id}/${f}`, target: "_blank", rel: "noopener" }, { "report.html": "Open Report", "bot_validation.html": "Open Bot Validation", "case_comparison.html": "Open Case Comparison" }[f]))))) : null;
+      h("div", { class: "row" }, h("a", { class: "btn primary", href: `#/verdict/${R.id}` }, "Open the Verdict"), h("a", { class: "btn", href: `#/cases/${R.id}` }, "Explore Cases"), ...["report.html", "bot_validation.html", "case_comparison.html"].map(f => h("a", { class: "btn", href: `runs/${R.id}/${f}`, target: "_blank", rel: "noopener" }, { "report.html": "Open Report", "bot_validation.html": "Open Bot Validation", "case_comparison.html": "Open Case Comparison" }[f]))))) : null;
   const err = R.error ? h("div", { class: "notice bad" }, h("strong", {}, "The run stopped with an error."), h("pre", { class: "log", style: "margin-top:8px;background:transparent" }, R.error)) : null;
   return [head(`Run ${R.id}`, `${job.pack || ""} · ${(R.headline && R.headline.bot) || botLabel(job)} · device ${job.device || "auto"} · ${job.max_cases ? job.max_cases + " cases" : "all cases"} · ${elapsed}s`,
       h("span", { class: `pill ${statusPill[0]}`, "aria-live": "polite" }, h("span", { class: "dot" }), statusPill[1]),
@@ -1163,7 +1193,7 @@ function runsView() {
   api("api/runs").then(r => {
     S.runsList = r.runs;
     const rows = r.runs.map(x => [x.id, x.job.pack, botLabel(x.job), x.job.device || "auto", x.status + (x.elapsed ? ` · ${Math.max(1, Math.round(x.elapsed / 60))} min` : ""), pct(x.headline?.accuracy_original), pct(x.headline?.accuracy_reworded), pct(x.headline?.proved), pct(x.headline?.defects_caught),
-      x.headline ? `${x.headline.gate ? "passed" : "not passed"}${x.headline.gate_reworded == null ? "" : x.headline.gate_reworded ? " · reworded passed" : " · reworded not passed"}` : "–", x.files.includes("report.html") ? h("a", { href: `runs/${x.id}/report.html`, target: "_blank", rel: "noopener", onclick: e => e.stopPropagation() }, "Report") : "–"]);
+      x.headline ? `${x.headline.gate ? "passed" : "not passed"}${x.headline.gate_reworded == null ? "" : x.headline.gate_reworded ? " · reworded passed" : " · reworded not passed"}` : "–", x.files.includes("report.html") ? h("span", { class: "row", style: "flex-wrap:nowrap" }, h("a", { href: `#/verdict/${x.id}`, onclick: e => e.stopPropagation() }, "Verdict"), h("a", { href: `runs/${x.id}/report.html`, target: "_blank", rel: "noopener", onclick: e => e.stopPropagation() }, "Report")) : "–"]);
     el.replaceChildren(head("Runs", "Every campaign run on this machine, newest first.", h("a", { class: "btn primary", href: "#/run" }, "New Run")),
       rows.length ? table(["Run", "Journey", "Bot", "Device", "Status", "Correct, original", "Correct, reworded", "Proved", "Defects caught", "Release gate", ""], rows, { mono: [0, 3], onclick: row => go(`#/run/${row[0]}`) })
         : h("div", { class: "card empty" }, "No runs yet. ", h("a", { href: "#/run" }, "Start one"), "."));
@@ -1549,6 +1579,82 @@ function playChat() {
       ...l.reworded.slice(0, 3).map(rw => h("div", { class: "stack", style: "gap:2px;border-top:1px dashed var(--line);padding-top:6px" }, h("span", { class: "st" }, `reworded (${rw.case}, proved)`), h("span", {}, rw.text),
         h("button", { class: "btn s use", disabled: Ses.ended || P.busy, onclick: () => sayPlay(rw.text) }, "Send Reworded")))))));
   return [h("div", { class: "pg" }, chat, lines)];
+}
+
+// ---------------------------------------------------------------- the one-page verdict: is the bot ready, the risks, the fingerprint, case by case
+function verdictView(r) {
+  const id = r.arg;
+  if (!S.vd || S.vd.id !== id) {
+    S.vd = { id, V: null, err: null, show: "failed" };
+    api(`api/runs/${id}/verdict`).then(V => { if (S.vd.id === id) { S.vd.V = V; if (!V.cases.some(c => !c.correct)) S.vd.show = "all"; render(); } })
+      .catch(e => { if (S.vd.id === id) { S.vd.err = e.message; render(); } });
+  }
+  const X = S.vd;
+  const acts = h("div", { class: "row no-print" }, h("button", { class: "btn primary", onclick: () => window.print() }, "Print or Save as PDF"),
+    h("a", { class: "btn", href: `#/cases/${id}` }, "Explore Cases"), h("a", { class: "btn", href: `#/run/${id}` }, "Back to the Run"));
+  if (X.err) return [head("Verdict", `Run ${id}`, acts), h("div", { class: "notice bad" }, X.err)];
+  if (!X.V) return [head("Verdict", `Run ${id}`, acts), h("div", { class: "card empty row", style: "justify-content:center" }, h("span", { class: "spin" }), "Reading the run…")];
+  const V = X.V, N = V.numbers, F = V.fingerprint;
+  const banner = h("div", { class: `vbanner ${V.ready ? "ok" : "bad"}` },
+    h("div", { class: "big" }, V.ready ? "Ready to release" : "Not ready to release"),
+    h("div", { class: "why" }, ...V.gates.map(g => h("div", {}, h("b", {}, `${g.passed ? "✓ Passed" : "✗ Not passed"} on ${g.wording}`), g.passed ? "" : `: ${g.reasons.join("; ")}`))));
+  const nums = h("div", { class: "tiles" }, tile(N.cases_tested != null && N.cases_tested !== N.cases_generated ? `${N.cases_tested} of ${N.cases_generated}` : N.cases_generated, "cases tested"),
+    tile(pct(N.accuracy_original), "correct, original wording"), tile(pct(N.accuracy_reworded), "correct, reworded"),
+    tile(pct(N.proved), "reworded cases proved to mean the same"), tile(N.defects_caught == null ? "not run" : pct(N.defects_caught), "planted defects caught"),
+    tile(pct(N.speech_grounded_original), "runs where everything said was true"));
+  const risks = V.risks.length ? table(["Severity", "What the bot did", "Code", "Runs", "Example"], V.risks.slice(0, 6).map(x => [
+      h("span", { class: `chip ${x.severity === "critical" || x.severity === "high" ? "bad" : ""}` }, x.severity), x.what, h("span", { class: "mono" }, x.code), String(x.runs),
+      h("a", { href: `#case-${x.example}`, onclick: e => { e.preventDefault(); X.show = "all"; paintVerdict(); setTimeout(() => document.getElementById(`case-${x.example}`)?.scrollIntoView({ block: "start" }), 50); } }, x.example)]), { max: 9999 })
+    : h("p", { class: "notice ok" }, "No failure in any run.");
+  const kv = (k, v) => v == null || v === "" || (Array.isArray(v) && !v.length) ? null : [h("dt", {}, k), h("dd", {}, Array.isArray(v) ? v.join(", ") : v)];
+  const fp = h("dl", { class: "kv fp" }, ...[kv("Run", F.run), kv("Started", F.started ? `${F.started}${F.minutes != null ? ` · ${F.minutes} min` : ""}` : null), kv("Journey", F.journey),
+    kv("Policy graph", F.graph ? `${F.graph}${F.graph_sha ? ` · sha ${F.graph_sha}` : ""}` : null),
+    kv("Code", F.code ? `commit ${F.code.commit}${F.code.uncommitted_changes ? " + uncommitted changes" : ""}` : "not recorded (run started before this was added)"),
+    kv("Bot under test", F.bot), kv("Model", F.model), kv("Prompt", F.prompt_sha ? `sha ${F.prompt_sha}${F.custom_prompt ? " (edited)" : " (suggested)"}` : null), kv("Reference files", F.references),
+    kv("Seed · cases · runs", `${F.seed} · ${F.max_cases ?? "all"} · ${F.runs_per_case ?? 1} per case`), kv("Device", F.device_name ? `${F.device} (${F.device_name})` : F.device),
+    kv("Knowledge store", F.store), kv("Packages", F.packages ? Object.entries(F.packages).map(([k, v]) => `${k} ${v}`).join(", ") : null)].filter(Boolean).flat());
+  const page1 = h("section", { class: "card vpage" }, h("div", { class: "bd stack" },
+    h("div", { class: "row", style: "justify-content:space-between" }, h("div", {}, h("div", { class: "small muted" }, "Verdict"), h("h2", { style: "font-size:20px" }, `${F.journey} · ${F.bot || ""}`)), h("span", { class: "small muted mono" }, F.run)),
+    banner, nums,
+    h("div", { class: "stack", style: "gap:6px" }, h("h3", {}, "Top Risks"), h("p", { class: "small muted" }, "What went wrong most seriously and most often, each with a case to look at."), risks),
+    h("div", { class: "stack", style: "gap:6px" }, h("h3", {}, "How to Reproduce It"), h("p", { class: "small muted" }, "The same journey, graph, code, bot and settings give the same cases and the same verdict."), fp)));
+  const shown = V.cases.filter(c => X.show === "all" || (X.show === "failed" ? !c.correct : c.correct));
+  const filt = h("div", { class: "row no-print" }, ...[["failed", `Failed (${V.cases.filter(c => !c.correct).length})`], ["passed", `Passed (${V.cases.filter(c => c.correct).length})`], ["all", `All (${V.cases.length})`]]
+    .map(([k, l]) => h("button", { class: "chip", type: "button", "aria-pressed": X.show === k ? "true" : "false", onclick: () => { X.show = k; paintVerdict(); } }, l)));
+  const page2 = h("section", { class: "vcases" }, h("div", { class: "row", style: "justify-content:space-between;margin:22px 0 10px" },
+      h("div", {}, h("h2", {}, "Case by Case: What the Policy Expects, What the Bot Did"), h("p", { class: "small muted" }, "Left: the graph's answer key for each turn (the tools to call and the decisions to make). Right: what the bot under test called, decided and said. The first turn that differs is marked; turns after it are shown for reference.")), filt),
+    ...(shown.length ? shown.map(vcase) : [h("div", { class: "card empty" }, "No case in this group.")]));
+  return [h("div", { class: "no-print" }, head(`Verdict · Run ${id}`, "One page to judge the bot: ready or not, why, the worst problems, and how to reproduce it. Then every case, expected beside actual. Print it or save it as PDF.", acts)),
+    h("div", { id: "verdict" }, page1, page2)];
+}
+function paintVerdict() { render(); }
+function outcomeText(o) { return [`ends ${o.end || "?"}${o.transfer_reason ? ` (transfer: ${o.transfer_reason})` : ""}`, ...(o.writes.length ? o.writes : ["no write"])]; }
+function vcase(c) {
+  const sameEnd = JSON.stringify(c.expected) === JSON.stringify(c.actual);
+  return h("article", { class: `card vcase ${c.correct ? "" : "fail"}`, id: `case-${c.sid}` },
+    h("div", { class: "hd" }, h("div", {}, h("h3", { class: "mono" }, c.sid), h("p", { class: "small muted" }, `${c.wording} · ${c.category}${c.question ? ` · asks: ${c.question}` : ""}${c.changed ? ` · reworded: ${c.changed}` : ""}`)),
+      h("div", { class: "row" }, h("span", { class: `pill ${c.correct ? "ok" : "bad"}` }, c.correct ? "passed" : `failed · ${c.severity}`), ...c.codes.map(x => h("span", { class: "chip bad", title: x }, x)))),
+    h("div", { class: "bd stack", style: "gap:10px" },
+      h("div", { class: "vgrid head" }, h("div", { class: "vside exp" }, h("div", { class: "lbl" }, "Expected outcome (policy graph)"), ...outcomeText(c.expected).map(t => h("div", { class: "mono small" }, t))),
+        h("div", { class: `vside bot ${sameEnd ? "" : "diff"}` }, h("div", { class: "lbl" }, `The bot's outcome ${sameEnd ? "· same" : "· different"}`), ...outcomeText(c.actual).map(t => h("div", { class: "mono small" }, t)))),
+      c.stages.length ? h("p", { class: "small" }, h("b", {}, "Stages that differ: "), c.stages.map(s => s.stage).join(", ")) : null,
+      c.turns.length ? h("div", { class: "vgrid" }, h("div", { class: "lbl vhead" }, "The policy graph expects"), h("div", { class: "lbl vhead" }, "The bot did and said")) : null,
+      ...vturns(c)));
+}
+function vturns(c) {
+  const cut = c.first_difference == null ? c.turns.length : c.turns.findIndex(t => String(t.turn) === String(c.first_difference)) + 2;
+  const row = t => h("div", { class: `vturn ${t.match ? "ok" : t.after ? "after" : "bad"}` },
+        h("div", { class: "vcust" }, h("span", { class: "who" }, `Turn ${t.turn}${t.state ? " · " + t.state : ""}`), h("span", {}, t.customer || ""),
+          h("span", { class: `mark ${t.match ? "ok" : t.after ? "warn" : "bad"}` }, t.match ? "✓ same" : t.after ? "after a difference" : "✗ first difference")),
+        h("div", { class: "vgrid" },
+          h("div", { class: "vside exp" }, t.exp_tools ? h("div", { class: "mono small" }, t.exp_tools) : null, h("div", { class: "mono small" }, t.exp_acts || "nothing (the call has ended)")),
+          h("div", { class: "vside bot" }, t.bot_tools ? h("div", { class: "mono small" }, t.bot_tools) : null, h("div", { class: "mono small" }, t.bot_acts || "–"),
+            t.bot_text ? h("div", { class: "said" }, `“${t.bot_text}”`) : null,
+            t.speech ? h("div", { class: "small", style: "color:var(--bad)" }, `Speech check: ${t.speech}`) : null)));
+  if (!c.turns.length) return [h("p", { class: "small muted" }, "No turn-by-turn record for this run.")];
+  const head = c.turns.slice(0, cut).map(row), rest = c.turns.slice(cut);
+  return [...head, rest.length ? h("details", { class: "vrest" }, h("summary", { class: "small" }, `${rest.length} more turn${rest.length > 1 ? "s" : ""} after the first difference (for reference)`),
+    h("div", { class: "stack", style: "gap:8px" }, ...rest.map(row))) : null];
 }
 
 document.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.key === "s" && S.dirty) { e.preventDefault(); save(); } });

@@ -155,6 +155,15 @@ Jupyter: `from gmsjourney import app; app.show()` in a notebook (`notebooks/jour
   charts original vs reworded accuracy by category and lists every case run; **Coverage** draws any two journey
   factors as a grid of how many cases combine each pair of levels (click a cell to list them), the rules and
   transfer triggers reached, and the rewording design. All of it is read from the run's files.
+- **Verdict** (a finished run: **Open the Verdict** on its results, or *Verdict* in the run list; `app/verdict.py`):
+  one page to judge the bot. Ready to release or not, with each release gate's reasons in words; the headline
+  numbers; the top risks (failure codes ranked by severity and by runs hit, each in plain words with an example
+  case); and how to reproduce the run (journey, graph file and its hash, code commit, bot, model and prompt hash,
+  seed, cases, device, store, package versions; the commit and graph hash are recorded when a run starts). Then
+  every case run, failed first: the expected outcome (end, transfer reason, writes) on the left beside the bot's on
+  the right, and per customer turn the graph's expected tools and decisions beside the bot's tools, decisions and
+  words, the first difference marked and later turns folded. **Print or Save as PDF** gives the first page as the
+  one-pager and the cases after it, expected and actual still side by side.
 - **Playground** (`app/playground.py`): talk to the bot under test yourself. Pick a case (from the latest finished
   run, any run, or the project's default and one-per-level cases); it sets the mock bank and offers its customer
   lines, the scripted words and the reworded versions that run proved, to send with a click, or type your own.

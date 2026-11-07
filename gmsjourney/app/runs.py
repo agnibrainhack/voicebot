@@ -41,6 +41,26 @@ def devices() -> dict[str, Any]:
     return out
 
 
+def _provenance(pack: str) -> dict[str, Any]:
+    """What a run can be reproduced from: the code commit (and whether the tree had uncommitted edits) and the hash
+    of the journey's graph file, recorded when the run starts."""
+    import hashlib
+    out: dict[str, Any] = {}
+    try:
+        commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True, timeout=10)
+        dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT, capture_output=True, text=True, timeout=10)
+        if commit.returncode == 0:
+            out["code"] = {"commit": commit.stdout.strip(), "uncommitted_changes": bool(dirty.stdout.strip())}
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        from ..domain import load
+        out["graph_sha"] = hashlib.sha256(load(pack).graph_path.read_bytes()).hexdigest()[:12]
+    except Exception:                              # noqa: BLE001 - provenance is best effort
+        pass
+    return out
+
+
 def check_device(dev: str | None) -> str | None:
     """None when the device can be used, else why not."""
     if not dev or dev in ("auto", "cpu"):
@@ -92,6 +112,7 @@ class Runs:
                                   "custom_prompt": bool(sut.get("custom_prompt")),
                                   "references": [{"name": r.get("name"), "chars": len(r.get("text") or "")}
                                                  for r in sut.get("references") or []]}}
+        job = {**job, **_provenance(job["pack"])}
         (run / "job.json").write_text(json.dumps({**job, "id": rid, "created": time.time()}, indent=1))
         env = {**os.environ, "PYTHONPATH": str(ROOT) + os.pathsep + os.environ.get("PYTHONPATH", "")}
         if job.get("device") and job["device"] != "auto":
