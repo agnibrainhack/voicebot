@@ -17,20 +17,20 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import gmsjourney.enrich.llm.client as llm_client  # noqa: E402
-from gmsjourney.bases.journey import to_item  # noqa: E402
-from gmsjourney.bases.kb import mine_kb_items  # noqa: E402
-from gmsjourney.catalog import Catalog, resolve_profile  # noqa: E402
-from gmsjourney.core import Scenario  # noqa: E402
-from gmsjourney.design.doe import compose  # noqa: E402
-from gmsjourney.enrich.invariance import InvarianceValidator  # noqa: E402
-from gmsjourney.enrich.reader import FrameReader  # noqa: E402
-from gmsjourney.enrich.realizers import Realizer  # noqa: E402
-from gmsjourney.journey import JourneySpec  # noqa: E402
-from gmsjourney.kb_truth import judge_kb_answer  # noqa: E402
+from gmsjourney import llm as llm_client  # noqa: E402
+from gmsjourney.cases.design import to_item  # noqa: E402
+from gmsjourney.knowledge.questions import mine_kb_items  # noqa: E402
+from gmsjourney.rewording.catalog import Catalog, resolve_profile  # noqa: E402
+from gmsjourney.rewording.catalog import Scenario  # noqa: E402
+from gmsjourney.cases.design import compose  # noqa: E402
+from gmsjourney.rewording.proof import InvarianceValidator  # noqa: E402
+from gmsjourney.rewording.wording import FrameReader  # noqa: E402
+from gmsjourney.rewording.wording import Realizer  # noqa: E402
+from gmsjourney.cases.journey import JourneySpec  # noqa: E402
+from gmsjourney.knowledge.questions import judge_kb_answer  # noqa: E402
 from _store import kx_store  # noqa: E402
-from gmsjourney.ontology import Ontology, SemanticFrame as F  # noqa: E402
-from gmsjourney.oracle import PolicyOracle  # noqa: E402
+from gmsjourney.cases.meaning import Ontology, SemanticFrame as F  # noqa: E402
+from gmsjourney.graph.flow import GraphOracle as PolicyOracle  # noqa: E402
 
 POLICY_KG = Path(__file__).resolve().parents[1] / "gmsjourney" / "policy" / "charge_review" / "charge_review_kg.json"
 
@@ -57,7 +57,7 @@ def test_hallucination_probes_read_back_and_are_abstentions():
 
 
 def test_reference_bot_abstains_and_the_mutant_fabricates():
-    from gmsjourney.sut.reference_bot import DEFAULT_CONFIG, KBAnswerer
+    from gmsjourney.bots.reference import DEFAULT_CONFIG, KBAnswerer
     store, _o, R, _rd = env()
     items, _ = mine_kb_items(store, 42)
     sents = [s for _, s in store.kb_sentences]
@@ -90,7 +90,8 @@ class _FakeChat:
 def _llm_fixture():
     store, oracle, R, rd = env()
     llm_client._messages = lambda s, u, **_kw: [s, u]    # no langchain needed for the fake model
-    from gmsjourney.enrich.llm import LLMSettings, build_llm_arm
+    from gmsjourney.llm import LLMSettings
+    from gmsjourney.rewording.llm_proof import build_llm_arm
     specs = [JourneySpec(), JourneySpec(disposition="mixed", card_intent="replace_expedited"),
              JourneySpec(auth="retry_ok", n_txn=2)]
     bases = [to_item(s, oracle, f"J{i:03d}") for i, s in enumerate(specs)]
@@ -126,17 +127,17 @@ def _llm_arm_proof_and_controls():
     det = {k: v["detection_rate"] for k, v in ctrl.items() if not k.startswith("_")}
     assert det and all(r == 1.0 for r in det.values()), det
     # pinned: the runner gets exactly the proved text
-    from gmsjourney.sut.adapter import JourneyRunner, make_reference_factory
+    from gmsjourney.bots.harness import JourneyRunner, make_reference_factory
     runner = JourneyRunner(store=store, realizer=R, reader=rd, bot_factory=make_reference_factory(store),
                            arm_realizers={"llm": realizer})
-    from gmsjourney.evaluation.runner import run
+    from gmsjourney.checks.scoring import run
     rows = run(llm_scns, runner, oracle.limits, store.workflow, lv)
     assert rows and all(r["arm"] == "llm" for r in rows) and realizer.stats["pinned_hits"] > 0
 
 
 def test_llm_gates_reject_new_figures_leaks_and_competing_cues():
     store, _o, _R, rd = env()
-    from gmsjourney.enrich.llm.gates import LLMOutputGates
+    from gmsjourney.rewording.llm_arm import LLMOutputGates
     g = LLMOutputGates(store, rd)
     f = F.make("INFORM_DISPOSITION", disposition="RECOGNIZED")
     base = "Yes, I recognize that charge."
@@ -151,8 +152,8 @@ def test_llm_gates_reject_new_figures_leaks_and_competing_cues():
 
 # ----------------------------------------------------------------------------- runtime additions
 def test_quorum_outcomes():
-    from gmsjourney.governance.gates import GateDecision as D, GateResult as G
-    from gmsjourney.governance.monitor import RuntimeMonitor
+    from gmsjourney.checks.gates import GateDecision as D, GateResult as G
+    from gmsjourney.checks.runtime import RuntimeMonitor
     one = [G(D.ALLOW, "syntax"), G(D.DENY, "policy"), G(D.ALLOW, "gms_plausibility")]
     two = [G(D.ALLOW, "syntax"), G(D.DENY, "policy"), G(D.DENY, "gms_plausibility")]
     syn = [G(D.DENY, "syntax"), G(D.ALLOW, "policy"), G(D.ALLOW, "gms_plausibility")]
@@ -163,7 +164,7 @@ def test_quorum_outcomes():
 
 def test_numeric_attestor():
     store, *_ = env()
-    from gmsjourney.governance.attestor import NumericRangeAttestor
+    from gmsjourney.checks.runtime import NumericRangeAttestor
     a = NumericRangeAttestor(store)
     L = lambda k: store.lookup_enm("limit", k)
     ok = a.attest(f"You have {L('max_auth_attempts')} verification attempts.")
@@ -173,8 +174,8 @@ def test_numeric_attestor():
 
 
 def test_budgets_and_severity_and_release_gate():
-    from gmsjourney.evaluation.constraints import ConstraintBudget, check_constraints
-    from gmsjourney.evaluation.severity import classify, release_gate
+    from gmsjourney.checks.scoring import ConstraintBudget, check_constraints
+    from gmsjourney.checks.scoring import classify, release_gate
     c = check_constraints([{"latency_ms": 10, "words": 80}], 3, 3, ConstraintBudget(max_bot_words=60))
     assert c["within_budget"] == 0 and c["budget_violations"]
     row = {"correct": 0, "violations": ["claim_without_success"], "budget_violations": [], "clean_termination": 1}
@@ -187,7 +188,7 @@ def test_budgets_and_severity_and_release_gate():
 
 
 def test_operating_points_p50_holdout_bootstrap():
-    from gmsjourney.governance.calibrate import bootstrap_thetas, holdout_eval, logistic_p50
+    from gmsjourney.checks.gates import bootstrap_thetas, holdout_eval, logistic_p50
     scores = [(0.2 + 0.01 * i, "admit") for i in range(20)] + [(1.0 + 0.02 * i, "block") for i in range(40)]
     p = logistic_p50(scores)
     assert 0.39 < p["theta"] < 1.0 and p["false_admits"] == 0
@@ -391,7 +392,7 @@ def test_live_responses_are_printed_cache_hits_are_not():
     import contextlib
     import io
     import tempfile as _tf
-    from gmsjourney.enrich.llm import CachedLLM, LLMSettings
+    from gmsjourney.llm import CachedLLM, LLMSettings
 
     class _Echo:
         def invoke(self, msgs):
@@ -409,7 +410,7 @@ def test_circuit_breaker_stops_after_consecutive_failures():
     import contextlib
     import io
     import tempfile as _tf
-    from gmsjourney.enrich.llm import CachedLLM, LLMSettings, LLMUnavailable as LU
+    from gmsjourney.llm import CachedLLM, LLMSettings, LLMUnavailable as LU
     calls = [0]
 
     class _Down:
@@ -431,7 +432,7 @@ def test_circuit_breaker_stops_after_consecutive_failures():
 
 def test_pick_llm_rows_caps_and_spreads_over_bases():
     from types import SimpleNamespace as NS
-    from gmsjourney.pipeline import pick_llm_rows
+    from gmsjourney.campaign.pipeline import pick_llm_rows
     rows = [NS(sid=f"B{b}~{k}", base=NS(qid=f"B{b}")) for b in range(10) for k in range(6)]
     assert pick_llm_rows(rows, 1.0, None, 1) == rows
     got = pick_llm_rows(rows, 1.0, 12, 1)
@@ -541,7 +542,7 @@ def test_turn_fallback_keeps_the_conversation_and_the_run_sends_the_proved_text(
 
 
 def test_prove_target_tries_more_candidates_until_enough_are_accepted():
-    from gmsjourney.pipeline import pick_llm_rows
+    from gmsjourney.campaign.pipeline import pick_llm_rows
     real_messages = llm_client._messages
     store, oracle, R, rd, ls, tv, realizer, lv, llm_scns = _llm_fixture()
     lv.turn_fallback = "none"
@@ -555,8 +556,8 @@ def test_prove_target_tries_more_candidates_until_enough_are_accepted():
 
 
 def test_one_clear_decision_counts_different_answers_not_repeats():
-    from gmsjourney.enrich.llm.gates import LLMOutputGates
-    from gmsjourney.ontology import SemanticFrame as F
+    from gmsjourney.rewording.llm_arm import LLMOutputGates
+    from gmsjourney.cases.meaning import SemanticFrame as F
     store, oracle, R, rd = env()
     g = LLMOutputGates(store, rd)
     f = F.make("INFORM_DISPOSITION", disposition="RECOGNIZED")
@@ -569,9 +570,9 @@ def test_one_clear_decision_counts_different_answers_not_repeats():
 
 def test_independent_reader_keeps_only_the_slots_of_the_question_intent():
     import tempfile as _tf
-    from gmsjourney.enrich.llm import CachedLLM, LLMSettings
-    from gmsjourney.enrich.llm.extractor import LLMFrameExtractor
-    from gmsjourney.ontology import SemanticFrame as F
+    from gmsjourney.llm import CachedLLM, LLMSettings
+    from gmsjourney.rewording.llm_arm import LLMFrameExtractor
+    from gmsjourney.cases.meaning import SemanticFrame as F
     store, oracle, R, rd = env()
     replies = iter([
         {"act": "ASK_KB", "slots": {"intent": "window_check", "days": "45", "subject": "REPLACE_CARD"}},
@@ -593,7 +594,7 @@ def test_independent_reader_keeps_only_the_slots_of_the_question_intent():
 
 def test_template_acts_and_llm_pool():
     from types import SimpleNamespace as NS
-    from gmsjourney.pipeline import llm_pool
+    from gmsjourney.campaign.pipeline import llm_pool
     real_messages = llm_client._messages
     store, oracle, R, rd, ls, tv, realizer, lv, llm_scns = _llm_fixture()
     lv.template_acts = ("PROVIDE_CREDENTIAL",)
@@ -621,8 +622,8 @@ def test_template_acts_and_llm_pool():
 
 def test_turn_limit_cap_keeps_rules_edges_and_boundaries():
     store, oracle, R, rd = env()
-    from gmsjourney.bases.journey import JourneyBaseGenerator
-    from gmsjourney.journey import JourneySpec
+    from gmsjourney.cases.design import JourneyBaseGenerator
+    from gmsjourney.cases.journey import JourneySpec
     items, _ = mine_kb_items(store, 42)
     adm = [k for k in items if k.admission != "rejected"]
     gen = JourneyBaseGenerator(oracle, kb_pool=[k.frame for k in adm], seed=42, max_turn_limit_cases=2)
@@ -635,13 +636,13 @@ def test_turn_limit_cap_keeps_rules_edges_and_boundaries():
     assert not rep.rules_missing and not rep.edges_missing and not rep.triggers_missing
     assert {"turn_pressure=at_limit", "turn_pressure=over_limit"} <= set(rep.boundaries_covered)
     assert rep.pairs_covered == rep.pairs_required
-    from gmsjourney.journey import DIMENSIONS
+    from gmsjourney.cases.journey import DIMENSIONS
     assert DIMENSIONS["turn_pressure"] == ["normal", "at_limit", "over_limit"]    # restored
 
 
 def test_extended_policy_questions_are_computed_and_read_back():
-    from gmsjourney.bases.kb import _reads_back
-    from gmsjourney.kb_truth import kb_answer
+    from gmsjourney.knowledge.questions import _reads_back
+    from gmsjourney.knowledge.questions import kb_answer
     store, oracle, R, rd = env()
     std, _ = mine_kb_items(store, 42)
     ext, info = mine_kb_items(store, 42, extended=True)
@@ -656,10 +657,10 @@ def test_extended_policy_questions_are_computed_and_read_back():
 
 def test_case_summaries_are_checked_against_the_facts():
     import tempfile as _tf
-    from gmsjourney.enrich.llm import LLMSettings
-    from gmsjourney.narrate import LLMNarrator, case_facts, template_summary
+    from gmsjourney.llm import LLMSettings
+    from gmsjourney.reports.cases import LLMNarrator, case_facts, template_summary
     store, oracle, R, rd = env()
-    from gmsjourney.journey import JourneySpec
+    from gmsjourney.cases.journey import JourneySpec
     tr = oracle.run(JourneySpec(human_mid="yes", n_txn=2))
     turns, cur, i = [], None, -1
     for ev in tr.events:                                  # the answer sheet's grouping, in miniature

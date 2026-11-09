@@ -210,7 +210,7 @@ def convert(src: Path = SRC) -> dict:
 
 def main() -> int:
     sys.path.insert(0, str(ROOT))
-    from gmsjourney.graph.model import dump_compact
+    from gmsjourney.graph.compact import dump_compact
     out = convert()
     DST.parent.mkdir(parents=True, exist_ok=True)
     DST.write_text(dump_compact(out))

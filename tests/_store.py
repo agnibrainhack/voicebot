@@ -13,7 +13,7 @@ from functools import lru_cache
 
 @lru_cache(maxsize=1)
 def kx_store():
-    from gmsjourney.pipeline import POLICY, build_gms
+    from gmsjourney.campaign.pipeline import POLICY, build_gms
     store, _report, _info = build_gms(POLICY, kx_store_dir=os.environ.get("GMSJOURNEY_KX_STORE") or None,
                                       log=lambda *a: None)
     return store

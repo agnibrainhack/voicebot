@@ -1,8 +1,8 @@
 """A compact policy graph compiled into the full graph walks the same journeys as its own interpreter.
 
-For every journey the compact engine's miner finds (``graph/journeys.py``: every path with up to two deviations,
-plus failure perturbations and policy questions), the compact interpreter (``graph/machine.py``) plays it with
-its simulated customer; the compiled flow (``flow.GraphOracle`` over ``knowledge/pack_compile.py``) replays the
+For every journey the compact engine's miner finds (``cases/factors.py``: every path with up to two deviations,
+plus failure perturbations and policy questions), the compact interpreter (``graph/interpreter.py``) plays it with
+its simulated customer; the compiled flow (``flow.GraphOracle`` over ``graph/compile.py``) replays the
 same customer frames against the same tool script. Bot acts, tool calls, rules exercised and the ending must be
 identical.
 
@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from gmsjourney import domain  # noqa: E402
+from gmsjourney.packs import loading as domain  # noqa: E402
 
 
 def _events(tr) -> list:
@@ -37,11 +37,11 @@ def _events(tr) -> list:
 
 def check_pack(pack: str, limit: int | None = None) -> dict:
     dom = domain.set_current(pack)
-    from gmsjourney.flow import GraphOracle as FlowOracle
+    from gmsjourney.graph.flow import GraphOracle as FlowOracle
     from gmsjourney.graph.compile import compile_graph
-    from gmsjourney.graph.journeys import build_fixture, mine_paths, perturbations
-    from gmsjourney.graph.kb import kb_frames
-    from gmsjourney.graph.machine import GraphOracle as MachineOracle
+    from gmsjourney.cases.factors import build_fixture, mine_paths, perturbations
+    from gmsjourney.knowledge.questions import kb_frames
+    from gmsjourney.graph.interpreter import GraphOracle as MachineOracle
     store = compile_graph(dom.graph_path).store
     store.kg = dom.kg
     machine, flow = MachineOracle(store), FlowOracle(store)

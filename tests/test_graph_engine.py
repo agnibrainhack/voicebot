@@ -19,12 +19,12 @@ PACKS = ("charge_review_graph", "supplementary_card")
 
 @lru_cache(maxsize=None)
 def env(pack: str):
-    from gmsjourney import domain
+    from gmsjourney.packs import loading as domain
     dom = domain.set_current(pack)
     from gmsjourney.graph.compile import compile_graph
-    from gmsjourney.graph.journeys import coverage_closure, mine_paths, perturbations
-    from gmsjourney.graph.kb import kb_frames
-    from gmsjourney.graph.machine import GraphOracle
+    from gmsjourney.cases.factors import coverage_closure, mine_paths, perturbations
+    from gmsjourney.knowledge.questions import kb_frames
+    from gmsjourney.graph.interpreter import GraphOracle
     store = compile_graph(dom.graph_path).store
     oracle = GraphOracle(store)
     paths = mine_paths(oracle)
@@ -38,7 +38,7 @@ def _pack() -> str:
 
 
 def test_graph_validates_and_pack_lints():
-    from gmsjourney import domain
+    from gmsjourney.packs import loading as domain
     dom, *_ = env(_pack())
     assert dom.engine == "graph"
     assert dom.graph.validate() == []
@@ -65,13 +65,13 @@ def test_mined_journeys_cover_the_graph_and_the_oracle_obeys_every_rule():
 
 
 def test_reference_bot_passes_every_mined_base_case():
-    from gmsjourney.core import Scenario
-    from gmsjourney.enrich.reader import FrameReader
-    from gmsjourney.enrich.realizers import Realizer
-    from gmsjourney.evaluation.runner import run, summary
-    from gmsjourney.graph.bot import make_graph_factory
-    from gmsjourney.graph.journeys import to_item
-    from gmsjourney.graph.runner import GraphRunner
+    from gmsjourney.rewording.catalog import Scenario
+    from gmsjourney.rewording.wording import FrameReader
+    from gmsjourney.rewording.wording import Realizer
+    from gmsjourney.checks.scoring import run, summary
+    from gmsjourney.bots.reference import make_graph_factory
+    from gmsjourney.cases.factors import to_item
+    from gmsjourney.bots.harness import GraphRunner
     dom, store, oracle, paths, pert = env(_pack())
     bases = [to_item(sp, oracle, f"G{i:03d}") for i, sp in enumerate([p for p, _ in paths] + [p for p, _ in pert])]
     runner = GraphRunner(store=store, realizer=Realizer(), reader=FrameReader(store), bot_factory=make_graph_factory(store))
@@ -82,13 +82,13 @@ def test_reference_bot_passes_every_mined_base_case():
 
 
 def test_every_mined_defect_is_caught_or_equivalent():
-    from gmsjourney.core import Scenario
-    from gmsjourney.enrich.reader import FrameReader
-    from gmsjourney.enrich.realizers import Realizer
-    from gmsjourney.evaluation.runner import run
-    from gmsjourney.graph.bot import make_graph_factory, mutants
-    from gmsjourney.graph.journeys import to_item
-    from gmsjourney.graph.runner import GraphRunner
+    from gmsjourney.rewording.catalog import Scenario
+    from gmsjourney.rewording.wording import FrameReader
+    from gmsjourney.rewording.wording import Realizer
+    from gmsjourney.checks.scoring import run
+    from gmsjourney.bots.reference import make_graph_factory, mutants
+    from gmsjourney.cases.factors import to_item
+    from gmsjourney.bots.harness import GraphRunner
     dom, store, oracle, paths, pert = env(_pack())
     bases = [to_item(sp, oracle, f"G{i:03d}") for i, sp in enumerate([p for p, _ in paths] + [p for p, _ in pert])]
     scns = [Scenario(f"{b.qid}~base", b, {}, "base") for b in bases]
@@ -110,8 +110,8 @@ def test_every_mined_defect_is_caught_or_equivalent():
 
 
 def test_base_factor_array_covers_every_feasible_pair_and_the_graph():
-    from gmsjourney.graph import factors as FA
-    from gmsjourney.graph.kb import kb_frames
+    from gmsjourney.cases import factors as FA
+    from gmsjourney.knowledge.questions import kb_frames
     dom, store, oracle, *_ = env(_pack())
     cfg = FA.load(dom)
     assert cfg and FA.check(cfg) == [], FA.check(cfg or {})
@@ -136,10 +136,10 @@ def test_converter_reproduces_the_committed_graph():
 
 def test_lexicon_reads_back_policy_questions():
     import random
-    from gmsjourney.enrich.reader import FrameReader
-    from gmsjourney.enrich.realizers import Realizer
-    from gmsjourney.graph.kb import kb_frames
-    from gmsjourney.ontology import Ontology
+    from gmsjourney.rewording.wording import FrameReader
+    from gmsjourney.rewording.wording import Realizer
+    from gmsjourney.knowledge.questions import kb_frames
+    from gmsjourney.cases.meaning import Ontology
     dom, store, *_ = env(_pack())
     fr, R, ont = FrameReader(store), Realizer(), Ontology.from_store(store)
     st = dom.graph.prompt_states[1]
@@ -158,8 +158,8 @@ def test_lexicon_reads_back_policy_questions():
 
 
 def test_base_journey_review_passes_and_catches_a_wrong_expectation():
-    from gmsjourney.graph import factors as FA
-    from gmsjourney.graph.kb import kb_frames
+    from gmsjourney.cases import factors as FA
+    from gmsjourney.knowledge.questions import kb_frames
     dom, store, oracle, *_ = env(_pack())
     pool = kb_frames(dom.graph)
     r = FA.review(oracle, FA.load(dom), pool)
@@ -181,8 +181,8 @@ def test_rules_state_distinct_facts_and_contradiction_calibration_comes_from_the
     stance and path cuts are fitted on the pack's own opposites and compositions, and a cohort
     that does not separate is refused rather than collapsed."""
     from collections import defaultdict
-    from gmsjourney.graph.model import PolicyGraph, rule_reification
-    from gmsjourney.knowledge.kx_store import KXPolicyStore
+    from gmsjourney.graph.compact import PolicyGraph, rule_reification
+    from gmsjourney.knowledge.build import KXPolicyStore
     dom, store, *_ = env(_pack())
     g = dom.graph
     by = defaultdict(set)
@@ -215,7 +215,7 @@ def test_rules_state_distinct_facts_and_contradiction_calibration_comes_from_the
     st.__dict__["calibration"] = {"tension": t, "holonomy": {"status": "not_applicable"}}
     rid, r = next((k, v) for k, v in st.rules.items() if v.stance == "must")
     assert st.find_contradictions() == []
-    from gmsjourney.knowledge.ingest import Rule
+    from gmsjourney.knowledge.store import Rule
     planted = {**st.rules, f"{rid}x": Rule(f"{rid}x", "must_not", r.subject, r.predicate, r.obj, "x", r.source)}
     assert [(c["a"], c["b"]) for c in st.find_contradictions(planted)] == [(rid, f"{rid}x")]
     t = kx_store(FakeKX(opp=0.01, same=0.5))._tension_from_graph({})

@@ -18,8 +18,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gmsjourney.enrich.llm import LLMSettings                               # noqa: E402
-from gmsjourney.enrich.llm.client import LLMUnavailable, _messages, make_chat_model   # noqa: E402
+from gmsjourney.llm import LLMSettings  # noqa: E402
+from gmsjourney.llm import LLMUnavailable, _messages, make_chat_model  # noqa: E402
 
 PROMPT = 'Reply with exactly this JSON and nothing else: {"ok": true}'
 

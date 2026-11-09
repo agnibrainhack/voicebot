@@ -1,5 +1,5 @@
-"""Build ANNOTATED.html — a line-by-line annotated listing of ontology.py, oracle.py and
-enrich/reader.py, plus how the three connect in the invariance proof.
+"""Build ANNOTATED.html — a line-by-line annotated listing of cases/meaning.py, graph/flow.py and
+rewording/wording.py, plus how the three connect in the invariance proof.
 
 The code is read from the source files verbatim; the notes are line ranges supplied below.
 The script prints any line not covered by a note, so "line by line" is checkable.
@@ -92,13 +92,13 @@ READER = [
 ]
 
 FILES = [
-    ("ontology.py", ROOT / "gmsjourney" / "ontology.py", ONTOLOGY,
+    ("cases/meaning.py", ROOT / "gmsjourney" / "cases" / "meaning.py", ONTOLOGY,
      "The judge", "Turns meanings into canonical form, decides equivalence in a dialog state, and defines "
      "the conversation signature."),
-    ("oracle.py", ROOT / "gmsjourney" / "oracle.py", ORACLE,
+    ("graph/flow.py", ROOT / "gmsjourney" / "graph" / "flow.py", ORACLE,
      "The answer key", "Plays the call from meaning cards and reads every limit from exact memory — the "
      "ground truth, computed rather than annotated."),
-    ("enrich/reader.py", ROOT / "gmsjourney" / "enrich" / "reader.py", READER,
+    ("rewording/wording.py", ROOT / "gmsjourney" / "rewording" / "wording.py", READER,
      "The instrument", "Reads an utterance back to a meaning card, independent of how it was written."),
 ]
 
@@ -206,7 +206,7 @@ footer{{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--line);font
 <div class="wrap">
 <span class="kicker">Annotated source · the three files the invariance proof rests on</span>
 <h1>Frames, Reader, Oracle</h1>
-<p class="lede">Every line of <code>ontology.py</code>, <code>oracle.py</code> and <code>enrich/reader.py</code>,
+<p class="lede">Every line of <code>cases/meaning.py</code>, <code>graph/flow.py</code> and <code>rewording/wording.py</code>,
 explained in order — and then joined up: how these three files, and nothing else, decide whether an enriched
 test is the same test as its base case.</p>
 
@@ -277,10 +277,10 @@ what the previous one knew, which is why agreement between them is evidence rath
 <thead><tr><th style="width:38%">Call</th><th style="width:14%">In file</th><th>What it establishes</th></tr></thead>
 <tbody>
 <tr><td><code>reader.read(text, state)</code></td><td>reader.py</td><td>The messy sentence is turned back into a meaning card — the reader's opinion of what was said.</td></tr>
-<tr><td><code>ont.canonicalize(g, state)</code></td><td>ontology.py</td><td>That card is normalised in its state: a bare yes/no becomes what the state asked, and every value is resolved inside its own value set.</td></tr>
-<tr><td><code>ont.equivalent(frame, g, state)</code></td><td>ontology.py</td><td>The normalised read-back is identical to the intended card <i>and</i> legal where it was said. This is L2.</td></tr>
-<tr><td><code>sequence_signature(read_frames, states)</code></td><td>ontology.py</td><td>The whole conversation, reduced to one string — compared against the base conversation's string.</td></tr>
-<tr><td><code>oracle.run(spec, fixture, frames_override=read_frames)</code></td><td>oracle.py</td><td>The oracle replays the cards the reader recovered and must reach the same outcome and stages. This is L3 — and it is only sound because the oracle reads frames and never text.</td></tr>
+<tr><td><code>ont.canonicalize(g, state)</code></td><td>cases/meaning.py</td><td>That card is normalised in its state: a bare yes/no becomes what the state asked, and every value is resolved inside its own value set.</td></tr>
+<tr><td><code>ont.equivalent(frame, g, state)</code></td><td>cases/meaning.py</td><td>The normalised read-back is identical to the intended card <i>and</i> legal where it was said. This is L2.</td></tr>
+<tr><td><code>sequence_signature(read_frames, states)</code></td><td>cases/meaning.py</td><td>The whole conversation, reduced to one string — compared against the base conversation's string.</td></tr>
+<tr><td><code>oracle.run(spec, fixture, frames_override=read_frames)</code></td><td>graph/flow.py</td><td>The oracle replays the cards the reader recovered and must reach the same outcome and stages. This is L3 — and it is only sound because the oracle reads frames and never text.</td></tr>
 </tbody>
 </table></div>
 
@@ -304,8 +304,8 @@ all three files, and why the proof is about meaning <i>in a dialog state</i> rat
 
 {''.join(parts)}
 
-<footer>Annotated from <code>gmsjourney/ontology.py</code>, <code>gmsjourney/oracle.py</code> and
-<code>gmsjourney/enrich/reader.py</code> at branch <code>gmsh-parity-0.4</code>; the trace was captured by running
+<footer>Annotated from <code>gmsjourney/cases/meaning.py</code>, <code>gmsjourney/graph/flow.py</code> and
+<code>gmsjourney/rewording/wording.py</code> at branch <code>gmsh-parity-0.4</code>; the trace was captured by running
 them against the campaign store. Companions: <a href="EXPLAINER.html">Inside gmsjourney</a> ·
 <a href="INVARIANCE.html">How Invariance Is Proven</a> · <a href="ANSWER_SHEET.html">Answer Sheet</a>.</footer>
 </div>

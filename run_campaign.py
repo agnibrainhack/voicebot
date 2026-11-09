@@ -12,7 +12,7 @@ the gateway token from gcloud (or AEXP_ACCESS_TOKEN). Neither is ever written to
 import argparse
 import json
 
-from gmsjourney.pipeline import CampaignConfig, run_campaign
+from gmsjourney.campaign.pipeline import CampaignConfig, run_campaign
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()

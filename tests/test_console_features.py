@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from gmsjourney import domain  # noqa: E402
+from gmsjourney.packs import loading as domain  # noqa: E402
 
 FAKE = "fake_sut_model:HappyPath"
 
@@ -43,7 +43,7 @@ def _with_fake(fn):
 
 # ----------------------------------------------------------------------------- the LLM bot's prompt, any journey
 def test_llm_bot_prompt_is_built_from_the_active_journey():
-    from gmsjourney.sut.llm_bot import act_inventory, build_system_prompt, protocol_text, suggested_instructions, transfer_reasons
+    from gmsjourney.bots.llm_bot import (act_inventory, build_system_prompt, protocol_text, suggested_instructions, transfer_reasons)
     try:
         domain.set_current("supplementary_card")
         acts = act_inventory()
@@ -66,7 +66,7 @@ def test_llm_bot_prompt_is_built_from_the_active_journey():
 
 # ----------------------------------------------------------------------------- attachments
 def test_attachments_are_read_as_text_and_refused_clearly():
-    from gmsjourney.app.attachments import MAX_CHARS, extract
+    from gmsjourney.console.bots import MAX_CHARS, extract
     r = extract("faq.md", "# FAQ\n\nStandard delivery is free.".encode())
     assert r["kind"] == "md" and "free" in r["text"] and not r["truncated"]
     assert "a | b" in extract("t.csv", b"a,b\n1,2\n")["text"]
@@ -112,7 +112,7 @@ def _fake_run(root: Path) -> Path:
 
 
 def test_case_explorer_reads_a_runs_cases_back():
-    from gmsjourney.app.cases import detail, index
+    from gmsjourney.console.runs import detail, index
     out = _fake_run(Path(tempfile.mkdtemp()))
     I = index(out)
     assert I["totals"] == {"cases": 1, "reworded": 1, "proved": 1, "tested": 1, "accuracy_original": 1.0, "accuracy_reworded": 0.0}
@@ -126,7 +126,7 @@ def test_case_explorer_reads_a_runs_cases_back():
 
 
 def test_verdict_puts_expected_beside_actual_and_explains_the_gate():
-    from gmsjourney.verdict import _plain_reason, _speech, build
+    from gmsjourney.reports.verdict import _plain_reason, _speech, build
     root = Path(tempfile.mkdtemp())
     out = _fake_run(root)
     R = json.loads((out / "report.json").read_text())
@@ -157,7 +157,7 @@ def test_verdict_puts_expected_beside_actual_and_explains_the_gate():
 
 
 def test_verdict_is_written_as_files():
-    from gmsjourney.verdict import write
+    from gmsjourney.reports.verdict import write
     out = _fake_run(Path(tempfile.mkdtemp()))
     w = write(out)
     assert w["runs"] == 2 and w["failed"] == 1 and (out / "verdict.json").exists()
@@ -184,8 +184,8 @@ class _Engine:
 
 
 def test_local_model_status_chat_and_the_campaign_only_rule():
-    from gmsjourney.sut.local_llm import ENV, LocalChat, status
-    from gmsjourney.enrich.llm.client import _messages
+    from gmsjourney.bots.llm_bot import ENV, LocalChat, status
+    from gmsjourney.llm import _messages
     old = {k: os.environ.pop(k, None) for k in (ENV, "GMSJOURNEY_VLLM_URL")}
     try:
         assert not status()["usable"] and ENV in status()["detail"]
@@ -201,7 +201,7 @@ def test_local_model_status_chat_and_the_campaign_only_rule():
         r = chat.invoke(_messages("You are a bot.", '{"conversation": []}'))
         assert '"END"' in r.content and r.usage_metadata == {"input_tokens": 3, "output_tokens": 2}
         assert [m["role"] for m in eng.seen[0]] == ["system", "user"] and chat.name == "local-Meta-Llama-3.1-8B-Instruct"
-        from gmsjourney.app import playground as PG          # the Playground never loads the local model
+        from gmsjourney.console import bots as PG  # the Playground never loads the local model
         try:
             PG.start("project", "default", {"kind": "llm", "provider": "local"})
             raise AssertionError("the playground must refuse the local model")
@@ -219,7 +219,7 @@ def test_local_model_through_a_vllm_server_runs_the_llm_bot():
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from fake_sut_model import HappyPath
     from types import SimpleNamespace
-    from gmsjourney.sut.local_llm import ENV
+    from gmsjourney.bots.llm_bot import ENV
     model = HappyPath()
 
     class H(BaseHTTPRequestHandler):
@@ -241,13 +241,13 @@ def test_local_model_through_a_vllm_server_runs_the_llm_bot():
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     old = {k: os.environ.pop(k, None) for k in (ENV, "GMSJOURNEY_VLLM_URL", "GMSJOURNEY_SUT_FAKE_MODEL", "GMSJOURNEY_CACHE")}
     os.environ.update({ENV: "llama-8b-test", "GMSJOURNEY_VLLM_URL": f"http://127.0.0.1:{port}/v1"})
-    from gmsjourney import backend
+    from gmsjourney.knowledge import build as backend
     keep_cache, backend.CACHE = backend.CACHE, Path(tempfile.mkdtemp(prefix="gms_llm_cache_"))   # every call reaches the server
     try:
         domain.set_current("charge_review_graph")
-        from gmsjourney.app.sut import make_factory
-        from gmsjourney.sut.tools import ToolEnvironment
-        from gmsjourney.app import playground as PG
+        from gmsjourney.console.bots import make_factory
+        from gmsjourney.bots.tools import ToolEnvironment
+        from gmsjourney.console import bots as PG
         PG.cases("project", None)
         case = PG.find_case("project", "default")
         fac, name, _ = make_factory({"kind": "llm", "provider": "local", "mode": "live"}, PG.bench().store)
@@ -272,7 +272,7 @@ def test_local_model_through_a_vllm_server_runs_the_llm_bot():
 # ----------------------------------------------------------------------------- playground
 @_with_fake
 def test_playground_plays_a_case_with_the_reference_bot_and_the_llm_bot():
-    from gmsjourney.app import playground as PG
+    from gmsjourney.console import bots as PG
     domain.set_current("supplementary_card")
     L = PG.cases("project", None)
     assert L["source"] == "project" and L["cases"][0]["id"] == "default" and len(L["cases"]) > 5
@@ -309,7 +309,7 @@ def _port() -> int:
 
 @_with_fake
 def test_console_api_for_the_bot_cases_and_playground():
-    from gmsjourney.app import make_server
+    from gmsjourney.console.server import make_server
     runs = Path(tempfile.mkdtemp())
     port = _port()
     srv = make_server(port, "127.0.0.1", runs)
@@ -352,9 +352,9 @@ def test_console_api_for_the_bot_cases_and_playground():
         code, e = call("api/play/s/nope/say", {"text": "x"})
         assert code == 404
         # a run with the LLM bot keeps its prompt and files beside the job, not in it
-        from gmsjourney.app.runs import Runs
+        from gmsjourney.console.runs import Runs
         R = Runs(runs)
-        import gmsjourney.app.runs as runs_mod
+        from gmsjourney.console import runs as runs_mod
         import subprocess
         from types import SimpleNamespace
         real = runs_mod.subprocess                          # no worker started; git still answers for provenance

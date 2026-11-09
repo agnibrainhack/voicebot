@@ -115,7 +115,7 @@ footer{margin-top:3rem; padding-top:1rem; border-top:1px solid var(--line); font
 </div>
 
 <div class="prose">
-<p>Everything else in this project rests on one claim. If that claim is false, every failure number is worthless, because you can’t tell whether the bot failed the test or the test failed the bot. This page shows how the claim is established, line by line, using the code in <code>gmsjourney/enrich/invariance.py</code> and evidence from the run in <code>{{CAMPAIGN_DIR}}/</code>.</p>
+<p>Everything else in this project rests on one claim. If that claim is false, every failure number is worthless, because you can’t tell whether the bot failed the test or the test failed the bot. This page shows how the claim is established, line by line, using the code in <code>gmsjourney/rewording/proof.py</code> and evidence from the run in <code>{{CAMPAIGN_DIR}}/</code>.</p>
 </div>
 
 <section>
@@ -141,8 +141,8 @@ footer{margin-top:3rem; padding-top:1rem; border-top:1px solid var(--line); font
 <table>
 <thead><tr><th style="width:20%">Part</th><th style="width:34%">What it is</th><th>Its job in the proof</th></tr></thead>
 <tbody>
-<tr><td><b>Realizer</b><br><span class="small">enrich/realizers.py</span></td><td>Turns a meaning card + factor levels into a sentence. Deterministic.</td><td>Produces the messy text that will be checked.</td></tr>
-<tr><td><b>FrameReader</b><br><span class="small">enrich/reader.py</span></td><td>Turns a sentence back into a meaning card. Also deterministic — no AI, no statistics.</td><td>The “listener”: what the messy sentence is understood to mean.</td></tr>
+<tr><td><b>Realizer</b><br><span class="small">rewording/wording.py</span></td><td>Turns a meaning card + factor levels into a sentence. Deterministic.</td><td>Produces the messy text that will be checked.</td></tr>
+<tr><td><b>FrameReader</b><br><span class="small">rewording/wording.py</span></td><td>Turns a sentence back into a meaning card. Also deterministic — no AI, no statistics.</td><td>The “listener”: what the messy sentence is understood to mean.</td></tr>
 <tr><td><b>Ontology</b><br><span class="small">ontology.py</span></td><td>Canonicalises cards <i>in a dialog state</i>: aliases → canonical values, bare yes/no → what the state asked, and a check that the card is even allowed in that state.</td><td>The “same meaning?” judge. Two cards are equivalent only if they canonicalise to the same thing <i>and</i> are admissible where they were said.</td></tr>
 <tr><td><b>Oracle</b><br><span class="small">oracle.py</span></td><td>The perfect employee: plays the whole call from meaning cards and reads every limit from exact memory.</td><td>Supplies the answer key, and re-derives it from the read-back cards.</td></tr>
 <tr><td><b>Store geometry</b><br><span class="small">the GMS</span></td><td>Embeddings plus per-relation tolerances.</td><td>L4 corroboration: how far the <i>surface</i> moved (cosine) and the graded tension between disjoint values.</td></tr>
@@ -454,10 +454,10 @@ LLM arm        :  {{LLM_CONTROLS_OK}} / {{LLM_CONTROLS_N}} rejected   ({{LLM_CON
 </div>
 
 <h3>Running the proof yourself</h3>
-<div class="console">from gmsjourney.enrich.invariance import InvarianceValidator
-from gmsjourney.enrich.reader import FrameReader
-from gmsjourney.enrich.realizers import Realizer
-from gmsjourney.oracle import PolicyOracle
+<div class="console">from gmsjourney.rewording.proof import InvarianceValidator
+from gmsjourney.rewording.wording import FrameReader
+from gmsjourney.rewording.wording import Realizer
+from gmsjourney.graph.flow import PolicyOracle
 
 reader    = FrameReader(store)
 realizer  = Realizer()
@@ -469,7 +469,7 @@ print(proof.accepted, proof.base_signature == proof.enriched_signature)
 
 controls = validator.negative_controls(scenarios, per_type=40)
 print(controls["_overall"])                # {'n': 433, 'detection_rate': 1.0}</div>
-<div class="prose"><p>In a notebook, the same evidence is viewable per case with <code>gmsjourney.inspect_cases.show_case / compare_case / case_hrt</code>.</p></div>
+<div class="prose"><p>In a notebook, the same evidence is viewable per case with <code>gmsjourney.reports.cases.show_case / compare_case / case_hrt</code>.</p></div>
 </section>
 
 <hr>
@@ -491,7 +491,7 @@ print(controls["_overall"])                # {'n': 433, 'detection_rate': 1.0}</
 </section>
 
 <footer>
-  <p>Written against <code>gmsjourney/enrich/invariance.py</code>, <code>ontology.py</code> and <code>enrich/llm/validate.py</code>; every quoted number and excerpt comes from the run in <code>{{CAMPAIGN_DIR}}/</code> (2026-10-12, knowlytix 1.5.0 store, DeepSeek <code>deepseek-chat</code> for the LLM arm).</p>
+  <p>Written against <code>gmsjourney/rewording/proof.py</code>, <code>ontology.py</code> and <code>rewording/llm_proof.py</code>; every quoted number and excerpt comes from the run in <code>{{CAMPAIGN_DIR}}/</code> (2026-10-12, knowlytix 1.5.0 store, DeepSeek <code>deepseek-chat</code> for the LLM arm).</p>
 </footer>
 
 </div>

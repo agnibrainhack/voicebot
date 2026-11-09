@@ -1,4 +1,4 @@
-"""The graph-walking oracle (gmsjourney/flow.py) reproduces the hand-written one it replaced.
+"""The graph-walking oracle (gmsjourney/graph/flow.py) reproduces the hand-written one it replaced.
 
 The hand-written oracle (tests/legacy_oracle.py) is kept only as this reference. Every trace field the
 scoring uses must match: bot acts turn by turn, customer frames, tool calls with arguments and results,
@@ -15,10 +15,10 @@ from functools import lru_cache
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from gmsjourney.journey import DIMENSIONS, JourneySpec, build_fixture, is_valid
-from gmsjourney.ontology import SemanticFrame as F
-from gmsjourney.oracle import PolicyOracle
-from gmsjourney.sut.tools import TOOLS, FaultProfile, ToolGateway
+from gmsjourney.cases.journey import DIMENSIONS, JourneySpec, build_fixture, is_valid
+from gmsjourney.cases.meaning import SemanticFrame as F
+from gmsjourney.graph.flow import GraphOracle as PolicyOracle
+from gmsjourney.bots.tools import TOOLS, FaultProfile, ToolGateway
 
 from _store import kx_store
 from legacy_oracle import LegacyOracle
@@ -91,8 +91,8 @@ def test_same_journeys_on_replayed_frames():
 def test_the_flow_is_read_from_the_graph():
     """Disable one transition in the graph and the walk changes: the oracle has no flow of its own."""
     import copy
-    from gmsjourney.flow import FlowSpec, GraphOracle
-    from gmsjourney.knowledge.policy_kg import PolicyKG
+    from gmsjourney.graph.flow import FlowSpec, GraphOracle
+    from gmsjourney.graph.triples import PolicyKG
     store = kx_store()
     kg = PolicyKG(copy.deepcopy(store.kg.data))
     for t in kg.triples:

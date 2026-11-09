@@ -15,16 +15,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from gmsjourney import domain  # noqa: E402
+from gmsjourney.packs import loading as domain  # noqa: E402
 
 PACK = "charge_review_graph"
 
 
 def _setup():
     dom = domain.set_current(PACK)
-    from gmsjourney import journey as J
-    from gmsjourney import project as PJ
-    from gmsjourney.packstore import pack_oracle
+    from gmsjourney.cases import journey as J
+    from gmsjourney.packs import project as PJ
+    from gmsjourney.knowledge.store import pack_oracle
     PJ.reset_cache()
     proj = PJ.project()
     J.activate(proj)
@@ -38,8 +38,8 @@ def _writes(tr, tool):
 
 def test_the_drafted_project_has_loop_factors_and_is_valid():
     dom, PJ, J, proj, _ = _setup()
-    from gmsjourney.names import graph_names
-    from gmsjourney.project_draft import draft
+    from gmsjourney.packs.names import graph_names
+    from gmsjourney.packs.drafting import draft
     raw = draft(dom)
     names = {f["name"]: f for f in raw["factors"]}
     assert {"transactions_count", "transactions_window", "transactions_answers"} <= set(names), list(names)

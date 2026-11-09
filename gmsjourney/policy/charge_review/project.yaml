@@ -295,7 +295,7 @@ evaluation:
 
 # --------------------------------------------------------------------------------------------------- speech
 speech:
-  # Policy in what the bot says (speech/policy.py): clauses no reader reads are checked against the graph's rules,
+  # Policy in what the bot says (checks/speech_policy.py): clauses no reader reads are checked against the graph's rules,
   # limits and knowledge lines; promises against its tools. Advisory kinds are counted and listed, never a failure.
   policy:
     advisory: [unread, volunteered]

@@ -1,4 +1,4 @@
-"""Amounts and policy in what the bot says, on every journey (speech/policy.py, the anchored policy-answer grade).
+"""Amounts and policy in what the bot says, on every journey (checks/speech_policy.py, the anchored policy-answer grade).
 
 For each pack (the PDF-built charge review and both compact graphs), with nothing written for the pack:
 
@@ -21,15 +21,16 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from gmsjourney import domain  # noqa: E402
-from gmsjourney.ontology import SemanticFrame as F  # noqa: E402
+from gmsjourney.packs import loading as domain  # noqa: E402
+from gmsjourney.cases.meaning import SemanticFrame as F  # noqa: E402
 
 PACKS = ("charge_review", "charge_review_graph", "supplementary_card")
 
 
 @lru_cache(maxsize=None)
 def env(pack: str):
-    from gmsjourney.speech import SpeechContract, UtteranceVerifier
+    from gmsjourney.checks.speech_reading import SpeechContract
+    from gmsjourney.checks.speech_checks import UtteranceVerifier
     dom = domain.set_current(pack)
     if dom.graph is None:
         from test_speech import GraphOnlyStore
@@ -57,7 +58,7 @@ def _money(x) -> str:
 
 
 def turn(pack: str, text: str, question=None):
-    from gmsjourney.speech.session import SessionFacts
+    from gmsjourney.checks.speech_reading import SessionFacts
     dom, store, v, *_ = env(pack)
     domain.set_current(pack)
     return v.check_turn([{"act": "ANSWER_KB", "text": text}], text, SessionFacts.from_run([], [], None, {}), turn=1,
@@ -74,7 +75,7 @@ def policy(rep) -> list[tuple[str, str]]:
 
 # ------------------------------------------------------------------ amounts
 def test_answers_are_graded_on_what_was_asked_in_any_order():
-    from gmsjourney.kb_truth import judge_kb_answer
+    from gmsjourney.knowledge.questions import judge_kb_answer
     for pack in PACKS:
         dom, store, v, attr, (a, b, *_), fee = env(pack)
         domain.set_current(pack)
@@ -134,7 +135,7 @@ def test_policy_statements_are_checked_against_the_graph():
 
 
 def test_internal_or_never_volunteered_figures_are_disclosures():
-    from gmsjourney.speech.policy import settings
+    from gmsjourney.checks.speech_policy import settings
     for pack in PACKS:
         dom, store, v, attr, (a, *_), fee = env(pack)
         domain.set_current(pack)
@@ -169,7 +170,7 @@ class _FakeLLM:
 
 
 def test_the_llm_judge_must_cite_a_statement_it_was_given():
-    from gmsjourney.speech.policy import ClauseVerdict, LLMPolicyJudge
+    from gmsjourney.checks.speech_policy import ClauseVerdict, LLMPolicyJudge
     dom, store, v, *_ = env("charge_review_graph")
     corpus = v.policy.corpus
     clause = "We always refund the full amount on request."
@@ -185,7 +186,7 @@ def test_the_llm_judge_must_cite_a_statement_it_was_given():
 
 
 def test_the_project_checker_reads_speech_policy():
-    from gmsjourney.project import _check_speech_policy
+    from gmsjourney.packs.project import _check_speech_policy
     domain.set_current("supplementary_card")
     assert not _check_speech_policy({"advisory": ["unread"], "never_volunteer": ["max_turns"], "judge": "llm"})
     bad = _check_speech_policy({"advisory": ["typo"], "never_volunteer": ["no_such_limit"], "judge": "maybe", "x": 1})

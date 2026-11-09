@@ -16,10 +16,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from gmsjourney import domain  # noqa: E402
-from gmsjourney.app import make_server  # noqa: E402
-from gmsjourney.app.runs import check_device, devices  # noqa: E402
-from gmsjourney.app.summaries import STEPS, summarize  # noqa: E402
+from gmsjourney.packs import loading as domain  # noqa: E402
+from gmsjourney.console.server import make_server  # noqa: E402
+from gmsjourney.console.runs import check_device, devices  # noqa: E402
+from gmsjourney.console.runs import STEPS, summarize  # noqa: E402
 
 
 def _port() -> int:
@@ -98,8 +98,8 @@ def test_every_step_has_a_summary_and_skips_cleanly():
 
 def test_a_busy_port_falls_back_and_the_url_can_be_set():
     import os
-    from gmsjourney.app import url_for
-    from gmsjourney.app.server import free_port
+    from gmsjourney.console import url_for
+    from gmsjourney.console.server import free_port
     with socket.socket() as busy:
         busy.bind(("127.0.0.1", 0))
         busy.listen(1)
@@ -120,7 +120,7 @@ def test_a_run_outlives_the_server_that_started_it():
     import os
     import subprocess
     import time
-    from gmsjourney.app.runs import Runs
+    from gmsjourney.console.runs import Runs
     root = Path(tempfile.mkdtemp())
     live = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True)
     try:

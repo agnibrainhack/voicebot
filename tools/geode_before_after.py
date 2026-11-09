@@ -4,7 +4,7 @@
     python tools/geode_before_after.py --store-dir ~/.cache/gmsjourney/stores/<hash>    # a store already built
     -> docs/GEODE_BEFORE_AFTER.html (+ .json with every number)
 
-What counts as GEODE here: the two GEODE steps of the build (knowledge/kx_store.py), nothing after them.
+What counts as GEODE here: the two GEODE steps of the build (knowledge/build.py), nothing after them.
 
 1  The GEODE embed loop (build step 2, knowlytix GeodeEmbedLoop): it fine-tunes the meaning (v) encoder from the
    policy's own alias structure plus links found in the trained geometry, iterating until a pass adds nothing.
@@ -39,7 +39,7 @@ E = lambda s: html.escape(str(s), quote=True)
 def names_view(store, report: dict) -> dict:
     """Held-out noisy aliases: raw-encoder guess vs GEODE-tuned-encoder guess, per example."""
     import numpy as np
-    from gmsjourney.knowledge.kx_store import _noisy_probes, _quiet, device
+    from gmsjourney.knowledge.build import _noisy_probes, _quiet, device
     with _quiet():
         from knowlytix.core.graph.encoders import encode_texts
     pairs = [(c, a) for c, als in store.aliases.items() for a in als]
@@ -245,15 +245,15 @@ def main() -> int:
               "Run the script with the same Python as the campaign / notebook kernel, e.g. activate its environment "
               "first, or from a notebook cell:  !{sys.executable} tools/geode_before_after.py")
         return 2
-    from gmsjourney import backend
+    from gmsjourney.knowledge import build as backend
     policy = Path(a.policy)
     data: dict = {}
     if not backend.available():
         print(f"knowlytix is not available in this Python [{sys.executable}] (needs knowlytix, proofloop, forgeloop "
               "and a licence: KNOWLYTIX_LICENSE_KEY or ~/.knowlytix/license.key).")
         return 2
-    from gmsjourney.knowledge.kx_store import load_kx_store
-    from gmsjourney.pipeline import build_gms
+    from gmsjourney.knowledge.build import load_kx_store
+    from gmsjourney.campaign.pipeline import build_gms
     if a.store_dir:
         sdir = Path(a.store_dir).expanduser()
         print(f"loading the store from {sdir}")

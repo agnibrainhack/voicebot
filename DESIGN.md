@@ -7,8 +7,8 @@ result. In order of consequence:
 
 | # | Problem | Consequence | Fix here |
 |---|---|---|---|
-| 1 | Enrichment is never realised: `evaluate.run` sends `scn.base.query` to the bot, so all scenarios of a base send identical text. | Factor attribution has no signal by construction; the design is decoration. | Realizers generate every turn from its frame under the scenario's levels (`enrich/realizers.py`); the runner sends the realised text. |
-| 2 | The SUT is one shared stateful object, never reset, driven one message per scenario. | After 20 calls every answer is `conversation_ended`; results depend on scenario order. | A fresh bot + backend per scenario; a reactive user simulator plays the whole multi-turn journey (`sut/adapter.py`, `journey.py`). |
+| 1 | Enrichment is never realised: `evaluate.run` sends `scn.base.query` to the bot, so all scenarios of a base send identical text. | Factor attribution has no signal by construction; the design is decoration. | Realizers generate every turn from its frame under the scenario's levels (`rewording/wording.py`); the runner sends the realised text. |
+| 2 | The SUT is one shared stateful object, never reset, driven one message per scenario. | After 20 calls every answer is `conversation_ended`; results depend on scenario order. | A fresh bot + backend per scenario; a reactive user simulator plays the whole multi-turn journey (`bots/harness.py`, `cases/journey.py`). |
 | 3 | The bases are knowledge questions ("What is the maximum number of charges?") sent to a bot whose job is a journey. | The bot is graded on a task it does not perform. | Journey bases (multi-turn content) are the core; policy questions are asked *inside* journeys, as the PDF allows. |
 | 4 | Ground truth is invented (`charge_c > charge_a`, `145.67`, `230.45`, "3 verified"). | Violates "generated, not annotated" (Ch. 1.2, 12.4); a failure cannot be blamed on the bot. | Every answer is computed: policy questions by store primitives, journeys by an oracle reading limits from exact memory. |
 | 5 | Factors that change the correct answer are used as factors (`tool_availability`, `clarity=Ambiguous`, turn-adding history, `intent_count=conflicting`, `unit_variation=EUR`). | Breaks the invariance contract; scores are wrong for those rows. | Moved to the base (`application.yaml: moved_to_base`) or excluded with a reason; invariance is proved per scenario. |
@@ -39,7 +39,7 @@ is dropped (`injected_misread_caught: true`).
 authoritative figure keyed by (category, key) with a SHA-256 integrity hash, read by `lookup_enm` and never
 parsed from text), the typed triples with provenance (530, the dialog-state layer included), the rules, the
 workflow, value sets, synonyms and the knowledge-base sentences. It carries no geometry: `KXPolicyStore`
-(`knowledge/kx_store.py`) subclasses it and answers every geometric read (score_triple, cap radii, tension,
+(`knowledge/build.py`) subclasses it and answers every geometric read (score_triple, cap radii, tension,
 holonomy, the tuned encoders) from the trained knowlytix store, and every exact read from knowlytix's own
 register, cross-checked against the compiled one.
 
@@ -76,7 +76,7 @@ transition is in the policy graph: a `leads_to` triple's qualifiers say on which
 procedure text it implements. `carries` and `has_arg` say what a bot act carries and what a tool is called
 with, as expressions of the same language. The language is a vetted subset of Python expressions (names,
 literals, comparisons, boolean and arithmetic operators, calls to a fixed function table), compiled once; no
-attribute access, subscripts or builtins. `flow.py` reads it (`FlowSpec.from_kg`, validated: every state,
+attribute access, subscripts or builtins. `graph/flow.py` reads it (`FlowSpec.from_kg`, validated: every state,
 function and act it names must exist) and `GraphOracle` walks it against the mock bank and the simulated
 customer. It replaced a hand-written oracle with identical results on 86 base cases, 1500 random cases, 2064
 faulted and 1092 replayed runs (`tests/test_flow_parity.py`, against the old oracle kept in `tests/`), and a
@@ -91,10 +91,10 @@ hand-written factor code is kept in `tests/` for the parity check (`tests/test_s
 validity on every one of 1.2M level combinations, fixtures, categories and tags on 200k, the customer on 3000
 fuzzed runs, oracle walks and the generator's covering array and closure).
 
-*Names come from the graph.* `names.py` collects every name the graph defines; core code spells them through
-it (`N.state.PRESENT_TXN`) and finds tools by role (`roles.py`), so a renamed concept fails where it is used.
+*Names come from the graph.* `packs/names.py` collects every name the graph defines; core code spells them through
+it (`N.state.PRESENT_TXN`) and finds tools by role (`packs/names.py`), so a renamed concept fails where it is used.
 Severities, release-gate profiles, speech-check leniencies and the speech reader's cue words are project
-settings, edited in the studio (`python -m gmsjourney.studio`).
+settings, edited in the studio (`python -m gmsjourney.console.studio`).
 
 ## 3. Base cases
 
@@ -210,7 +210,7 @@ to detect a level that triples the odds of failure.
 | Opening statement | pdf.2A: play the required opening; pdf.6: "Before I review account-specific charges, I need to authenticate you." as the required/static example. | That sentence is the required opening, said word for word (`basis: interpreted`). |
 | "Overnight" delivery | pdf.5: expedited arrives in 2 business days. | Not a synonym of expedited (removed from the aliases, the customer reader and the LLM arm's word lists). |
 
-Change any of these in `policy/charge_review_policy.md` (and, for flow changes, `oracle.py`); every expected
+Change any of these in `policy/charge_review_policy.md` (and, for flow changes, `graph/flow.py`); every expected
 outcome follows.
 
 ## 9. Limitations and extensions
@@ -234,10 +234,10 @@ is a compiled package under the Knowlytix EULA: it is installed from PyPI, never
 redistributed, and neither its code nor a trained store is shipped in this package. Its runtime licence is read
 from `KNOWLYTIX_LICENSE_KEY` (or `~/.knowlytix/license.key`); no file here contains a key and nothing logs it.
 
-**Build (`knowledge/kx_store.py: build_kx_store`).** Eleven steps, each a knowlytix call except where noted:
+**Build (`knowledge/build.py: build_kx_store`).** Eleven steps, each a knowlytix call except where noted:
 
 1. compile the policy (ours: the structured transcription of the PDF, every fact with its source span);
-2. render the GMS view (`knowledge/kx_view.py`, ours), described below;
+2. render the GMS view (`knowledge/store.py`, ours), described below;
 3. resolve encoders (HF sentence encoders, or the offline stand-in);
 4. `GeodeLoop` with `make_default_trainer`: ingest, propose, train, diagnose, correct until converged;
 5. `GeodeEmbedLoop` with `EmbeddingSFTConfig(mode="rotation")` on v, supervised by the alias table; the
@@ -386,7 +386,7 @@ tail triples, and every later step reads it through `PolicyKG`:
 - the ontology mapper;
 - the exports.
 
-It is built by `knowledge/policy_kg.py` from two inputs:
+It is built by `graph/triples.py` from two inputs:
 
 - the PDF, which supplies the evidence: section split, tools table read by column, a verbatim quote per triple;
 - the structured transcription, which supplies the facts.
@@ -461,10 +461,10 @@ The negative controls gain a `wrong_state` edit: the same words answered in a st
 meaning. It must be rejected, and it is.
 
 **Exports.**
-- `knowledge/canonicals.py` writes `gms_canonicals.json` from the trained store: every canonical value with its
+- `knowledge/store.py` writes `gms_canonicals.json` from the trained store: every canonical value with its
   aliases and the trained GMS's binding of each alias (agreement reported), membership score against the cut, tension
   to its disjoint siblings, exact numbers with digests, states, acts, and every trained fact with its score and cut.
-- `export_dataset.py` writes the test suite as CSV: one row per case and one row per customer turn, with the state
+- `campaign/outputs.py` writes the test suite as CSV: one row per case and one row per customer turn, with the state
   policy, cards, texts, the expected outcome and the complete expected trajectory.
 
 ## 13. The LLM enrichment arm and its separate proof
@@ -584,7 +584,7 @@ It checks that *some* write succeeded, not that the words name the right charge 
    The last two are reported and never decide. The register is the authority for a number, as in the book's ENM
    (Ch. 3.4).
 
-**Reading** (`speech/reader.py`). Each sentence gives claims of the form `(field, value, about, mode)`:
+**Reading** (`checks/speech_reading.py`). Each sentence gives claims of the form `(field, value, about, mode)`:
 
 - Charges are named by their returned merchant. A sentence that names none refers to the act's transaction or the
   last one talked about.
@@ -596,7 +596,7 @@ It checks that *some* write succeeded, not that the words name the right charge 
 - When the turn answers a policy question, the figures in it are policy figures about the asked subject, not
   account facts.
 
-**Verdicts and findings** (`speech/verify.py`):
+**Verdicts and findings** (`checks/speech_checks.py`):
 
 - Every claim is supported, contradicted, unsupported or unverifiable against its declared source.
 - Turn-level findings:
@@ -639,7 +639,7 @@ The word defects are then flagged live as well as graded, and the audit records 
   edited turn must be flagged (section 5a of the report).
 - **Mutants:** four word-only mutants have the reference bot's exact outcome, and only this check kills them.
 
-**Reporting** (`gmsjourney/bot_validation.py` -> `bot_validation.html`). Each run has two verdicts:
+**Reporting** (`gmsjourney/checks/diagnosis.py` -> `bot_validation.html`). Each run has two verdicts:
 
 - **did the right thing**: the outcome, the semantic check;
 - **said it right**: `c_speech`, the response check.
@@ -689,7 +689,7 @@ rerun.
 
 A journey is a pack: its policy graph, `project.yaml`, `domain.yaml` (lexicon, tool behaviour, bot wording) and its
 enrichment catalogs. Charge review's graph is built from the PDF; supplementary card's is a compact graph
-(`gmsjourney.policy_graph/2`), compiled by `knowledge/pack_compile.py` into the same full graph. The compiler writes
+(`gmsjourney.policy_graph/2`), compiled by `graph/compile.py` into the same full graph. The compiler writes
 the compact state machine as executable flow: call states become quiet tool steps left on the tool's status (an
 echo of another value reads as a mismatch), the always-available behaviours become transitions out of every prompt
 in the interpreter's order of precedence (a person, a policy question, the state's own acts, an unclear answer),
@@ -698,13 +698,13 @@ what each tool is called with, the outcome and claim acts, and the speech layer.
 journey the compact interpreter mines identically (85 for supplementary card, `tests/test_pack_compile.py`).
 
 What differs between packs is read from the pack: the tools' roles (`has_role`), the scoring (the per-item scoring
-configured in charge review's `domain.yaml`, the graph-generic scoring of `graph/trace.py` for a compiled pack:
+configured in charge review's `domain.yaml`, the graph-generic scoring of `checks/scoring.py` for a compiled pack:
 every successful write, every outcome act, every machine-checkable rule), the policy questions (charge review's
 intents, the graph's figures for a compiled pack), the reference bot (charge review's own, or the graph's
-interpreter with the pack's wording), the invariance controls, the speech check (`speech/generic.py` reads any
-pack's value sets, figures and limits) and the LLM arm's prompts (`enrich/llm/pack.py`). A factor of a compiled pack
+interpreter with the pack's wording), the invariance controls, the speech check (`checks/speech_checks.py` reads any
+pack's value sets, figures and limits) and the LLM arm's prompts (`rewording/llm_pack.py`). A factor of a compiled pack
 is relevant when the case reaches its decision point (`relevant_when: reached`, decided by walking the case), and
-`project_draft.py` drafts a pack's factors from its graph.
+`packs/drafting.py` drafts a pack's factors from its graph.
 
 Two decisions that read differently across packs are derived, not named. The state a policy question is asked in
 when nothing else is pending (`GraphNames.question_state`) is the first prompt the journey reaches once the gate tool
@@ -723,19 +723,19 @@ reads the current item (`at`), a `$writes` field and a transfer `summary` read w
 interpreter (`tests/test_pack_compile.py`). In journey generation a loop is data like everything else: the bank
 builds the list from the pack's item records (`items` how many, default 1; `last_item_age`; `extra_item_age`), the
 loop's prompts get one customer queue per item (`per_item`, a level for every item with `item: all`), and
-`project_draft.py` drafts three loop factors: the item count (one, two, at the cap, over it), the window's edges, and
+`packs/drafting.py` drafts three loop factors: the item count (one, two, at the cap, over it), the window's edges, and
 the second item answered differently (`tests/test_loops.py`).
 
 ## 17. The journey console
 
-`gmsjourney/app` is a local web app over the same objects the notebook uses; nothing in it is specific to a pack.
-`server.py` (the standard library's threaded HTTP server) serves one page and a JSON API. The journey calls go
-through `studio.Studio` (state, check, preview, save) under a lock, because the active pack is process-wide. A
-campaign never runs in the server: `runs.py` starts `python -m gmsjourney.app.worker <run>` as its own process (one at
+`gmsjourney/console` is a local web app over the same objects the notebook uses; nothing in it is specific to a pack.
+`console/server.py` (the standard library's threaded HTTP server) serves one page and a JSON API. The journey calls go
+through `console/studio.py: Studio` (state, check, preview, save) under a lock, because the active pack is process-wide. A
+campaign never runs in the server: `runs.py` starts `python -m gmsjourney.console.runs <run>` as its own process (one at
 a time), with the device in `GMSJOURNEY_DEVICE`. The worker calls `run_campaign` with an `on_step` hook and appends
 events to `events.jsonl` (start, step_start, step_done with that step's summary, log lines, done with the headline,
 error). The page polls from the last event it has, so a closed tab or a restarted kernel loses nothing.
-`summaries.py` turns the campaign's result dict into what each step produced (metrics, small tables, notes); it
+`console/runs.py` turns the campaign's result dict into what each step produced (metrics, small tables, notes); it
 reads only keys the pipeline writes, so a step that was switched off reads as skipped.
 
 The page keeps two sources apart everywhere, in colour and in words: what the graph decides (read-only) and what
@@ -761,12 +761,12 @@ changes close that gap, and all three use only what every graph provides.
 **Figures are tied to their subject.** The reader attaches a figure to the member named nearest it. A figure that
 names nothing goes to the asked member the first time and to `ANY` after that (checked against every member),
 because "There's also a $15 option" is about some option, not the one already priced. The policy-answer grade
-(`kb_truth.anchored_figures`) uses the same reading: every figure tied to the asked subject must be the truth, so a
+(`knowledge/questions.py: anchored_figures`) uses the same reading: every figure tied to the asked subject must be the truth, so a
 correct answer is correct in any order. A figure about a sibling of the asked subject (same value set, or another
 limit when a limit was asked) is `volunteered`. Siblings are the only case the graph can call irrelevant without
 guessing; a fee volunteered in answer to a fraud question is not flagged.
 
-**Every clause has an outcome** (`speech/policy.py`). `PolicyCorpus` collects the graph's statements (its `has_text`
+**Every clause has an outcome** (`checks/speech_policy.py`). `PolicyCorpus` collects the graph's statements (its `has_text`
 triples, plus a compact graph's `knowledge`), figures (limits with units, members' numeric triples), actions (tool
 verbs, write-value names) and forbidden stances (PDF phrase lists, a compact rule's `pattern`). A clause no reader
 claimed is checked in order:
