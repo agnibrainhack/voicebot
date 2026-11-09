@@ -187,8 +187,10 @@ critique=True)`) adds a second call that reviews every proposed step against the
 (`critic_system`) and approves it or returns a corrected one; `critic_llm=` lets the reviewer be another model.
 Replies are cached like every LLM call (`llm.py`), so repeated runs of the same conversation cost nothing.
 
-**Where the model runs.** Through the model gateway (`llm.py`), or locally with `LocalChat`: a chat model loaded with
-vLLM in the process from a folder (`GMSJOURNEY_SUT_LOCAL_MODEL`), or through an OpenAI-compatible vLLM server.
+**Where the model runs.** Through the model gateway (`llm.py`), or locally with `LocalChat(path, url=...)`: a chat
+model loaded with vLLM in the process from a folder the tester types in the console (default `GMSJOURNEY_SUT_LOCAL_MODEL`),
+or through an OpenAI-compatible vLLM server (default `GMSJOURNEY_VLLM_URL`). `status(path, url)` checks either without
+loading anything.
 `status()` tells the console whether the local model can be used without loading it. `fake_model` loads a scripted
 stand-in (`GMSJOURNEY_SUT_FAKE_MODEL=module:Class`) for tests and demos without a network.
 

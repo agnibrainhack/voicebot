@@ -240,14 +240,16 @@ studio shares the setting. Its parts:
   condition, state after, rules with their text, the graph triple and its source), beside the speech check of what
   the bot said. It runs on the store compiled from the graph, so it needs no training and no licence; the
   transcript can be downloaded as JSON.
-  **A local model as the bot under test** (test runs only; `s06_bots/llm_bot.py`): set
-  `GMSJOURNEY_SUT_LOCAL_MODEL` to the folder of a Llama 3.1 8B Instruct (or any chat model vLLM serves) before
-  opening the console (`LOCAL_SUT_MODEL` in the notebook's first cell). Bot under test then offers *Model runs on:
-  Local model (vLLM)*. The campaign's own process loads it with vLLM when the run starts (greedy, temperature 0,
-  replies cached by content like the gateway's); `GMSJOURNEY_VLLM_GPU_UTIL` (default 0.80), `GMSJOURNEY_VLLM_MAX_LEN`
-  (16384), `GMSJOURNEY_VLLM_TP` (1) and `GMSJOURNEY_VLLM_DTYPE` tune it, and `GMSJOURNEY_VLLM_URL` sends the calls to
-  an OpenAI-compatible vLLM server instead. The Playground refuses it, so a chat never loads an 8B model into the
-  console's process.
+  **A local model as the bot under test** (`s06_bots/llm_bot.py`): in Bot under test choose *LLM bot*, then *Model
+  runs on: Local model (vLLM)*, and type the **model folder** (on the machine running the console, e.g. a Llama 3.1
+  8B Instruct download with its `config.json` and weights); **Check** says whether it can be used. Leave **vLLM
+  server** empty and a test run loads the folder with vLLM in its own process (greedy, temperature 0, replies cached by
+  content like the gateway's); give an OpenAI-compatible vLLM server URL and the calls go there instead, the folder
+  being the model name the server knows. The Playground takes a local model only through a server, so a chat never
+  loads an 8B model into the console's process. `GMSJOURNEY_SUT_LOCAL_MODEL` and `GMSJOURNEY_VLLM_URL` (for example
+  `LOCAL_SUT_MODEL` in the notebook's first cell) only pre-fill the two fields. `GMSJOURNEY_VLLM_GPU_UTIL` (default
+  0.80), `GMSJOURNEY_VLLM_MAX_LEN` (16384), `GMSJOURNEY_VLLM_TP` (1) and `GMSJOURNEY_VLLM_DTYPE` tune the in-process
+  load. The run keeps the folder and server in its `job.json`.
   `GMSJOURNEY_SUT_FAKE_MODEL=module:Class` puts a stand-in model behind the LLM bot (tests, demos without the
   gateway; `tests/fake_sut_model.py`).
 

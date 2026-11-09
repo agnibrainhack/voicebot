@@ -557,7 +557,7 @@ class Runs:
             raise ValueError(why)
         if (job.get("sut") or {}).get("provider") == "local" and (job.get("sut") or {}).get("kind") == "llm":
             from ..s06_bots.llm_bot import status as local_status
-            st = local_status()
+            st = local_status(job["sut"].get("local_path"), job["sut"].get("vllm_url"))
             if not st["usable"]:
                 raise ValueError(f"the local model cannot be used: {st['detail']}")
         rid = time.strftime("%Y%m%d-%H%M%S") + "-" + re.sub(r"[^a-z0-9_]+", "-", job["pack"].lower())
@@ -568,10 +568,12 @@ class Runs:
             (run / "sut.json").write_text(json.dumps(sut, indent=1, ensure_ascii=False), encoding="utf-8")
             if sut.get("provider") == "local":
                 from ..s06_bots.llm_bot import status as local_status
-                sut["model"] = f"local-{local_status()['name']}"
+                sut["model"] = f"local-{local_status(sut.get('local_path'), sut.get('vllm_url'))['name']}"
                 (run / "sut.json").write_text(json.dumps(sut, indent=1, ensure_ascii=False), encoding="utf-8")
             job = {**job, "sut": {"kind": "llm", "provider": sut.get("provider") or "gateway", "model": sut.get("model") or "",
                                   "mode": sut.get("mode") or "live",
+                                  "local_path": str(sut.get("local_path") or "") if sut.get("provider") == "local" else "",
+                                  "vllm_url": str(sut.get("vllm_url") or "") if sut.get("provider") == "local" else "",
                                   "critique": sut.get("critique", True) is not False,
                                   "critic_model": str(sut.get("critic_model") or ""),
                                   "custom_prompt": bool(sut.get("custom_prompt")),

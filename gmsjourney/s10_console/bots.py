@@ -137,8 +137,9 @@ def extract(name: str, data: bytes) -> dict[str, Any]:
 # ``critique`` (default on) adds the critique layer: a second call (of ``critic_model``, default the same model) reviews every step the bot
 # proposes (each tool call and each reply) against the procedure and approves it or replaces it with a corrected step.
 #
-# ``provider`` "local" runs Llama (or any chat model) with vLLM from the folder in GMSJOURNEY_SUT_LOCAL_MODEL
-# (s06_bots/llm_bot.py); campaign runs only, the Playground refuses it.
+# ``provider`` "local" runs Llama (or any chat model) with vLLM from the folder the tester gives (``local_path``,
+# default GMSJOURNEY_SUT_LOCAL_MODEL), loaded in the test run's own process, or through a vLLM server (``vllm_url``,
+# default GMSJOURNEY_VLLM_URL). The Playground takes it only through a server.
 #
 # ``instructions`` is the editable part of the prompt (who the bot is, how it behaves, the operating procedure); the
 # references are added after it as reference material; the tools, dialog acts and reply format the harness needs are
@@ -181,10 +182,11 @@ def make_factory(sut: dict[str, Any] | None, store=None):
     if sut.get("provider") == "local":              # Llama on vLLM, on this machine (campaign runs only)
         from ..llm import CachedLLM
         from ..s06_bots.llm_bot import LocalChat, status
-        st = status()
+        lp, lu = str(sut.get("local_path") or "").strip(), str(sut.get("vllm_url") or "").strip()
+        st = status(lp, lu)
         if not st["usable"]:
             raise RuntimeError(f"the local model cannot be used: {st['detail']}")
-        chat = LocalChat(temperature=s.temperature, max_tokens=s.max_tokens)
+        chat = LocalChat(lp or None, temperature=s.temperature, max_tokens=s.max_tokens, url=lu or None)
         s.model = chat.name
         llm, where = CachedLLM(s, model=chat, tag="sut"), "vLLM" + (" server" if st["url"] else ", this machine")
     critic, cname = None, ""
@@ -770,7 +772,10 @@ def start(source: str, case_id: str, sut: dict | None) -> dict:
     """A new conversation on a case with the reference bot (``sut`` None or kind "reference") or the LLM bot."""
     from ..s06_bots.tools import ToolEnvironment
     if (sut or {}).get("kind") == "llm" and (sut or {}).get("provider") == "local":
-        raise ValueError("the local model is for campaign runs only; in the Playground use the gateway or the reference bot")
+        from ..s06_bots.llm_bot import status
+        if not status(sut.get("local_path"), sut.get("vllm_url"))["url"]:   # a chat never loads a model into the console
+            raise ValueError("in the Playground a local model needs a vLLM server URL (loading the model here would take "
+                             "the console's process); give the server, or use it in a test run")
     B = bench()
     case = find_case(source, case_id)
     env = ToolEnvironment(json.loads(json.dumps(case["fixture"])))

@@ -50,24 +50,27 @@ def local_model_path() -> str:
     return os.environ.get(ENV, "").strip()
 
 
-def status() -> dict[str, Any]:
-    """What the console shows about the local model, without loading it."""
+def status(path: str | None = None, url: str | None = None) -> dict[str, Any]:
+    """What the console shows about a local model, without loading it. ``path`` (the model folder) and ``url`` (an
+    OpenAI-compatible vLLM server) default to GMSJOURNEY_SUT_LOCAL_MODEL and GMSJOURNEY_VLLM_URL."""
     import importlib.util
-    path = local_model_path()
-    url = os.environ.get("GMSJOURNEY_VLLM_URL", "").strip()
+    path = (path or "").strip() or local_model_path()
+    url = (url or "").strip() or os.environ.get("GMSJOURNEY_VLLM_URL", "").strip()
     p = Path(path).expanduser() if path else None
     folder_ok = bool(p and p.is_dir() and (p / "config.json").exists())
     vllm = importlib.util.find_spec("vllm") is not None
     if not path:
-        why = f"set {ENV} to the model folder in the notebook (before console.show()) to enable it"
+        why = "type the model folder (or set " + ENV + " before starting the console)"
     elif url:
         why = f"served by the vLLM server at {url}"
+    elif p is not None and not p.exists():
+        why = f"{path} does not exist on this machine"
     elif not folder_ok:
         why = f"{path} is not a model folder (it needs config.json and the weights)"
     elif not vllm:
         why = "vLLM is not installed in this kernel's Python (pip install vllm)"
     else:
-        why = "ready: loaded with vLLM when a campaign starts"
+        why = "ready: loaded with vLLM when a test run starts"
     return {"env": ENV, "path": path, "name": Path(path).name if path else None, "url": url or None,
             "folder_ok": folder_ok, "vllm_installed": vllm, "usable": bool(path) and (bool(url) or (folder_ok and vllm)),
             "detail": why}
@@ -81,12 +84,13 @@ def _messages(msgs: list[Any]) -> list[dict[str, str]]:
 class LocalChat:
     """A chat model on vLLM: in-process from a folder, or through an OpenAI-compatible vLLM server."""
 
-    def __init__(self, path: str | None = None, temperature: float = 0.0, max_tokens: int = 900, engine: Any = None):
-        self.path = path or local_model_path()
+    def __init__(self, path: str | None = None, temperature: float = 0.0, max_tokens: int = 900, engine: Any = None,
+                 url: str | None = None):
+        self.path = (path or "").strip() or local_model_path()
         if not self.path:
-            raise RuntimeError(f"no local model: set {ENV} to the model folder")
+            raise RuntimeError(f"no local model: give the model folder (or set {ENV})")
         self.temperature, self.max_tokens = float(temperature), int(max_tokens)
-        self.url = os.environ.get("GMSJOURNEY_VLLM_URL", "").strip().rstrip("/")
+        self.url = ((url or "").strip() or os.environ.get("GMSJOURNEY_VLLM_URL", "").strip()).rstrip("/")
         self._engine = engine                       # tests pass a stand-in with .chat(messages, params)
         self.calls, self.seconds = 0, 0.0
 

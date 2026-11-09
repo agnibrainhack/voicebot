@@ -795,7 +795,7 @@ const GLOSSARY = [
   ["Original / reworded", "Each case is run as scripted and again with the customer's words reworded. Reworded cases are proved to mean the same before they count."],
   ["Planted defects", "Copies of the reference bot with one deliberate error each. A suite that cannot catch them cannot be trusted."],
   ["Release gate", "Pass or fail per risk tier: accuracy, critical failures, high-severity rate. Shown for the original and the reworded wording."],
-  ["Bot under test", "The bot a test run or the Playground talks to: the journey's reference bot, or an LLM bot with your prompt and files, on the model gateway or (test runs only) a local model with vLLM (Start a test run › Bot under test)."],
+  ["Bot under test", "The bot a test run or the Playground talks to: the journey's reference bot, or an LLM bot with your prompt and files, on the model gateway or a local model from a folder you give, loaded with vLLM in test runs or served by a vLLM server (Start a test run › Bot under test)."],
   ["Critique layer", "For the LLM bot: a second call reviews every step it proposes (each tool call and each reply) against the procedure and approves it or replaces it with a corrected step. On by default; the Playground shows what it changed."],
   ["Graph path", "The top bar opens a journey by the path of its policy graph. A compact graph from outside the journey folders becomes a new journey, with its customer wording, the bot's lines and the project drafted and checked."],
   ["Graph sections", "The graph split by who uses each part: the customer, the bot, both, the flow, the rules, knowledge and figures, and the rest (Graph sections)."],
@@ -1981,9 +1981,9 @@ function sutState() {
 function sutSummary(t) {
   t = t || sutState();
   if (t.kind !== "llm") return { short: "Reference bot", long: "the reference bot: it follows the graph by rules and reads customers by keywords; no LLM is called" };
-  const m = t.provider === "local" ? "a local model (vLLM)" : (t.model || "gpt-41");
+  const m = t.provider === "local" ? `a local model (${(t.local_path || "no folder yet").split("/").filter(Boolean).pop() || "no folder yet"}, vLLM${t.vllm_url ? " server" : ""})` : (t.model || "gpt-41");
   const crit = t.critique === false ? "no critique" : `critique by ${t.critic_model && t.provider !== "local" ? t.critic_model : "the same model"}`;
-  return { short: `LLM bot · ${t.provider === "local" ? "local" : (t.model || "gpt-41")}${t.critique === false ? "" : " + critique"}`, long: `an LLM bot on ${m}, ${crit}` };
+  return { short: `LLM bot · ${t.provider === "local" ? (t.local_path || "local").split("/").filter(Boolean).pop() : (t.model || "gpt-41")}${t.critique === false ? "" : " + critique"}`, long: `an LLM bot on ${m}, ${crit}` };
 }
 function botPill() {
   const el = $("#bot-pill"); if (!el || !S.pack) return;
@@ -1996,7 +1996,7 @@ function botPill() {
 }
 function sutSave() {
   setTimeout(() => { botPill(); document.querySelectorAll(".inuse").forEach(el => { el.textContent = sutSummary().long; }); }, 0);
-  const { suggested, check, ...keep } = sutState();
+  const { suggested, check, lcheck, ...keep } = sutState();
   try { localStorage.setItem(`jc.sut.${S.pack}`, JSON.stringify(keep)); }
   catch { try { localStorage.setItem(`jc.sut.${S.pack}`, JSON.stringify({ ...keep, references: [] })); } catch {} }
 }
@@ -2005,6 +2005,7 @@ function sutBody() {
   if (t.kind !== "llm") return { kind: "reference" };
   return { kind: "llm", provider: t.provider === "local" ? "local" : "gateway", model: t.model || "", mode: t.mode, temperature: Number(t.temperature) || 0, max_steps: Number(t.max_steps) || 6, critique: t.critique !== false,
            critic_model: t.critique !== false && t.provider !== "local" ? (t.critic_model || "") : "",
+           local_path: t.provider === "local" ? (t.local_path || "") : "", vllm_url: t.provider === "local" ? (t.vllm_url || "") : "",
            instructions: t.instructions, custom_prompt: t.instructions != null, references: t.references };
 }
 function fileB64(f) {
@@ -2027,7 +2028,7 @@ function sutEditor(opts = {}) {
     const choice = h("div", { class: "stack", style: "gap:8px" },
       h("div", { class: "sut-choice botpick", role: "radiogroup", "aria-label": "Bot under test" },
         ...[["reference", "Reference bot", "No LLM", ["Follows the journey's graph step by step, by rules", "Reads the customer by keywords only", "No model, no network: instant and free", "Use it to check the test suite, or as the baseline"]],
-            ["llm", "LLM bot", "LLM + critique LLM", ["A language model with your prompt, files, the tools and the dialog acts", "A critique LLM reviews every step before it runs (on by default)", "Model gateway; a local vLLM model in test runs", "Use it to test the bot you would ship"]]]
+            ["llm", "LLM bot", "LLM + critique LLM", ["A language model with your prompt, files, the tools and the dialog acts", "A critique LLM reviews every step before it runs (on by default)", "The model gateway, or a local model from a folder you give (vLLM)", "Use it to test the bot you would ship"]]]
           .map(([k, tt, tag, pts]) => h("label", {}, h("input", { type: "radio", name: `sut-${opts.id || "x"}`, value: k, checked: t.kind === k, onchange: () => { t.kind = k; sutSave(); paint(); } }),
             h("span", { class: "row", style: "justify-content:space-between;flex-wrap:nowrap" }, h("span", { class: "t" }, tt), h("span", { class: `bt ${k}` }, tag)),
             h("ul", { class: "p" }, ...pts.map(x => h("li", {}, x)))))),
@@ -2036,22 +2037,31 @@ function sutEditor(opts = {}) {
     const sg = t.suggested;
     if (!sg) { api(`api/journey/${S.pack}/sut`).then(x => { t.suggested = x; paint(); }).catch(e => toast(e.message)); }
     const ck = t.check;
-    const loc = S.meta.sut_local || {};
-    const localHere = opts.id !== "pg";                    // the local model is for campaign runs only
-    if (t.provider === "local" && !localHere) t.provider = "gateway";
+    const loc = S.meta.sut_local || {};                  // the console's default (GMSJOURNEY_SUT_LOCAL_MODEL), if any
+    const inPg = opts.id === "pg";                         // the Playground takes a local model only through a server
+    if (t.local_path == null) t.local_path = loc.path || "";
+    if (t.vllm_url == null) t.vllm_url = loc.url || "";
+    const lck = t.lcheck;
+    const checkLocal = async () => { try { t.lcheck = await api("api/llm/check", { provider: "local", local_path: t.local_path, vllm_url: t.vllm_url }); } catch (x) { t.lcheck = { ok: false, detail: x.message }; } paint(); };
     const provider = h("div", { class: "form" }, h("span", { id: `${opts.id}-prov-l`, style: "font-size:12.5px;color:var(--ink-2)" }, "Model runs on"),
       h("div", { class: "stack", style: "gap:4px" }, h("div", { class: "devs", role: "radiogroup", "aria-labelledby": `${opts.id}-prov-l` },
         h("label", {}, h("input", { type: "radio", name: `${opts.id}-prov`, checked: t.provider !== "local", onchange: () => { t.provider = "gateway"; t.check = null; sutSave(); paint(); } }),
           h("span", { class: "dn" }, "Model gateway"), h("span", { class: "dd" }, "Microsoft, through the network")),
-        h("label", { title: localHere ? loc.detail : "test runs only" }, h("input", { type: "radio", name: `${opts.id}-prov`, checked: t.provider === "local", disabled: !localHere || !loc.usable,
-            onchange: () => { t.provider = "local"; t.check = null; sutSave(); paint(); } }),
-          h("span", { class: "dn" }, "Local model (vLLM)"), h("span", { class: "dd" }, loc.name ? loc.name : "not set up"))),
-        h("span", { class: "small muted" }, !localHere ? "The local model is for test runs only; chats here use the gateway." : loc.usable ? `Local: ${loc.path} (${loc.detail}).` : `Local model: ${loc.detail || "not set up"}.`)));
+        h("label", {}, h("input", { type: "radio", name: `${opts.id}-prov`, checked: t.provider === "local", onchange: () => { t.provider = "local"; t.lcheck = null; sutSave(); paint(); if (t.local_path || t.vllm_url) checkLocal(); } }),
+          h("span", { class: "dn" }, "Local model (vLLM)"), h("span", { class: "dd" }, t.local_path ? t.local_path.split("/").filter(Boolean).pop() : "your model folder")))));
     const model = t.provider === "local" ? h("div", { class: "form" },
-      h("label", {}, "Model"), h("div", { class: "row" }, h("span", { class: "chip" }, loc.path || "–"),
-        h("label", { class: "small muted", for: `${opts.id}-mode` }, "Replies"), h("select", { class: "select", id: `${opts.id}-mode`, onchange: e => { t.mode = e.target.value; sutSave(); } },
-          h("option", { value: "live", selected: t.mode === "live" }, "live (cached for re-runs)"), h("option", { value: "replay", selected: t.mode === "replay" }, "replay (cache only)"))),
-      h("span", {}), h("span", { class: "small muted" }, "Loaded with vLLM in the test run's own process when the run starts (set GMSJOURNEY_VLLM_GPU_UTIL lower if the knowledge store shares the GPU). Temperature 0, so a run can be repeated exactly.")) : h("div", { class: "form" },
+      h("label", { for: `${opts.id}-lpath` }, "Model folder"), h("div", { class: "row", style: "flex-wrap:nowrap" },
+        h("input", { class: "input mono", id: `${opts.id}-lpath`, value: t.local_path, placeholder: "/models/Meta-Llama-3.1-8B-Instruct", autocomplete: "off", spellcheck: "false",
+          oninput: e => { t.local_path = e.target.value.trim(); t.lcheck = null; sutSave(); }, onchange: checkLocal }),
+        h("button", { class: "btn s", type: "button", onclick: checkLocal }, "Check")),
+      h("span", {}), h("span", { class: "small muted" }, "A folder on the machine running the console (the notebook's kernel), holding the model's config.json and weights, e.g. a Llama 3.1 8B Instruct download."),
+      h("label", { for: `${opts.id}-lurl` }, "vLLM server"), h("input", { class: "input mono", id: `${opts.id}-lurl`, value: t.vllm_url, placeholder: inPg ? "http://localhost:8000/v1 (needed here)" : "optional: http://localhost:8000/v1", autocomplete: "off", spellcheck: "false",
+          oninput: e => { t.vllm_url = e.target.value.trim(); t.lcheck = null; sutSave(); }, onchange: checkLocal }),
+      h("span", {}), h("span", { class: "small muted" }, inPg ? "In the Playground the model must be served by a vLLM server (loading it here would take the console's process). With a server, the folder is the model name the server knows." : "Empty: the test run loads the folder with vLLM in its own process. With a server, the calls go there and the folder is the model name the server knows."),
+      lck ? h("span", {}) : null, lck ? h("div", { class: `notice ${lck.ok ? "ok" : "bad"}`, role: "status" }, lck.ok ? `Usable: ${lck.detail}` : `Not usable yet: ${lck.detail}`) : null,
+      h("label", { for: `${opts.id}-mode` }, "Replies"), h("select", { class: "select", id: `${opts.id}-mode`, style: "max-width:260px", onchange: e => { t.mode = e.target.value; sutSave(); } },
+          h("option", { value: "live", selected: t.mode === "live" }, "live (cached for re-runs)"), h("option", { value: "replay", selected: t.mode === "replay" }, "replay (cache only)")),
+      h("span", {}), h("span", { class: "small muted" }, "Temperature 0, so a run can be repeated exactly. Set GMSJOURNEY_VLLM_GPU_UTIL lower if the knowledge store shares the GPU.")) : h("div", { class: "form" },
       h("label", { for: `${opts.id}-model` }, "Model"), h("div", { class: "row" },
         h("input", { class: "input mono", id: `${opts.id}-model`, style: "width:150px", value: t.model, placeholder: "gpt-41", autocomplete: "off", spellcheck: "false", oninput: e => { t.model = e.target.value.trim(); t.check = null; sutSave(); } }),
         h("label", { class: "small muted", for: `${opts.id}-mode` }, "Replies"), h("select", { class: "select", id: `${opts.id}-mode`, onchange: e => { t.mode = e.target.value; sutSave(); } },

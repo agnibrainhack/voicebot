@@ -13,7 +13,9 @@
     GET  /api/runs/<id>/verdict             the one-page verdict (s09_reports/verdict.py): gates, risks, fingerprint, case by case
     GET  /api/journey/<pack>/sut            the suggested prompt for an LLM bot, and the fixed part the harness adds
     POST /api/attach                        text from a file for the LLM bot's prompt (body: {name, data: base64})
-    POST /api/llm/check                     one tiny call through the model gateway (body: {model})
+    POST /api/llm/check                     one tiny call through the model gateway (body: {model}), or, with
+                                            provider "local", whether a model folder / vLLM server can be used
+                                            (body: {provider, local_path, vllm_url})
     GET  /api/play/<pack>/cases?source=S    the playground's cases: "latest" run, a run id, or "project"
     POST /api/play/<pack>/start             a conversation (body: {source, case, sut})
     GET  /api/play/s/<sid>                  a conversation so far
@@ -246,8 +248,8 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                     from .bots import check_gateway
                     if body.get("provider") == "local":
                         from ..s06_bots.llm_bot import status as local_status
-                        st = local_status()
-                        return self._json({"ok": st["usable"], "detail": st["detail"], "local": True})
+                        st = local_status(str(body.get("local_path") or ""), str(body.get("vllm_url") or ""))
+                        return self._json({"ok": st["usable"], "detail": st["detail"], "local": True, **st})
                     return self._json(check_gateway(str(body.get("model") or "")))
                 if parts[:2] == ["api", "play"] and len(parts) == 4 and parts[3] == "start":
                     from . import bots as PG

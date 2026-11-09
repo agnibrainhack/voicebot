@@ -183,7 +183,7 @@ class _Engine:
         return [_Out('{"say": [{"act": "END", "text": "Goodbye."}], "end": true}')]
 
 
-def test_local_model_status_chat_and_the_campaign_only_rule():
+def test_local_model_status_chat_and_the_playground_server_rule():
     from gmsjourney.s06_bots.llm_bot import ENV, LocalChat, status
     from gmsjourney.llm import _messages
     old = {k: os.environ.pop(k, None) for k in (ENV, "GMSJOURNEY_VLLM_URL")}
@@ -200,13 +200,18 @@ def test_local_model_status_chat_and_the_campaign_only_rule():
         chat = LocalChat(engine=eng)
         r = chat.invoke(_messages("You are a bot.", '{"conversation": []}'))
         assert '"END"' in r.content and r.usage_metadata == {"input_tokens": 3, "output_tokens": 2}
+        os.environ.pop(ENV)                              # a folder the tester types works the same as the variable
+        assert status(str(folder))["folder_ok"] and status(str(folder))["name"] == "Meta-Llama-3.1-8B-Instruct"
+        assert "does not exist" in status(str(folder) + "-missing")["detail"]
+        assert status(str(folder), "http://localhost:8000/v1")["usable"] and LocalChat(str(folder), url="http://x/v1").url == "http://x/v1"
+        os.environ[ENV] = str(folder)
         assert [m["role"] for m in eng.seen[0]] == ["system", "user"] and chat.name == "local-Meta-Llama-3.1-8B-Instruct"
-        from gmsjourney.s10_console import bots as PG  # the Playground never loads the local model
+        from gmsjourney.s10_console import bots as PG  # the Playground never loads the local model: a server only
         try:
-            PG.start("project", "default", {"kind": "llm", "provider": "local"})
-            raise AssertionError("the playground must refuse the local model")
+            PG.start("project", "default", {"kind": "llm", "provider": "local", "local_path": str(folder)})
+            raise AssertionError("the playground must refuse a local model without a vLLM server")
         except ValueError as e:
-            assert "campaign" in str(e)
+            assert "vLLM server" in str(e)
     finally:
         for k, v in old.items():
             os.environ.pop(k, None)
