@@ -42,7 +42,11 @@ all). Cyan marks what the graph decides, violet what you set; green, amber and r
 **Themes.** Day is Prussian blue on white drafting film, night is pale blue on a blue-black cyanotype. Auto follows
 the system; the switch in the top bar keeps your choice (`jc.theme` in the browser), the studio page shares it, and
 the GMS sphere redraws in the new colours. Fonts are IBM Plex Sans, Sans Condensed (titles) and Mono (graph names),
-loaded without blocking the page; offline, the system fonts are used.
+loaded without blocking the page; offline, the system fonts are used. Colour that is not blue always means something
+(the section colours, cyan for the graph, violet for your project, green, amber and red for status), so the top bar
+colours only the journey's validity and an active run; the machine and the bot under test are set quietly. Help on a
+page (dismissable hints) is drawn dashed, status notices solid. Names from the graph are set in mono and stay on one
+line in tables; words, such as filter choices and severities, are set in the text face. One primary button per screen.
 
 **Getting around.** **Go to** in the top bar (or Ctrl/⌘ K anywhere) opens a palette that searches every page, journey,
 factor, graph state and recent test run, plus common actions (start a test run, choose the bot, switch theme,
@@ -223,7 +227,8 @@ graphs in a folder or matching a partial name.
 * `sections()`: every triple of the compiled graph classed into seven sections (`classify`): used by the customer,
   by the bot, by both, defining the flow, rules, knowledge and figures, other. `set_roles` decides who uses each value
   set from how it is used (a customer act carries it, or only tools return or take it); `shared_slots` lists the value
-  sets that pass from the customer's words into tool arguments.
+  sets that pass from the customer's words into tool arguments. The Graph sections page draws the split as one strip,
+  each section as wide as its share of the triples, with a selector per section (count and share) under it.
 * `core_segments()`: the **18 things every graph needs** for the validations a campaign runs (an opening, caller
   verification and its attempt limit, customer acts with worded values, prompts, tools with success and failure
   results, confirmation before acting, an echo check, justified handoffs, asking for a person, unclear answers, a turn

@@ -75,7 +75,7 @@ code, .mono { font-family: var(--mono); font-size: .9em; }
 .skip { position: absolute; left: 8px; top: -40px; background: var(--panel); padding: 6px 10px; border-radius: 6px; z-index: 50; }
 .skip:focus { top: 8px; }
 h1, h2, h3 { margin: 0; line-height: 1.2; text-wrap: balance; font-family: var(--head); font-weight: 600; }
-h1 { font-size: 28px; letter-spacing: -.005em; }
+h1 { font-size: 30px; letter-spacing: -.01em; }
 h2 { font-size: 18px; }
 h3 { font-size: 15px; }
 p { margin: 0; max-width: 74ch; }
@@ -115,6 +115,8 @@ p { margin: 0; max-width: 74ch; }
 .pill.graph { background: var(--graph-bg); color: var(--graph); border-color: transparent; font-family: var(--mono); font-size: 11.5px; }
 .pill.proj { background: var(--proj-bg); color: var(--proj); border-color: transparent; }
 a.pill { text-decoration: none; }
+#device-pill .pill:not(.ok), .botpill:not(.llm) { background: transparent; border-color: transparent; }
+.botpill { cursor: pointer; } .botpill:hover { border-color: var(--line-strong) !important; color: var(--ink); }
 a.pill:hover { filter: brightness(.97); }
 
 /* buttons: one primary per screen, the rest outlined; ghost for quiet actions */
@@ -162,6 +164,7 @@ nav.rail { border-right: 1px solid var(--line); padding: 20px 14px 24px; positio
   font: 600 11.5px var(--mono); background: var(--panel); border: 2px solid var(--line-strong); color: var(--ink-3); }
 .stn.done .dot { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .stn.here .dot { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 4px var(--accent-bg); }
+.stn.done.here .dot { background: var(--accent); color: var(--accent-ink); }
 .stn .sh { display: block; font: 600 14px/1.25 var(--head); color: var(--ink); padding-top: 4px; letter-spacing: .01em; }
 .stn .sp { display: block; font-size: 11.5px; color: var(--ink-3); margin: 1px 0 6px; }
 .stn ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
@@ -181,7 +184,7 @@ nav.rail { border-right: 1px solid var(--line); padding: 20px 14px 24px; positio
 .crumb b { font: 600 11.5px var(--mono); color: var(--accent); background: var(--accent-bg); border-radius: 5px; padding: 1px 6px; }
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; flex-wrap: wrap; margin-bottom: 22px;
   padding-bottom: 18px; border-bottom: 1px solid var(--line); }
-.page-head .lede { color: var(--ink-2); margin-top: 8px; font-size: 14.5px; }
+.page-head .lede { color: var(--ink-2); margin-top: 8px; font-size: 14.5px; max-width: 70ch; overflow-wrap: anywhere; }
 
 /* next step: the forward path on every page */
 .pagefoot { margin-top: 30px; display: flex; justify-content: flex-end; }
@@ -192,14 +195,14 @@ nav.rail { border-right: 1px solid var(--line); padding: 20px 14px 24px; positio
 .pagefoot .t { font: 600 15px var(--head); color: var(--accent); display: flex; align-items: center; gap: 8px; }
 
 /* the next-step strip on Overview (replaces the long checklist; the full list is in Help) */
-.guide { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 16px 18px; margin-bottom: 22px;
+.guide { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 16px 18px; margin-bottom: 22px;
   border-radius: var(--radius); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); background: var(--accent-bg); }
-.guide .meter { display: flex; gap: 4px; }
+.guide .meter { display: flex; gap: 4px; margin-bottom: 8px; }
 .guide .meter i { width: 18px; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--accent) 22%, transparent); }
 .guide .meter i.on { background: var(--accent); }
 .guide .t { font: 600 16px var(--head); }
 .guide .p { font-size: 13px; color: var(--ink-2); }
-.guide .k { font-size: 12px; color: var(--ink-3); margin-bottom: 2px; }
+.guide .k { font-size: 12px; color: var(--ink-3); margin-bottom: 8px; }
 .guide .acts { display: flex; gap: 6px; align-items: center; }
 
 /* panels: flat sheets ruled by hairlines; only floating things cast a shadow */
@@ -212,8 +215,9 @@ nav.rail { border-right: 1px solid var(--line); padding: 20px 14px 24px; positio
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 14px 18px; }
 .tile { padding: 2px 0 2px 12px; border-left: 2px solid var(--line); }
 .tile.graph { border-left-color: color-mix(in srgb, var(--graph) 45%, var(--line)); } .tile.proj { border-left-color: color-mix(in srgb, var(--proj) 45%, var(--line)); }
-.tile .v { font: 600 24px/1.15 var(--head); font-variant-numeric: tabular-nums; }
+.tile .v { font: 600 26px/1.1 var(--head); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
 .tile .l { font-size: 12px; color: var(--ink-3); }
+.tile .v.word { font-size: 19px; line-height: 1.3; padding-top: 3px; white-space: nowrap; }
 .tile .v.txt { font: 600 14px/1.35 var(--sans); padding: 4px 0; }
 .tile.graph .v { color: var(--graph); } .tile.proj .v { color: var(--proj); }
 .src { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
@@ -224,6 +228,8 @@ nav.rail { border-right: 1px solid var(--line); padding: 20px 14px 24px; positio
 .notice.warn { background: var(--warn-bg); color: var(--warn); }
 .notice.info { background: var(--panel); color: var(--ink); border-color: var(--line); border-left: 3px solid var(--accent); }
 .hint { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 18px; }
+.notice.info.hint { background: transparent; border: 1px dashed var(--line-strong); border-left: 1px dashed var(--line-strong); font-size: 12.5px; padding: 9px 12px; }
+.notice.info.hint .btn { height: 24px; margin: -3px -4px -3px 0; }
 .hint svg { flex: none; margin-top: 2px; color: var(--accent); }
 .hint .txt { flex: 1; min-width: 0; color: var(--ink-2); }
 .fhelp { grid-column: 2; margin-top: -4px; font-size: 12px; color: var(--ink-3); }
@@ -247,6 +253,7 @@ tbody tr:last-child td { border-bottom: 0; }
 th { position: sticky; top: 0; background: var(--sunk); font-size: 12px; font-weight: 600; color: var(--ink-2); z-index: 1; white-space: nowrap; }
 tbody tr:hover { background: color-mix(in srgb, var(--accent-bg) 45%, transparent); }
 td.mono, td .mono { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+td.nw, td .nw { white-space: nowrap; }
 tr.click { cursor: pointer; }
 
 /* tabs */
@@ -264,6 +271,7 @@ tr.click { cursor: pointer; }
 .chip.graph { background: var(--graph-bg); color: var(--graph); border-color: transparent; }
 .chip.proj { background: var(--proj-bg); color: var(--proj); border-color: transparent; }
 button.chip { cursor: pointer; }
+.chip.w { font-family: var(--sans); font-size: 12.5px; }
 button.chip:hover { border-color: var(--accent); }
 button.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 
@@ -355,6 +363,7 @@ details > summary { cursor: pointer; padding: 11px 16px; font-weight: 600; }
 .bar > i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
 /* progress from inside a step: phases as segments, counted loops as a bar with the time left, model calls as a split */
 .prog { display: grid; gap: 14px; }
+.gates { display: inline-grid; gap: 2px; white-space: nowrap; } .runid { display: grid; gap: 1px; white-space: nowrap; } .gm { font-size: 12.5px; font-weight: 600; } .gm.ok { color: var(--ok); } .gm.bad { color: var(--bad); }
 .tile.bad .v { color: var(--bad); } .tile.ok .v { color: var(--ok); }
 .cmp-pick { margin-bottom: 16px; } .nw { white-space: nowrap; }
 .cmp-pick + .notice, .cmp-pick ~ .notice.warn { margin-bottom: 16px; }
@@ -388,7 +397,7 @@ details > summary { cursor: pointer; padding: 11px 16px; font-weight: 600; }
 .bar.ind > i, .seg.ind { background-image: repeating-linear-gradient(-45deg, var(--run-bg) 0 6px, transparent 6px 12px); background-size: 34px 100%; animation: slide 1.1s linear infinite; }
 .bar.ind > i { background-color: var(--accent); opacity: .55; }
 @keyframes slide { to { background-position: 34px 0; } }
-.segs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 3px; height: 10px; }
+.phs { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 3px; height: 10px; }
 .seg { position: relative; border-radius: 3px; background: var(--sunk); overflow: hidden; }
 .seg.done { background: var(--accent); }
 .seg.cur { box-shadow: inset 0 0 0 1.5px var(--accent); }
@@ -506,11 +515,18 @@ table.heat th.rowh { position: static; background: var(--sunk); text-align: left
 
 /* graph sections, editor, sphere: one colour per section (with its name beside it everywhere) */
 .sdot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: none; }
-.secgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-top: 12px; }
-.seccard { text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 11px 13px; cursor: pointer; display: grid; gap: 3px; align-content: start; color: inherit; }
+.secsplit { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); margin-top: 16px; }
+@media (max-width: 1000px) { .secsplit { grid-template-columns: minmax(0, 1fr); } }
+.secmap { display: grid; gap: 10px; margin-top: 4px; }
+.secstrip { display: flex; gap: 2px; height: 14px; border-radius: 4px; overflow: hidden; }
+.secstrip > span { min-width: 6px; cursor: pointer; opacity: .55; transition: opacity .15s; }
+.secstrip > span.on, .secstrip > span:hover { opacity: 1; }
+.secgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.seccard { text-align: left; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); padding: 9px 11px; cursor: pointer; display: grid; gap: 2px; align-content: start; color: inherit; }
+.seccard .t { font-weight: 600; font-size: 12.5px; line-height: 1.3; }
 .seccard:hover { border-color: var(--accent); }
 .seccard[aria-selected="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-bg); }
-.seccard .v { font: 600 24px/1.1 var(--head); }
+.seccard .v { font: 600 22px/1.1 var(--head); }
 .seccard .row { flex-wrap: nowrap; align-items: center; }
 .crit { margin-top: 6px; color: var(--ink-2); } .crit summary { cursor: pointer; color: var(--accent); } .crit-row { margin-top: 6px; padding: 7px 9px; background: var(--sunk); border-radius: 7px; display: grid; gap: 2px; overflow-wrap: anywhere; }
 .seccard .small { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
@@ -636,6 +652,7 @@ dialog.palette { width: min(640px, calc(100vw - 32px)); max-width: none; padding
   .shell { grid-template-columns: 210px minmax(0, 1fr); } main { padding: 22px 22px 80px; }
 }
 @media (max-width: 760px) {
+  #device-pill { display: none; }
   .top { padding: 8px 16px; gap: 8px; } .top .field-inline { flex: 1 1 100% !important; max-width: none; } .top .spacer { display: none; } .brand .bt { display: inline; }
   .shell { grid-template-columns: minmax(0, 1fr); }
   nav.rail { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 12px 16px; }
@@ -889,12 +906,12 @@ function guideCard() {
   const next = GUIDE.find(([k]) => !st[k]);
   const done = GUIDE.filter(([k]) => st[k]).length;
   const meter = h("div", { class: "meter", role: "img", "aria-label": `${done} of ${GUIDE.length} steps done` }, ...GUIDE.map(([k]) => h("i", { class: st[k] ? "on" : null })));
-  if (!next) return h("section", { class: "guide", "aria-label": "Getting started" }, meter,
-    h("div", {}, h("div", { class: "t" }, "Every getting-started step is done for this journey"), h("div", { class: "p" }, "Change a factor and run again to compare runs.")),
+  if (!next) return h("section", { class: "guide", "aria-label": "Getting started" },
+    h("div", {}, meter, h("div", { class: "t" }, "Every getting-started step is done for this journey"), h("div", { class: "p" }, "Change a factor and run again to compare runs.")),
     h("div", { class: "acts" }, h("button", { class: "btn s ghost", onclick: hideGuide }, "Hide")));
   const [k, title, text, href] = next;
-  return h("section", { class: "guide", "aria-label": "Getting started" }, meter,
-    h("div", {}, h("div", { class: "k" }, `Next step, ${GUIDE.indexOf(next) + 1} of ${GUIDE.length}`), h("div", { class: "t" }, title), h("div", { class: "p" }, text)),
+  return h("section", { class: "guide", "aria-label": "Getting started" },
+    h("div", {}, h("div", { class: "row", style: "gap:10px" }, meter, h("div", { class: "k" }, `Next step, ${GUIDE.indexOf(next) + 1} of ${GUIDE.length}`)), h("div", { class: "t" }, title), h("div", { class: "p" }, text)),
     h("div", { class: "acts" },
       k === "saved" ? h("button", { class: "btn primary", onclick: () => S.dirty ? save() : (gMark("saved"), render()) }, S.dirty ? "Save project" : "Nothing to save")
         : h("a", { class: "btn primary", href }, k === "valid" ? "See problems" : ({ graph: "Open graph sections", factors: "Open journey factors", preview: "Preview a level", ran: "Put the bot to test", read: "Open test runs" })[k] || "Go"),
@@ -996,13 +1013,14 @@ function pageFoot(view) {
     h("span", { class: "k" }, same ? "Next in this stage" : `Next stage: ${nx.stage + 1}. ${nx.stageLabel}`),
     h("span", { class: "t" }, nx.label, h("span", { "aria-hidden": "true", html: '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>' }))));
 }
-function tile(v, l, kind) { return h("div", { class: `tile ${kind || ""}` }, h("div", { class: "v" }, v ?? "–"), h("div", { class: "l" }, l)); }
+function tile(v, l, kind) { const word = typeof v === "string" && /[a-z]{3}/i.test(v) && !/^\d/.test(v);
+  return h("div", { class: `tile ${kind || ""}` }, h("div", { class: `v${word ? " word" : ""}` }, v ?? "–"), h("div", { class: "l" }, l)); }
 function table(cols, rows, opts = {}) {
   return h("div", { class: "tw", style: opts.max ? `max-height:${opts.max}px` : null },
     h("table", {}, h("thead", {}, h("tr", {}, ...cols.map(c => h("th", { scope: "col" }, c)))),
       h("tbody", {}, ...rows.map(r => h("tr", { class: opts.onclick ? "click" : null, tabindex: opts.onclick ? 0 : null,
         onclick: opts.onclick ? () => opts.onclick(r) : null, onkeydown: opts.onclick ? e => { if (e.key === "Enter") opts.onclick(r); } : null },
-        ...r.slice(0, cols.length).map((c, i) => h("td", { class: opts.mono && opts.mono.includes(i) ? "mono" : null }, c instanceof Node ? c : esc(c))))))));
+        ...r.slice(0, cols.length).map((c, i) => h("td", { class: opts.mono && opts.mono.includes(i) ? (typeof c === "string" && c.length <= 34 && !/\s/.test(c) ? "mono nw" : "mono") : null }, c instanceof Node ? c : esc(c))))))));
 }
 
 // ---------------------------------------------------------------- overview
@@ -1019,7 +1037,7 @@ function overview() {
   for (const [st, xs] of Object.entries(cov.customer_choices_missing || {})) if (xs.length) gaps.push([st, xs.join(", "), `No case has the customer say ${xs.join(" or ")} at ${st}, so that branch is never tested.`, fixBtn("say", st, xs[0])]);
   return [
     head(d.title, `${S.pack} · ${meta.graph || ""} · ${meta.compiled ? "compact graph, compiled" : "graph built from the PDF"}${d.loop ? " · loops over " + d.loop.tool + "." + d.loop.field : ""}`,
-      h("a", { class: "btn", href: "#/factors" }, "Edit journey factors"), h("a", { class: "btn primary", href: "#/run" }, "Put the bot to test")),
+      h("a", { class: "btn", href: "#/factors" }, "Edit journey factors"), h("a", { class: "btn", href: "#/run" }, "Put the bot to test")),
     guideCard(),
     S.issues.length ? h("div", { class: "notice bad", style: "margin-bottom:16px" }, `${S.issues.length} problem(s) against the graph:`, h("ul", {}, ...S.issues.slice(0, 12).map(i => h("li", { class: "mono" }, i))))
       : h("div", { class: "notice ok", style: "margin-bottom:16px" }, "The project is valid against the policy graph: every name it uses is one the graph defines."),
@@ -1081,10 +1099,15 @@ function sectionsView() {
       made.speech_failures.length ? [`These lines fail the speech check; reword them under bot.says in domain.yaml: `, h("ul", {}, ...made.speech_failures.map(f => h("li", {}, h("code", {}, f.act), ` (${f.turns} turns): “${f.example}” — ${f.why}`)))]
         : `Every line passed the speech check${made.off_flow ? `; ${made.off_flow} turns differed from the graph` : " and every turn followed the graph"}.`) : null,
     (X.lexicon_drafted || []).length ? h("div", { class: "notice info", style: "margin:10px 0" }, `Drafted wording is in use for ${X.lexicon_drafted.length} entr${X.lexicon_drafted.length === 1 ? "y" : "ies"} that domain.yaml does not word yet (${X.lexicon_drafted.slice(0, 6).join(", ")}${X.lexicon_drafted.length > 6 ? ", …" : ""}). Write the real wording there when you can.`) : null,
-    h("div", { class: "secgrid", role: "tablist", "aria-label": "Sections of the graph" }, ...X.sections.map(s =>
-      h("button", { class: "seccard", type: "button", role: "tab", "aria-selected": s.key === cur.key ? "true" : "false", onclick: () => { X.sel = s.key; X.q = ""; render(); } },
-        h("div", { class: "row", style: "gap:7px" }, secDot(s.key), h("b", {}, s.title)), h("div", { class: "v num" }, s.count), h("div", { class: "small muted" }, s.about)))),
-    h("div", { class: "grid2", style: "grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);margin-top:16px" },
+    (tot => h("div", { class: "secmap" },
+      h("div", { class: "secstrip", role: "img", "aria-label": `The graph's ${tot} triples by section: ${X.sections.map(s => `${s.title} ${s.count}`).join(", ")}` },
+        ...X.sections.filter(s => s.count).map(s => h("span", { class: s.key === cur.key ? "on" : null, style: `flex:${s.count} 1 0;background:${SECT_COLOR[s.key] || "var(--ink-3)"}`, title: `${s.title}: ${s.count} triples`, onclick: () => { X.sel = s.key; X.q = ""; render(); } }))),
+      h("div", { class: "secgrid", role: "tablist", "aria-label": "Sections of the graph" }, ...X.sections.map(s =>
+        h("button", { class: "seccard", type: "button", role: "tab", "aria-selected": s.key === cur.key ? "true" : "false", title: s.about, onclick: () => { X.sel = s.key; X.q = ""; render(); } },
+          h("span", { class: "row", style: "gap:7px" }, secDot(s.key), h("span", { class: "t" }, s.title)),
+          h("span", { class: "row", style: "gap:8px;align-items:baseline" }, h("span", { class: "v num" }, s.count), h("span", { class: "small muted num" }, `${Math.round(100 * s.count / tot)}%`))))))
+    )(Math.max(1, X.sections.reduce((a, s) => a + s.count, 0))),
+    h("div", { class: "grid2 secsplit" },
       h("div", { class: "card" },
         h("div", { class: "hd" }, h("div", { class: "row", style: "gap:8px" }, secDot(cur.key), h("h2", {}, cur.title)), h("span", { class: "small muted num" }, `${cur.count} triples · ${cur.entities.length} entities`)),
         h("div", { class: "bd stack", style: "gap:12px" },
@@ -1219,7 +1242,7 @@ function editView() {
     E.dirty ? h("div", { class: "notice info", style: "margin-bottom:12px" }, "Unsaved edits. Check runs the lint and the core-segment checks on the edited graph without saving it.") : null,
     E.format === "compact" ? compactEditor(E) : triplesEditor(E),
     segs.length ? h("div", { class: "card", style: "margin-top:16px" }, h("div", { class: "hd" }, h("h2", {}, "Core segments"), h("span", { class: "small muted" }, "add what the validations need")),
-      h("div", { class: "bd chips" }, ...segs.map(s => h("button", { class: `chip ${s.ok ? "ok" : s.advisory ? "" : "bad"}`, type: "button", title: `${s.detail}. Needed for ${s.needed_for}.`, disabled: s.ok || E.format !== "compact" || !Object.keys(s.add || {}).length ? true : null,
+      h("div", { class: "bd chips" }, ...segs.map(s => h("button", { class: `chip w ${s.ok ? "ok" : s.advisory ? "" : "bad"}`, type: "button", title: `${s.detail}. Needed for ${s.needed_for}.`, disabled: s.ok || E.format !== "compact" || !Object.keys(s.add || {}).length ? true : null,
         onclick: () => { applySuggestion(s); render(); } }, s.ok ? "✓ " : "+ ", s.name)))) : null,
     edResult(E.result),
   ];
@@ -1292,7 +1315,7 @@ function sphereView() {
     h("div", { class: `notice ${G.placement === "store" ? "ok" : "info"}`, style: "margin-bottom:12px" }, G.note,
       G.fit ? h("span", { class: "small" }, `. Linked entities sit ${G.fit.edge_arc} rad apart on average, against ${G.fit.random_arc} rad for a random pair.`) : null),
     h("div", { class: "row sphctl", style: "flex-wrap:wrap;gap:6px;margin-bottom:10px" },
-      ...G.sections.map(s => h("button", { class: "chip", type: "button", "aria-pressed": G.on.has(s.key) ? "true" : "false", onclick: () => { G.on.has(s.key) ? G.on.delete(s.key) : G.on.add(s.key); G.dirty = true; render(); } }, secDot(s.key), s.title)),
+      ...G.sections.map(s => h("button", { class: "chip w", type: "button", "aria-pressed": G.on.has(s.key) ? "true" : "false", onclick: () => { G.on.has(s.key) ? G.on.delete(s.key) : G.on.add(s.key); G.dirty = true; render(); } }, secDot(s.key), s.title)),
       h("select", { class: "select", "aria-label": "Relation", onchange: e => sphereSelectRel(e.target.value) }, h("option", { value: "" }, "All relations"), ...Object.entries(G.relations).map(([r, n]) => h("option", { value: r, selected: G.rel === r ? true : null }, `${r} (${n})`))),
       h("input", { class: "input", style: "width:200px", type: "search", placeholder: "Find an entity", "aria-label": "Find an entity", value: G.q, oninput: e => { G.q = e.target.value; const hit = G.nodes.find(n => G.q && n.id.toLowerCase().includes(G.q.toLowerCase())); if (hit) sphereSelectNode(hit.id, true); else { G.dirty = true; } } }),
       h("label", { class: "small row", style: "gap:4px" }, h("input", { type: "checkbox", checked: G.arcs ? true : null, onchange: e => { G.arcs = e.target.checked; G.dirty = true; } }), "Arcs"),
@@ -2080,7 +2103,7 @@ function runDetailBody() {
   const outputs = R.status === "finished" ? h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Results")), h("div", { class: "bd stack" },
       R.headline ? h("div", { class: "tiles" }, tile(R.headline.tested != null && R.headline.tested !== R.headline.bases ? `${R.headline.tested} of ${R.headline.bases}` : R.headline.bases, "cases tested"), tile(pct(R.headline.accuracy_original), "correct, original wording"), tile(pct(R.headline.accuracy_reworded), "correct, reworded"),
         tile(pct(R.headline.proved), "reworded cases proved"), tile(pct(R.headline.defects_caught), "planted defects caught"),
-        tile(R.headline.gate ? "Passed" : "Not passed", "release gate, original"), R.headline.gate_reworded != null ? tile(R.headline.gate_reworded ? "Passed" : "Not passed", "release gate, reworded") : null) : null,
+        tile(R.headline.gate ? "Passed" : "Not passed", "release gate, original", R.headline.gate ? "ok" : "bad"), R.headline.gate_reworded != null ? tile(R.headline.gate_reworded ? "Passed" : "Not passed", "release gate, reworded", R.headline.gate_reworded ? "ok" : "bad") : null) : null,
       R.headline ? meaning(R.headline) : null,
       h("div", { class: "row" }, h("a", { class: "btn primary", href: `#/verdict/${R.id}` }, "Open the verdict"), h("a", { class: "btn", href: `#/cases/${R.id}` }, "Explore cases"),
         (prev => prev ? h("a", { class: "btn", href: `#/compare?a=${encodeURIComponent(prev.id)}&b=${encodeURIComponent(R.id)}`, title: `Compare with ${prev.id}, the previous finished run of ${job.pack}` }, "Compare with the previous run") : null)(
@@ -2189,7 +2212,7 @@ function phaseBar(R, p, compact) {
     : frac != null ? (inPhase < p.expect_s ? `about ${fmtDur(p.expect_s - inPhase)} left in this phase` : "taking longer than last time") : `${fmtDur(inPhase)} in this phase`;
   return h("div", { class: "pr" },
     h("div", { class: "pr-hd" }, h("span", { class: "pr-l" }, title), h("span", { class: "pr-n num" }, doneAll ? `${n} of ${n} phases` : `phase ${i + 1} of ${n}`)),
-    h("div", { class: "segs", role: "progressbar", "aria-label": title, "aria-valuemin": 0, "aria-valuemax": n, "aria-valuenow": i, "aria-valuetext": doneAll ? "done" : names[i] || p.label },
+    h("div", { class: "phs", role: "progressbar", "aria-label": title, "aria-valuemin": 0, "aria-valuemax": n, "aria-valuenow": i, "aria-valuetext": doneAll ? "done" : names[i] || p.label },
       ...Array.from({ length: n }, (_, j) => h("span", { class: `seg${j < i ? " done" : j === i && !doneAll ? (frac == null ? " cur ind" : " cur") : ""}`, title: names[j] || "" },
         j === i && frac != null ? h("i", { style: `width:${frac * 100}%` }) : null))),
     h("div", { class: "pr-ft" }, h("span", {}, doneAll ? (p.key === "gms" ? "Store ready" : "Done") : h("b", {}, names[i] || p.label)),
@@ -2258,11 +2281,12 @@ function runsView() {
   const el = h("div", {}, head("Test runs", "Every test run on this machine, newest first."), h("div", { class: "card empty" }, "Loading runs…"));
   api("api/runs").then(r => {
     S.runsList = r.runs;
-    const rows = r.runs.map(x => [x.id, x.job.pack, botLabel(x.job), x.job.device || "auto", x.status + (x.elapsed ? ` · ${Math.max(1, Math.round(x.elapsed / 60))} min` : ""), pct(x.headline?.accuracy_original), pct(x.headline?.accuracy_reworded), pct(x.headline?.proved), pct(x.headline?.defects_caught),
-      x.headline ? `${x.headline.gate ? "passed" : "not passed"}${x.headline.gate_reworded == null ? "" : x.headline.gate_reworded ? " · reworded passed" : " · reworded not passed"}` : "–", x.files.includes("report.html") ? h("span", { class: "row", style: "flex-wrap:nowrap" }, h("a", { href: `#/verdict/${x.id}`, onclick: e => e.stopPropagation() }, "Verdict"), h("a", { href: `runs/${x.id}/report.html`, target: "_blank", rel: "noopener", onclick: e => e.stopPropagation() }, "Report")) : "–"]);
+    const rows = r.runs.map(x => [h("span", { class: "runid" }, h("span", { class: "mono" }, x.id), h("span", { class: `small ${x.status === "finished" ? "muted" : x.status === "failed" ? "mark bad" : "mark"}` }, x.status + (x.elapsed ? `, ${Math.max(1, Math.round(x.elapsed / 60))} min` : ""))),
+      x.job.pack, h("span", { title: botLabel(x.job) }, botShort(x.job)), x.job.device || "auto", pct(x.headline?.accuracy_original), pct(x.headline?.accuracy_reworded), pct(x.headline?.proved), pct(x.headline?.defects_caught),
+      x.headline ? h("span", { class: "gates" }, gateMark("Original", x.headline.gate), x.headline.gate_reworded == null ? null : gateMark("Reworded", x.headline.gate_reworded)) : "–", x.files.includes("report.html") ? h("span", { class: "row", style: "flex-wrap:nowrap" }, h("a", { href: `#/verdict/${x.id}`, onclick: e => e.stopPropagation() }, "Verdict"), h("a", { href: `runs/${x.id}/report.html`, target: "_blank", rel: "noopener", onclick: e => e.stopPropagation() }, "Report")) : "–"]);
     el.replaceChildren(head("Test runs", "Every test run on this machine, newest first.", h("a", { class: "btn primary", href: "#/run" }, "New test run")),
       comparePicker(r.runs),
-      rows.length ? table(["Run", "Journey", "Bot", "Device", "Status", "Correct, original", "Correct, reworded", "Proved", "Defects caught", "Release gate", ""], rows, { mono: [0, 3], onclick: row => go(`#/run/${row[0]}`) })
+      rows.length ? table(["Run", "Journey", "Bot", "Device", "Correct, original", "Correct, reworded", "Proved", "Defects caught", "Release gate", ""], rows, { mono: [1, 3], onclick: row => go(`#/run/${row[0].querySelector(".mono").textContent}`) })
         : h("div", { class: "card empty" }, "No runs yet. ", h("a", { href: "#/run" }, "Start one"), "."));
   }).catch(e => el.replaceChildren(h("div", { class: "notice bad" }, e.message)));
   return el;
@@ -2284,6 +2308,7 @@ function comparePicker(list, a, b) {
       h("button", { class: "btn s", type: "button", "aria-label": "Swap before and after", title: "Swap", onclick: () => { const t = sa.value; sa.value = sb.value; sb.value = t; } }, "⇄"),
       h("button", { class: "btn primary s", type: "submit" }, "Compare runs"))));
 }
+function gateMark(label, ok) { return h("span", { class: `gm ${ok ? "ok" : "bad"}`, title: `${label} wording: release gate ${ok ? "passed" : "not passed"}` }, h("span", { "aria-hidden": "true" }, ok ? "✓" : "✕"), ` ${label}`); }
 const pts = d => `${d > 0 ? "+" : d < 0 ? "−" : "±"}${Math.abs(100 * d).toFixed(1)} pts`;
 function delta(a, b, lowerBetter) {
   if (a == null || b == null) return h("span", { class: "muted" }, "–");
@@ -2337,6 +2362,10 @@ function compareView(r) {
 }
 
 // ---------------------------------------------------------------- bot under test: the reference bot, or an LLM bot with your prompt and files
+function botShort(job) {
+  const s = (job || {}).sut || {};
+  return s.kind === "llm" ? `LLM bot, ${s.provider === "local" ? "local" : s.model || "gpt-41"}${s.critique === false ? "" : " + critique"}` : "Reference bot";
+}
 function botLabel(job) {
   const s = (job || {}).sut || {};
   return s.kind === "llm" ? `LLM bot ${s.model || "gpt-41"}${s.provider === "local" ? " (local, vLLM)" : ""}${s.mode === "replay" ? " (replay)" : ""}${s.critique === false ? ", no critique" : s.critique ? `, critique by ${s.critic_model || "the same model"}` : ""}` : "reference bot (no LLM)";
@@ -2529,7 +2558,7 @@ function casesTab(I, selId) {
     h("span", { class: "sub" }, `${c.turns} turn${c.turns === 1 ? "" : "s"} · ${c.reworded} reworded, ${c.proved} proved · ends ${c.end || "?"}${c.transfer ? " (" + c.transfer + ")" : ""}`))));
   const filters = h("div", { class: "search" },
     h("input", { type: "search", class: "input", placeholder: "Filter: id, category, tag, words…", value: X.q, "aria-label": "Filter cases", oninput: e => { X.q = e.target.value; renderKeep(e.target); } }),
-    h("div", { class: "row" }, ...[["all", "All"], ["tested", "Run on the bot"], ["failed", "Failed"]].map(([k, l]) => h("button", { class: "chip", type: "button", "aria-pressed": X.show === k ? "true" : "false", onclick: () => { X.show = k; render(); } }, l)),
+    h("div", { class: "row" }, ...[["all", "All"], ["tested", "Run on the bot"], ["failed", "Failed"]].map(([k, l]) => h("button", { class: "chip w", type: "button", "aria-pressed": X.show === k ? "true" : "false", onclick: () => { X.show = k; render(); } }, l)),
       h("span", { class: "small muted num", style: "margin-left:auto" }, `${list.length} of ${I.cases.length}`)),
     X.pair ? h("div", { class: "notice info row", style: "justify-content:space-between;padding:6px 8px" }, h("span", { class: "small" }, `${X.pair[0]} = ${X.pair[1]}, ${X.pair[2]} = ${X.pair[3]}`), h("button", { class: "btn s ghost", onclick: () => { X.pair = null; render(); } }, "Clear")) : null);
   const panel = h("section", { class: "card", id: "case-panel", "aria-live": "polite" });
@@ -2882,7 +2911,7 @@ function verdictView(r) {
     tile(pct(N.proved), "reworded cases proved to mean the same"), tile(N.defects_caught == null ? "not run" : pct(N.defects_caught), "planted defects caught"),
     tile(pct(N.speech_grounded_original), "runs where everything said was true"));
   const risks = V.risks.length ? table(["Severity", "What the bot did", "Code", "Runs", "Example"], V.risks.slice(0, 6).map(x => [
-      h("span", { class: `chip ${x.severity === "critical" || x.severity === "high" ? "bad" : ""}` }, x.severity), x.what, h("span", { class: "mono" }, x.code), String(x.runs),
+      h("span", { class: `chip w ${x.severity === "critical" || x.severity === "high" ? "bad" : ""}` }, x.severity), x.what, h("span", { class: "mono" }, x.code), String(x.runs),
       h("a", { href: `#case-${x.example}`, onclick: e => { e.preventDefault(); X.show = "all"; paintVerdict(); setTimeout(() => document.getElementById(`case-${x.example}`)?.scrollIntoView({ block: "start" }), 50); } }, x.example)]), { max: 9999 })
     : h("p", { class: "notice ok" }, "No failure in any run.");
   const kv = (k, v) => v == null || v === "" || (Array.isArray(v) && !v.length) ? null : [h("dt", {}, k), h("dd", {}, Array.isArray(v) ? v.join(", ") : v)];
@@ -2899,7 +2928,7 @@ function verdictView(r) {
     h("div", { class: "stack", style: "gap:6px" }, h("h3", {}, "How to reproduce it"), h("p", { class: "small muted" }, "The same journey, graph, code, bot and settings give the same cases and the same verdict."), fp)));
   const shown = V.cases.filter(c => X.show === "all" || (X.show === "failed" ? !c.correct : c.correct));
   const filt = h("div", { class: "row no-print" }, ...[["failed", `Failed (${V.cases.filter(c => !c.correct).length})`], ["passed", `Passed (${V.cases.filter(c => c.correct).length})`], ["all", `All (${V.cases.length})`]]
-    .map(([k, l]) => h("button", { class: "chip", type: "button", "aria-pressed": X.show === k ? "true" : "false", onclick: () => { X.show = k; paintVerdict(); } }, l)));
+    .map(([k, l]) => h("button", { class: "chip w", type: "button", "aria-pressed": X.show === k ? "true" : "false", onclick: () => { X.show = k; paintVerdict(); } }, l)));
   const page2 = h("section", { class: "vcases" }, h("div", { class: "row", style: "justify-content:space-between;margin:22px 0 10px" },
       h("div", {}, h("h2", {}, "Case by Case: What the Policy Expects, What the Bot Did"), h("p", { class: "small muted" }, "Left: the graph's answer key for each turn (the tools to call and the decisions to make). Right: what the bot under test called, decided and said. The first turn that differs is marked; turns after it are shown for reference.")), filt),
     ...(shown.length ? shown.map(vcase) : [h("div", { class: "card empty" }, "No case in this group.")]));
