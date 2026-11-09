@@ -15,11 +15,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import legacy_journey as LJ  # noqa: E402
 
-from gmsjourney.cases import journey as NJ  # noqa: E402
-from gmsjourney.graph.flow import GraphOracle  # noqa: E402
-from gmsjourney.cases.meaning import SemanticFrame as F  # noqa: E402
-from gmsjourney.campaign.pipeline import POLICY  # noqa: E402
-from gmsjourney.knowledge.store import symbolic_store  # noqa: E402
+from gmsjourney.s04_cases import journey as NJ  # noqa: E402
+from gmsjourney.s02_graph.flow import GraphOracle  # noqa: E402
+from gmsjourney.s04_cases.meaning import SemanticFrame as F  # noqa: E402
+from gmsjourney.s08_campaign.pipeline import POLICY  # noqa: E402
+from gmsjourney.s03_knowledge.store import symbolic_store  # noqa: E402
 
 KB = [F.make("ASK_KB", intent="value", attr="fee", entity="expedited_delivery"), F.make("ASK_KB", intent="fraud")]
 

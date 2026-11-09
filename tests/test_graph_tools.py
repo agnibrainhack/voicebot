@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from gmsjourney.packs import loading as domain  # noqa: E402
+from gmsjourney.s01_packs import loading as domain  # noqa: E402
 
 POLICY = ROOT / "gmsjourney" / "policy"
 
@@ -42,8 +42,8 @@ def _cleanup(pack: str) -> None:
 # ----------------------------------------------------------------------------- drafted lexicon
 def test_a_drafted_lexicon_passes_the_lexicon_checks_on_both_compact_graphs():
     import yaml
-    from gmsjourney.graph.compact import PolicyGraph
-    from gmsjourney.packs.drafting import draft_lexicon
+    from gmsjourney.s02_graph.compact import PolicyGraph
+    from gmsjourney.s01_packs.drafting import draft_lexicon
     for pack, gfile in (("supplementary_card", "supplementary_card_kg.json"), ("charge_review_graph", "charge_review_kg.json")):
         d = Path(tempfile.mkdtemp(prefix="gms_lex_")) / pack
         d.mkdir()
@@ -63,8 +63,8 @@ def test_shipped_journeys_need_no_drafted_wording():
 def test_drafted_bot_lines_say_every_field_with_its_unit_and_pass_the_speech_check():
     import re
     import yaml
-    from gmsjourney.console import graphs as GR
-    from gmsjourney.packs.drafting import draft_bot_says
+    from gmsjourney.s10_console import graphs as GR
+    from gmsjourney.s01_packs.drafting import draft_bot_says
     for pack in ("supplementary_card", "charge_review_graph"):
         g = domain.load(pack).graph
         says = draft_bot_says(g)
@@ -97,8 +97,8 @@ def test_drafted_bot_lines_say_every_field_with_its_unit_and_pass_the_speech_che
 
 # ----------------------------------------------------------------------------- open by path
 def test_an_outside_graph_becomes_a_journey_that_plays_and_versions_without_touching_the_original():
-    from gmsjourney.console import graphs as GR
-    from gmsjourney.console import bots as PG
+    from gmsjourney.s10_console import graphs as GR
+    from gmsjourney.s10_console import bots as PG
     src = _outside_graph()
     r = GR.open_graph(str(src))
     try:
@@ -138,7 +138,7 @@ def test_an_outside_graph_becomes_a_journey_that_plays_and_versions_without_touc
 
 
 def test_opening_refuses_what_is_not_a_compact_graph_from_outside():
-    from gmsjourney.console import graphs as GR
+    from gmsjourney.s10_console import graphs as GR
     d = Path(tempfile.mkdtemp(prefix="gms_bad_"))
     shutil.copy(POLICY / "charge_review" / "charge_review_kg.json", d / "kg.json")
     (d / "notes.json").write_text('{"hello": 1}')
@@ -153,8 +153,8 @@ def test_opening_refuses_what_is_not_a_compact_graph_from_outside():
 
 
 def test_a_triples_graph_versions_with_its_own_hash_and_a_user_edit_source():
-    from gmsjourney.console import graphs as GR
-    from gmsjourney.graph.triples import _content_hash
+    from gmsjourney.s10_console import graphs as GR
+    from gmsjourney.s02_graph.triples import _content_hash
     d = domain.set_current("charge_review")
     E = GR.editable(d)
     rows = E["triples"]
@@ -168,7 +168,7 @@ def test_a_triples_graph_versions_with_its_own_hash_and_a_user_edit_source():
 
 # ----------------------------------------------------------------------------- sections and core segments
 def test_sections_cover_every_triple_and_core_segments_find_what_is_missing():
-    from gmsjourney.console import graphs as GR
+    from gmsjourney.s10_console import graphs as GR
     for pack in ("charge_review", "supplementary_card"):
         d = domain.set_current(pack)
         S = GR.sections(d)
@@ -192,7 +192,7 @@ def test_sections_cover_every_triple_and_core_segments_find_what_is_missing():
 # ----------------------------------------------------------------------------- the sphere
 def test_the_sphere_puts_every_entity_on_the_unit_sphere_and_keeps_linked_ones_close():
     import math
-    from gmsjourney.console import graphs as sphere
+    from gmsjourney.s10_console import graphs as sphere
     d = domain.set_current("supplementary_card")
     B = sphere.build(d, runs_root=Path(tempfile.mkdtemp()))
     assert B["placement"] == "graph" and B["note"].startswith("No built knowledge store")
@@ -209,8 +209,8 @@ def test_the_sphere_puts_every_entity_on_the_unit_sphere_and_keeps_linked_ones_c
 
 # ----------------------------------------------------------------------------- texts that match what they label
 def test_every_playground_case_plays_the_level_its_label_names():
-    from gmsjourney.console import bots as PG
-    from gmsjourney.console.studio import Studio
+    from gmsjourney.s10_console import bots as PG
+    from gmsjourney.s10_console.studio import Studio
     for pack in ("supplementary_card", "charge_review_graph", "charge_review"):
         domain.set_current(pack)
         PG.reset()
@@ -235,7 +235,7 @@ def test_every_playground_case_plays_the_level_its_label_names():
 
 
 def test_tool_factors_say_what_varies():
-    from gmsjourney.packs.drafting import tool_about
+    from gmsjourney.s01_packs.drafting import tool_about
     assert tool_about("authenticate_customer", "Verifies the caller.") == "what authenticate_customer returns (verifies the caller)"
     assert tool_about("submit_card_action", "submit_card_action | After customer confirms | SUCCESS / FAILED | Claim only after SUCCESS.") \
         == "what submit_card_action returns (after customer confirms: SUCCESS / FAILED)"
@@ -249,7 +249,7 @@ def test_tool_factors_say_what_varies():
 
 # ----------------------------------------------------------------------------- the critique layer
 def _llm_turns(critique: bool):
-    from gmsjourney.console import bots as PG
+    from gmsjourney.s10_console import bots as PG
     domain.set_current("charge_review_graph")
     PG.reset()
     PG.cases("project", None)
@@ -285,7 +285,7 @@ def test_the_critique_layer_reviews_every_step_and_corrects_a_wrong_one():
 
 def test_a_reviewer_that_answers_badly_never_blocks_the_bot():
     from types import SimpleNamespace
-    from gmsjourney.bots.llm_bot import LLMBot, LLMBotStats
+    from gmsjourney.s06_bots.llm_bot import LLMBot, LLMBotStats
 
     class Bot:
         def invoke(self, system, user, salt=""):
@@ -312,7 +312,7 @@ def _port() -> int:
 
 
 def test_graph_api_open_sections_edit_check_save_use_sphere():
-    from gmsjourney.console import server
+    from gmsjourney.s10_console import server
     port = _port()
     srv = server.make_server(port, runs_dir=tempfile.mkdtemp())
     threading.Thread(target=srv.serve_forever, daemon=True).start()

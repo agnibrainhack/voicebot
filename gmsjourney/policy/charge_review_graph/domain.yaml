@@ -3,7 +3,7 @@
 # charge_review_kg.json is converted from the v1 graph (tools/convert_charge_review_v2.py): the same
 # facts, rules, synonyms and tools, with the dialog as a machine-readable state machine. Every
 # section a campaign reads (tools, figures, rules, flow, journeys, checks) is mined from it
-# (gmsjourney/graph/model.py: derive_config). This file adds the customer wording (the v1 lexicon,
+# (gmsjourney/s02_graph/compact.py: derive_config). This file adds the customer wording (the v1 lexicon,
 # with policy questions read by the generic engine) and the backend records the miner draws on.
 
 domain:
@@ -574,7 +574,7 @@ lexicon:
           lookback_days: Lookback window?
           max_auth_attempts: Verification attempts?
 
-# The reference bot's wording (graph/bot.py): a line per act, fields in braces ([ ... ] only when its fields have values); values in the bot's own words
+# The reference bot's wording (s06_bots/reference.py, GraphBot): a line per act, fields in braces ([ ... ] only when its fields have values); values in the bot's own words
 # (the lexicon above words them as the customer says them). Each value word is one the speech reader's cues read.
 bot:
   values:

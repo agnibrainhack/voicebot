@@ -3,8 +3,8 @@
 ```
 voicebot/
 └── gmsjourney/
-    ├── packs/  graph/  knowledge/  cases/
-    ├── rewording/            ◀ this chapter
+    ├── s01_packs/  s02_graph/  s03_knowledge/  s04_cases/
+    ├── s05_rewording/        ◀ this chapter
     │   ├── __init__.py
     │   ├── catalog.py        records (QAItem, Scenario, SUTResult) and the factor catalogs
     │   ├── wording.py        lexicon, surface noise, the realizer, the frame reader
@@ -13,7 +13,7 @@ voicebot/
     │   ├── llm_pack.py       the LLM arm's wording for any pack
     │   ├── llm_proof.py      the LLM arm's proof; build_llm_arm
     │   └── catalogs/official/   the domain-neutral catalogs (data, chapter 11)
-    ├── bots/  checks/  campaign/  reports/  console/
+    ├── s06_bots/  s07_checks/  s08_campaign/  s09_reports/  s10_console/
     └── policy/<pack>/application.yaml, custom_factors.yaml   which factors apply to this bot
 ```
 
@@ -47,7 +47,7 @@ flowchart LR
 ## catalog.py — records and the factor catalogs
 
 ```
-rewording/
+s05_rewording/
 └── catalog.py   ◀   PART 1 QAItem, Scenario, SUTResult
                      PART 2 BaseSpec, FactorSpec, Profile, Catalog, resolve, validate, level_provenance_table
 ```
@@ -90,7 +90,7 @@ contract (`validate_official`: the five rules of proofloop's validator plus prof
 ## wording.py — writing and reading customer lines
 
 ```
-rewording/
+s05_rewording/
 └── wording.py   ◀   PART 1 Lexicon (cap, low, fill, cue_regex)
                      PART 2 surface noise (typo, asr_noise, disfluency)
                      PART 3 Realizer (number_to_words, spell_digits)
@@ -153,7 +153,7 @@ different things in different states without the reader knowing the journey.
 ## proof.py — the invariance proof
 
 ```
-rewording/
+s05_rewording/
 └── proof.py   ◀   PART 1 surface similarity (normalize_text, HashingEncoder, surface_cosine)
                    PART 2 InvarianceValidator (gt_hash, ProofResult)
                    PART 3 GraphInvarianceValidator (any compact-graph pack)
@@ -199,7 +199,7 @@ meaning is exactly what the test measures.
 ## The LLM arm: llm_arm.py, llm_pack.py, llm_proof.py
 
 ```
-rewording/
+s05_rewording/
 ├── llm_arm.py     ◀   PART 1 prompts   PART 2 LLMRealizer   PART 3 LLMFrameExtractor
 │                      PART 4 LLMOutputGates   PART 5 CSV exports
 ├── llm_pack.py    ◀   the prompts' wording and the reader's schema for any compiled pack

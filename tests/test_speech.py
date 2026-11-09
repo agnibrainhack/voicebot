@@ -1,4 +1,4 @@
-"""What the bot says: the reader, the session facts, the verifier and the controls (gmsjourney/checks/speech_*.py).
+"""What the bot says: the reader, the session facts, the verifier and the controls (gmsjourney/s07_checks/speech_*.py).
 
 The first group runs on the policy graph alone (exact figures and rule stances read straight from
 the graph, no knowlytix needed): fast, and it pins the behaviour of each piece. The second group
@@ -16,11 +16,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from gmsjourney.graph.triples import PolicyKG  # noqa: E402
-from gmsjourney.cases.meaning import SemanticFrame as F  # noqa: E402
-from gmsjourney.checks.speech_reading import SessionFacts, SpeechContract
-from gmsjourney.checks.speech_checks import UtteranceVerifier  # noqa: E402
-from gmsjourney.checks.speech_reading import words_to_digits  # noqa: E402
+from gmsjourney.s02_graph.triples import PolicyKG  # noqa: E402
+from gmsjourney.s04_cases.meaning import SemanticFrame as F  # noqa: E402
+from gmsjourney.s07_checks.speech_reading import SessionFacts, SpeechContract
+from gmsjourney.s07_checks.speech_checks import UtteranceVerifier  # noqa: E402
+from gmsjourney.s07_checks.speech_reading import words_to_digits  # noqa: E402
 
 
 # ------------------------------------------------------------------ a store made of the graph alone
@@ -217,11 +217,11 @@ def test_a_bot_without_labels_is_read_from_its_words():
 @lru_cache(maxsize=1)
 def store_env():
     from _store import kx_store
-    from gmsjourney.cases.design import JourneyBaseGenerator, to_item
-    from gmsjourney.rewording.catalog import Scenario
-    from gmsjourney.rewording.wording import FrameReader
-    from gmsjourney.rewording.wording import Realizer
-    from gmsjourney.graph.flow import GraphOracle as PolicyOracle
+    from gmsjourney.s04_cases.design import JourneyBaseGenerator, to_item
+    from gmsjourney.s05_rewording.catalog import Scenario
+    from gmsjourney.s05_rewording.wording import FrameReader
+    from gmsjourney.s05_rewording.wording import Realizer
+    from gmsjourney.s02_graph.flow import GraphOracle as PolicyOracle
     store = kx_store()
     oracle = PolicyOracle(store)
     gen = JourneyBaseGenerator(oracle, seed=3)
@@ -232,8 +232,8 @@ def store_env():
 
 
 def test_reference_bot_words_are_grounded_and_word_defects_are_caught():
-    from gmsjourney.checks.scoring import run
-    from gmsjourney.bots.harness import JourneyRunner, make_reference_factory
+    from gmsjourney.s07_checks.scoring import run
+    from gmsjourney.s06_bots.harness import JourneyRunner, make_reference_factory
     store, oracle, scns, kw = store_env()
     rows = run(scns, JourneyRunner(bot_factory=make_reference_factory(store), **kw), oracle.limits, store.workflow, show=False)
     # every word the reference bot says on its base cases is grounded, except where the policy-answer grader
@@ -250,8 +250,8 @@ def test_reference_bot_words_are_grounded_and_word_defects_are_caught():
 
 
 def test_word_only_controls_are_all_flagged():
-    from gmsjourney.checks.speech_policy import run_controls
-    from gmsjourney.bots.harness import JourneyRunner, make_reference_factory
+    from gmsjourney.s07_checks.speech_policy import run_controls
+    from gmsjourney.s06_bots.harness import JourneyRunner, make_reference_factory
     store, _, scns, kw = store_env()
     res = run_controls(lambda f: JourneyRunner(bot_factory=f, **kw), make_reference_factory(store), scns)
     applied = {k: v for k, v in res["controls"].items() if v["applied"]}
@@ -263,8 +263,8 @@ def test_word_only_controls_are_all_flagged():
 
 def test_policy_figures_carry_the_gms_reading():
     store, *_ = store_env()
-    from gmsjourney.checks.speech_reading import SpeechContract
-    from gmsjourney.checks.speech_checks import UtteranceVerifier
+    from gmsjourney.s07_checks.speech_reading import SpeechContract
+    from gmsjourney.s07_checks.speech_checks import UtteranceVerifier
     v = UtteranceVerifier(store, SpeechContract.from_graph(store.kg))
     facts = SessionFacts.from_run(log_with(), CALLER, "2026-03-16", v.c.success_values)
     right = v.reader.read("Expedited delivery has a $15 fee.", facts).of("fee")[0]
@@ -283,8 +283,8 @@ def test_policy_figures_carry_the_gms_reading():
 
 def test_word_defects_are_flagged_live_and_sealed_in_the_audit():
     """A defect in the words alone reaches the runtime monitor's hash-chained audit as it happens."""
-    from gmsjourney.checks.runtime import GovernanceConfig
-    from gmsjourney.bots.harness import JourneyRunner, make_reference_factory
+    from gmsjourney.s07_checks.runtime import GovernanceConfig
+    from gmsjourney.s06_bots.harness import JourneyRunner, make_reference_factory
     store, _, scns, kw = store_env()
     g = GovernanceConfig(theta=0.0, drift_budget=1e9)          # only the speech layers matter here
     runner = JourneyRunner(bot_factory=make_reference_factory(store, frozenset({"misstates_recorded_answer"})),

@@ -17,7 +17,7 @@ voicebot/
 │   │   └── supplementary_card/               a second journey, compact
 │   │       ├── supplementary_card_kg.json  domain.yaml  project.yaml  base_factors.yaml
 │   │       └── application.yaml  custom_factors.yaml
-│   └── rewording/catalogs/official/    ◀ the catalogs (part 2)
+│   └── s05_rewording/catalogs/official/    ◀ the catalogs (part 2)
 │       ├── base_catalog.yaml  factor_catalog.yaml  profiles.yaml  PROVENANCE.md
 └── output/                             ◀ the outputs (part 3; generated, not in git)
     ├── campaign_out/                   a campaign's out_dir
@@ -41,7 +41,7 @@ Two formats, explained in chapter 2:
 
 The operating procedure rewritten as tables and numbered rule lines, every row with an id and a `source` (a PDF section
 or `program` for limits the business owner added), so each extracted fact keeps its provenance. Sections: objective,
-limits, delivery options, tools, rules, workflow, knowledge base, required language. `graph/triples.py` builds the
+limits, delivery options, tools, rules, workflow, knowledge base, required language. `s02_graph/triples.py` builds the
 JSON graph from it and the PDF, and a self-check proves both compile to identical facts.
 
 ### `domain.yaml`
@@ -79,7 +79,7 @@ official schema, so the catalog contract applies to them unchanged.
 ### `base_factors.yaml` (compact packs)
 
 Base-case factors for the older graph campaign path: dimensions with levels written as scripts in the graph's terms,
-and `expect` blocks that say what a level should lead to (chapter 4, `cases/factors.py`).
+and `expect` blocks that say what a level should lead to (chapter 4, `s04_cases/factors.py`).
 
 ## Part 2: the official catalogs
 

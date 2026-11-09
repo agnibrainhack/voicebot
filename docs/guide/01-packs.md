@@ -3,13 +3,13 @@
 ```
 voicebot/
 └── gmsjourney/
-    ├── packs/            ◀ this chapter
+    ├── s01_packs/        ◀ this chapter
     │   ├── __init__.py
     │   ├── loading.py    load a pack, make it active, lint it
     │   ├── names.py      the graph's names (N.state.X) and tools by role
     │   ├── project.py    project.yaml: the test plan
     │   └── drafting.py   first drafts of wording and test plan
-    ├── graph/  knowledge/  cases/  rewording/  bots/  checks/  campaign/  reports/  console/
+    ├── s02_graph/  s03_knowledge/  s04_cases/  s05_rewording/  s06_bots/  s07_checks/  s08_campaign/  s09_reports/  s10_console/
     └── policy/           the packs themselves (data, chapter 11)
 ```
 
@@ -45,14 +45,14 @@ flowchart LR
     L --> N["names.py<br/>N.state.X, roles"]
     L --> P["project.py<br/>Project"]
     PY --> P
-    AY --> C["rewording/catalog.py"]
+    AY --> C["s05_rewording/catalog.py"]
     L -->|lint| E["list of problems<br/>(empty = clean)"]
 ```
 
 ## loading.py — load a pack and check it
 
 ```
-packs/
+s01_packs/
 └── loading.py   ◀   PART 1 Domain, load, set_current, current, on_switch, lint
                      PART 2 the lint checks
 ```
@@ -64,7 +64,7 @@ packs/
 `get("fixtures.credential")`, `limit_keys()`, `graph_path`, `project_path`.
 
 For a **compact graph** (chapter 2), the sections a campaign reads (tools, figures, rules, flow, journey) are
-*mined from the graph* by `graph/compact.py: derive_config`, and `domain.yaml` is laid on top with `deep_merge`
+*mined from the graph* by `s02_graph/compact.py: derive_config`, and `domain.yaml` is laid on top with `deep_merge`
 (nested dictionaries merged key by key, anything else replaced). So a compact pack's `domain.yaml` only needs the
 customer wording and the bot's lines.
 
@@ -98,12 +98,12 @@ the book changes, `on_switch` tells everyone to clear their notes.
 | `journey_is_consistent` | every journey dimension has a default and its levels are consistent |
 
 `patterns_only` marks a check of a hand-written section that a compact pack mines instead, so it only checks
-patterns there. From a shell: `python -m gmsjourney.packs.loading <pack>` (exit code 1 when there are problems).
+patterns there. From a shell: `python -m gmsjourney.s01_packs.loading <pack>` (exit code 1 when there are problems).
 
 ## names.py — the graph's names, and tools by role
 
 ```
-packs/
+s01_packs/
 └── names.py   ◀   PART 1 GraphNames, N (the registry)
                    PART 2 roles: GATE, ITEMS, RECORD, OPTIONS, ACTION, TRANSFER, KEY, FEE_OPTION ...
 ```
@@ -115,7 +115,7 @@ and a check stops working without anyone noticing. So core code never spells a g
 **registry**:
 
 ```python
-from gmsjourney.packs.names import N
+from gmsjourney.s01_packs.names import N
 N.state.PRESENT_TXN        # -> "PRESENT_TXN", read from the graph
 N.state.PRESENT_TX         # AttributeError: ... did you mean PRESENT_TXN?
 ```
@@ -159,7 +159,7 @@ Analogy: in an orchestra you ask for "the first violin", not for "Maria". Whoeve
 ## project.py — the test plan
 
 ```
-packs/
+s01_packs/
 └── project.py   ◀   Level, Factor, Project, CaseView, check, derived, project(), main
 ```
 
@@ -208,12 +208,12 @@ it allows, a status the tool can return, expressions that parse. `derived(...)` 
 factors, shown next to the configured ones in the studio. `project()` returns the project in use (cached;
 `reset_cache()` forgets it). `fixture_keys` / `loop_fixture_keys` say which bank settings exist for a pack.
 
-From a shell: `python -m gmsjourney.packs.project check` or `show`.
+From a shell: `python -m gmsjourney.s01_packs.project check` or `show`.
 
 ## drafting.py — first drafts from a graph
 
 ```
-packs/
+s01_packs/
 └── drafting.py   ◀   PART 1 draft_lexicon, fill_lexicon, draft_bot_says, fill_bot_says
                       PART 2 draft (a project.yaml), tool_about, main
 ```
@@ -244,11 +244,11 @@ template: everything in the right place, the wording plain.
   the window's edges and the second item answered differently;
 * `tool_about` writes each tool factor's description from the graph's own text about the tool.
 
-From a shell: `python -m gmsjourney.packs.drafting <pack> --write` (an existing file is kept as `.bak`).
+From a shell: `python -m gmsjourney.s01_packs.drafting <pack> --write` (an existing file is kept as `.bak`).
 
 ## How this segment is used
 
 * Every other segment reads the active pack through `current()`, the registry `N` and the roles.
 * The console's studio edits `project.yaml` and saves it through `Project`/`check`.
 * The console's "open a graph by path" uses `drafting.py` to give a new compact graph a working pack, then checks
-  the drafted wording by playing every project case (`console/graphs.py: check_wording`).
+  the drafted wording by playing every project case (`s10_console/graphs.py: check_wording`).

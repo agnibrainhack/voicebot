@@ -3,14 +3,14 @@
 ```
 voicebot/
 └── gmsjourney/
-    ├── packs/  graph/  knowledge/
-    ├── cases/            ◀ this chapter
+    ├── s01_packs/  s02_graph/  s03_knowledge/
+    ├── s04_cases/        ◀ this chapter
     │   ├── __init__.py
     │   ├── meaning.py    meaning cards (semantic frames) and the ontology
     │   ├── journey.py    one case's levels, relevance, validity, the bank, the customer
     │   ├── factors.py    journeys and factors mined from a compact graph
     │   └── design.py     covering arrays (journeys), space-filling designs (wording)
-    ├── rewording/  bots/  checks/  campaign/  reports/  console/
+    ├── s05_rewording/  s06_bots/  s07_checks/  s08_campaign/  s09_reports/  s10_console/
     └── policy/
 ```
 
@@ -30,7 +30,7 @@ wording factors*. This chapter is about content: the **base cases**.
 ## meaning.py — meaning cards and the ontology
 
 ```
-cases/
+s04_cases/
 └── meaning.py   ◀   SemanticFrame, sequence_signature, Ontology
 ```
 
@@ -81,7 +81,7 @@ acceptable as an answer to which question.
 ## journey.py — one case
 
 ```
-cases/
+s04_cases/
 └── journey.py   ◀   JourneySpec, relevant_dims, is_valid, build_fixture, UserSimulator, activate
 ```
 
@@ -115,7 +115,7 @@ to do with the policy.
 ## design.py — which cases to run
 
 ```
-cases/
+s04_cases/
 └── design.py   ◀   PART 1 space-filling designs for wording factors (phi_p, compose, power_curve ...)
                     PART 2 JourneyBaseGenerator: covering array + closure for journeys
 ```
@@ -208,7 +208,7 @@ planted effect is detected. Six runs per base gives power 0.93.
 ## factors.py — journeys of a compact graph
 
 ```
-cases/
+s04_cases/
 └── factors.py   ◀   PART 1 mining journeys from the state machine (mine_paths, perturbations, GraphSimulator ...)
                      PART 2 base-case factors (load, check, generate, closure, review, draft, apply_edits)
 ```
@@ -239,5 +239,5 @@ relevant, and each non-default level is paired with the *enablers* that make it 
 `closure` adds cases from the oracle's exploration for every state, edge, rule or transfer reason the array misses;
 `review` lists, for a person to read, what each level leads to and where a played case departs from a level's
 `expect` block (`outcome`, `expect_problems`, `representative`); `draft` writes a starting file from the graph's
-decision points; `apply_edits` changes it (keeping `.bak`). `python -m gmsjourney.cases.factors` runs draft, check or
+decision points; `apply_edits` changes it (keeping `.bak`). `python -m gmsjourney.s04_cases.factors` runs draft, check or
 review from a shell.

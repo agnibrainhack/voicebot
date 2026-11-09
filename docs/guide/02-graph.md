@@ -3,15 +3,15 @@
 ```
 voicebot/
 └── gmsjourney/
-    ├── packs/
-    ├── graph/              ◀ this chapter
+    ├── s01_packs/
+    ├── s02_graph/          ◀ this chapter
     │   ├── __init__.py
     │   ├── triples.py      format 1: the full graph (head / relation / tail); PolicyKG
     │   ├── compact.py      format 2: the compact state machine; PolicyGraph
     │   ├── compile.py      compact graph -> full graph and symbolic store
     │   ├── flow.py         the expression language and the oracle (GraphOracle)
     │   └── interpreter.py  the compact graph's own walker
-    ├── knowledge/  cases/  rewording/  bots/  checks/  campaign/  reports/  console/
+    ├── s03_knowledge/  s04_cases/  s05_rewording/  s06_bots/  s07_checks/  s08_campaign/  s09_reports/  s10_console/
     └── policy/<pack>/<pack>_kg.json   the graph files themselves
 ```
 
@@ -46,7 +46,7 @@ flowchart LR
 ## Format 1: the full graph (`triples.py`)
 
 ```
-graph/
+s02_graph/
 └── triples.py   ◀   PART 1 the charge-review dialog as data (Row, Act, StateSpec, rows)
                      PART 2 build_kg (PDF -> triples) and PolicyKG (load, validate, query)
 ```
@@ -105,12 +105,12 @@ the words that signal it). `rows()` returns every transition.
 * the content hash matches.
 
 `resolve_policy(path)` accepts either the JSON graph or the markdown transcription. From a shell:
-`python -m gmsjourney.graph.triples build --pdf fictional_poc_operating_procedure_gpt_readable.pdf`.
+`python -m gmsjourney.s02_graph.triples build --pdf fictional_poc_operating_procedure_gpt_readable.pdf`.
 
 ## Format 2: the compact graph (`compact.py`)
 
 ```
-graph/
+s02_graph/
 └── compact.py   ◀   PolicyGraph, to_triples, graph_kg, derive_config, derive_rule_checks, dump_compact
 ```
 
@@ -184,7 +184,7 @@ the mined config.
 ## compile.py — compact graph to full graph
 
 ```
-graph/
+s02_graph/
 └── compile.py   ◀   PART 1 compile_pack: compact -> full graph (executable flow, speech layer)
                      PART 2 compile_graph: compact -> symbolic store; render_gms_view
 ```
@@ -222,7 +222,7 @@ ingest would read as pass/fail); `render_policy_markdown` renders the graph as a
 ## flow.py — the expression language and the oracle
 
 ```
-graph/
+s02_graph/
 └── flow.py   ◀   PART 1 parse, evaluate, Transition, FlowSpec, Context, GraphOracle, Limits
                   PART 2 PolicyOracle (the name the rest of the code uses)
 ```
@@ -307,7 +307,7 @@ random cases, 2,064 faulted and 1,092 replayed runs (`tests/test_flow_parity.py`
 ## interpreter.py — the compact graph's own walker
 
 ```
-graph/
+s02_graph/
 └── interpreter.py   ◀   GraphOracle (compact), NeedChoice
 ```
 

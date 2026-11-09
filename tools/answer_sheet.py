@@ -18,7 +18,7 @@ For each case the sheet shows:
   * collapsed, the same turn in every enriched variant of the case - both arms (template
     and LLM), each labelled with its changed factors and its proof verdict. An accepted
     variant carries the identical meaning card and therefore the identical answer key (see
-    ``gmsjourney/rewording/proof.py`` and ``gmsjourney/rewording/llm_proof.py``); a rejected
+    ``gmsjourney/s05_rewording/proof.py`` and ``gmsjourney/s05_rewording/llm_proof.py``); a rejected
     one is shown for audit only.
 
 The enriched wording and the base/enriched pairing are read from the campaign's
@@ -40,16 +40,16 @@ from pathlib import Path
 # sys.path, not the working directory, so the package root has to be added explicitly.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gmsjourney.cases.design import JourneyBaseGenerator, to_item  # noqa: E402
-from gmsjourney.knowledge.questions import mine_kb_items
-from gmsjourney.rewording.proof import InvarianceValidator
-from gmsjourney.rewording.wording import FrameReader
-from gmsjourney.rewording.wording import Realizer
-from gmsjourney.cases.journey import JourneySpec
-from gmsjourney.cases.meaning import SemanticFrame, sequence_signature
-from gmsjourney.graph.flow import GraphOracle as PolicyOracle
-from gmsjourney.campaign.pipeline import build_gms
-from gmsjourney.cases.journey import tags_for
+from gmsjourney.s04_cases.design import JourneyBaseGenerator, to_item  # noqa: E402
+from gmsjourney.s03_knowledge.questions import mine_kb_items
+from gmsjourney.s05_rewording.proof import InvarianceValidator
+from gmsjourney.s05_rewording.wording import FrameReader
+from gmsjourney.s05_rewording.wording import Realizer
+from gmsjourney.s04_cases.journey import JourneySpec
+from gmsjourney.s04_cases.meaning import SemanticFrame, sequence_signature
+from gmsjourney.s02_graph.flow import GraphOracle as PolicyOracle
+from gmsjourney.s08_campaign.pipeline import build_gms
+from gmsjourney.s04_cases.journey import tags_for
 
 ROOT = Path(__file__).resolve().parents[1]
 E = html.escape
@@ -463,7 +463,7 @@ def main() -> None:
     used_edges: _Counter = _Counter()
     inexact_hops: list = []                         # hops whose states match a graph transition but not its trigger               # policy-graph transition triple id -> hops in this sheet
     wf_cond = {w.wid: f"{w.src} -> {w.dst} : {w.condition}" for w in getattr(store, "workflow", [])}
-    from gmsjourney.reports.cases import case_facts
+    from gmsjourney.s09_reports.cases import case_facts
     facts_all: list[dict] = []                      # one fact sheet per case (for --summaries llm)
     for it in bases:
         spec, fx = it.metadata["spec"], it.metadata["fixture"]
@@ -590,7 +590,7 @@ def main() -> None:
       </div></div>""")
 
         # ---- plain-English story of the case, from the same hops and policy-graph transitions
-        from gmsjourney.rewording.llm_arm import describe_meaning
+        from gmsjourney.s05_rewording.llm_arm import describe_meaning
 
         def rule_en(rules):
             rules = [r for r in rules or [] if kg is not None and kg.rule_text(r)]
@@ -768,8 +768,8 @@ bank returns, and the response it must give — followed by the expected outcome
 <i>Correct bot behaviour</i> lists the acts the bot must perform and the tool calls in order, with the status
 the mock bank returns. The collapsed list in a turn shows the same turn in every enriched variant of the case,
 from both arms: <i>template</i> (rule-based rewording) and <i>LLM</i> (written by the model on the gateway), each with
-the factors it changes. An <i>accepted</i> variant passed its invariance proof (<code>gmsjourney/rewording/proof.py</code>;
-for the LLM arm also the gates and the independent reader in <code>gmsjourney/rewording/llm_proof.py</code>), so it carries
+the factors it changes. An <i>accepted</i> variant passed its invariance proof (<code>gmsjourney/s05_rewording/proof.py</code>;
+for the LLM arm also the gates and the independent reader in <code>gmsjourney/s05_rewording/llm_proof.py</code>), so it carries
 the identical meaning card and therefore the identical answer key. A <i>rejected</i> variant is listed for audit only
 and is not used in the run.</p>
 
@@ -805,7 +805,7 @@ See also: <a href="ANNOTATED.html">Frames, Reader, Oracle</a> (the three core fi
     briefs: dict = {}
     if a.summaries == "llm":                        # model-written, checked against each case's own fact sheet
         from gmsjourney.llm import LLMSettings
-        from gmsjourney.reports.cases import LLMNarrator
+        from gmsjourney.s09_reports.cases import LLMNarrator
         narr = LLMNarrator(LLMSettings(model=a.llm_model or ""), workers=a.llm_workers, log=say)
         why = narr.llm.unavailable_reason()
         if why:

@@ -4,30 +4,30 @@
 voicebot/
 ├── run_campaign.py         the command line (calls run_campaign)
 └── gmsjourney/
-    ├── packs/  graph/  knowledge/  cases/  rewording/  bots/  checks/
-    ├── campaign/           ◀ this chapter
+    ├── s01_packs/  s02_graph/  s03_knowledge/  s04_cases/  s05_rewording/  s06_bots/  s07_checks/
+    ├── s08_campaign/       ◀ this chapter
     │   ├── __init__.py
     │   ├── pipeline.py     CampaignConfig, build_gms, run_campaign (the thirteen steps)
     │   └── outputs.py      failure-mode taxonomy, training corpora, dataset tables
-    ├── reports/  console/
+    ├── s09_reports/  s10_console/
     └── policy/
 ```
 
 ## The idea
 
-`campaign/` is the **conductor**: it plays no instrument itself, it calls every segment in the right order and
+`s08_campaign/` is the **conductor**: it plays no instrument itself, it calls every segment in the right order and
 collects what each produces into one result dictionary `R`. The notebook, the console and `run_campaign.py` all call
 the same function:
 
 ```python
-from gmsjourney.campaign.pipeline import CampaignConfig, run_campaign
+from gmsjourney.s08_campaign.pipeline import CampaignConfig, run_campaign
 R = run_campaign(CampaignConfig(domain="supplementary_card", out_dir="output/sc", max_cases=20))
 ```
 
 ## pipeline.py
 
 ```
-campaign/
+s08_campaign/
 └── pipeline.py   ◀   PART 1 CampaignConfig, build_gms, run_campaign, sample_bases, failed_case_records,
                              speech_section, llm_pool, pick_llm_rows
                       PART 2 run_graph_campaign (the older compact-graph path, kept for its tests)
@@ -98,7 +98,7 @@ because tests use it.
 ## outputs.py
 
 ```
-campaign/
+s08_campaign/
 └── outputs.py   ◀   PART 1 coverage (proofloop's failure-mode taxonomy)
                      PART 2 classifier_corpus, goldens_from_store, draft_corpus
                      PART 3 write_dataset (<out_dir>/dataset/)

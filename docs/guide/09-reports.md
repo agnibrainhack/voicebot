@@ -3,13 +3,13 @@
 ```
 voicebot/
 └── gmsjourney/
-    ├── packs/  graph/  knowledge/  cases/  rewording/  bots/  checks/  campaign/
-    ├── reports/          ◀ this chapter
+    ├── s01_packs/  s02_graph/  s03_knowledge/  s04_cases/  s05_rewording/  s06_bots/  s07_checks/  s08_campaign/
+    ├── s09_reports/      ◀ this chapter
     │   ├── __init__.py
     │   ├── report.py     report.html: every section of the campaign
     │   ├── cases.py      narration, turn by turn, case_comparison.html, show_case
     │   └── verdict.py    verdict.html / verdict.json: the one-pager
-    └── console/
+    └── s10_console/
 ```
 
 ## The idea
@@ -29,7 +29,7 @@ attached to an email or opened offline.
 ## report.py — the campaign report
 
 ```
-reports/
+s09_reports/
 └── report.py   ◀   PART 1 render_html (and the small helpers esc, pct, tile, table, hbar, pfmt, failure_reasons)
                     PART 2 render_graph_html (the older compact-graph campaign path)
 ```
@@ -54,7 +54,7 @@ number over a label), `table`, and `hbar` (a horizontal bar chart in SVG with ho
 ## cases.py — case by case
 
 ```
-reports/
+s09_reports/
 └── cases.py   ◀   PART 1 plain-English summaries (case_facts, template_summary, LLMNarrator, graph_edge, turn_hops, tool_line)
                    PART 2 turn by turn (turn_by_turn, segment, normalize_acts, speech_by_turn, show_turns, export_turn_by_turn)
                    PART 3 write_case_comparison (case_comparison.html)
@@ -94,7 +94,7 @@ turn as head / relation / tail triples (`(turn, in_state, state)`, `(turn, has_a
 ## verdict.py — the one-page verdict
 
 ```
-reports/
+s09_reports/
 └── verdict.py   ◀   provenance, build, render_html, write
 ```
 

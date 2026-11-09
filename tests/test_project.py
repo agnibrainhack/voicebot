@@ -15,9 +15,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import yaml  # noqa: E402
 
-from gmsjourney.packs.names import GraphNames  # noqa: E402
-from gmsjourney.graph.triples import PolicyKG  # noqa: E402
-from gmsjourney.packs.project import Project, check, default_path  # noqa: E402
+from gmsjourney.s01_packs.names import GraphNames  # noqa: E402
+from gmsjourney.s02_graph.triples import PolicyKG  # noqa: E402
+from gmsjourney.s01_packs.project import Project, check, default_path  # noqa: E402
 DEFAULT_PATH = default_path()
 
 DOM = GraphNames.from_kg(PolicyKG.load())
@@ -59,7 +59,7 @@ def test_a_frame_must_be_accepted_where_its_script_answers():
 
 
 def test_studio_preview_check_and_lossless_save():
-    from gmsjourney.console.studio import Studio
+    from gmsjourney.s10_console.studio import Studio
     tmp = Path(tempfile.mkdtemp()) / "project.yaml"
     tmp.write_text(Path(DEFAULT_PATH).read_text())
     st = Studio(str(tmp))
@@ -87,9 +87,9 @@ def test_studio_preview_check_and_lossless_save():
 
 def test_a_new_level_needs_no_code():
     """A level the project adds (the customer declines the card action) is played by walking the graph."""
-    from gmsjourney.cases import journey
-    from gmsjourney.graph.flow import GraphOracle
-    from gmsjourney.knowledge.store import symbolic_store
+    from gmsjourney.s04_cases import journey
+    from gmsjourney.s02_graph.flow import GraphOracle
+    from gmsjourney.s03_knowledge.store import symbolic_store
     raw = yaml.safe_load(Path(DEFAULT_PATH).read_text())
     ec = next(f for f in raw["factors"] if f["name"] == "expedited_confirm")
     ec["levels"]["decline"] = {"customer": [{"script": "card", "say": ["DENY()"]}]}

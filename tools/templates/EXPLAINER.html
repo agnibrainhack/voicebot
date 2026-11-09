@@ -301,7 +301,7 @@ footer{margin-top:3rem; padding-top:1rem; border-top:1px solid var(--line); font
       <h4>Input</h4>
       <p><code>fictional_poc_operating_procedure_gpt_readable.pdf</code> — the bank’s procedure, plus <code>gmsjourney/policy/charge_review_policy.md</code>, a structured transcription of it.</p>
       <h4 style="margin-top:.6rem">The call</h4>
-      <div class="console">python -m gmsjourney.graph.triples build \
+      <div class="console">python -m gmsjourney.s02_graph.triples build \
     --pdf fictional_poc_operating_procedure_gpt_readable.pdf</div>
       <p class="small">Validating an existing file: <code>… policy_kg check</code></p>
     </div>
@@ -511,7 +511,7 @@ realizer, validator, clients = build_llm_arm(
     store, oracle, reader, validator,
     settings, dual_read="gate",
     adversarial=True, max_attempts=3)</div>
-      <p class="small">Blind generation: the prompt (<code>rewording/llm_arm.py</code>) contains the agent’s question, the meaning in plain words, the base wording and the style instructions — never the expected behaviour, the tools or the rule ids.</p>
+      <p class="small">Blind generation: the prompt (<code>s05_rewording/llm_arm.py</code>) contains the agent’s question, the meaning in plain words, the base wording and the style instructions — never the expected behaviour, the tools or the rule ids.</p>
     </div>
     <div class="box">
       <h4>Output (your run)</h4>
@@ -814,8 +814,8 @@ bot  : Sorry, I didn't catch that. Do you recognize that charge?</div>
 </table>
 </div>
 <div class="prose"><p>Two entry points create all of this. The campaign: <code>python run_campaign.py --llm --runs-per-base 1 --out output/campaign_llm</code>. And the programmatic API, if you want to test your own bot:</p></div>
-<div class="console">from gmsjourney.campaign.pipeline import CampaignConfig, run_campaign
-from gmsjourney.bots.harness import CallableBotAdapter
+<div class="console">from gmsjourney.s08_campaign.pipeline import CampaignConfig, run_campaign
+from gmsjourney.s06_bots.harness import CallableBotAdapter
 
 def factory(tools):            # point your bot's tool client at `tools`
     session = MyBot(tool_client=tools)

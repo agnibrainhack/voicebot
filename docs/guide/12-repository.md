@@ -80,7 +80,7 @@ replaced, kept only for the parity tests).
 |---|---|
 | `build_docs.py` | builds the four pages in `docs/` from a campaign run (`--campaign output/campaign_out`) |
 | `answer_sheet.py` | `ANSWER_SHEET.html`: every base case with its customer turns, meaning cards, required acts and tool calls |
-| `build_annotated.py` | `ANNOTATED.html`: an annotated listing of `cases/meaning.py`, `graph/flow.py` and the frame reader, with a captured trace. Its line notes were written against an earlier version of those files, so rebuild it only after updating them |
+| `build_annotated.py` | `ANNOTATED.html`: an annotated listing of `s04_cases/meaning.py`, `s02_graph/flow.py` and the frame reader, with a captured trace. Its line notes were written against an earlier version of those files, so rebuild it only after updating them |
 | `case_comparison.py` | rebuilds `case_comparison.html` for an existing campaign folder |
 | `graph_showcase.py` | the state-transition graph of a policy graph file as one HTML page |
 | `geode_before_after.py` | measures what GEODE itself learned, on held-out inputs |
@@ -96,11 +96,11 @@ replaced, kept only for the parity tests).
   mutation analysis, governance calibration, then the optional sections (any journey from a pack; the LLM arm; inspect
   a case as seed, rewording and head / relation / tail; what the bot said, by factor and response by response; the
   four documents in `docs/`).
-* **`journey_console.ipynb`**: start the console (`from gmsjourney import console; console.show()`), follow runs from
+* **`journey_console.ipynb`**: start the console (`from gmsjourney import s10_console as console; console.show()`), follow runs from
   the notebook, run the same campaign from code, stop the console.
 
-Both import only public names from the segments (for example `from gmsjourney.campaign.pipeline import CampaignConfig,
-run_campaign`, `from gmsjourney.checks import diagnosis`).
+Both import only public names from the segments (for example `from gmsjourney.s08_campaign.pipeline import CampaignConfig,
+run_campaign`, `from gmsjourney.s07_checks import diagnosis`).
 
 ## Root files
 

@@ -297,7 +297,7 @@ class CachedLLM:
     @property
     def dir(self) -> Path:
         """The cache directory for this model and role."""
-        from .knowledge.build import CACHE
+        from .s03_knowledge.build import CACHE
         base = Path(self.settings.cache_dir) if self.settings.cache_dir else CACHE / "llm"
         return base / (self.settings.model or "default").replace("/", "_") / self.tag
 

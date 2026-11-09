@@ -1,4 +1,4 @@
-"""The hand-written journey content module that preceded the configured one (gmsjourney/cases/journey.py).
+"""The hand-written journey content module that preceded the configured one (gmsjourney/s04_cases/journey.py).
 
 Kept only as the reference tests/test_scenario_parity.py holds the configured factors to.
 
@@ -23,7 +23,7 @@ import json
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
-from gmsjourney.cases.meaning import SemanticFrame as F
+from gmsjourney.s04_cases.meaning import SemanticFrame as F
 
 MERCHANTS = [("Amazon", "45.67"), ("Starbucks", "6.25"), ("Shell", "52.10"),
              ("Netflix", "15.99"), ("Uber", "23.40"), ("Target", "88.05")]

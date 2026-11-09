@@ -3,8 +3,8 @@
 ```
 voicebot/
 └── gmsjourney/
-    ├── packs/  graph/  knowledge/  cases/  rewording/  bots/
-    ├── checks/                ◀ this chapter
+    ├── s01_packs/  s02_graph/  s03_knowledge/  s04_cases/  s05_rewording/  s06_bots/
+    ├── s07_checks/            ◀ this chapter
     │   ├── __init__.py
     │   ├── scoring.py         correctness, severities, risk tiers, the release gate
     │   ├── speech_reading.py  what the bot said: contract, session facts, reader
@@ -13,7 +13,7 @@ voicebot/
     │   ├── runtime.py         the runtime monitor that would run beside the bot
     │   ├── gates.py           the runtime gates and their calibration
     │   └── diagnosis.py       statistics, attribution, mutation, resilience, bot validation
-    ├── campaign/  reports/  console/
+    ├── s08_campaign/  s09_reports/  s10_console/
     └── policy/<pack>/project.yaml   evaluation: and speech: sections
 ```
 
@@ -46,7 +46,7 @@ flowchart TD
 ## scoring.py — was the run correct, and how bad is a failure
 
 ```
-checks/
+s07_checks/
 └── scoring.py   ◀   PART 1 ConstraintBudget, check_constraints
                      PART 2 severities, risk tiers, TierProfile, release_gate
                      PART 3 score, run, summary, weak_link, response_cards
@@ -123,7 +123,7 @@ listener on the line, and grades them against three sources the harness already 
 3. **the GMS**: the exact register for figures, rule stances for assertions like "this means fraud".
 
 ```
-checks/
+s07_checks/
 ├── speech_reading.py   ◀   PART 1 SpeechContract (FieldSpec, ActContract, StanceSpec, also_allowed)
 │                           PART 2 SessionFacts (Truth, write_key)
 │                           PART 3 UtteranceReader (Claim, ReadUtterance, words_to_digits, fallback, signal_words)
@@ -208,7 +208,7 @@ to flag every edited turn; the report shows the detection rate per control.
 ## runtime.py and gates.py — the monitor that runs beside the bot
 
 ```
-checks/
+s07_checks/
 ├── runtime.py   ◀   PART 1 rule checks compiled from domain.yaml (compile_call_checks, completion_results, figure)
 │                    PART 2 NumericRangeAttestor (Attestation)
 │                    PART 3 RuntimeMonitor, GovernanceConfig, GovernedTools, state_hash
@@ -289,7 +289,7 @@ PSI = Σ_bins (a_i − e_i) · ln(a_i / e_i)       (e = reference shares in quan
 ## diagnosis.py — why the bot fails, and whether the suite can be trusted
 
 ```
-checks/
+s07_checks/
 └── diagnosis.py   ◀   PART 1 statistics (logit_fit, deviance_test, bh_adjust, wilson, auc, hosmer_lemeshow ...)
                        PART 2 attribution (attribute, diagnose, joint_model, interaction_test)
                        PART 3 mutation analysis
@@ -352,5 +352,5 @@ Significant factors come first. Detail views: `stage_failures` (where the semant
 (every claim by where its truth was read), `gms_figures` (the GMS-checked figures with the register verdict, the
 distance against the cut and knowlytix's reading) and **response cards** (`failing_cards`, `render_card`): the failing
 responses grouped by problem, each with its case's factor levels. `write_bot_validation` writes the page;
-`write_bot_validation_from_dir` rebuilds it from a finished campaign's files (`python -m gmsjourney.checks.diagnosis
+`write_bot_validation_from_dir` rebuilds it from a finished campaign's files (`python -m gmsjourney.s07_checks.diagnosis
 <out_dir>`); `cards_page` and `as_iframe` show one case's cards in a notebook.

@@ -368,7 +368,7 @@ evaluation:
       min_within_budget: 0.95
       failure_budget: {HALLUCINATION_DETECTED: 0, CLAIM_WITHOUT_SUCCESS: 0, ACCOUNT_TOOL_BEFORE_AUTH: 0, SUBMIT_WITHOUT_CONFIRMATION: 0}
 speech:
-  # Policy in what the bot says (checks/speech_policy.py): clauses no reader reads are checked against the graph's rules,
+  # Policy in what the bot says (s07_checks/speech_policy.py): clauses no reader reads are checked against the graph's rules,
   # limits and knowledge lines; promises against its tools. Advisory kinds are counted and listed, never a failure.
   policy:
     advisory: [unread, volunteered]

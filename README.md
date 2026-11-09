@@ -43,7 +43,7 @@ names its PDF section (`pdf.2C`, ...) and carries an evidence quote that is a ve
 | domain | the domain model | `customer has_session review_session` |
 
 Rebuild it after changing the transcription or the state layer:
-`python -m gmsjourney.graph.triples build --pdf fictional_poc_operating_procedure_gpt_readable.pdf`
+`python -m gmsjourney.s02_graph.triples build --pdf fictional_poc_operating_procedure_gpt_readable.pdf`
 (`check` validates a file). `PolicyKG.load()` is the read API; the GMS is trained on the graph, state layer
 included, and the campaign checks that the trained store carries every fact (`report.json: policy_kg.consistency`).
 
@@ -59,21 +59,21 @@ A journey is a **domain pack**, a folder under `gmsjourney/policy/<pack>/`:
 
 | file | what |
 |---|---|
-| the policy graph | the policy and its dialog. Charge review's is built from the operating-procedure PDF (`charge_review_kg.json`); a new journey can be written as a **compact graph** (`gmsjourney.policy_graph/2`: limits, value sets, acts, tools with roles and statuses, rules, transfers, the always-available behaviours and the state machine; see `supplementary_card_kg.json`), which `graph/compile.py` compiles into the same full graph |
+| the policy graph | the policy and its dialog. Charge review's is built from the operating-procedure PDF (`charge_review_kg.json`); a new journey can be written as a **compact graph** (`gmsjourney.policy_graph/2`: limits, value sets, acts, tools with roles and statuses, rules, transfers, the always-available behaviours and the state machine; see `supplementary_card_kg.json`), which `s02_graph/compile.py` compiles into the same full graph |
 | `project.yaml` | the mock bank, the simulated customer, the journey factors, case rules, generator, scoring and speech settings (below) |
 | `domain.yaml` | the customer's wording (lexicon), the tools' mock behaviour, the reference bot's wording (`bot.says`); mined from a compact graph where it can be |
 | `application.yaml`, `custom_factors.yaml` | the enrichment catalog layer |
 
-One engine runs every pack: the oracle walks the graph's flow (`graph/flow.py`), the base cases come from the project's
+One engine runs every pack: the oracle walks the graph's flow (`s02_graph/flow.py`), the base cases come from the project's
 factors, and the scoring, speech check, runtime gates, reference bot and its defects, and LLM arm all read the active
 pack (`domain.set_current(pack)`, `CampaignConfig(domain=pack)`, `--domain` on the command line, `--pack` for the studio).
 
 New journey, end to end:
 
     # 1. write gmsjourney/policy/<pack>/<pack>_kg.json (compact graph) and domain.yaml (lexicon, bot wording)
-    python -m gmsjourney.packs.loading <pack>             # lint the pack against its graph
-    python -m gmsjourney.packs.drafting <pack> --write    # a project.yaml drafted from the graph
-    python -m gmsjourney.console.studio --pack <pack>     # review and edit it (factors, preview, scoring, speech)
+    python -m gmsjourney.s01_packs.loading <pack>             # lint the pack against its graph
+    python -m gmsjourney.s01_packs.drafting <pack> --write    # a project.yaml drafted from the graph
+    python -m gmsjourney.s10_console.studio --pack <pack>     # review and edit it (factors, preview, scoring, speech)
     python run_campaign.py --domain <pack>                 # build the GMS once, then the whole campaign
 
 or the notebook's "Any journey" section (cells P1-P6), which opens the studio inside the notebook.
@@ -88,7 +88,7 @@ each one; the studio's Bank page shows the loop and its item records.
 What a supplementary-card campaign shows (30 base cases run, each with an enriched variant): every enriched case
 proved equivalent (128/128), the reference bot 100% on the base cases with every word grounded, every seeded defect
 caught by some suite, and the speech check flagging 95/95 word edits. On the enriched cases the reference bot scores
-about a third: by design it reads the customer with keywords only (`bots/reference.py`), so reworded, noisy or
+about a third: by design it reads the customer with keywords only (`s06_bots/reference.py`), so reworded, noisy or
 colloquial answers defeat it. That is the harness finding a weak bot, not a scoring fault.
 
 ## The graph decides, the project file configures, nothing else names the domain
@@ -97,14 +97,14 @@ Three places hold everything domain-specific:
 
 | where | what | read by |
 |---|---|---|
-| the policy graph | states, acts, slots, value sets, tools and statuses, limits, rules, triggers, and the **flow**: every `leads_to` carries its qualifiers (`on`, `when`, `guard`, `do`, `say`, `rules`, ...) as expressions in a small vetted language; `carries` says what each bot act carries, `has_arg` what each tool is called with | `graph/flow.py` (`GraphOracle`, the expected-behaviour walker), `packs/names.py` (the registry) |
-| `gmsjourney/policy/<pack>/project.yaml` | what the policy leaves to the tester: the mock bank (fixture), the simulated customer's scripts, the **journey factors** (each level a patch of bank settings and customer behaviour), case constraints, categories and tags, generator settings, severities and release-gate profiles (`evaluation`), speech-check leniencies and cue words (`speech`) | `packs/project.py`, `cases/journey.py`, `checks/scoring.py`, `checks/speech_*.py` |
+| the policy graph | states, acts, slots, value sets, tools and statuses, limits, rules, triggers, and the **flow**: every `leads_to` carries its qualifiers (`on`, `when`, `guard`, `do`, `say`, `rules`, ...) as expressions in a small vetted language; `carries` says what each bot act carries, `has_arg` what each tool is called with | `s02_graph/flow.py` (`GraphOracle`, the expected-behaviour walker), `s01_packs/names.py` (the registry) |
+| `gmsjourney/policy/<pack>/project.yaml` | what the policy leaves to the tester: the mock bank (fixture), the simulated customer's scripts, the **journey factors** (each level a patch of bank settings and customer behaviour), case constraints, categories and tags, generator settings, severities and release-gate profiles (`evaluation`), speech-check leniencies and cue words (`speech`) | `s01_packs/project.py`, `s04_cases/journey.py`, `s07_checks/scoring.py`, `s07_checks/speech_*.py` |
 | code | how to walk, score and check, never which names | everything else |
 
-**The registry.** `packs/names.py` reads every name from the graph; core code spells them as `N.state.PRESENT_TXN`,
+**The registry.** `s01_packs/names.py` reads every name from the graph; core code spells them as `N.state.PRESENT_TXN`,
 `N.act.CONFIRM`, `N.status.UNAVAILABLE`, `N.limit.max_turns`, `N.rule.R27`, and a name the graph does not define
 fails at that line (`PRESENT_TX is not a dialog state in the policy graph (did you mean PRESENT_TXN?)`). Tools are
-found by role (`packs/names.py`): `GATE` is the tool account servicing `requires`, `RECORD` the write that takes the
+found by role (`s01_packs/names.py`): `GATE` is the tool account servicing `requires`, `RECORD` the write that takes the
 item id, `ACTION` the other write, `OPTIONS` the read before it in `precedes` order, `FEE_OPTION` the delivery
 option that `requires_fee_confirmation`. `tests/test_names.py` fails when a core module spells a graph name.
 
@@ -114,24 +114,24 @@ once or sticky). The oracle needs no per-factor logic: it walks the graph's flow
 customer, so the expected journey of a new level follows from the graph. `relevant_when` says when a factor can
 change ground truth (others read N/A); `turn_target` and `transfer`/`avoid_transfer` mark turn-limit levels.
 
-**The studio.** `python -m gmsjourney.console.studio [--project path] [--port 8765]` serves a local page that shows the
+**The studio.** `python -m gmsjourney.s10_console.studio [--project path] [--port 8765]` serves a local page that shows the
 graph (state machine, tools and numbers, vocabulary, rules and triggers), what follows from it (names, the
 graph's own suggestions for factors, and coverage: tool outcomes no level produces, customer choices no script
 makes, transitions and rules no case reaches), and edits the project: journey factors, a preview that walks the
 graph for any combination of levels, bank and customer, case rules, scoring and speech. Every edit is checked
 against the graph as you type; Save writes the YAML (the previous file is kept as `.bak`).
-`python -m gmsjourney.packs.project check` validates a project file from the command line.
+`python -m gmsjourney.s01_packs.project check` validates a project file from the command line.
 
-**The journey console** (`gmsjourney/console/`) puts the studio and the campaign behind one page, served from Python or
-Jupyter: `from gmsjourney import console; console.show()` in a notebook (`notebooks/journey_console.ipynb`), or
-`python -m gmsjourney.console --port 8790`. Its parts:
+**The journey console** (`gmsjourney/s10_console/`) puts the studio and the campaign behind one page, served from Python or
+Jupyter: `from gmsjourney import s10_console as console; console.show()` in a notebook (`notebooks/journey_console.ipynb`), or
+`python -m gmsjourney.s10_console --port 8790`. Its parts:
 
-- **Graph path** (top bar; `console/graphs.py`): the journey is chosen by the path of its policy graph, by default
+- **Graph path** (top bar; `s10_console/graphs.py`): the journey is chosen by the path of its policy graph, by default
   `gmsjourney/policy/charge_review/charge_review_kg.json` (charge review, built from the PDF). A graph inside a
   journey folder opens that journey (and switches it to that file if it is one of its versions). A compact graph
   (`gmsjourney.policy_graph/2`) from anywhere else becomes a **new journey**: copied into
   `gmsjourney/policy/<its id>/` with a `domain.yaml` whose customer lexicon is drafted from the graph's values and
-  aliases (`packs/drafting.py`; it passes the lexicon checks for the shipped graphs) and whose reference-bot lines
+  aliases (`s01_packs/drafting.py`; it passes the lexicon checks for the shipped graphs) and whose reference-bot lines
   (`bot.says`) are drafted from its states: a prompt asks for what its acts carry (listing the choices when there
   are few), a confirmation reads its fields back and asks to go ahead, a line states every field it must say, with
   numbers in their units ("18 years", "7 business days") so the speech check reads them, and optional fields said
@@ -160,7 +160,7 @@ Jupyter: `from gmsjourney import console; console.show()` in a notebook (`notebo
   written; the versions row switches back. A value, act or slot member the lexicon does not word yet, or a state
   with no bot line, runs on drafted wording (reported on Graph Sections) until you write it. "What each state says"
   is advisory for compact graphs: the speech check reads what each state must say from the graph itself.
-- **GMS Sphere** (`console/graphs.py`): every entity as a point on the unit sphere and every relation as a great-circle
+- **GMS Sphere** (`s10_console/graphs.py`): every entity as a point on the unit sphere and every relation as a great-circle
   arc, coloured by section. When a campaign with knowlytix has built this journey's store, the points come from the
   store's learned entity vectors (`v_emb.pt`, PCA to 3D); otherwise from the graph's relationships (a spectral layout
   refined on the sphere, deterministic). Drag to turn, scroll to zoom, filter by section or relation, find an
@@ -170,14 +170,14 @@ Jupyter: `from gmsjourney import console; console.show()` in a notebook (`notebo
   level), the bank and the customer's scripts, case rules, categories, severities and the release gate. Every edit
   is checked against the graph as you type; Save writes `project.yaml` and keeps a `.bak`.
 - **Campaign**: run settings, including the device (`auto`, `cpu`, `cuda:0`-`cuda:3`; those torch cannot see
-  are shown but disabled). Each run is a separate process (`python -m gmsjourney.console.runs`). The page follows
+  are shown but disabled). Each run is a separate process (`python -m gmsjourney.s10_console.runs`). The page follows
   its 13 steps live and shows what each produced (metrics and tables: the store, the questions, the cases, the
   rewording, the proof, the gates, the bot's results, attribution, tool faults, planted defects, training data,
   the release gate), then links the report. Runs are kept under `output/console_runs/<id>/`.
 - **Bot under test** (Run Campaign, shared with the Playground): the journey's reference bot, or an **LLM bot
-  through the model gateway** (`bots/llm_bot.py`). For the LLM bot the page shows a suggested prompt (who the bot is,
+  through the model gateway** (`s06_bots/llm_bot.py`). For the LLM bot the page shows a suggested prompt (who the bot is,
   how it behaves, the journey's operating procedure: its transcription, or the graph as text) that you edit
-  freely, and takes files (text, Markdown, JSON, YAML, CSV, PDF, Word, Excel; `console/bots.py`) that are added
+  freely, and takes files (text, Markdown, JSON, YAML, CSV, PDF, Word, Excel; `s10_console/bots.py`) that are added
   after it as reference material. The journey's tools with their allowed values, the transfer reasons, the
   dialog acts and the JSON reply format are always appended (read-only on the page), because the harness needs
   them to run the bot's tool calls and read what it says. Model, live or replay, temperature and the tool-call
@@ -189,14 +189,14 @@ Jupyter: `from gmsjourney import console; console.show()` in a notebook (`notebo
   prompt, and the Playground shows under each turn what the reviewer changed. The prompt and files are stored beside the
   run (`sut.json`, `out/sut_prompt.txt`), the model's call statistics in `out/sut_llm.json`. Step 10 is skipped
   for an LLM bot (it plants errors in copies of the reference bot).
-- **Explore Cases** (a finished run, from its results or step 11; `console/runs.py`): every generated case with its
+- **Explore Cases** (a finished run, from its results or step 11; `s10_console/runs.py`): every generated case with its
   customer turns in the original words next to each reworded version (the wording factors that changed, and per
   turn the meaning card it was read back as, equivalent or not, and its surface similarity), the expected run,
   and, where the case was run, the bot's result with its turn-by-turn comparison against the graph. **Bot Results**
   charts original vs reworded accuracy by category and lists every case run; **Coverage** draws any two journey
   factors as a grid of how many cases combine each pair of levels (click a cell to list them), the rules and
   transfer triggers reached, and the rewording design. All of it is read from the run's files.
-- **Verdict**, step 13 of every campaign (`reports/verdict.py`; written as `out/verdict.html` and `out/verdict.json`, from the
+- **Verdict**, step 13 of every campaign (`s09_reports/verdict.py`; written as `out/verdict.html` and `out/verdict.json`, from the
   console or from code; **Open the Verdict** on a run's results or *Verdict* in the run list, also for runs older
   than step 13):
   one page to judge the bot. Ready to release or not, with each release gate's reasons in words; the headline
@@ -207,14 +207,14 @@ Jupyter: `from gmsjourney import console; console.show()` in a notebook (`notebo
   the right, and per customer turn the graph's expected tools and decisions beside the bot's tools, decisions and
   words, the first difference marked and later turns folded. **Print or Save as PDF** gives the first page as the
   one-pager and the cases after it, expected and actual still side by side.
-- **Playground** (`console/bots.py`): talk to the bot under test yourself. Pick a case (from the latest finished
+- **Playground** (`s10_console/bots.py`): talk to the bot under test yourself. Pick a case (from the latest finished
   run, any run, or the project's default and one-per-level cases); it sets the mock bank and offers its customer
   lines, the scripted words and the reworded versions that run proved, to send with a click, or type your own.
   Under every bot turn: the tools it called with their results, whether that is what the graph expects at this
   point (the oracle replays your turns, each read into its meaning card; after the first difference the turns are
   marked as such), and the speech check of what it said. It runs on the store compiled from the graph, so it
   needs no training and no licence; the transcript can be downloaded as JSON.
-  **A local model as the bot under test** (campaign runs only; `bots/llm_bot.py`): set
+  **A local model as the bot under test** (campaign runs only; `s06_bots/llm_bot.py`): set
   `GMSJOURNEY_SUT_LOCAL_MODEL` to the folder of a Llama 3.1 8B Instruct (or any chat model vLLM serves) before
   opening the console (`LOCAL_SUT_MODEL` in the notebook's first cell). Bot Under Test then offers *Model runs on:
   Local model (vLLM)*. The campaign's own process loads it with vLLM when the run starts (greedy, temperature 0,
@@ -268,11 +268,11 @@ Colab: upload `gmsjourney.zip`, add a secret named `KNOWLYTIX_LICENSE_KEY`, open
 `notebooks/charge_journey_campaign.ipynb`, run top to bottom. Cell 9b inspects any case: set `BASE`, `VARIANT`,
 `TURN` to see the seed and enriched text with their canonical frames, and every turn as Head / Relation / Tail
 triples (seed vs enriched, plus the store facts grounding each value). The same views are available in code:
-`gmsjourney.reports.cases.show_case / compare_case / case_hrt`.
+`gmsjourney.s09_reports.cases.show_case / compare_case / case_hrt`.
 
 **Encoders.** knowlytix warm-starts and fine-tunes from HuggingFace sentence encoders (all-MiniLM-L6-v2,
 nli-mpnet-base-v2). When the hub is unreachable (as in the environment these results were produced in),
-`gmsjourney.knowledge.build` builds a deterministic hashing encoder in HuggingFace format so every knowlytix call still
+`gmsjourney.s03_knowledge.build` builds a deterministic hashing encoder in HuggingFace format so every knowlytix call still
 runs; the build report records which encoders were used. With hub access the real encoders are used
 automatically, and the embedding numbers below should improve.
 
@@ -352,7 +352,7 @@ recorded. Some checks happen during the run, turn by turn:
   figures);
 - each policy answer is graded against the exact register.
 
-The verdict is given on the whole run, against the oracle's answer key (`checks/scoring.score`):
+The verdict is given on the whole run, against the oracle's answer key (`s07_checks/scoring.score`):
 
 - the outcome (end state, transfer reason, what was truly recorded, which card action truly completed);
 - each stage's decision;
@@ -361,7 +361,7 @@ The verdict is given on the whole run, against the oracle's answer key (`checks/
 
 The bot's reply at turn *i* is not required to equal the oracle's: a different but allowed route is accepted.
 
-`gmsjourney/reports/cases.py` shows the two runs side by side, one row per customer turn:
+`gmsjourney/s09_reports/cases.py` shows the two runs side by side, one row per customer turn:
 
 - the state the customer answered and the words the bot received;
 - the oracle's expected response: tool calls with arguments and results, then bot acts such as
@@ -380,7 +380,7 @@ Use `show_turns(runner, oracle, scenario)` in the notebook (cell 11b). The campa
 `dataset/turn_by_turn.csv` (every turn of every case) and `dataset/turn_by_turn_summary.csv` (per case: first
 divergence, expected vs actual outcome, stages wrong, violations).
 
-## Validating what the bot says (`gmsjourney/checks/speech_*.py`)
+## Validating what the bot says (`gmsjourney/s07_checks/speech_*.py`)
 
 The checks above grade what the bot *did*: its tool calls and its dialog-act labels. A bot can do everything right
 and still say the wrong thing, for example by labelling a turn `CONFIRM_RECORDED(T1, UNRECOGNIZED)` and recording
@@ -439,7 +439,7 @@ each one, and neither decides the verdict: the GMS distance of the claimed value
 cap, and knowlytix's own `AnswerVerifier` (geometric mode), which confirms a correct figure and does not find a wrong
 one.
 
-**Policy in everything else the bot says** (`checks/speech_policy.py`). The readers above read the facts the graph names, in
+**Policy in everything else the bot says** (`s07_checks/speech_policy.py`). The readers above read the facts the graph names, in
 the wordings it lists. Every clause they leave is read against what the graph states, so nothing that sounds like
 policy passes unchecked. That means the graph's rule, limit and tool texts, a compact graph's `knowledge` lines, its
 figures (limits with units, members' numeric attributes), its actions (tool verbs, the values its write tools take)
@@ -484,7 +484,7 @@ paraphrase keeps its meaning. That second part is what the LLM judge is for.
 - `strict`: `correct` also needs `c_flow`.
 
 **Checking the checker.** A check that never fires proves nothing, so the campaign runs eleven negative controls
-(`checks/speech_policy.py`; skip them with `--no-speech-controls`). Each control edits only the words of one act in a real
+(`s07_checks/speech_policy.py`; skip them with `--no-speech-controls`). Each control edits only the words of one act in a real
 conversation and leaves the labels, tools and outcome untouched:
 
 - swap the merchant, change the amount, shift or drop the date;
@@ -501,7 +501,7 @@ the full view by factor and response by response (notebook CELL 11d shows the sa
 reference bot and are killed only by this check.
 
 ```python
-from gmsjourney.checks.speech_checks import SpeechContract, UtteranceVerifier
+from gmsjourney.s07_checks.speech_checks import SpeechContract, UtteranceVerifier
 v = UtteranceVerifier(store, SpeechContract.from_graph(store.kg))
 conv = v.conversation(session_date="2026-03-16")          # one per conversation
 report = conv.check(acts, text, tool_log, customer_frames)  # after every bot turn
@@ -535,7 +535,7 @@ not). Meaning-changing edits must all be rejected; they are. Evidence is exporte
 
 Both arms realise the **same design rows** (same base, same factor levels), so their results can be compared pair by
 pair. The template arm builds each customer turn from its meaning card with deterministic code. The LLM arm
-(`gmsjourney/rewording/llm_*.py`, `--llm`) asks a model on the internal Microsoft (Azure OpenAI) gateway to write the turn
+(`gmsjourney/s05_rewording/llm_*.py`, `--llm`) asks a model on the internal Microsoft (Azure OpenAI) gateway to write the turn
 (default deployment `gpt-41`; `--llm-model gpt-55` for 5.5). It is authenticated with a short-lived `gcloud` access
 token — `AEXP_ACCESS_TOKEN` and `AEXP_USE_CASE_ID` override the CLI and the routing header. Set the exact endpoint with
 `GMSJOURNEY_LLM_URL` (full chat-completions URL; `{model}` is filled with the model name, e.g. `gpt-41`) and the
@@ -545,8 +545,8 @@ If the deployment rejects `temperature`/`max_tokens` or the system role, the cli
 
 1. **Blind generation.** The model is given the agent's question for the dialog state, what the customer means (in
    plain words), the base wording and the presentation instructions. It never sees the expected bot behaviour, the
-   oracle, tool names or rule ids (`rewording/llm_arm.py`).
-2. **Per-turn gates** (`rewording/llm_arm.py`, `rewording/llm_proof.py`). A turn is accepted only when all of these pass:
+   oracle, tool names or rule ids (`s05_rewording/llm_arm.py`).
+2. **Per-turn gates** (`s05_rewording/llm_arm.py`, `s05_rewording/llm_proof.py`). A turn is accepted only when all of these pass:
    - **G0 form:** one spoken line, with no internal names.
    - **G1 facts:** no figure or merchant that the base meaning does not carry, and every decision value kept.
    - **G3 one clear decision:** no competing decision cues.
@@ -580,20 +580,20 @@ These additions follow from the gmsh comparison:
 
 | addition | where |
 |---|---|
-| GEODE `dedup=False`, so the loop's retrains and anchor check see every fact; duplicate resolution runs audit-only on the trained store; anchor violations reported. `--kx-dedup-mode audit` keeps the 0.3 behaviour; `accept` is stock gmsh. | `knowledge/build.py` |
-| v-space fine-tuning: full (the reference default), rotation, or `ab` to train both and keep the better held-out noisy-alias binding (`--kx-v-sft-mode`) | `knowledge/build.py` |
-| gmsh's P=0.5 logistic operating point next to the regulated one, k-fold held-out accuracy, bootstrap 95% intervals for θ, the plan budget and every relation's cut | `checks/gates.py` |
-| Quorum REVIEW (`--decision-rule quorum`). Always shadow-computed and reported: a syntax error or ≥2 blocking layers deny; one blocking layer is routed to review (escalation). | `checks/runtime.py` |
-| Numeric range attestor on every figure the bot speaks: PASS (register value), REVIEW (a register value of another quantity), FAIL (invented) | `checks/runtime.py` |
-| Per-turn latency and length budgets plus a tool-call budget, reported next to correctness | `checks/scoring.py` |
-| Severity per run with gmsh's risk-tier escalation, and a tiered release gate | `checks/scoring.py` |
-| Hallucination probes: near-miss option names and an unstated fee. The bot must abstain; a new mutant (`kb_fabricate_unknown`) fabricates instead. | `knowledge/questions.py`, `knowledge/questions.py` |
+| GEODE `dedup=False`, so the loop's retrains and anchor check see every fact; duplicate resolution runs audit-only on the trained store; anchor violations reported. `--kx-dedup-mode audit` keeps the 0.3 behaviour; `accept` is stock gmsh. | `s03_knowledge/build.py` |
+| v-space fine-tuning: full (the reference default), rotation, or `ab` to train both and keep the better held-out noisy-alias binding (`--kx-v-sft-mode`) | `s03_knowledge/build.py` |
+| gmsh's P=0.5 logistic operating point next to the regulated one, k-fold held-out accuracy, bootstrap 95% intervals for θ, the plan budget and every relation's cut | `s07_checks/gates.py` |
+| Quorum REVIEW (`--decision-rule quorum`). Always shadow-computed and reported: a syntax error or ≥2 blocking layers deny; one blocking layer is routed to review (escalation). | `s07_checks/runtime.py` |
+| Numeric range attestor on every figure the bot speaks: PASS (register value), REVIEW (a register value of another quantity), FAIL (invented) | `s07_checks/runtime.py` |
+| Per-turn latency and length budgets plus a tool-call budget, reported next to correctness | `s07_checks/scoring.py` |
+| Severity per run with gmsh's risk-tier escalation, and a tiered release gate | `s07_checks/scoring.py` |
+| Hallucination probes: near-miss option names and an unstated fee. The bot must abstain; a new mutant (`kb_fabricate_unknown`) fabricates instead. | `s03_knowledge/questions.py`, `s03_knowledge/questions.py` |
 
 ## Testing your real bot
 
 ```python
-from gmsjourney.campaign.pipeline import CampaignConfig, run_campaign
-from gmsjourney.bots.harness import CallableBotAdapter
+from gmsjourney.s08_campaign.pipeline import CampaignConfig, run_campaign
+from gmsjourney.s06_bots.harness import CallableBotAdapter
 
 def factory(tools):                       # point your bot's tool client at `tools`
     session = MyBot(tool_client=tools)
@@ -608,7 +608,7 @@ runtime monitor wraps the same tool client, so the gates watch your bot exactly 
 
 ### An LLM bot as the system under test
 
-`gmsjourney/bots/llm_bot.py` is a second SUT: a tool-using agent on the same model gateway and replay cache as
+`gmsjourney/s06_bots/llm_bot.py` is a second SUT: a tool-using agent on the same model gateway and replay cache as
 the LLM arm (cache tag `sut`). It is given the operating procedure (`policy/charge_review_policy.md`), the tool
 API with its transfer reason codes, and the dialog-act inventory - nothing the oracle computes. Each step the
 model returns one JSON object, a tool call (made on the harness backend, so faults, gates and the trace see it)
@@ -616,8 +616,8 @@ or the acts it says; a malformed reply is sent back once, then surfaces as an `U
 never repaired by the harness). Notebook CELL 15b runs the full campaign with it:
 
 ```python
-from gmsjourney.rewording.llm_proof import LLMSettings
-from gmsjourney.bots.llm_bot import make_llm_factory
+from gmsjourney.s05_rewording.llm_proof import LLMSettings
+from gmsjourney.s06_bots.llm_bot import make_llm_factory
 bot = make_llm_factory(store, settings=LLMSettings(model="gpt-41", temperature=0.0, max_tokens=900))
 run_campaign(CampaignConfig(out_dir="output/campaign_llm_sut", bot_factory=bot, bot_name="LLMBot", runs_per_base=2))
 ```
@@ -647,7 +647,7 @@ reviews every step and may correct it; `critic_llm=` gives the reviewer another 
 | file | content |
 |---|---|
 | `report.html` / `report.json` | the campaign report / every number in it |
-| `bot_validation.html` | what the bot did and what it said. Every run is shown with two verdicts: did the right thing (the outcome) and said it right (every claim grounded). Runs are split by type of enrichment, base category, DOE factors and enrichment factors. Each claim shows where its truth was read and how it fared against the GMS. Response cards show the failing responses, each with its case's factor levels. Rebuild it from the files with `python -m gmsjourney.checks.diagnosis output/campaign_out` |
+| `bot_validation.html` | what the bot did and what it said. Every run is shown with two verdicts: did the right thing (the outcome) and said it right (every claim grounded). Runs are split by type of enrichment, base category, DOE factors and enrichment factors. Each claim shows where its truth was read and how it fared against the GMS. Response cards show the failing responses, each with its case's factor levels. Rebuild it from the files with `python -m gmsjourney.s07_checks.diagnosis output/campaign_out` |
 | `case_comparison.html` | every case, expected vs actual, turn by turn, with the speech verdict |
 | `dataset/case_results.jsonl` | every graded run, including `speech_turns`: one response card per bot turn with its claims, verdicts, truth, where it was read, and the GMS reading |
 | `gms_build_report.json` | knowlytix build: GEODE diagnostics, embed loop and SFT evaluations, judge thresholds, ENM agreement, timings |
@@ -674,28 +674,28 @@ the full guide, with the theory behind every step, is `docs/guide/README.md`.
 ```
 gmsjourney/
   llm.py             the model-gateway client (one cached chat call), shared by the LLM arm and the LLM bot
-  packs/             a journey's pack: loading.py (load, lint, the active pack), packs/names.py (N.state.X ... and tools by
-                     role), packs/project.py (project.yaml: factors, levels, CaseView), drafting.py (lexicon, bot lines and
+  s01_packs/         a journey's pack: loading.py (load, lint, the active pack), s01_packs/names.py (N.state.X ... and tools by
+                     role), s01_packs/project.py (project.yaml: factors, levels, CaseView), drafting.py (lexicon, bot lines and
                      project.yaml drafted from a compact graph)
-  graph/             the policy graph: compact.py (the compact format), triples.py (the full graph: build, load,
-                     validate), compile.py (compact -> full), graph/flow.py (expression language, FlowSpec, the oracle that
+  s02_graph/         the policy graph: compact.py (the compact format), triples.py (the full graph: build, load,
+                     validate), compile.py (compact -> full), s02_graph/flow.py (expression language, FlowSpec, the oracle that
                      walks the graph), interpreter.py (the compact graph's own walker)
-  knowledge/         the GMS: store.py (ingest, symbolic store, canonicals, GEODE view, the pack's store),
+  s03_knowledge/     the GMS: store.py (ingest, symbolic store, canonicals, GEODE view, the pack's store),
                      build.py (policy compiler, knowlytix backend, trained store), questions.py (policy-question truth)
-  cases/             the test cases: meaning.py (ontology, meaning cards), cases/journey.py (journeys, customer simulator),
+  s04_cases/         the test cases: meaning.py (ontology, meaning cards), s04_cases/journey.py (journeys, customer simulator),
                      factors.py (journey factors, covering array), design.py (DOE designs, base cases)
-  rewording/         reworded customers and their proof: catalog.py (bases, factors, profiles), wording.py (lexicon,
+  s05_rewording/     reworded customers and their proof: catalog.py (bases, factors, profiles), wording.py (lexicon,
                      noise, realizers, the rule reader), proof.py (invariance), llm_arm.py / llm_pack.py /
                      llm_proof.py (the LLM arm: prompts, realizer, dual read, gates, proof, exports)
                      catalogs/official/ (the domain-neutral factor and base catalogs)
-  bots/              the bots under test: tools.py (mock bank, trace), reference.py (reference bot + mutants),
+  s06_bots/          the bots under test: tools.py (mock bank, trace), reference.py (reference bot + mutants),
                      llm_bot.py (an LLM bot), harness.py (adapter, journey runner)
-  checks/            grading: scoring.py (constraints, severities, release gate), speech_reading.py /
+  s07_checks/        grading: scoring.py (constraints, severities, release gate), speech_reading.py /
                      speech_checks.py / speech_policy.py (what the bot said), runtime.py (governance rules, monitor),
-                     rewording/llm_arm.py (gate calibration), diagnosis.py (stats, attribution, mutation, resilience, bot validation)
-  campaign/          pipeline.py (the 13 steps), outputs.py (taxonomy, SFT corpora, dataset/*.csv)
-  reports/           report.py (report.html), cases.py (narration, turn by turn, case comparison), reports/verdict.py
-  console/           the journey console: __init__/__main__ (start it), console/server.py (page + JSON API), studio.py,
+                     s05_rewording/llm_arm.py (gate calibration), diagnosis.py (stats, attribution, mutation, resilience, bot validation)
+  s08_campaign/      pipeline.py (the 13 steps), outputs.py (taxonomy, SFT corpora, dataset/*.csv)
+  s09_reports/       report.py (report.html), cases.py (narration, turn by turn, case comparison), s09_reports/verdict.py
+  s10_console/       the journey console: __init__/__main__ (start it), s10_console/server.py (page + JSON API), studio.py,
                      runs.py (one process per run), bots.py (attachments, bot under test, playground),
                      graphs.py (sections, core segments, versions, the GMS sphere), ui.html, studio_ui.html
   policy/            the packs: charge_review/, charge_review_graph/, supplementary_card/ (graph, domain.yaml, project.yaml)

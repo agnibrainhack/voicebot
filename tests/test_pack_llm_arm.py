@@ -18,7 +18,7 @@ from types import SimpleNamespace
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from gmsjourney.packs import loading as domain  # noqa: E402
+from gmsjourney.s01_packs import loading as domain  # noqa: E402
 
 
 class _FakeChat:
@@ -43,18 +43,18 @@ class _FakeChat:
 
 def _fixture():
     dom = domain.set_current("supplementary_card")
-    from gmsjourney.rewording.catalog import Catalog, resolve_profile
-    from gmsjourney.rewording.catalog import Scenario
-    from gmsjourney.cases.design import compose
+    from gmsjourney.s05_rewording.catalog import Catalog, resolve_profile
+    from gmsjourney.s05_rewording.catalog import Scenario
+    from gmsjourney.s04_cases.design import compose
     from gmsjourney.llm import LLMSettings
-    from gmsjourney.rewording.llm_proof import build_llm_arm
+    from gmsjourney.s05_rewording.llm_proof import build_llm_arm
     from gmsjourney import llm as llm_client
-    from gmsjourney.rewording.wording import FrameReader
-    from gmsjourney.rewording.wording import Realizer
-    from gmsjourney.cases.design import to_item
-    from gmsjourney.rewording.proof import GraphInvarianceValidator
-    from gmsjourney.cases.journey import JourneySpec
-    from gmsjourney.knowledge.store import pack_oracle, pack_store
+    from gmsjourney.s05_rewording.wording import FrameReader
+    from gmsjourney.s05_rewording.wording import Realizer
+    from gmsjourney.s04_cases.design import to_item
+    from gmsjourney.s05_rewording.proof import GraphInvarianceValidator
+    from gmsjourney.s04_cases.journey import JourneySpec
+    from gmsjourney.s03_knowledge.store import pack_oracle, pack_store
     store, oracle = pack_store(), pack_oracle()
     llm_client._messages = lambda s, u, **_kw: [s, u]
     R, rd = Realizer(), FrameReader(store)
@@ -90,9 +90,9 @@ def test_llm_arm_runs_on_a_compiled_pack():
         ctrl = lv.negative_controls(proofs, llm_scns, per_type=10, adversarial=4)
         det = {k: v["detection_rate"] for k, v in ctrl.items() if not k.startswith("_") and v.get("n")}
         assert det and all(r == 1.0 for r in det.values()), det
-        from gmsjourney.checks.scoring import run
-        from gmsjourney.bots.reference import make_graph_factory
-        from gmsjourney.bots.harness import JourneyRunner
+        from gmsjourney.s07_checks.scoring import run
+        from gmsjourney.s06_bots.reference import make_graph_factory
+        from gmsjourney.s06_bots.harness import JourneyRunner
         runner = JourneyRunner(store=store, realizer=R, reader=rd, bot_factory=make_graph_factory(store),
                                arm_realizers={"llm": realizer})
         rows = run(llm_scns, runner, oracle.limits, store.workflow, lv, show=False)

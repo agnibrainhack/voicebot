@@ -3,14 +3,14 @@
 ```
 voicebot/
 └── gmsjourney/
-    ├── packs/  graph/  knowledge/  cases/  rewording/
-    ├── bots/             ◀ this chapter
+    ├── s01_packs/  s02_graph/  s03_knowledge/  s04_cases/  s05_rewording/
+    ├── s06_bots/         ◀ this chapter
     │   ├── __init__.py
     │   ├── tools.py      the mock bank, fault injection, the Trace of a run
     │   ├── reference.py  the reference bots and their planted defects (mutants)
     │   ├── llm_bot.py    an LLM bot (gateway or local model) with a critique layer
     │   └── harness.py    plays a case against any bot; adapters for your own bot
-    ├── checks/  campaign/  reports/  console/
+    ├── s07_checks/  s08_campaign/  s09_reports/  s10_console/
     └── policy/
 ```
 
@@ -46,7 +46,7 @@ sequenceDiagram
 ## tools.py — the mock bank and the trace
 
 ```
-bots/
+s06_bots/
 └── tools.py   ◀   PART 1 ToolEnvironment, ToolGateway, FaultProfile, ToolError, ToolTimeout, tool specs
                    PART 2 Trace, new_trace
 ```
@@ -82,12 +82,12 @@ by field: `events` (every bot turn with its acts, every customer turn with its c
 `kb` (policy questions and answers), `turns`, `ended`, `rules_fired`, `notes`, `flow_path` (oracle only). It
 computes the outcome (end state, transfer reason, what was **truly** recorded: SUCCESS with a matching echo, which
 action truly completed) and per-stage components. `new_trace()` returns the right kind for the active pack (the
-graph-generic `GraphTrace` of `checks/scoring.py` for a compiled pack).
+graph-generic `GraphTrace` of `s07_checks/scoring.py` for a compiled pack).
 
 ## reference.py — the reference bots and their mutants
 
 ```
-bots/
+s06_bots/
 └── reference.py   ◀   PART 1 ReferenceBot (charge review): KeywordNLU, KBAnswerer, BotTurn, spoken_date
                        PART 2 GraphBot (any compact graph), KeywordReader, mutants, make_graph_factory
 ```
@@ -158,7 +158,7 @@ defect the graph makes possible**, so a new journey gets mutation analysis for f
 ## llm_bot.py — an LLM bot under test
 
 ```
-bots/
+s06_bots/
 └── llm_bot.py   ◀   PART 1 LocalChat (a local model on vLLM), status, local_model_path
                      PART 2 LLMBot, make_llm_factory, the prompt, the critique layer
 ```
@@ -195,7 +195,7 @@ stand-in (`GMSJOURNEY_SUT_FAKE_MODEL=module:Class`) for tests and demos without 
 ## harness.py — playing a case
 
 ```
-bots/
+s06_bots/
 └── harness.py   ◀   PART 1 JourneyRunner, BotActClassifier, CallableBotAdapter, HTTPBotAdapter, make_reference_factory
                      PART 2 GraphRunner
 ```

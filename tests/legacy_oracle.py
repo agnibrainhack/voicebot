@@ -1,4 +1,4 @@
-"""The hand-written policy oracle that preceded the graph-walking one (gmsjourney/graph/flow.py).
+"""The hand-written policy oracle that preceded the graph-walking one (gmsjourney/s02_graph/flow.py).
 
 Kept only as the reference the parity test (tests/test_flow_parity.py) holds the graph walker to.
 
@@ -14,18 +14,18 @@ were traversed.
 
 The oracle consumes semantic frames only. It never reads text, so its answer
 depends on what the customer *meant*, which is exactly what the invariance
-proof (rewording/proof.py) shows enrichment leaves unchanged.
+proof (s05_rewording/proof.py) shows enrichment leaves unchanged.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
-from gmsjourney.cases.journey import JourneySpec, UserSimulator, build_fixture
-from gmsjourney.knowledge.questions import kb_answer
-from gmsjourney.cases.meaning import SemanticFrame
-from gmsjourney.bots.tools import ToolEnvironment, ToolError, ToolGateway
-from gmsjourney.bots.tools import Trace
+from gmsjourney.s04_cases.journey import JourneySpec, UserSimulator, build_fixture
+from gmsjourney.s03_knowledge.questions import kb_answer
+from gmsjourney.s04_cases.meaning import SemanticFrame
+from gmsjourney.s06_bots.tools import ToolEnvironment, ToolError, ToolGateway
+from gmsjourney.s06_bots.tools import Trace
 
 
 class _Stop(Exception):

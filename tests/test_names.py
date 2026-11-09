@@ -5,13 +5,13 @@ values, limits, rules and triggers through the registry (``N.state.PRESENT_TXN``
 (``roles.RECORD``), so a renamed or removed concept fails where it is used instead of silently matching nothing.
 
 Modules that legitimately spell names are not "core" here:
-  graph/*, knowledge/build.py   the builders that write the graph from the PDF
-  bots/*             the bots under test and the mock bank (independent of the harness by design)
-  rewording/*        the customer's wording (phrase tables keyed by value), proved by the invariance check
-  cases/meaning.py   Turtle export descriptions;  campaign/pipeline.py  report examples;  graph/flow.py  the walker
-  knowledge/questions.py part 1   the charge pack's policy-question engine: its intents are that graph's
+  s02_graph/*, s03_knowledge/build.py   the builders that write the graph from the PDF
+  s06_bots/*         the bots under test and the mock bank (independent of the harness by design)
+  s05_rewording/*    the customer's wording (phrase tables keyed by value), proved by the invariance check
+  s04_cases/meaning.py   Turtle export descriptions;  s08_campaign/pipeline.py  report examples;  s02_graph/flow.py  the walker
+  s03_knowledge/questions.py part 1   the charge pack's policy-question engine: its intents are that graph's
                      kb_intent values
-                     (a compiled pack answers value / limit questions from its own graph, knowledge/questions.py)
+                     (a compiled pack answers value / limit questions from its own graph, s03_knowledge/questions.py)
 A few strings in core modules coincide with graph names but are the trace's own labels (TRANSFER/END as a
 component outcome, TRANSFERRED as an end state); they are listed in ALLOWED.
 
@@ -26,19 +26,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from gmsjourney.packs.names import graph_names  # noqa: E402
+from gmsjourney.s01_packs.names import graph_names  # noqa: E402
 
 # (file, part): the core code checked. A merged file has numbered parts ("# PART 2 - ..."); None: the whole file.
-CORE = [("bots/tools.py", 2), ("cases/journey.py", None), ("packs/project.py", None), ("console/studio.py", None),
-        ("reports/cases.py", 1), ("reports/cases.py", 2), ("campaign/outputs.py", 3), ("checks/diagnosis.py", 5),
-        ("packs/names.py", 2), ("packs/loading.py", 1),
-        ("checks/speech_reading.py", 1), ("checks/speech_reading.py", 2), ("checks/speech_reading.py", 3),
-        ("checks/speech_checks.py", 1), ("checks/speech_policy.py", 2),
-        ("checks/gates.py", 1), ("checks/gates.py", 2), ("checks/runtime.py", 2), ("checks/runtime.py", 3),
-        ("checks/runtime.py", 5), ("checks/scoring.py", 2), ("checks/scoring.py", 3),
-        ("checks/diagnosis.py", 3), ("checks/diagnosis.py", 4), ("cases/design.py", 2), ("knowledge/questions.py", 2)]
-TRACE, NARRATE, TURNS, NAMES = ("bots/tools.py", 2), ("reports/cases.py", 1), ("reports/cases.py", 2), ("packs/names.py", 2)
-JOURNEY, SPEECH = ("cases/journey.py", None), ("checks/speech_checks.py", 1)
+CORE = [("s06_bots/tools.py", 2), ("s04_cases/journey.py", None), ("s01_packs/project.py", None), ("s10_console/studio.py", None),
+        ("s09_reports/cases.py", 1), ("s09_reports/cases.py", 2), ("s08_campaign/outputs.py", 3), ("s07_checks/diagnosis.py", 5),
+        ("s01_packs/names.py", 2), ("s01_packs/loading.py", 1),
+        ("s07_checks/speech_reading.py", 1), ("s07_checks/speech_reading.py", 2), ("s07_checks/speech_reading.py", 3),
+        ("s07_checks/speech_checks.py", 1), ("s07_checks/speech_policy.py", 2),
+        ("s07_checks/gates.py", 1), ("s07_checks/gates.py", 2), ("s07_checks/runtime.py", 2), ("s07_checks/runtime.py", 3),
+        ("s07_checks/runtime.py", 5), ("s07_checks/scoring.py", 2), ("s07_checks/scoring.py", 3),
+        ("s07_checks/diagnosis.py", 3), ("s07_checks/diagnosis.py", 4), ("s04_cases/design.py", 2), ("s03_knowledge/questions.py", 2)]
+TRACE, NARRATE, TURNS, NAMES = ("s06_bots/tools.py", 2), ("s09_reports/cases.py", 1), ("s09_reports/cases.py", 2), ("s01_packs/names.py", 2)
+JOURNEY, SPEECH = ("s04_cases/journey.py", None), ("s07_checks/speech_checks.py", 1)
 # (part, literal): strings that are the code's own labels, not references to the graph's name
 ALLOWED = {(TRACE, "TRANSFER"), (TRACE, "END"), (TRACE, "TRANSFERRED"), (NARRATE, "TRANSFERRED"),
            (NAMES, "OPTIONS"), (NAMES, "TRANSFER"),        # the roles part: role names listed in __all__
@@ -94,7 +94,7 @@ def test_core_modules_spell_no_graph_names():
 
 
 def test_roles_resolve_in_the_graph():
-    from gmsjourney.packs import names as roles
+    from gmsjourney.s01_packs import names as roles
     D = graph_names()
     for r in ("GATE", "ITEMS", "RECORD", "OPTIONS", "ACTION", "TRANSFER"):
         assert getattr(roles, r) in D.tools, r
@@ -104,7 +104,7 @@ def test_roles_resolve_in_the_graph():
 
 
 def test_an_undefined_name_fails_where_it_is_used():
-    from gmsjourney.packs.names import N
+    from gmsjourney.s01_packs.names import N
     try:
         N.state.PRESENT_TX
     except AttributeError as e:

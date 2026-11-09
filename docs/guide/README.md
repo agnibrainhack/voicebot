@@ -61,24 +61,24 @@ Think of a **driving test centre**.
 
 ## The thirteen steps of a campaign
 
-`run_campaign(CampaignConfig(...))` (in `gmsjourney/campaign/pipeline.py`) runs these steps. The notebook, the
+`run_campaign(CampaignConfig(...))` (in `gmsjourney/s08_campaign/pipeline.py`) runs these steps. The notebook, the
 console and `run_campaign.py` all call it.
 
 ```mermaid
 flowchart TD
-    G["policy graph<br/>(packs/, graph/)"] --> S1["1 build or reload<br/>the knowledge store<br/>(knowledge/)"]
+    G["policy graph<br/>(s01_packs/, s02_graph/)"] --> S1["1 build or reload<br/>the knowledge store<br/>(s03_knowledge/)"]
     S1 --> S2["2 policy-question bases<br/>(two-way admitted)"]
-    S1 --> S3["3 journey bases<br/>covering array + closure<br/>(cases/)"]
-    S2 --> S4["4 rewording factors<br/>and the design<br/>(cases/design.py)"]
+    S1 --> S3["3 journey bases<br/>covering array + closure<br/>(s04_cases/)"]
+    S2 --> S4["4 rewording factors<br/>and the design<br/>(s04_cases/design.py)"]
     S3 --> S4
-    S4 --> S5["5 reword every scenario<br/>and prove invariance<br/>(rewording/)"]
-    S5 --> S6["6 run the bot,<br/>check every turn<br/>(bots/, checks/)"]
-    S6 --> S7["7 score and summarise<br/>(checks/scoring.py)"]
+    S4 --> S5["5 reword every scenario<br/>and prove invariance<br/>(s05_rewording/)"]
+    S5 --> S6["6 run the bot,<br/>check every turn<br/>(s06_bots/, s07_checks/)"]
+    S6 --> S7["7 score and summarise<br/>(s07_checks/scoring.py)"]
     S7 --> S8["8 attribute failures<br/>to factors"]
     S7 --> S9["9 resilience under<br/>tool faults"]
     S7 --> S10["10 mutation analysis<br/>(planted defects)"]
     S5 --> S11["11 training corpora<br/>(optional)"]
-    S8 --> S12["12 write outputs<br/>and the report<br/>(reports/)"]
+    S8 --> S12["12 write outputs<br/>and the report<br/>(s09_reports/)"]
     S9 --> S12
     S10 --> S12
     S11 --> S12
@@ -87,19 +87,19 @@ flowchart TD
 
 | step | what happens | where |
 |---|---|---|
-| 1 | the policy is compiled into the symbolic store; with knowlytix installed the geometric store is trained (or reloaded from its cache) and calibrated | `knowledge/build.py` |
-| 2 | policy questions ("how much is expedited delivery?") are generated in 18 categories; each is admitted only when the exact answer and the geometric recovery agree | `knowledge/questions.py` |
-| 3 | journeys (whole conversations) are generated: every feasible pair of factor levels in some case, then extra cases until every rule, transition, transfer reason and boundary is reached | `cases/design.py`, `cases/factors.py` |
-| 4 | the wording factors (style, noise, numbers spoken or as digits ...) are chosen from the catalogs and laid out by a space-filling design | `rewording/catalog.py`, `cases/design.py` |
-| 5 | every customer turn of every scenario is written under its wording levels (templates, optionally an LLM), read back, and the scenario is proved to be the same test as its base | `rewording/` |
-| 6 | each scenario is played against the bot: the simulated customer answers, the mock bank serves tools, every bot turn is checked as it happens | `bots/harness.py`, `checks/` |
-| 7 | each run is scored against the oracle (outcome, stages, trajectory, words) and summarised; severities and the release gate | `checks/scoring.py` |
-| 8 | logistic models and likelihood-ratio tests find which factor levels raise the failure rate | `checks/diagnosis.py` |
-| 9 | tool faults (error, timeout, stale data, plausible wrong answer) are injected: does the bot fail loud? | `checks/diagnosis.py`, `bots/tools.py` |
-| 10 | defects are planted in the reference bot one at a time: does the suite catch them? | `checks/diagnosis.py`, `bots/reference.py` |
-| 11 | proved utterances and graded answers become training data | `campaign/outputs.py` |
-| 12 | dataset tables, the HTML report, the bot-validation page, the case comparison | `campaign/outputs.py`, `reports/` |
-| 13 | the verdict: release or not, top risks, the run's fingerprint, every case expected beside actual | `reports/verdict.py` |
+| 1 | the policy is compiled into the symbolic store; with knowlytix installed the geometric store is trained (or reloaded from its cache) and calibrated | `s03_knowledge/build.py` |
+| 2 | policy questions ("how much is expedited delivery?") are generated in 18 categories; each is admitted only when the exact answer and the geometric recovery agree | `s03_knowledge/questions.py` |
+| 3 | journeys (whole conversations) are generated: every feasible pair of factor levels in some case, then extra cases until every rule, transition, transfer reason and boundary is reached | `s04_cases/design.py`, `s04_cases/factors.py` |
+| 4 | the wording factors (style, noise, numbers spoken or as digits ...) are chosen from the catalogs and laid out by a space-filling design | `s05_rewording/catalog.py`, `s04_cases/design.py` |
+| 5 | every customer turn of every scenario is written under its wording levels (templates, optionally an LLM), read back, and the scenario is proved to be the same test as its base | `s05_rewording/` |
+| 6 | each scenario is played against the bot: the simulated customer answers, the mock bank serves tools, every bot turn is checked as it happens | `s06_bots/harness.py`, `s07_checks/` |
+| 7 | each run is scored against the oracle (outcome, stages, trajectory, words) and summarised; severities and the release gate | `s07_checks/scoring.py` |
+| 8 | logistic models and likelihood-ratio tests find which factor levels raise the failure rate | `s07_checks/diagnosis.py` |
+| 9 | tool faults (error, timeout, stale data, plausible wrong answer) are injected: does the bot fail loud? | `s07_checks/diagnosis.py`, `s06_bots/tools.py` |
+| 10 | defects are planted in the reference bot one at a time: does the suite catch them? | `s07_checks/diagnosis.py`, `s06_bots/reference.py` |
+| 11 | proved utterances and graded answers become training data | `s08_campaign/outputs.py` |
+| 12 | dataset tables, the HTML report, the bot-validation page, the case comparison | `s08_campaign/outputs.py`, `s09_reports/` |
+| 13 | the verdict: release or not, top risks, the run's fingerprint, every case expected beside actual | `s09_reports/verdict.py` |
 
 ## How the pieces hand work to each other
 
@@ -109,19 +109,19 @@ its own.)
 
 ```mermaid
 flowchart LR
-    PK["packs/<br/>the active journey"] -->|graph, lexicon,<br/>project| GR["graph/<br/>full graph, oracle"]
-    GR -->|facts, figures,<br/>rules| KN["knowledge/<br/>the store"]
-    GR -->|expected<br/>behaviour| CAS["cases/<br/>base cases"]
+    PK["s01_packs/<br/>the active journey"] -->|graph, lexicon,<br/>project| GR["s02_graph/<br/>full graph, oracle"]
+    GR -->|facts, figures,<br/>rules| KN["s03_knowledge/<br/>the store"]
+    GR -->|expected<br/>behaviour| CAS["s04_cases/<br/>base cases"]
     KN -->|policy questions,<br/>exact figures| CAS
-    CAS -->|meaning cards,<br/>fixtures| RW["rewording/<br/>proved scenarios"]
-    RW -->|customer words| BOT["bots/<br/>runs (traces)"]
+    CAS -->|meaning cards,<br/>fixtures| RW["s05_rewording/<br/>proved scenarios"]
+    RW -->|customer words| BOT["s06_bots/<br/>runs (traces)"]
     CAS -->|customer, bank| BOT
-    BOT -->|traces| CHK["checks/<br/>grades, statistics"]
+    BOT -->|traces| CHK["s07_checks/<br/>grades, statistics"]
     GR -->|expected trace| CHK
     KN -->|truth of claims| CHK
-    CHK --> CAM["campaign/<br/>result dict R,<br/>dataset"]
-    CAM --> REP["reports/<br/>HTML pages,<br/>verdict"]
-    CON["console/"] -.->|starts runs,<br/>edits packs| CAM
+    CHK --> CAM["s08_campaign/<br/>result dict R,<br/>dataset"]
+    CAM --> REP["s09_reports/<br/>HTML pages,<br/>verdict"]
+    CON["s10_console/"] -.->|starts runs,<br/>edits packs| CAM
     CON -.-> PK
     LLM["llm.py"] -.->|model calls| RW
     LLM -.-> BOT
@@ -144,31 +144,31 @@ voicebot/
 ├── gmsjourney/
 │   ├── __init__.py              the package overview
 │   ├── llm.py                   the model-gateway client with its replay cache                  ch. 12
-│   ├── packs/                                                                                   ch. 1
+│   ├── s01_packs/                                                                               ch. 1
 │   │   ├── __init__.py
 │   │   ├── loading.py           load a pack, make it active, lint it against its graph
 │   │   ├── names.py             every name the graph defines (N.state.X), tools by role
 │   │   ├── project.py           project.yaml: mock bank, customer, factors, scoring settings
 │   │   └── drafting.py          drafts of lexicon, bot lines and project.yaml from a graph
-│   ├── graph/                                                                                   ch. 2
+│   ├── s02_graph/                                                                               ch. 2
 │   │   ├── __init__.py
 │   │   ├── triples.py           the full graph (head/relation/tail), built from the PDF; PolicyKG
 │   │   ├── compact.py           the compact graph format (a state machine in one JSON file)
 │   │   ├── compile.py           compact graph -> full graph and symbolic store
 │   │   ├── flow.py              the expression language and the oracle that walks the graph
 │   │   └── interpreter.py       the compact graph's own walker (mining, compiler check)
-│   ├── knowledge/                                                                               ch. 3
+│   ├── s03_knowledge/                                                                           ch. 3
 │   │   ├── __init__.py
 │   │   ├── store.py             ingest, the symbolic store (exact figures), canonicals, GEODE view
 │   │   ├── build.py             self-correction, the knowlytix backend, the trained store
 │   │   └── questions.py         true answers to policy questions, grading, question mining
-│   ├── cases/                                                                                   ch. 4
+│   ├── s04_cases/                                                                               ch. 4
 │   │   ├── __init__.py
 │   │   ├── meaning.py           meaning cards (semantic frames) and the ontology
 │   │   ├── journey.py           one case's levels, relevance, the bank fixture, the customer
 │   │   ├── factors.py           journeys and factors mined from a compact graph
 │   │   └── design.py            covering arrays and space-filling designs
-│   ├── rewording/                                                                               ch. 5
+│   ├── s05_rewording/                                                                           ch. 5
 │   │   ├── __init__.py
 │   │   ├── catalog.py           records (QAItem, Scenario) and the factor catalogs
 │   │   ├── wording.py           lexicon, noise, the realizer, the frame reader
@@ -177,13 +177,13 @@ voicebot/
 │   │   ├── llm_pack.py          the LLM arm's wording read from any pack
 │   │   ├── llm_proof.py         the LLM arm's proof; build_llm_arm
 │   │   └── catalogs/official/   the domain-neutral factor and base catalogs (data)          ch. 11
-│   ├── bots/                                                                                    ch. 6
+│   ├── s06_bots/                                                                                ch. 6
 │   │   ├── __init__.py
 │   │   ├── tools.py             the mock bank, fault injection, the Trace of a run
 │   │   ├── reference.py         the reference bots and their planted defects (mutants)
 │   │   ├── llm_bot.py           an LLM bot (gateway or local model) with a critique layer
 │   │   └── harness.py           plays a case against a bot; adapters for your bot
-│   ├── checks/                                                                                  ch. 7
+│   ├── s07_checks/                                                                              ch. 7
 │   │   ├── __init__.py
 │   │   ├── scoring.py           correctness, severities, risk tiers, the release gate
 │   │   ├── speech_reading.py    what the bot said: contract, session facts, reader
@@ -192,18 +192,18 @@ voicebot/
 │   │   ├── runtime.py           the runtime monitor that would run beside the bot
 │   │   ├── gates.py             the runtime gates and their calibration
 │   │   └── diagnosis.py         statistics, attribution, mutation, resilience, bot validation
-│   ├── campaign/                                                                                ch. 8
+│   ├── s08_campaign/                                                                            ch. 8
 │   │   ├── __init__.py
 │   │   ├── pipeline.py          CampaignConfig, run_campaign: the thirteen steps
 │   │   └── outputs.py           failure-mode taxonomy, training corpora, dataset tables
-│   ├── reports/                                                                                 ch. 9
+│   ├── s09_reports/                                                                             ch. 9
 │   │   ├── __init__.py
 │   │   ├── report.py            report.html
 │   │   ├── cases.py             narration, turn by turn, case_comparison.html, show_case
 │   │   └── verdict.py           verdict.html / verdict.json
-│   ├── console/                                                                                 ch. 10
+│   ├── s10_console/                                                                             ch. 10
 │   │   ├── __init__.py          start / show / stop the console from Python
-│   │   ├── __main__.py          python -m gmsjourney.console
+│   │   ├── __main__.py          python -m gmsjourney.s10_console
 │   │   ├── server.py            the HTTP server and JSON API
 │   │   ├── studio.py            the project studio (graph view, factor editor, preview)
 │   │   ├── runs.py              campaign runs in their own processes; step summaries

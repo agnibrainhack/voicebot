@@ -1,0 +1,1515 @@
+"""The full policy graph: the operating procedure as head / relation / tail triples (format 1).
+
+Charge review's graph is built from the PDF: every triple quotes its source section verbatim, carries its kind
+(policy, trajectory, state, vocabulary, domain, speech) and says whether the knowledge store is trained on it.
+``PolicyKG`` is the read side every component uses (``where``, ``states``, ``says`` ...), whichever format the
+pack's graph was written in (a compact graph is compiled into this same shape by ``s02_graph/compile.py``).
+
+Parts of this file:
+  1. The dialog flow of the charge-review procedure, written as data (``rows``: every transition with its
+     customer act, condition, actions, rules and procedure text) - the input of the state layer.
+  2. ``build_kg`` (PDF + transcription -> triples, with evidence) and ``PolicyKG`` (load, validate, query).
+
+Run ``python -m gmsjourney.s02_graph.triples build`` to rebuild charge review's graph from the PDF.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import re
+from collections import defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Iterable
+
+
+# =====================================================================================================================
+# PART 1 - The dialog flow of the charge-review procedure, written as data for the policy graph.
+#
+# Each row becomes one ``(from, leads_to, to)`` triple; its qualifiers make the transition executable
+# (``gmsjourney/s02_graph/flow.py`` walks them; that module documents the expression language). Next to the
+# executable part every row keeps the procedure's own words (``when``), the rules it exercises and the
+# PDF section and sentence that state it.
+#
+# Conventions used below:
+#
+# * ``on`` is the customer act that triggers a transition, ``auto`` when the bot moves on by itself,
+#   ``else`` for any act the state's other transitions do not take, ``any`` for a check made before the
+#   state prompts the customer (the turn limit, R28).
+# * Every transfer goes through ``_transfer``: when some responses are already recorded the bot first
+#   summarizes them (R19), then transfers; the reason is the escalation trigger's name.
+# * ``rules`` are the rules a journey exercises by taking the transition (they drive the coverage closure).
+# =====================================================================================================================
+
+# ----------------------------------------------------------------------------- reusable expressions
+TURN_LIMIT = "turns() >= limit('max_turns')"
+RETRIEVED = "field('get_review_transactions', 'transactions')"
+REVIEWABLE = "select('get_review_transactions', 'transactions', 'age_days', limit('lookback_days'))"
+CLEAR = "slot('disposition') in ('RECOGNIZED', 'UNRECOGNIZED')"
+UNSURE_AGAIN = "slot('disposition') == 'UNSURE' and n('unsure') + 1 > limit('max_unsure_retries')"
+RECORD_DOWN = "call('record_charge_response') == 'UNAVAILABLE'"
+RECORD_OK = "call('record_charge_response') == 'SUCCESS' and echoed('record_charge_response', 'transaction_id')"
+R33_IF_ECHO = "fire('R33') if not echoed('record_charge_response', 'transaction_id') else None"
+R27_IF_FRAUD = "fire('R27') if slot('intent') == 'fraud' else None"
+CARD_WANTED = "get('disposition') == 'UNRECOGNIZED' and get('action') and not get('card_done')"
+FEE_TO_CONFIRM = "tail(get('delivery'), 'requires_fee_confirmation') == 'yes'"
+CAPTURE = ("set('disposition', slot('disposition'))", "set('action', slot('card_action'))",
+           "set('delivery', slot('delivery'))", "fire('R21') if slot('corrected_from') else None")
+WINDOW_EDGE = (f"fire('R30') if size({RETRIEVED}) != size({REVIEWABLE}) "
+               f"or has_value({RETRIEVED}, 'age_days', limit('lookback_days')) else None")
+
+
+@dataclass
+class Row:
+    """One transition of the charge-review dialog, written as data: from, to, on which act, condition, evidence,
+    rules, workflow edges and the expressions the oracle executes.
+    """
+    src: str
+    dst: str
+    on: str
+    when: str
+    source: str
+    evidence: str
+    rules: tuple[str, ...] = ()
+    edges: tuple[str, ...] = ()
+    match: str | None = None
+    pre: tuple[str, ...] = ()
+    guard: str | None = None
+    do: tuple[str, ...] = ()
+    say: tuple[str, ...] = ()
+    flush: bool = False
+    quiet: bool = False
+    discard: bool = False
+
+    def qualifiers(self) -> dict:
+        q = {"on": self.on, "when": self.when, "rules": list(self.rules), "edges": list(self.edges)}
+        for k in ("match", "guard"):
+            if getattr(self, k):
+                q[k] = getattr(self, k)
+        for k in ("pre", "do", "say"):
+            if getattr(self, k):
+                q[k] = list(getattr(self, k))
+        for k in ("flush", "quiet", "discard"):
+            if getattr(self, k):
+                q[k] = True
+        return q
+
+
+@dataclass
+class Act:
+    """What a bot act carries in the trace: field -> expression (optional: left out when None)."""
+    fields: list[tuple[str, str, bool]] = field(default_factory=list)
+
+
+HUMAN = ("pdf.2F", "If the customer requests a human at any point, transfer the interaction.")
+KB = ("pdf.7", "General policy questions may trigger a knowledge-base lookup.")
+TURNS = ("program", "at max 20 turns")
+CLARIFY = ("pdf.3", "ask one short clarification")
+STILL_UNCLEAR = ("pdf.3", "If the required information or decision is still unclear after that one retry, "
+                          "transfer to a human representative.")
+TOOL_FAILS = ("pdf.7", "If a required tool fails, transfer to a human.")
+
+
+def _transfer(src: str, on: str, reason: str, when: str, source: str, evidence: str, rules=(), edges=(),
+              match=None, pre=(), guard=None, do=(), flush=False, discard=False, recordable=True) -> list[Row]:
+    """A transfer for escalation trigger ``reason``; with responses recorded, summarize first (R19)."""
+    do = (f"set('reason', '{reason}')", *do)
+    rows = []
+    if recordable:
+        g = f"({guard}) and recorded()" if guard else "recorded()"
+        rows.append(Row(src, "SUMMARIZE", on, f"{when}; responses recorded: summarize, then transfer",
+                        source, evidence, (*rules, "R19"), edges, match, pre, g, do, (), flush, False, discard))
+    rows.append(Row(src, "TRANSFER", on, when, source, evidence, rules, edges, match, pre, guard, do, (), flush,
+                    False, discard))
+    return rows
+
+
+def _kb(src: str, resume: str) -> Row:
+    return Row(src, "ANSWER_KB", "ASK_KB", "general policy question", *KB, ("R25",),
+               do=(f"set('resume', '{resume}')", "kb_log()", R27_IF_FRAUD))
+
+
+def _auth_rows(src: str) -> list[Row]:
+    s, rows = src, []
+    rows += _transfer(s, "any", "turn_limit", "max_turns reached before the journey completes", *TURNS, ("R28",),
+                      guard=TURN_LIMIT, discard=True, recordable=False)
+    rows += _transfer(s, "REQUEST_HUMAN", "customer_request", "customer asks for a human", *HUMAN, ("R20",),
+                      ("W21",) if s == "ASK_AUTH" else (), recordable=False)
+    rows.append(_kb(s, "ASK_AUTH"))
+    rows += _transfer(s, "PROVIDE_CREDENTIAL", "auth_unavailable", "authenticate_customer UNAVAILABLE", "pdf.2A",
+                      "If authentication fails or the tool is unavailable, transfer to a human", ("R5",), ("W4",),
+                      guard="call('authenticate_customer') == 'UNAVAILABLE'", recordable=False)
+    rows += _transfer(s, "PROVIDE_CREDENTIAL", "retrieve_unavailable", "AUTHENTICATED, get_review_transactions "
+                      "UNAVAILABLE", *TOOL_FAILS, ("R3", "R14"), ("W3", "W7"),
+                      guard="call('authenticate_customer') == 'AUTHENTICATED' "
+                            "and call('get_review_transactions') == 'UNAVAILABLE'", recordable=False)
+    rows.append(Row(s, "PRESENT_TXN", "PROVIDE_CREDENTIAL", "AUTHENTICATED and transactions returned", "pdf.2B",
+                    "Present one transaction at a time using merchant, amount and date.",
+                    ("R3", "R7", "R24", "R6"), ("W3",),
+                    guard=f"call('authenticate_customer') == 'AUTHENTICATED' and size({REVIEWABLE}) > 0",
+                    do=(f"load({REVIEWABLE}, limit('max_transactions_per_session'))", WINDOW_EDGE, "next_item()")))
+    rows.append(Row(s, "EXPLAIN_NO_TXNS", "PROVIDE_CREDENTIAL", "AUTHENTICATED and no transactions returned",
+                    "pdf.2B", "If the tool returns no transactions", ("R3", "R7", "R24", "R8"), ("W3", "W6"),
+                    guard="call('authenticate_customer') == 'AUTHENTICATED'", do=(WINDOW_EDGE,)))
+    rows += _transfer(s, "PROVIDE_CREDENTIAL", "auth_failed", "authenticate_customer FAILED at max_auth_attempts",
+                      "pdf.7", "On failure, transfer to human.", ("R4",), ("W4",),
+                      guard="count('authenticate_customer', 'FAILED') >= limit('max_auth_attempts')", recordable=False)
+    rows.append(Row(s, "ASK_AUTH_RETRY", "PROVIDE_CREDENTIAL",
+                    "authenticate_customer FAILED and attempts below max_auth_attempts", "program",
+                    "at most 2 times incorrect authentication", (), ("W2",)))
+    rows += _transfer(s, "else", "ambiguity_persists", "still unclear after one retry", *STILL_UNCLEAR, ("R23",),
+                      match="n('auth_unclear') + 1 > limit('max_clarification_retries')", do=("inc('auth_unclear')",),
+                      recordable=False)
+    rows.append(Row(s, "ASK_AUTH", "else", "first unclear answer: one short clarification", *CLARIFY, ("R22",),
+                    do=("inc('auth_unclear')",), say=("'ASK_CLARIFY'",)))
+    return rows
+
+
+def _capture_rows(src: str) -> list[Row]:
+    s, rows = src, []
+    rows += _transfer(s, "any", "turn_limit", "max_turns reached before the journey completes", *TURNS, ("R28",),
+                      guard=TURN_LIMIT, discard=True)
+    rows.append(_kb(s, "PRESENT_TXN"))
+    rows += _transfer(s, "REQUEST_HUMAN", "customer_request", "customer asks for a human", *HUMAN, ("R20",))
+    # a clear answer: record it, advance only after SUCCESS that echoes the request
+    rows += _transfer(s, "INFORM_DISPOSITION", "record_failed", "clear answer; record_charge_response UNAVAILABLE",
+                      *TOOL_FAILS, ("R9", "R14"), ("W11",), match=CLEAR, pre=CAPTURE, guard=RECORD_DOWN)
+    rows.append(Row(s, "CONFIRM_RECORDED", "INFORM_DISPOSITION",
+                    "clear RECOGNIZED/UNRECOGNIZED and record_charge_response SUCCESS", "pdf.2C",
+                    "A clear answer maps to RECOGNIZED or UNRECOGNIZED.", ("R9", "R12"), ("W5",),
+                    match=CLEAR, pre=CAPTURE, guard=RECORD_OK, do=("claim_recorded()",)))
+    rows += _transfer(s, "INFORM_DISPOSITION", "record_failed", "record_charge_response not SUCCESS", "pdf.4",
+                      "Advance only after SUCCESS; otherwise transfer.", ("R9", "R12", "R13", "R14"), ("W11",),
+                      match=CLEAR, pre=CAPTURE, do=(R33_IF_ECHO,))
+    # unsure a second time: record UNSURE, then transfer (R11, via CONFIRM_RECORDED)
+    unsure = ("set('disposition', 'UNSURE')", "set('action', None)", "set('delivery', None)")
+    rows += _transfer(s, "INFORM_DISPOSITION", "record_failed", "still UNSURE; record_charge_response UNAVAILABLE",
+                      *TOOL_FAILS, ("R10", "R14"), ("W11",), match=UNSURE_AGAIN, pre=unsure, guard=RECORD_DOWN)
+    rows.append(Row(s, "CONFIRM_RECORDED", "INFORM_DISPOSITION", "still UNSURE: record UNSURE (then transfer)",
+                    "pdf.2C", "If still unsure, record UNSURE and transfer.", ("R10", "R12"), ("W5",),
+                    match=UNSURE_AGAIN, pre=unsure, guard=RECORD_OK, do=("claim_recorded()",)))
+    rows += _transfer(s, "INFORM_DISPOSITION", "record_failed", "still UNSURE; record_charge_response not SUCCESS",
+                      "pdf.4", "Advance only after SUCCESS; otherwise transfer.", ("R10", "R12", "R13", "R14"),
+                      ("W11",), match=UNSURE_AGAIN, pre=unsure, do=(R33_IF_ECHO,))
+    rows.append(Row(s, "PROVIDE_CONTEXT", "INFORM_DISPOSITION", "disposition UNSURE (first time)", "pdf.2C",
+                    "If the customer is unsure, provide available transaction context and ask once more.", ("R10",),
+                    match="slot('disposition') == 'UNSURE'", do=("inc('unsure')",)))
+    rows += _transfer(s, "else", "ambiguity_persists", "still unclear after one retry", *STILL_UNCLEAR,
+                      ("R22", "R23"), match="n('unclear') + 1 > limit('max_clarification_retries')",
+                      do=("inc('unclear')",))
+    rows.append(Row(s, "ASK_CLARIFY", "else", "answer unclear (first time)", *CLARIFY, ("R22",),
+                    do=("inc('unclear')",)))
+    return rows
+
+
+def _advance_rows(src: str, source: str, evidence: str) -> list[Row]:
+    """After a transaction is settled: the next one, the session limit, or the summary."""
+    return [
+        Row(src, "PRESENT_TXN", "auto", "next transaction pending", "pdf.2D",
+            "Call record_charge_response for the current transaction before advancing.", ("R6",), ("W8",),
+            guard="pending()", do=("next_item()",)),
+        Row(src, "EXPLAIN_LIMIT", "auto", "more reviewable transactions than max_transactions_per_session", "pdf.5",
+            "The bot may review up to 4 recent transactions in one self-service session.", ("R31",),
+            guard="overflow()"),
+        Row(src, "SUMMARIZE", "auto", "no transaction pending", source, evidence, ("R19",), ("W10",)),
+    ]
+
+
+def _card_reask(src: str, on: str, when: str, source: str, evidence: str, rules_fee=(), pre=(), do=(),
+                match=None) -> list[Row]:
+    """Ask for confirmation of the card action again: the fee first when the delivery needs it (R26)."""
+    return [Row(src, "DISCLOSE_FEE", on, f"{when}; expedited delivery: disclose the fee first", "pdf.5",
+                "Before selecting expedited delivery, the bot must tell the customer the $15 fee", rules_fee,
+                match=match, pre=pre, guard=FEE_TO_CONFIRM, do=do),
+            Row(src, "CONFIRM_ACTION", on, when, source, evidence, (), match=match, pre=pre, do=do)]
+
+
+def rows() -> list[Row]:
+    """Every transition of the charge-review dialog (the input of the graph's state layer)."""
+    R: list[Row] = []
+    R.append(Row("OPENING", "ASK_AUTH", "auto", "always", "pdf.7",
+                 "Authenticate customer. On failure, transfer to human. On success, continue.", ("R1", "R2"), ("W1",)))
+    R += _auth_rows("ASK_AUTH")
+    R += _auth_rows("ASK_AUTH_RETRY")
+    for s in ("PRESENT_TXN", "ASK_CLARIFY", "PROVIDE_CONTEXT"):
+        R += _capture_rows(s)
+    # a policy question answered: ask again what was pending
+    for resume in ("ASK_AUTH", "PRESENT_TXN"):
+        R.append(Row("ANSWER_KB", resume, "auto", f"re-ask the pending {resume} prompt", "pdf.7",
+                     "Present one transaction and ask whether the customer recognizes it." if resume == "PRESENT_TXN"
+                     else "Call authenticate_customer.", ("R6",) if resume == "PRESENT_TXN" else (),
+                     guard=f"get('resume') == '{resume}'"))
+    R += _card_reask("ANSWER_KB", "auto", "re-ask the pending card-action confirmation", "pdf.2E",
+                     "confirm the requested action", ("R26",), match="get('resume') == 'CONFIRM_ACTION'")
+    R.append(Row("ANSWER_KB", "ASK_MORE_HELP", "auto", "re-ask whether the customer needs other help", "pdf.2B",
+                 "ask whether the customer needs other help", (), guard="get('resume') == 'ASK_MORE_HELP'"))
+    # recorded: transfer if still unsure; card action if asked for; then advance
+    R += _transfer("CONFIRM_RECORDED", "auto", "unsure_twice", "UNSURE recorded: transfer", "pdf.2C",
+                   "If still unsure, record UNSURE and transfer.", ("R11",), ("W11",),
+                   guard="get('disposition') == 'UNSURE'", discard=True)
+    R += _transfer("CONFIRM_RECORDED", "auto", "card_options_unavailable", "get_card_action_options UNAVAILABLE",
+                   *TOOL_FAILS, ("R32",), ("W20",),
+                   guard=f"{CARD_WANTED} and call('get_card_action_options') == 'UNAVAILABLE'",
+                   do=("set('card_done', True)",), discard=True)
+    R.append(Row("CONFIRM_RECORDED", "INFORM_NO_CARD_ACTION", "auto", "the requested card action is not returned",
+                 "pdf.4", "Offer only returned options.", ("R15",), ("W13", "W14"),
+                 guard=f"{CARD_WANTED} and get('action') not in options('get_card_action_options', 'options')",
+                 do=("set('card_done', True)",)))
+    R += _card_reask("CONFIRM_RECORDED", "auto", "UNRECOGNIZED with card intent and an eligible option", "pdf.2E",
+                     "If an eligible action is returned, confirm the requested action", ("R15", "R26"),
+                     match=CARD_WANTED, do=("set('card_done', True)",))
+    R[-1].rules = ("R15",)
+    R[-1].edges = R[-2].edges = ("W9",)
+    R += _advance_rows("CONFIRM_RECORDED", "pdf.2F", "After the available charges are reviewed, summarize the responses")
+    R.append(Row("DISCLOSE_FEE", "CONFIRM_ACTION", "auto", "fee disclosed; ask for clear confirmation", "pdf.5",
+                 "obtain a clear confirmation"))
+    # the card action
+    c = "CONFIRM_ACTION"
+    R += _transfer(c, "any", "turn_limit", "max_turns reached before the journey completes", *TURNS, ("R28",),
+                   guard=TURN_LIMIT, discard=True)
+    R += _transfer(c, "CONFIRM", "submit_failed", "submit_card_action UNAVAILABLE", *TOOL_FAILS, ("R16", "R29"),
+                   ("W17",), guard="call('submit_card_action') == 'UNAVAILABLE'")
+    R.append(Row(c, "ACTION_DONE", "CONFIRM", "submit_card_action SUCCESS", "pdf.2E",
+                 "call submit_card_action, and describe it as completed only after SUCCESS", ("R16", "R17"), ("W12",),
+                 guard="call('submit_card_action') == 'SUCCESS' and echoed('submit_card_action', 'action')",
+                 do=("claim_action()", "fire('R18') if pending() else None")))
+    R += _transfer(c, "CONFIRM", "submit_failed", "submit_card_action not SUCCESS", "pdf.7",
+                   "Do not claim an action completed unless its API returns SUCCESS.", ("R16", "R17", "R29"), ("W17",))
+    switch = ("set('action', slot('card_action') or get('action'))", "set('delivery', slot('delivery') or get('delivery'))")
+    R += _card_reask(c, "REQUEST_CARD_ACTION", "customer switches the card action or delivery option", "pdf.2E",
+                     "confirm the requested action", ("R26",), pre=switch)
+    R.append(Row(c, "ACK_DECLINED", "DENY", "customer declines the action", "pdf.2E",
+                 "This second intent must not erase the charge-review intent."))
+    R += _transfer(c, "REQUEST_HUMAN", "customer_request", "customer asks for a human", *HUMAN, ("R20",))
+    R.append(_kb(c, c))
+    R += _transfer(c, "else", "ambiguity_persists", "still unclear after one retry", *STILL_UNCLEAR, ("R23",),
+                   match="n('card_unclear') + 1 > limit('max_clarification_retries')", do=("inc('card_unclear')",))
+    R += _card_reask(c, "else", "unclear reply: ask for confirmation again", *CLARIFY, ("R26",),
+                     do=("inc('card_unclear')",))
+    for s, ev in (("ACTION_DONE", "summarize the responses and any account action that actually completed"),
+                  ("ACK_DECLINED", "After the available charges are reviewed, summarize the responses"),
+                  ("INFORM_NO_CARD_ACTION", "After the available charges are reviewed, summarize the responses")):
+        R += _advance_rows(s, "pdf.2F", ev)
+    R += _transfer("EXPLAIN_LIMIT", "auto", "transaction_limit", "limit explained; summarize, then transfer the rest",
+                   "pdf.5", "The bot may review up to 4 recent transactions in one self-service session.", ("R31",),
+                   flush=True)
+    R.append(Row("EXPLAIN_NO_TXNS", "ASK_MORE_HELP", "auto", "no charges to review", "pdf.2B",
+                 "ask whether the customer needs other help", (), ("W6",)))
+    R.append(Row("SUMMARIZE", "TRANSFER", "auto", "a transfer is pending", *HUMAN, (), guard="get('reason')"))
+    R.append(Row("SUMMARIZE", "END", "auto", "the turn limit was reached after the journey completed", *TURNS, (),
+                 guard="get('ending')", do=("end()",)))
+    R.append(Row("SUMMARIZE", "ASK_MORE_HELP", "auto", "journey complete", "pdf.2B",
+                 "ask whether the customer needs other help", (), ("W18",)))
+    m = "ASK_MORE_HELP"
+    R.append(Row(m, "SUMMARIZE", "any", "max_turns reached after the journey completed: summarize and end", *TURNS,
+                 guard=TURN_LIMIT, do=("set('ending', True)",), discard=True))
+    R.append(_kb(m, m))
+    R += _transfer(m, "REQUEST_HUMAN", "customer_request", "customer asks for a human", *HUMAN, ("R20",))
+    R.append(Row(m, "END", "END", "customer needs nothing else", "pdf.7", "then end.", (), ("W18",), do=("end()",)))
+    R.append(Row(m, "END", "else", "anything else ends the call", "pdf.7", "then end.", (), ("W18",), do=("end()",)))
+    R.append(Row("TRANSFER", "END", "auto", "transfer_to_human (the call leaves self-service)", "pdf.4",
+                 "End automated servicing.", (), ("W19",), do=("call('transfer_to_human')",), flush=True, quiet=True))
+    return R
+
+
+# what each bot act carries in the trace: act -> [(field, expression, optional)]
+CARRIES: dict[str, list[tuple[str, str, bool]]] = {
+    "OPENING": [("text", "text('opening_statement')", False)],
+    "PRESENT_TXN": [("txn", "item()", False)],
+    "PROVIDE_CONTEXT": [("txn", "item()", False)],
+    "ASK_CLARIFY": [("txn", "item()", True)],
+    "ANSWER_KB": [("intent", "slot('intent')", False), ("answer", "kb_answer()", False)],
+    "CONFIRM_RECORDED": [("txn", "item()", False), ("disposition", "get('disposition')", False)],
+    "DISCLOSE_FEE": [("fee", "enm('delivery_fee_usd', get('delivery'))", False), ("delivery", "get('delivery')", False)],
+    "CONFIRM_ACTION": [("action", "get('action')", False), ("delivery", "get('delivery')", False)],
+    "ACTION_DONE": [("action", "get('action')", False), ("delivery", "get('delivery')", False)],
+    "SUMMARIZE": [("recorded", "recorded()", False)],
+    "TRANSFER": [("reason", "get('reason')", False)],
+}
+
+# the arguments each tool is called with
+TOOL_ARGS: dict[str, list[tuple[str, str]]] = {
+    "authenticate_customer": [("credential", "slot('credential')")],
+    "record_charge_response": [("transaction_id", "item()"), ("disposition", "get('disposition')")],
+    "submit_card_action": [("action", "get('action')"), ("delivery", "get('delivery')")],
+    "transfer_to_human": [("reason", "get('reason')")],
+}
+
+
+# =====================================================================================================================
+# PART 2 - The policy as one clean head / relation / tail graph, with dialog states (book Ch. 2-4).
+#
+# ``policy/charge_review/charge_review_kg.json`` is the single machine-readable source the rest of the
+# pipeline reads. It is built once from the operating-procedure PDF by
+# ``python -m gmsjourney.s02_graph.triples build`` and committed; every later step
+# (GMS training, the oracle's limits, the state-aware ontology mapper, the exports) reads
+# the JSON through ``PolicyKG``.
+#
+# What it holds, as triples ``{head, relation, tail}`` with a ``kind``:
+#
+# * trajectory  - the tool workflow (``authenticate_customer enables get_review_transactions``,
+#                 with the edge id and condition) and the dialog-state machine
+#                 (``ASK_AUTH leads_to PRESENT_TXN`` with the customer act and condition);
+# * state       - what holds *in* each dialog state: the stage it belongs to, the customer
+#                 meaning cards it accepts, the rules and limits that apply there, the tools
+#                 the bot may call next, how a bare "yes"/"no" is read there, and which
+#                 escalation triggers can fire there;
+# * policy      - rules (stance, subject, predicate, object, text), limits (exact values),
+#                 delivery options, tools and their result values, escalation triggers,
+#                 knowledge-base sentences, the required opening;
+# * vocabulary  - value sets, their members, aliases (curated synonyms), the dialog acts and
+#                 the value set each slot draws from;
+# * domain      - the domain model (customer has_session review_session, ...).
+#
+# Each triple carries ``source`` (a PDF section such as ``pdf.2C``, ``program`` for the two
+# limits the business owner added, or ``lexicon`` for curated synonyms that are not in the
+# PDF), an ``evidence`` quote that is a verbatim substring of that source, and optional
+# ``qualifiers``. ``gms: true`` marks the triples the GMS is trained on.
+#
+# The dialog-state layer below is written from PDF sections 2, 3 and 7 and checked against
+# the policy oracle: every (state, customer act) pair and every state transition the oracle
+# produces must be declared here (tests/test_selfchecks.py).
+# =====================================================================================================================
+
+FLOW_CARRIES = CARRIES
+FLOW_TOOL_ARGS = TOOL_ARGS
+flow_rows = rows
+
+# authoring: build_kg below writes the charge-review graph into its domain pack
+POLICY_DIR = Path(__file__).resolve().parents[1] / "policy" / "charge_review"
+KG_PATH = POLICY_DIR / "charge_review_kg.json"
+TRANSCRIPTION = POLICY_DIR / "charge_review_policy.md"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SCHEMA_ID = "gmsjourney.policy_kg/1"
+
+# --------------------------------------------------------------------------- the brief
+PROGRAM_BRIEF = ("At most 4 transactions (charges) can be verified, at most 2 times incorrect authentication "
+                 "is allowed and the conversation can go for at max 20 turns.")
+LEXICON_NOTE = "Curated customer synonyms for each canonical value (not stated in the PDF)."
+
+# --------------------------------------------------------------------------- dialog acts
+# Customer meaning cards: act -> {slot: (value set, required)}
+ACT_SCHEMA: dict[str, dict[str, tuple[str, bool]]] = {
+    "PROVIDE_CREDENTIAL": {"credential": ("credential_code", True)},
+    "INFORM_DISPOSITION": {"disposition": ("disposition", True), "card_action": ("card_action", False),
+                           "delivery": ("delivery", False), "corrected_from": ("disposition", False)},
+    "REQUEST_CARD_ACTION": {"card_action": ("card_action", True), "delivery": ("delivery", False)},
+    "CONFIRM": {}, "DENY": {}, "END": {}, "UNCLEAR": {}, "REQUEST_HUMAN": {},
+    "ASK_KB": {"intent": ("kb_intent", True), "attr": ("kb_attribute", False), "entity": ("delivery", False),
+               "key": ("limit", False), "value": ("number", False), "options": ("number", False),
+               "days": ("number", False), "name": ("option_name", False), "subject": ("card_action", False)},
+}
+ACT_SOURCE = {"PROVIDE_CREDENTIAL": "pdf.2A", "INFORM_DISPOSITION": "pdf.2C", "REQUEST_CARD_ACTION": "pdf.2E",
+              "CONFIRM": "pdf.2E", "DENY": "pdf.2E", "END": "pdf.2F", "UNCLEAR": "pdf.3",
+              "REQUEST_HUMAN": "pdf.2F", "ASK_KB": "pdf.3"}
+EXTRA_VALUE_SETS = {
+    "kb_intent": ["value", "limit", "plausibility", "mcq", "cheaper", "faster", "faster_option_fee",
+                  "fee_difference", "count_options", "expedited_total", "needs_confirmation", "window_check",
+                  "procedure", "refund", "fraud", "skip_auth", "unknown_option", "unstated_fact"],
+    "kb_attribute": ["fee", "days"],
+}
+ACT_EVIDENCE = {
+    "PROVIDE_CREDENTIAL": "Call authenticate_customer.",
+    "INFORM_DISPOSITION": "A clear answer maps to RECOGNIZED or UNRECOGNIZED.",
+    "REQUEST_CARD_ACTION": "also asks to secure/replace the card",
+    "CONFIRM": "confirm the requested action", "DENY": "confirm the requested action",
+    "END": "After the available charges are reviewed, summarize the responses",
+    "UNCLEAR": "If the bot cannot understand required information or the customer response is ambiguous, ask one "
+               "short clarification and make only one additional attempt.",
+    "REQUEST_HUMAN": "If the customer requests a human at any point, transfer the interaction.",
+    "ASK_KB": "General policy questions may be answered from the knowledge base.",
+}
+# where the best-matching sentence is not the one that states the rule
+RULE_EVIDENCE = {
+    "R16": "confirm the requested action, call submit_card_action",
+    "R17": "describe it as completed only after SUCCESS",
+    "R22": "Do not guess.",
+    "R29": "Do not claim an action completed unless its API returns SUCCESS.",
+    "R32": "If a required tool fails, transfer to a human.",
+    "R33": "The bot must not claim that the response was recorded unless the API returns SUCCESS.",
+}
+GLOBAL_ACTS = ("REQUEST_HUMAN", "ASK_KB", "UNCLEAR")      # R20, R25, R22: admissible in every prompt state
+
+
+@dataclass(frozen=True)
+class StateSpec:
+    """One dialog state of the charge-review procedure: stage, whether it prompts, what it accepts, how it reads a
+    bare yes or no, its rules, limits, next tools and triggers.
+    """
+    stage: str
+    prompts: bool                     # does the customer answer in this state?
+    source: str
+    evidence: str
+    accepts: tuple[str, ...] = ()
+    yes: str | None = None            # how a bare "yes" is read here
+    no: str | None = None             # how a bare "no" is read here
+    rules: tuple[str, ...] = ()
+    limits: tuple[str, ...] = ()
+    tools: tuple[str, ...] = ()       # tools the bot may call next from this state
+
+
+DISP = ("INFORM_DISPOSITION", "REQUEST_CARD_ACTION")
+STATES: dict[str, StateSpec] = {
+    "OPENING": StateSpec("opening", False, "pdf.2A", "Play the required opening statement.",
+                         rules=("R1", "R2")),
+    "ASK_AUTH": StateSpec("authenticate", True, "pdf.2A", "Call authenticate_customer.",
+                          accepts=("PROVIDE_CREDENTIAL",), yes="UNCLEAR", no="UNCLEAR",
+                          rules=("R2", "R3", "R5", "R20", "R22", "R23", "R25", "R28"),
+                          limits=("max_auth_attempts", "max_turns"),
+                          tools=("authenticate_customer", "get_review_transactions", "transfer_to_human")),
+    "ASK_AUTH_RETRY": StateSpec("authenticate", True, "program", "at most 2 times incorrect authentication",
+                                accepts=("PROVIDE_CREDENTIAL",), yes="UNCLEAR", no="UNCLEAR",
+                                rules=("R3", "R4", "R5", "R20", "R22", "R23", "R25", "R28"),
+                                limits=("max_auth_attempts", "max_turns"),
+                                tools=("authenticate_customer", "get_review_transactions", "transfer_to_human")),
+    "PRESENT_TXN": StateSpec("capture", True, "pdf.2C", "Ask whether the customer recognizes the transaction.",
+                             accepts=DISP, yes="RECOGNIZED", no="UNRECOGNIZED",
+                             rules=("R6", "R7", "R9", "R12", "R18", "R20", "R21", "R22", "R24", "R25", "R27",
+                                    "R28", "R30", "R31"),
+                             limits=("max_transactions_per_session", "lookback_days", "max_turns"),
+                             tools=("record_charge_response", "transfer_to_human")),
+    "ANSWER_KB": StateSpec("capture", False, "pdf.3",
+                           "General policy questions may be answered from the knowledge base.",
+                           rules=("R24", "R25", "R26", "R27")),
+    "ASK_CLARIFY": StateSpec("capture", True, "pdf.3", "ask one short clarification",
+                             accepts=DISP, yes="RECOGNIZED", no="UNRECOGNIZED",
+                             rules=("R9", "R20", "R21", "R22", "R23", "R28"),
+                             limits=("max_clarification_retries", "max_turns"),
+                             tools=("record_charge_response", "transfer_to_human")),
+    "PROVIDE_CONTEXT": StateSpec("capture", True, "pdf.2C",
+                                 "If the customer is unsure, provide available transaction context and ask once more.",
+                                 accepts=DISP, yes="RECOGNIZED", no="UNRECOGNIZED",
+                                 rules=("R7", "R10", "R11", "R20", "R21", "R28"),
+                                 limits=("max_unsure_retries", "max_turns"),
+                                 tools=("record_charge_response", "transfer_to_human")),
+    "CONFIRM_RECORDED": StateSpec("record", False, "pdf.2D",
+                                  "Call record_charge_response for the current transaction before advancing.",
+                                  rules=("R12", "R13", "R14", "R18", "R31", "R32", "R33"),
+                                  limits=("max_transactions_per_session",),
+                                  tools=("get_card_action_options", "transfer_to_human")),
+    "DISCLOSE_FEE": StateSpec("card_action", False, "pdf.5",
+                              "Before selecting expedited delivery, the bot must tell the customer the $15 fee",
+                              rules=("R26",)),
+    "CONFIRM_ACTION": StateSpec("card_action", True, "pdf.2E", "confirm the requested action",
+                                accepts=("CONFIRM", "DENY", "REQUEST_CARD_ACTION"), yes="CONFIRM", no="DENY",
+                                rules=("R15", "R16", "R18", "R20", "R26", "R28", "R29"), limits=("max_turns",),
+                                tools=("submit_card_action", "transfer_to_human")),
+    "ACTION_DONE": StateSpec("card_action", False, "pdf.2E", "describe it as completed only after SUCCESS",
+                             rules=("R17", "R33")),
+    "ACK_DECLINED": StateSpec("card_action", False, "pdf.2E",
+                              "This second intent must not erase the charge-review intent.",
+                              rules=("R16", "R18")),
+    "INFORM_NO_CARD_ACTION": StateSpec("card_action", False, "pdf.4", "Offer only returned options.",
+                                       rules=("R15", "R18")),
+    "EXPLAIN_LIMIT": StateSpec("retrieve", False, "pdf.5",
+                               "The bot may review up to 4 recent transactions in one self-service session.",
+                               rules=("R31",), limits=("max_transactions_per_session",),
+                               tools=("transfer_to_human",)),
+    "EXPLAIN_NO_TXNS": StateSpec("retrieve", False, "pdf.2B",
+                                 "If the tool returns no transactions, explain that there are no charges available "
+                                 "for review", rules=("R8",)),
+    "SUMMARIZE": StateSpec("finish", False, "pdf.2F", "summarize the responses and any account action that "
+                           "actually completed", rules=("R13", "R17", "R19"), tools=("transfer_to_human",)),
+    "ASK_MORE_HELP": StateSpec("finish", True, "pdf.2B", "ask whether the customer needs other help",
+                               accepts=("END",), yes="UNCLEAR", no="END",
+                               rules=("R8", "R20", "R25", "R28"), limits=("max_turns",),
+                               tools=("transfer_to_human",)),
+    "TRANSFER": StateSpec("transfer", False, "pdf.2F",
+                          "If the customer requests a human at any point, transfer the interaction.",
+                          rules=("R20",), tools=("transfer_to_human",)),
+    "END": StateSpec("end", False, "pdf.7", "then end."),
+}
+
+# the turn limit can end any prompt state (R28)
+TURN_LIMIT_FROM = ("ASK_AUTH", "ASK_AUTH_RETRY", "PRESENT_TXN", "ASK_CLARIFY", "PROVIDE_CONTEXT", "CONFIRM_ACTION",
+                   "ASK_MORE_HELP")
+
+# escalation trigger -> states it can fire in
+TRIGGER_STATES = {
+    "auth_failed": ("ASK_AUTH_RETRY",), "auth_unavailable": ("ASK_AUTH", "ASK_AUTH_RETRY"),
+    "retrieve_unavailable": ("ASK_AUTH", "ASK_AUTH_RETRY"),
+    "record_failed": ("PRESENT_TXN", "ASK_CLARIFY", "PROVIDE_CONTEXT"),
+    "unsure_twice": ("PROVIDE_CONTEXT",), "ambiguity_persists": ("ASK_AUTH", "ASK_CLARIFY"),
+    "submit_failed": ("CONFIRM_ACTION",), "customer_request": TURN_LIMIT_FROM,
+    "turn_limit": TURN_LIMIT_FROM, "transaction_limit": ("CONFIRM_RECORDED",),
+    "card_options_unavailable": ("CONFIRM_RECORDED",),
+}
+
+# where each workflow edge is stated in the PDF
+WORKFLOW_SOURCES = {
+    "W1": ("pdf.2A", "Call authenticate_customer."),
+    "W2": ("program", "at most 2 times incorrect authentication"),
+    "W3": ("pdf.2B", "After successful authentication, call get_review_transactions."),
+    "W4": ("pdf.2A", "If authentication fails or the tool is unavailable, transfer to a human"),
+    "W5": ("pdf.4", "After customer gives a clear"),
+    "W6": ("pdf.2B", "If the tool returns no transactions, explain that there are no charges available for review"),
+    "W7": ("pdf.7", "If a required tool fails, transfer to a human."),
+    "W8": ("pdf.2D", "Call record_charge_response for the current transaction before advancing."),
+    "W9": ("pdf.2E", "If the customer reports an unrecognized charge and also asks to secure/replace the card, call"),
+    "W10": ("pdf.2F", "After the available charges are reviewed, summarize the responses"),
+    "W11": ("pdf.4", "Advance only after SUCCESS;"),
+    "W12": ("pdf.2E", "If an eligible action is returned, confirm the requested action, call"),
+    "W13": ("pdf.4", "Offer only returned options."),
+    "W14": ("pdf.4", "Offer only returned options."),
+    "W15": ("pdf.2E", "This second intent must not erase the charge-review intent."),
+    "W16": ("pdf.2F", "summarize the responses and any account action that actually completed"),
+    "W17": ("pdf.7", "If a required tool fails, transfer to a human."),
+    "W18": ("pdf.7", "Summarize only recorded responses and account actions that actually completed; then end."),
+    "W19": ("pdf.4", "End automated servicing."),
+    "W20": ("pdf.7", "If a required tool fails, transfer to a human."),
+    "W21": ("pdf.2F", "If the customer requests a human at any point, transfer the interaction."),
+}
+VALUE_SET_SOURCES = {"disposition": ("pdf.2C", "A clear answer maps to RECOGNIZED or"),
+                     "card_action": ("pdf.2E", "also asks to secure/replace the card"),
+                     "delivery": ("pdf.5", "Expedited replacement delivery is available"),
+                     "tool_result": ("pdf.2D", "unless the API returns SUCCESS")}
+
+# relations the GMS is trained on, beyond those the policy transcription already compiles
+GMS_STATE_RELATIONS = ("in_stage", "accepts_act", "leads_to", "applies_rule", "limited_by", "calls_tool",
+                       "interprets_yes_as", "interprets_no_as", "fires_in_state", "has_slot")
+
+
+# =========================================================================== the speech layer
+# What the bot tells the customer, declared once so every sentence it speaks can be checked
+# (s07_checks/speech_*.py). The PDF's own words set the standard: "The bot may naturally explain a
+# returned transaction or answer a general replacement-delivery question, provided the response
+# stays grounded in the API result or knowledge base" (pdf.6).
+#
+# These triples have kind "speech" and gms=False: they describe the dialog, they are not policy
+# knowledge the GMS learns, so adding or editing them never retrains the store.
+BOT_LEXICON_NOTE = ("Curated bot-voice phrasings and cue words used to read what the bot says (not stated in the "
+                    "PDF).")
+
+# Where a spoken value's truth lives. A binding is one of:
+#   item.<field>          the returned transaction the act is about      (tool result: get_review_transactions)
+#   write.<tool>.<arg>    an argument of a SUCCESSFUL write               (record_charge_response, submit_card_action)
+#   writes.<tool>         every successful write of that tool             (what a summary must list)
+#   caller.<slot>         what the customer asked for or answered         (the reader's frames of their turns)
+#   policy.<category>     the knowledge store's exact register            (lookup_enm; delivery_days = min..max)
+#   policy.limit:<key>    one limit of the exact register
+#   text.opening          the required opening statement, word for word
+BINDING_KINDS = ("item", "write", "writes", "caller", "policy", "text")
+
+
+@dataclass(frozen=True)
+class Said:
+    """One piece of information a bot act tells the customer.
+
+    field     its name in the act label and in the validator ("merchant", "fee", ...)
+    source    where its true value comes from (a binding, see BINDING_KINDS above)
+    required  the customer must hear it whenever the act is spoken (unless there is nothing
+              to say, e.g. a summary when nothing was recorded)
+    basis     how the PDF backs this piece (written into the graph so a reviewer can check it):
+                stated       the PDF says it (the act's evidence quote)
+                inferred     follows from the PDF's words but is not spelled out
+                interpreted  the PDF's text read one particular way
+                design       not in the PDF: the brief or this harness's dialog design
+    note      why, for anything that is not "stated"
+    """
+    field: str
+    source: str
+    required: bool = False
+    basis: str = "stated"
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class SpeechSpec:
+    """What one bot act (a dialog state) says, why, and the words that signal it.
+
+    says      the information the act carries (Said, in the order it is usually spoken)
+    cues      words that mark the act when it carries no information of its own
+              ("anything else" -> ASK_MORE_HELP); matched case-insensitively
+    source    the PDF section that states what the act must say, and evidence a verbatim quote
+    """
+    source: str
+    evidence: str
+    says: tuple[Said, ...] = ()
+    cues: tuple[str, ...] = ()
+
+
+_CONTEXT = "'available transaction context' is not itemised; the fields the tool returns are taken as that context"
+_AGE_DAYS = "age_days is not a field pdf.4 lists; the mock backend adds it so the 30-day window (pdf.5) can be checked"
+FLOW_NOTE = ("Added by this test harness's design: the fields each bot act carries in the expected trace, as "
+             "expressions over the run (flow.GraphOracle evaluates them).")
+DESIGN_NOTE = ("Added by this test harness's design, not stated in the PDF: fields the mock backend returns beyond "
+               "pdf.4's list, and what dialog states this harness adds must say.")
+
+BOT_SPEECH: dict[str, SpeechSpec] = {
+    "OPENING": SpeechSpec("pdf.6", "Before I review account-specific charges, I need to authenticate you.",
+                          says=(Said("opening", "text.opening", True, "interpreted",
+                                     "pdf.6 gives this sentence as the required/static example; pdf.2A separates the "
+                                     "opening statement from the explanation that authentication is needed, and does "
+                                     "not give the opening statement's own text"),)),
+    "ASK_AUTH": SpeechSpec("pdf.2A", "Explain that authentication is needed before account-specific information "
+                           "can be discussed.", cues=("last four", "digits", "verify you", "authenticate")),
+    "ASK_AUTH_RETRY": SpeechSpec("program", "at most 2 times incorrect authentication",
+                                 cues=("didn't match", "did not match", "try again", "doesn't match")),
+    "PRESENT_TXN": SpeechSpec("pdf.2B", "Present one transaction at a time using merchant, amount and date.",
+                              says=(Said("merchant", "item.merchant", True), Said("amount", "item.amount", True),
+                                    Said("date", "item.date", True)),
+                              cues=("do you recognize", "do you recognise", "recognize that charge")),
+    "PROVIDE_CONTEXT": SpeechSpec("pdf.2C", "If the customer is unsure, provide available transaction context and "
+                                  "ask once more.",
+                                  says=(Said("merchant", "item.merchant", False, "inferred", _CONTEXT),
+                                        Said("amount", "item.amount", False, "inferred", _CONTEXT),
+                                        Said("date", "item.date", False, "inferred", _CONTEXT),
+                                        Said("age_days", "item.age_days", False, "design", _AGE_DAYS)),
+                                  cues=("do you recognize", "do you recognise")),
+    "ASK_CLARIFY": SpeechSpec("pdf.3", "ask one short clarification",
+                              cues=("didn't catch", "did not catch", "say that again", "didn't understand",
+                                    "could you repeat")),
+    "ANSWER_KB": SpeechSpec("pdf.6", "provided the response stays grounded in the API result or knowledge base"),
+    "CONFIRM_RECORDED": SpeechSpec("pdf.2D", "The bot must not claim that the response was recorded unless the API "
+                                   "returns SUCCESS.",
+                                   says=(Said("disposition", "write.record_charge_response.disposition", False,
+                                              "inferred", "pdf.2D states the claim needs SUCCESS; that the "
+                                              "disposition said must be the one recorded follows from it"),),
+                                   cues=("recorded", "i've noted", "noted that", "saved your answer")),
+    "DISCLOSE_FEE": SpeechSpec("pdf.5", "Before selecting expedited delivery, the bot must tell the customer the $15 "
+                               "fee and obtain a clear confirmation.",
+                               says=(Said("delivery", "caller.delivery", True, "inferred",
+                                          "pdf.5 says to tell the customer the $15 fee; naming the option the fee "
+                                          "belongs to is inferred"),
+                                     Said("fee", "policy.delivery_fee_usd", True),
+                                     Said("delivery_days", "policy.delivery_days", False, "design",
+                                          "the PDF does not ask for the delivery time here; it is checked when said")),
+                               cues=("fee",)),
+    "CONFIRM_ACTION": SpeechSpec("pdf.2E", "If an eligible action is returned, confirm the requested action",
+                                 says=(Said("action", "caller.card_action", True),
+                                       Said("delivery", "caller.delivery", False, "inferred",
+                                            "the delivery option is part of the requested replacement")),
+                                 cues=("shall i", "should i", "go ahead", "would you like me to", "do you want me to")),
+    "ACTION_DONE": SpeechSpec("pdf.2E", "describe it as completed only after SUCCESS",
+                              says=(Said("action", "write.submit_card_action.action", True, "inferred",
+                                         "pdf.2E: 'describe it as completed only after SUCCESS'; naming the action "
+                                         "in that description is inferred"),
+                                    Said("delivery", "write.submit_card_action.delivery", False, "inferred",
+                                         "the delivery option is part of the completed replacement")),
+                              cues=("that's done", "it's done", "has been", "is complete", "completed")),
+    "ACK_DECLINED": SpeechSpec("pdf.2E", "This second intent must not erase the charge-review intent.",
+                               cues=("won't do that", "will not do that", "i won't", "no problem, i")),
+    "INFORM_NO_CARD_ACTION": SpeechSpec("pdf.4", "Offer only returned options.",
+                                        says=(Said("action", "caller.card_action", False, "design",
+                                                   "telling the customer that no option was returned is dialog "
+                                                   "design; pdf.4 says to offer only returned options"),),
+                                        cues=("isn't available", "is not available", "not available",
+                                              "can't offer", "cannot offer")),
+    "EXPLAIN_LIMIT": SpeechSpec("pdf.5", "The bot may review up to 4 recent transactions in one self-service "
+                                "session.",
+                                says=(Said("limit", "policy.limit:max_transactions_per_session", True, "design",
+                                           "pdf.5 gives the limit (4); explaining it to the customer and "
+                                           "transferring the rest is the brief's and this design's reading "
+                                           "(DESIGN section 8)"),),
+                                cues=("up to", "at most", "only review")),
+    "EXPLAIN_NO_TXNS": SpeechSpec("pdf.2B", "If the tool returns no transactions, explain that there are no charges "
+                                  "available for review",
+                                  cues=("no charges", "no transactions", "nothing to review")),
+    "SUMMARIZE": SpeechSpec("pdf.2F", "summarize the responses and any account action that actually completed",
+                            says=(Said("recorded", "writes.record_charge_response", True),
+                                  Said("actions", "writes.submit_card_action", True)),
+                            cues=("summary", "to summarize", "so far i recorded", "i recorded")),
+    "ASK_MORE_HELP": SpeechSpec("pdf.2B", "ask whether the customer needs other help",
+                                cues=("anything else", "other help", "help with anything")),
+    "TRANSFER": SpeechSpec("pdf.2F", "If the customer requests a human at any point, transfer the interaction.",
+                           cues=("transfer you", "representative", "connect you", "an agent")),
+    "END": SpeechSpec("pdf.7", "then end.", cues=("goodbye", "bye", "thank you for calling")),
+}
+
+# What a tool returns, field by field (pdf.4: get_review_transactions returns "transaction_id,
+# merchant, amount, date"). type: how the value is spoken and compared (money, date, days, text, id).
+TOOL_RETURNS: dict[str, tuple[str, str, tuple[tuple[str, str], ...]]] = {
+    "get_review_transactions": ("pdf.4", "transaction_id, merchant, amount, date",
+                                (("transaction_id", "id"), ("merchant", "text"), ("amount", "money"),
+                                 ("date", "date"))),
+}
+# Fields this harness's mock backend adds to a tool's result that the PDF does not list (source "design").
+DESIGN_RETURNS: dict[str, tuple[tuple[str, str, str], ...]] = {
+    "get_review_transactions": (("age_days", "days", "added so the 30-day review window (pdf.5) can be checked; "
+                                 "pdf.4 lists transaction_id, merchant, amount, date only"),),
+}
+
+# How the bot (not the customer) words a value. The customer synonyms (has_alias) are read too;
+# these add the bot's second-person and past-tense forms. Longer phrases win over the shorter
+# ones they contain, so "not recognized" is never read as "recognized".
+BOT_PHRASES: dict[str, tuple[str, ...]] = {
+    "RECOGNIZED": ("recognized", "you recognize", "recognize it", "is yours", "was yours", "you made it",
+                   "as yours"),
+    "UNRECOGNIZED": ("not recognized", "unrecognized", "don't recognize", "do not recognize", "didn't recognize",
+                     "isn't yours", "is not yours", "not yours", "wasn't yours", "didn't make", "not mine"),
+    "UNSURE": ("unsure", "not sure", "uncertain"),
+    "SECURE_CARD": ("secured", "locked", "frozen", "blocked", "secure your card", "lock your card"),
+    "REPLACE_CARD": ("replaced", "replacement card", "a new card", "card replacement", "replace your card"),
+    # a limit is worded around its number; {n} marks where the number goes
+    "max_transactions_per_session": ("up to {n} charges", "up to {n} transactions", "up to {n} recent transactions",
+                                     "at most {n} charges", "at most {n} transactions", "{n} charges per session",
+                                     "{n} charges in one session", "{n} transactions in one session"),
+    "lookback_days": ("previous {n} days", "previous {n} calendar days", "last {n} days", "last {n} calendar days",
+                      "past {n} days", "{n}-day window", "{n} day window", "within {n} days"),
+    "max_auth_attempts": ("{n} attempts", "{n} verification attempts", "{n} authentication attempts", "{n} tries"),
+}
+
+# Statements about a rule's fact, worded for and against it. The rule's stance decides which is
+# true: R27 says an unrecognized transaction is NOT proof of fraud (must_not), so a sentence that
+# asserts it contradicts the policy and one that denies it is supported. Denials are read first
+# ("not, by itself, proof of fraud" also contains "proof of fraud").
+STANCE_PHRASES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "R27": (("means fraud", "is fraud", "was fraud", "confirms fraud", "proves fraud", "proof of fraud",
+             "confirmation of fraud", "evidence of fraud"),
+            ("not proof of fraud", "not, by itself", "not by itself", "doesn't mean fraud", "does not mean fraud",
+             "isn't fraud", "is not fraud", "not necessarily fraud", "not confirmation of fraud", "doesn't prove",
+             "does not prove")),
+}
+
+
+# =========================================================================== PDF text
+_SEC_HEAD = re.compile(r"^(\d)\.\s+(Purpose|Operating Procedure|Voice and|Illustrative Tools|Small Knowledge|"
+                       r"Required vs|Illustrative Journey)")
+_SUB_HEAD = re.compile(r"^([A-F])\.\s+\S")
+
+
+def _norm(s: str) -> str:
+    s = re.sub(r"[\x7f-•●▪]", " ", s)        # bullet glyphs
+    s = s.replace("“", '"').replace("”", '"').replace("’", "'")
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def pdf_text(pdf_path: str | Path) -> str:
+    """Layout-preserving text (the tools table keeps its columns)."""
+    try:
+        import pypdf
+        return "\n".join(p.extract_text(extraction_mode="layout") or ""
+                         for p in pypdf.PdfReader(str(pdf_path)).pages)
+    except ImportError:
+        import subprocess
+        return subprocess.run(["pdftotext", "-layout", str(pdf_path), "-"], capture_output=True, text=True,
+                              check=True).stdout
+
+
+def _table_rows(lines: list[str]) -> list[str]:
+    """The tools table as one string per row: 'tool | when used | example output | required behaviour'."""
+    head = next(i for i, ln in enumerate(lines) if "Tool / API" in ln and "Required bot behavior" in ln)
+    h = lines[head]
+    cols = [h.index(x) for x in ("Tool / API", "When used", "Example output", "Required bot behavior")]
+    rows: list[list[list[str]]] = []
+    for ln in lines[head + 1:]:
+        if not ln.strip():
+            continue
+        cells = [ln[a:b].strip() if b else ln[a:].strip() for a, b in zip(cols, cols[1:] + [None])]
+        # a cell may start a few characters left of its header: take the leftover of the previous slice
+        if cells[0] and re.fullmatch(r"[a-z_]+", cells[0].split()[0]) and len(cells[0].split()) == 1:
+            rows.append([[c] if c else [] for c in cells])
+        elif rows:
+            for i, c in enumerate(cells):
+                if c:
+                    rows[-1][i].append(c)
+    return [" | ".join(" ".join(c) for c in r) for r in rows]
+
+
+def pdf_sections(text: str) -> dict[str, str]:
+    """Split the procedure into sections pdf.1 ... pdf.7 (section 2 into pdf.2A-2F).
+
+    Sentences inside a section are separated by ' ¶ ' where the layout breaks them
+    (bullets, table rows), so every evidence quote is one verbatim unit."""
+    raw: dict[str, list[str]] = defaultdict(list)
+    cur = "pdf.0"
+    for line in text.splitlines():
+        st = line.strip()
+        if st.startswith("Fictional POC Operating Procedure —") or re.fullmatch(r"Page \d+", st):
+            continue
+        if st.startswith("Fictional POC Operating Procedure") and cur == "pdf.0":
+            continue
+        m = _SEC_HEAD.match(st)
+        if m:
+            cur = f"pdf.{m.group(1)}"
+            continue
+        if cur.startswith("pdf.2"):
+            sm = _SUB_HEAD.match(st)
+            if sm and len(st) < 60:
+                cur = f"pdf.2{sm.group(1)}"
+                continue
+        if st.startswith("Transcription note"):
+            cur = "pdf.note"
+        raw[cur].append(line)
+    out = {}
+    for k, lines in raw.items():
+        if k == "pdf.0":
+            continue
+        if k == "pdf.4":
+            out[k] = " ¶ ".join(_norm(r) for r in _table_rows(lines))
+            continue
+        # a blank line, a bullet or a numbered step starts a new unit
+        units, buf = [], []
+        for ln in lines:
+            st = ln.strip()
+            new_unit = (not st) or re.match(r"^([\x7f-•]|\d+[A-C]?\.\s)", st)
+            if new_unit and buf:
+                units.append(_norm(" ".join(buf)))
+                buf = []
+            if st:
+                buf.append(st)
+        if buf:
+            units.append(_norm(" ".join(buf)))
+        out[k] = " ¶ ".join(u for u in units if u)
+    return out
+
+
+def _sentences(text: str) -> list[str]:
+    out = []
+    for unit in text.split(" ¶ "):
+        out += [p.strip() for p in re.split(r"(?<=[.!?])\s+(?=[A-Z0-9\"(])", unit) if p.strip()]
+    return out
+
+
+_STOP = set("the a an and or of to in on for is be by it its at as if any only this that from with not "
+            "before after bot customer must".split())
+
+
+def _words(s: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z0-9_$]+", s.lower()) if w not in _STOP}
+
+
+def best_evidence(section_text: str, query: str) -> str:
+    """The sentence of the section that shares the most content words with `query`."""
+    q = _words(query)
+    best, score = "", -1.0
+    for s in _sentences(section_text):
+        w = _words(s)
+        sc = len(q & w) / (len(q | w) ** 0.5 or 1)
+        if sc > score:
+            best, score = s, sc
+    return best
+
+
+# =========================================================================== build
+def build_kg(transcription: str | Path = TRANSCRIPTION, pdf_path: str | Path | None = None) -> dict[str, Any]:
+    """Build the JSON graph from the PDF (evidence) and its structured transcription (facts)."""
+    from ..s03_knowledge.store import _parse_table, _split_sections, ingest_markdown
+
+    md_text = Path(transcription).read_text()
+    ing = ingest_markdown(transcription)
+    _, sec = _split_sections(md_text)
+    if pdf_path is None:
+        cand = REPO_ROOT / "fictional_poc_operating_procedure_gpt_readable.pdf"
+        pdf_path = cand if cand.exists() else None
+    if pdf_path is None:
+        raise FileNotFoundError("the operating-procedure PDF is needed to attach evidence")
+    raw = pdf_text(pdf_path)
+    sections = pdf_sections(raw)
+    sections["program"] = PROGRAM_BRIEF
+    sections["lexicon"] = LEXICON_NOTE
+    sections["bot_lexicon"] = BOT_LEXICON_NOTE
+    sections["design"] = DESIGN_NOTE + " " + FLOW_NOTE
+
+    triples: list[dict[str, Any]] = []
+    seen: set[tuple] = set()
+
+    def ev(source: str, quote: str | None, query: str | None = None) -> str:
+        text = sections.get(source, "")
+        if quote and _norm(quote) in text:
+            return _norm(quote)
+        return best_evidence(text, query or quote or "") if text else ""
+
+    def add(h, r, t, kind, source, *, evidence=None, query=None, state=None, qualifiers=None, gms=False):
+        tail_type = ("number" if isinstance(t, (int, float)) or re.fullmatch(r"-?\d+(\.\d+)?", str(t))
+                     else "text" if len(str(t)) > 40 or " " in str(t) and kind not in ("vocabulary",) else "entity")
+        if kind == "vocabulary" and r == "has_alias":
+            tail_type = "alias"
+        key = (kind, h, r, str(t), json.dumps(qualifiers or {}, sort_keys=True))
+        if key in seen:
+            return
+        seen.add(key)
+        rec = {"id": f"T{len(triples) + 1:04d}", "head": h, "relation": r, "tail": t, "tail_type": tail_type,
+               "kind": kind}
+        if state:
+            rec["state"] = state
+        rec["source"] = source
+        rec["evidence"] = ev(source, evidence, query)
+        if qualifiers:
+            rec["qualifiers"] = qualifiers
+        rec["gms"] = gms
+        triples.append(rec)
+
+    # ---- policy: limits
+    for row in _parse_table(sec["limits"]):
+        k, src = row["key"], row["source"]
+        add(k, "is_a", "limit", "policy", src, query=row["text"])
+        add(k, "has_value", int(row["value"]), "policy", src, query=row["text"], qualifiers={"unit": row["unit"]},
+            gms=True)
+        add(k, "has_unit", row["unit"], "policy", src, query=row["text"])
+        add(k, "has_text", row["text"], "policy", src, query=row["text"])
+    # ---- policy: delivery options
+    for row in _parse_table(sec["replacement delivery options"]):
+        o, src = row["option"], row["source"]
+        q = f"{o.split('_')[0]} replacement delivery fee business days"
+        add(o, "is_a", "delivery_option", "policy", src, query=q)
+        add("replace_card", "delivered_by", o, "policy", src, query=q, gms=True)
+        add(o, "has_fee_usd", int(row["fee_usd"]), "policy", src, query=f"{o.split('_')[0]} fee $", gms=True)
+        add(o, "has_business_days_min", int(row["business_days_min"]), "policy", src,
+            query=f"{o.split('_')[0]} arrives business days", gms=True)
+        add(o, "has_business_days_max", int(row["business_days_max"]), "policy", src,
+            query=f"{o.split('_')[0]} arrives business days", gms=True)
+        add(o, "requires_fee_confirmation", row["requires_fee_confirmation"], "policy", src,
+            query="tell the customer the $15 fee and obtain a clear confirmation", gms=True)
+    # ---- policy: tools
+    for row in _parse_table(sec["tools"]):
+        tl = row["tool"]
+        q = f"{tl} {row['when_used']}"
+        add(tl, "is_a", "tool", "policy", "pdf.4", query=tl)
+        add(tl, "has_stage", row["stage"], "policy", "pdf.4", query=tl, gms=True)
+        add(tl, "when_used", row["when_used"], "policy", "pdf.4", query=q)
+        add(tl, "success_value", row["success_value"], "policy", "pdf.4", query=q, gms=True)
+        for fv in row["failure_values"].split(";"):
+            add(tl, "failure_value", fv.strip(), "policy", "pdf.4", query=q, gms=True)
+        add(tl, "on_failure", row["on_failure"], "policy", "pdf.4", query=q, gms=True)
+    # ---- trajectory: tool workflow
+    for w in ing.workflow:
+        src, quote = WORKFLOW_SOURCES.get(w.wid, ("pdf.7", None))
+        add(w.src, "enables", w.dst, "trajectory", src, evidence=quote, query=w.condition,
+            qualifiers={"edge": w.wid, "condition": w.condition}, gms=True)
+    # ---- policy: rules
+    rule_src, rule_ev = {}, {}
+    for r in ing.rules:
+        src = next((row["source"] for row in _parse_table(sec["rules"]) if row["rule_id"] == r.rule_id), "pdf")
+        rule_src[r.rule_id] = src
+        rule_ev[r.rule_id] = ev(src, RULE_EVIDENCE.get(r.rule_id), r.text)
+        e = rule_ev[r.rule_id]
+        add(r.rule_id, "is_a", "rule", "policy", src, evidence=e)
+        add(r.rule_id, "has_stance", r.stance, "policy", src, evidence=e, gms=True)
+        add(r.rule_id, "constrains", r.subject, "policy", src, evidence=e, gms=True)
+        add(r.subject, r.predicate, r.obj, "policy", src, evidence=e,
+            qualifiers={"rule": r.rule_id, "stance": r.stance}, gms=True)
+        add(r.rule_id, "has_text", r.text, "policy", src, evidence=e)
+    # ---- vocabulary: value sets + aliases
+    for row in _parse_table(sec["dispositions and other value sets"]):
+        vs, val = row["value_set"], row["value"]
+        src, quote = VALUE_SET_SOURCES.get(vs, ("pdf", None))
+        add(val, "member_of", vs, "vocabulary", src, evidence=quote, query=val, gms=True)
+        for a in [x.strip() for x in row["aliases"].split(";") if x.strip()]:
+            add(val, "has_alias", a, "vocabulary", "lexicon", evidence=LEXICON_NOTE,
+                qualifiers={"value_set": vs}, gms=True)
+    for vs, vals in EXTRA_VALUE_SETS.items():
+        for v in vals:
+            add(v, "member_of", vs, "vocabulary", "pdf.3",
+                query="General policy questions may be answered from the knowledge base.")
+    # ---- vocabulary: dialog acts and their slots
+    for act, slots in ACT_SCHEMA.items():
+        src = ACT_SOURCE[act]
+        add(act, "is_a", "dialog_act", "vocabulary", src, evidence=ACT_EVIDENCE[act])
+        for slot, (vs, req) in slots.items():
+            add(act, "has_slot", slot, "vocabulary", src, evidence=ACT_EVIDENCE[act],
+                qualifiers={"values_from": vs, "required": req}, gms=True)
+    # ---- domain model
+    for row in _parse_table(sec["domain model"]):
+        add(row["head"], row["relation"], row["tail"], "domain", row["source"],
+            query=f"{row['head']} {row['relation']} {row['tail']}".replace("_", " "), gms=True)
+    # ---- policy: escalation triggers
+    for row in _parse_table(sec["escalation triggers"]):
+        tg = row["trigger"]
+        rs, re_ = rule_src[row["rule"]], rule_ev[row["rule"]]
+        add(tg, "is_a", "escalation_trigger", "policy", rs, evidence=re_)
+        add(tg, "justified_by", row["rule"], "policy", rs, evidence=re_, gms=True)
+        add(tg, "has_condition", row["condition"], "policy", rs, evidence=re_)
+    # ---- policy: knowledge base + required language
+    for kid, s in ing.kb_sentences:
+        add("knowledge_base", "states", s, "policy", "pdf.5", evidence=s, qualifiers={"kb_id": kid})
+    if ing.required_language.get("opening"):
+        add("opening_statement", "has_text", ing.required_language["opening"], "policy", "pdf.6",
+            evidence=ing.required_language["opening"])
+    # ---- state layer
+    for sid, st in STATES.items():
+        add(sid, "is_a", "dialog_state", "state", st.source, evidence=st.evidence, state=sid)
+        add(sid, "in_stage", st.stage, "state", st.source, evidence=st.evidence, state=sid, gms=True)
+        add(sid, "prompts_customer", "yes" if st.prompts else "no", "state", st.source, evidence=st.evidence,
+            state=sid)
+        if st.prompts:
+            for act in tuple(st.accepts) + GLOBAL_ACTS:
+                src = ACT_SOURCE[act] if act in GLOBAL_ACTS else st.source
+                add(sid, "accepts_act", act, "state", src,
+                    evidence=ACT_EVIDENCE[act] if act in GLOBAL_ACTS else st.evidence, state=sid, gms=True)
+            add(sid, "interprets_yes_as", st.yes, "state", st.source, evidence=st.evidence, state=sid, gms=True)
+            add(sid, "interprets_no_as", st.no, "state", st.source, evidence=st.evidence, state=sid, gms=True)
+        for rid in st.rules:
+            add(sid, "applies_rule", rid, "state", rule_src[rid], evidence=rule_ev[rid], state=sid, gms=True)
+        for lim in st.limits:
+            row = next(x for x in _parse_table(sec["limits"]) if x["key"] == lim)
+            add(sid, "limited_by", lim, "state", row["source"], query=row["text"], state=sid, gms=True)
+        for tl in st.tools:
+            add(sid, "calls_tool", tl, "state", "pdf.4", query=tl, state=sid, gms=True)
+    # the executable dialog flow (s02_graph/triples.py; run by flow.GraphOracle)
+    for row in flow_rows():
+        add(row.src, "leads_to", row.dst, "trajectory", row.source, evidence=row.evidence, query=row.when,
+            state=row.src, qualifiers=row.qualifiers(), gms=True)
+    for act, fields in FLOW_CARRIES.items():
+        for i, (name, expr, optional) in enumerate(fields):
+            q = {"from": expr, "order": i}
+            if optional:
+                q["optional"] = True
+            add(act, "carries", name, "flow", "design", evidence=FLOW_NOTE, state=act, qualifiers=q)
+    for tool, targs in FLOW_TOOL_ARGS.items():
+        for name, expr in targs:
+            add(tool, "has_arg", name, "flow", "pdf.4", query=f"{tool} {name}", qualifiers={"from": expr})
+    for tg, sts in TRIGGER_STATES.items():
+        for sid in sts:
+            add(tg, "fires_in_state", sid, "state", STATES[sid].source, evidence=STATES[sid].evidence, state=sid,
+                gms=True)
+
+    # ---- speech layer: what each bot act says, where its truth lives, and how the bot words it
+    for tool, (src, quote, fields) in TOOL_RETURNS.items():
+        for name, ty in fields:
+            add(tool, "returns_field", name, "speech", src, evidence=quote, qualifiers={"type": ty})
+    for tool, fields in DESIGN_RETURNS.items():
+        for name, ty, note in fields:
+            add(tool, "returns_field", name, "speech", "design", evidence=DESIGN_NOTE,
+                qualifiers={"type": ty, "basis": "design", "note": note})
+    for act, spec in BOT_SPEECH.items():
+        for i, said in enumerate(spec.says):
+            q = {"from": said.source, "required": said.required, "order": i, "basis": said.basis}
+            if said.note:
+                q["note"] = said.note
+            add(act, "says", said.field, "speech", spec.source, evidence=spec.evidence, state=act, qualifiers=q)
+        for cue in spec.cues:
+            add(act, "spoken_cue", cue, "speech", "bot_lexicon", evidence=BOT_LEXICON_NOTE, state=act)
+    for value, phrases in BOT_PHRASES.items():
+        for ph in phrases:
+            add(value, "spoken_as", ph, "speech", "bot_lexicon", evidence=BOT_LEXICON_NOTE)
+    for rid, (asserted, denied) in STANCE_PHRASES.items():
+        for ph in asserted:
+            add(rid, "asserted_by", ph, "speech", "bot_lexicon", evidence=BOT_LEXICON_NOTE)
+        for ph in denied:
+            add(rid, "denied_by", ph, "speech", "bot_lexicon", evidence=BOT_LEXICON_NOTE)
+
+    kg = {
+        "schema": SCHEMA_ID,
+        "title": ing.title,
+        "source": {
+            "document": Path(pdf_path).name,
+            "sha256": hashlib.sha256(Path(pdf_path).read_bytes()).hexdigest(),
+            "transcription": Path(transcription).name,
+            "sections": dict(sorted(sections.items())),
+        },
+        "relations": _relation_docs(),
+        "triples": triples,
+    }
+    kg["sha256"] = _content_hash(kg)
+    return kg
+
+
+def _relation_docs() -> dict[str, str]:
+    return {
+        "says": "bot act -> a field it tells the customer (qualifiers: from = where its truth lives, required, order, "
+                "basis = stated / inferred / interpreted / design, note)",
+        "spoken_cue": "bot act -> words that mark the act when it carries no information of its own",
+        "spoken_as": "value -> how the bot words it (second person, past tense: 'not recognized', 'replaced')",
+        "returns_field": "tool -> a field of what it returns (qualifiers: type money / date / days / text / id)",
+        "asserted_by": "rule -> words that assert the rule's fact ('means fraud')",
+        "denied_by": "rule -> words that deny the rule's fact ('not, by itself, proof of fraud')",
+        "enables": "workflow node -> next workflow node (qualifiers: edge, condition)",
+        "leads_to": "dialog state -> next dialog state (qualifiers: on = customer act, auto, else or any; when = the "
+                    "procedure's words; match / pre / guard / do / say = executable flow (flow.py); rules = rules "
+                    "exercised when taken; edges = workflow edges; flush / quiet / discard = turn boundaries)",
+        "carries": "bot act -> a field it carries in the expected trace (qualifiers: from = expression, optional)",
+        "has_arg": "tool -> argument (qualifiers: from = expression over the run)",
+        "in_stage": "dialog state -> journey stage",
+        "accepts_act": "dialog state -> customer meaning card (act) admissible in that state",
+        "interprets_yes_as": "dialog state -> what a bare 'yes' means there",
+        "interprets_no_as": "dialog state -> what a bare 'no' means there",
+        "applies_rule": "dialog state -> policy rule that governs it",
+        "limited_by": "dialog state -> exact limit that applies there",
+        "calls_tool": "dialog state -> tool the bot may call next",
+        "fires_in_state": "escalation trigger -> dialog state where it can fire",
+        "prompts_customer": "dialog state -> yes/no: does the customer answer in this state",
+        "has_slot": "dialog act -> slot (qualifiers: values_from, required)",
+        "member_of": "canonical value -> value set", "has_alias": "canonical value -> customer synonym",
+        "has_value": "limit -> exact value (qualifier: unit)",
+        "has_stance": "rule -> must / must_not / may", "constrains": "rule -> subject",
+        "justified_by": "escalation trigger -> rule",
+    }
+
+
+def _content_hash(kg: dict) -> str:
+    body = {k: v for k, v in kg.items() if k != "sha256"}
+    return hashlib.sha256(json.dumps(body, sort_keys=True, default=str).encode()).hexdigest()
+
+
+# =========================================================================== load + read
+class PolicyKG:
+    """Read access to the JSON graph; every later step goes through this class."""
+
+    def __init__(self, data: dict[str, Any], path: Path | None = None):
+        self.data = data
+        self.path = path
+        self.triples: list[dict[str, Any]] = data["triples"]
+        self.sha256: str = data.get("sha256") or _content_hash(data)
+        self._by: dict[str, list[dict]] = defaultdict(list)
+        for t in self.triples:
+            self._by[t["relation"]].append(t)
+
+    # ------------------------------------------------------------- io
+    @classmethod
+    def load(cls, path: str | Path | None = None) -> "PolicyKG":
+        if path is None:                         # the active domain pack's graph
+            from ..s01_packs.loading import current
+            path = current().graph_path
+        p = Path(path)
+        kg = cls(json.loads(p.read_text(encoding="utf-8")), p)
+        errs = kg.validate()
+        if errs:
+            raise ValueError(f"{p.name}: " + "; ".join(errs[:8]))
+        return kg
+
+    def save(self, path: str | Path) -> Path:
+        p = Path(path)
+        p.write_text(json.dumps(self.data, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        return p
+
+    # ------------------------------------------------------------- generic
+    def where(self, relation: str | None = None, head: str | None = None, tail: Any = None,
+              kind: str | None = None) -> list[dict]:
+        rows = self._by.get(relation, []) if relation else self.triples
+        return [t for t in rows if (head is None or t["head"] == head) and (tail is None or t["tail"] == tail)
+                and (kind is None or t["kind"] == kind)]
+
+    def tails(self, head: str, relation: str) -> list:
+        return [t["tail"] for t in self.where(relation, head=head)]
+
+    def hrt(self, gms_only: bool = False) -> list[tuple[str, str, str]]:
+        out = []
+        for t in self.triples:
+            if gms_only and not t.get("gms"):
+                continue
+            tr = (t["head"], t["relation"], str(t["tail"]))
+            if tr not in out:
+                out.append(tr)
+        return out
+
+    # ------------------------------------------------------------- states
+    @property
+    def states(self) -> list[str]:
+        return [t["head"] for t in self.where("is_a", tail="dialog_state")]
+
+    @property
+    def prompt_states(self) -> list[str]:
+        return [t["head"] for t in self.where("prompts_customer", tail="yes")]
+
+    def stage(self, state: str) -> str | None:
+        v = self.tails(state, "in_stage")
+        return v[0] if v else None
+
+    def accepts(self, state: str | None, act: str) -> bool:
+        if state is None or state not in self.prompt_states:
+            return True                                    # outside the dialog-state machine: no restriction
+        return act in self.tails(state, "accepts_act")
+
+    def accepted_acts(self, state: str) -> list[str]:
+        return self.tails(state, "accepts_act")
+
+    def interprets(self, state: str | None) -> tuple[str | None, str | None]:
+        if not state:
+            return None, None
+        y, n = self.tails(state, "interprets_yes_as"), self.tails(state, "interprets_no_as")
+        return (y[0] if y else None), (n[0] if n else None)
+
+    def rules_for(self, state: str) -> list[str]:
+        return self.tails(state, "applies_rule")
+
+    def limits_for(self, state: str) -> list[str]:
+        return self.tails(state, "limited_by")
+
+    def tools_for(self, state: str) -> list[str]:
+        return self.tails(state, "calls_tool")
+
+    def transitions(self, state: str | None = None) -> list[dict]:
+        return [dict(src=t["head"], dst=t["tail"], **t.get("qualifiers", {}))
+                for t in self.where("leads_to", head=state)]
+
+    def triggers_for(self, state: str) -> list[str]:
+        return [t["head"] for t in self.where("fires_in_state", tail=state)]
+
+    def state_triples(self, state: str) -> list[dict]:
+        return [t for t in self.triples if t.get("state") == state]
+
+    # ------------------------------------------------------------- vocabulary
+    def value_set(self, name: str) -> list[str]:
+        return [t["head"] for t in self.where("member_of", tail=name)]
+
+    def aliases(self, value: str) -> list[str]:
+        return self.tails(value, "has_alias")
+
+    def slot_schema(self, act: str) -> dict[str, dict]:
+        return {t["tail"]: t.get("qualifiers", {}) for t in self.where("has_slot", head=act)}
+
+    def rule_text(self, rule_id: str) -> str:
+        v = self.tails(rule_id, "has_text")
+        return v[0] if v else ""
+
+    def limit(self, key: str) -> int | float | None:
+        v = self.tails(key, "has_value")
+        return v[0] if v else None
+
+    # ------------------------------------------------------------- speech layer
+    def says(self, act: str) -> list[dict[str, Any]]:
+        """What a bot act tells the customer: [{field, from, required}] in speaking order."""
+        rows = [{"field": t["tail"], **t.get("qualifiers", {})} for t in self.where("says", head=act)]
+        return sorted(rows, key=lambda r: r.get("order", 0))
+
+    def spoken_cues(self, act: str) -> list[str]:
+        return self.tails(act, "spoken_cue")
+
+    def spoken_as(self, value: str) -> list[str]:
+        """How the bot words a value: its curated bot phrasings plus the customer synonyms."""
+        return self.tails(value, "spoken_as") + self.aliases(value)
+
+    def returned_fields(self, tool: str) -> dict[str, str]:
+        return {t["tail"]: t.get("qualifiers", {}).get("type", "text") for t in self.where("returns_field", head=tool)}
+
+    def stance_phrases(self, rule_id: str) -> tuple[list[str], list[str]]:
+        return self.tails(rule_id, "asserted_by"), self.tails(rule_id, "denied_by")
+
+    def rule_fact(self, rule_id: str) -> tuple[str, str, str] | None:
+        """(subject, predicate, object) a rule states, with its stance in the rule's has_stance."""
+        for t in self.triples:
+            q = t.get("qualifiers") or {}
+            if q.get("rule") == rule_id and "stance" in q and t["kind"] == "policy":
+                return t["head"], t["relation"], str(t["tail"])
+        return None
+
+    def _speech_errors(self) -> list[str]:
+        """The speech layer refers only to what the graph declares."""
+        errs = []
+        states, tools = set(self.states), {t["head"] for t in self.where("is_a", tail="tool")}
+        limits = {t["head"] for t in self.where("is_a", tail="limit")}
+        slots = {t["tail"] for t in self.where("has_slot")}
+        returned = {t["tail"] for t in self.where("returns_field")}
+        for t in self.where("says"):
+            if t["head"] not in states:
+                errs.append(f"{t['id']}: says on unknown state {t['head']}")
+            src = str((t.get("qualifiers") or {}).get("from", ""))
+            kind, _, rest = src.partition(".")
+            if kind not in BINDING_KINDS:
+                errs.append(f"{t['id']}: unknown binding {src!r}")
+            elif kind == "item" and rest not in returned:
+                errs.append(f"{t['id']}: {src} is not a returned field")
+            elif kind in ("write", "writes") and rest.split(".")[0] not in tools:
+                errs.append(f"{t['id']}: {src} names no tool")
+            elif kind == "caller" and rest not in slots:
+                errs.append(f"{t['id']}: {src} names no customer slot")
+            elif kind == "policy" and rest.startswith("limit:") and rest[6:] not in limits:
+                errs.append(f"{t['id']}: {src} names no limit")
+        unspoken = states - {t["head"] for t in self.where("says")} - {t["head"] for t in self.where("spoken_cue")}
+        unspoken -= {"ANSWER_KB"}                          # a policy answer is checked claim by claim
+        if self.where("says") and unspoken:
+            errs.append(f"states with no speech declaration: {sorted(unspoken)}")
+        return errs
+
+    # ------------------------------------------------------------- checks
+    def validate(self) -> list[str]:
+        errs = []
+        if self.data.get("schema") != SCHEMA_ID:
+            errs.append(f"schema {self.data.get('schema')!r} != {SCHEMA_ID}")
+        ids = [t["id"] for t in self.triples]
+        if len(ids) != len(set(ids)):
+            errs.append("duplicate triple ids")
+        for t in self.triples:
+            for k in ("head", "relation", "tail", "kind", "source"):
+                if k not in t:
+                    errs.append(f"{t.get('id')}: missing {k}")
+        secs = self.data.get("source", {}).get("sections", {})
+        for t in self.triples:
+            if t["source"] not in secs:
+                errs.append(f"{t['id']}: unknown source {t['source']}")
+            elif t.get("evidence") and _norm(t["evidence"]) not in secs[t["source"]]:
+                errs.append(f"{t['id']}: evidence not found verbatim in {t['source']}")
+        states = set(self.states)
+        for tr in self.where("leads_to"):
+            for n in (tr["head"], tr["tail"]):
+                if n not in states:
+                    errs.append(f"{tr['id']}: unknown state {n}")
+        acts = {t["head"] for t in self.where("is_a", tail="dialog_act")}
+        for tr in self.where("accepts_act"):
+            if tr["tail"] not in acts:
+                errs.append(f"{tr['id']}: unknown act {tr['tail']}")
+        rules = {t["head"] for t in self.where("is_a", tail="rule")}
+        for tr in self.where("applies_rule"):
+            if tr["tail"] not in rules:
+                errs.append(f"{tr['id']}: unknown rule {tr['tail']}")
+        reach, todo = {"OPENING"}, ["OPENING"]
+        while todo:
+            s = todo.pop()
+            for tr in self.where("leads_to", head=s):
+                if tr["tail"] not in reach:
+                    reach.add(tr["tail"])
+                    todo.append(tr["tail"])
+        if states - reach:
+            errs.append(f"unreachable states: {sorted(states - reach)}")
+        covered = {t["tail"] for t in self.where("applies_rule")}
+        if rules - covered:
+            errs.append(f"rules applied in no state: {sorted(rules - covered)}")
+        errs += self._speech_errors()
+        if self.data.get("sha256") and self.data["sha256"] != _content_hash(self.data):
+            errs.append("content hash mismatch (file edited without rebuilding its hash)")
+        return errs
+
+    def summary(self) -> dict[str, Any]:
+        kinds: dict[str, int] = defaultdict(int)
+        for t in self.triples:
+            kinds[t["kind"]] += 1
+        return {"triples": len(self.triples), "by_kind": dict(kinds), "gms_triples": len(self.hrt(gms_only=True)),
+                "states": len(self.states), "prompt_states": len(self.prompt_states),
+                "transitions": len(self.where("leads_to")), "rules": len(self.where("is_a", tail="rule")),
+                "sources": sorted({t["source"] for t in self.triples}), "sha256": self.sha256[:16],
+                "document": self.data["source"]["document"]}
+
+    # ------------------------------------------------------------- compile
+    def to_markdown(self) -> str:
+        """Render the structured policy the compiler ingests (s03_knowledge/store.py)."""
+        L = []
+        row = lambda *c: "| " + " | ".join(str(x) for x in c) + " |"
+        L += [f"# {self.data['title']}", "",
+              f"Rendered from {self.path.name if self.path else 'the policy graph'} "
+              f"(sha256 {self.sha256[:16]}); source document {self.data['source']['document']}.", ""]
+        L += ["## 1. Limits", "", row("key", "value", "unit", "source", "text"), row(*["---"] * 5)]
+        for t in self.where("is_a", tail="limit"):
+            k = t["head"]
+            L.append(row(k, self.limit(k), self.tails(k, "has_unit")[0], t["source"], self.tails(k, "has_text")[0]))
+        L += ["", "## 2. Replacement delivery options", "",
+              row("option", "fee_usd", "business_days_min", "business_days_max", "requires_fee_confirmation",
+                  "source"), row(*["---"] * 6)]
+        for t in self.where("is_a", tail="delivery_option"):
+            o = t["head"]
+            L.append(row(o, self.tails(o, "has_fee_usd")[0], self.tails(o, "has_business_days_min")[0],
+                         self.tails(o, "has_business_days_max")[0], self.tails(o, "requires_fee_confirmation")[0],
+                         t["source"]))
+        L += ["", "## 3. Tools", "",
+              row("tool", "stage", "when_used", "success_value", "failure_values", "on_failure", "source"),
+              row(*["---"] * 7)]
+        for t in self.where("is_a", tail="tool"):
+            tl = t["head"]
+            L.append(row(tl, self.tails(tl, "has_stage")[0], self.tails(tl, "when_used")[0],
+                         self.tails(tl, "success_value")[0], ";".join(self.tails(tl, "failure_value")),
+                         self.tails(tl, "on_failure")[0], t["source"]))
+        L += ["", "## 4. Workflow", ""]
+        for t in self.where("enables"):
+            q = t["qualifiers"]
+            L.append(f"- {q['edge']}: {t['head']} -> {t['tail']} : {q['condition']}")
+        L += ["", "## 5. Rules", "", row("rule_id", "stance", "subject", "predicate", "object", "source", "text"),
+              row(*["---"] * 7)]
+        reified = {t["qualifiers"]["rule"]: t for t in self.triples
+                   if t.get("qualifiers", {}).get("rule") and t["kind"] == "policy" and "stance" in t["qualifiers"]}
+        for t in self.where("is_a", tail="rule"):
+            rid = t["head"]
+            f = reified[rid]
+            L.append(row(rid, f["qualifiers"]["stance"], f["head"], f["relation"], f["tail"], t["source"],
+                         self.rule_text(rid)))
+        L += ["", "## 6. Dispositions and other value sets", "", row("value_set", "value", "aliases"),
+              row(*["---"] * 3)]
+        for t in self.where("member_of"):
+            if t["tail"] in EXTRA_VALUE_SETS:
+                continue
+            L.append(row(t["tail"], t["head"], "; ".join(self.aliases(t["head"]))))
+        L += ["", "## 7. Domain model", "", row("head", "relation", "tail", "source"), row(*["---"] * 4)]
+        for t in self.triples:
+            if t["kind"] == "domain":
+                L.append(row(t["head"], t["relation"], t["tail"], t["source"]))
+        L += ["", "## 8. Escalation triggers", "", row("trigger", "condition", "rule"), row(*["---"] * 3)]
+        for t in self.where("is_a", tail="escalation_trigger"):
+            tg = t["head"]
+            L.append(row(tg, self.tails(tg, "has_condition")[0], self.tails(tg, "justified_by")[0]))
+        L += ["", "## 9. Knowledge base", ""]
+        L += [t["tail"] for t in self.where("states", head="knowledge_base")]
+        op = self.tails("opening_statement", "has_text")
+        L += ["", "## 10. Required language", "", f'Required opening: "{op[0]}"' if op else "", ""]
+        return "\n".join(L)
+
+    def entity_types(self) -> dict[str, str]:
+        out = {}
+        for t in self.where("is_a"):
+            out.setdefault(t["head"], t["tail"])
+        for t in self.where("in_stage"):
+            out.setdefault(t["tail"], "stage")
+        for t in self.where("has_slot"):
+            out.setdefault(t["tail"], "slot")
+        for vs, vals in EXTRA_VALUE_SETS.items():
+            for v in vals:
+                out.setdefault(v, vs)
+        return out
+
+    # ------------------------------------------------------------- consistency
+    def consistency(self, store) -> dict[str, Any]:
+        """Does the compiled/trained store carry exactly what the graph states?"""
+        missing = [tr for tr in self.hrt(gms_only=True) if tr not in store.triples
+                   and not (tr[1] == "has_value" and self.limit(tr[0]) is not None)]
+        enm = []
+        for t in self.where("has_value"):
+            got = store.lookup_enm("limit", t["head"])
+            enm.append({"key": t["head"], "kg": t["tail"], "store": got, "agree": float(got) == float(t["tail"])})
+        for o in [t["head"] for t in self.where("is_a", tail="delivery_option")]:
+            for rel, cat in (("has_fee_usd", "delivery_fee_usd"), ("has_business_days_min", "delivery_days_min"),
+                             ("has_business_days_max", "delivery_days_max")):
+                v = self.tails(o, rel)[0]
+                got = store.lookup_enm(cat, o)
+                enm.append({"key": f"{cat}/{o}", "kg": v, "store": got, "agree": float(got) == float(v)})
+        wf = {(w.wid, w.src, w.dst) for w in store.workflow}
+        kgwf = {(t["qualifiers"]["edge"], t["head"], t["tail"]) for t in self.where("enables")}
+        rules = set(store.rules) == {t["head"] for t in self.where("is_a", tail="rule")}
+        return {"missing_in_store": missing, "enm": enm, "enm_agree": all(e["agree"] for e in enm),
+                "workflow_agree": wf == kgwf, "rules_agree": rules,
+                "all_agree": not missing and all(e["agree"] for e in enm) and wf == kgwf and rules}
+
+
+# =========================================================================== source resolution
+def resolve_policy(path: str | Path) -> tuple[Path, PolicyKG | None]:
+    """A policy path the compiler can read, plus the graph when the source is the JSON.
+
+    The JSON is rendered to the compiler's structured form once, under a name keyed by
+    its content hash, so the compiled store (and every cache keyed on it) follows the JSON."""
+    p = Path(path)
+    if p.suffix.lower() != ".json":
+        return p, None
+    from .compact import PolicyGraph, graph_kg, is_v2
+    if is_v2(p):
+        g = PolicyGraph.load(p)
+        kg = graph_kg(g)
+        from ..s03_knowledge.build import CACHE
+        out = CACHE / "policy" / f"{p.stem}.{g.sha256[:16]}.md"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        text = kg.to_markdown()
+        if not out.exists() or out.read_text() != text:
+            out.write_text(text)
+        return out, kg
+    kg = PolicyKG.load(p)
+    from ..s03_knowledge.build import CACHE
+    out = CACHE / "policy" / f"{p.stem}.{kg.sha256[:16]}.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    text = kg.to_markdown()
+    if not out.exists() or out.read_text() != text:
+        out.write_text(text)
+    return out, kg
+
+
+# =========================================================================== CLI
+def main(argv: Iterable[str] | None = None) -> None:
+    """Command line: build charge review's graph from the PDF, or check a graph file."""
+    ap = argparse.ArgumentParser(prog="python -m gmsjourney.s02_graph.triples")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    b = sub.add_parser("build", help="build the policy graph JSON from the PDF and its transcription")
+    b.add_argument("--pdf", default=None)
+    b.add_argument("--transcription", default=str(TRANSCRIPTION))
+    b.add_argument("--out", default=str(KG_PATH))
+    c = sub.add_parser("check", help="validate a policy graph JSON")
+    c.add_argument("path", nargs="?", default=str(KG_PATH))
+    a = ap.parse_args(list(argv) if argv is not None else None)
+    if a.cmd == "build":
+        kg = PolicyKG(build_kg(a.transcription, a.pdf))
+        errs = kg.validate()
+        kg.save(a.out)
+        print(json.dumps(kg.summary(), indent=1))
+        print("validation:", "ok" if not errs else errs)
+    else:
+        kg = PolicyKG.load(a.path)
+        print(json.dumps(kg.summary(), indent=1))
+
+
+if __name__ == "__main__":
+    main()

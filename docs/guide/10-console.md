@@ -4,10 +4,10 @@
 voicebot/
 ├── notebooks/journey_console.ipynb     starts the console from Jupyter
 └── gmsjourney/
-    ├── packs/  graph/  knowledge/  cases/  rewording/  bots/  checks/  campaign/  reports/
-    └── console/              ◀ this chapter
+    ├── s01_packs/  s02_graph/  s03_knowledge/  s04_cases/  s05_rewording/  s06_bots/  s07_checks/  s08_campaign/  s09_reports/
+    └── s10_console/          ◀ this chapter
         ├── __init__.py       start / show / stop / running (from Python or Jupyter)
-        ├── __main__.py       python -m gmsjourney.console
+        ├── __main__.py       python -m gmsjourney.s10_console
         ├── server.py         the HTTP server and its JSON API
         ├── studio.py         the project studio: graph view, factor editor, preview, save
         ├── runs.py           campaign runs in their own processes; step summaries; the case explorer
@@ -24,12 +24,12 @@ graph decides, edit what the project configures, run campaigns, read the verdict
 console is a **cockpit** over the same objects the notebook uses; nothing in it is specific to a pack.
 
 ```python
-from gmsjourney import console
+from gmsjourney import s10_console as console
 console.show()      # start it in a background thread and show it in the notebook
 console.stop()      # stop it; runs in progress keep going
 ```
 
-or `python -m gmsjourney.console --port 8790` from a shell. The page keeps two sources apart everywhere, in colour and
+or `python -m gmsjourney.s10_console --port 8790` from a shell. The page keeps two sources apart everywhere, in colour and
 in words: **what the graph decides** (read-only) and **what the project sets** (editable).
 
 ```mermaid
@@ -39,9 +39,9 @@ flowchart LR
     S --> GR["graphs.py<br/>(sections, editor, sphere)"]
     S --> BO["bots.py<br/>(bot under test, playground)"]
     S --> RU["runs.py<br/>(start, follow, read)"]
-    RU -->|"python -m gmsjourney.console.runs <dir>"| W["worker process<br/>run_campaign(on_step=...)"]
+    RU -->|"python -m gmsjourney.s10_console.runs <dir>"| W["worker process<br/>run_campaign(on_step=...)"]
     W -->|events.jsonl| RU
-    S --> V["reports/verdict.py"]
+    S --> V["s09_reports/verdict.py"]
 ```
 
 ## \_\_init\_\_.py and \_\_main\_\_.py — starting it
@@ -86,18 +86,18 @@ constraints, categories, tags). It offers:
   `normalize` undoes what JSON does to level names in the browser.
 
 It runs on the symbolic store compiled from the graph (about a second; no training, no licence) and listens on
-127.0.0.1 only. `python -m gmsjourney.console.studio --pack <pack>` serves it alone (`studio_ui.html`).
+127.0.0.1 only. `python -m gmsjourney.s10_console.studio --pack <pack>` serves it alone (`studio_ui.html`).
 
 ## runs.py — campaign runs
 
 ```
-console/
+s10_console/
 └── runs.py   ◀   PART 1 summarize, headline, done_steps, clean     PART 2 load, index, detail
                   PART 3 Runs, devices, check_device                 PART 4 main (the worker)
 ```
 
 * **Part 3** `Runs`: each run is a folder `output/console_runs/<id>/` holding `job.json` (the settings), `events.jsonl`
-  and the campaign's `out/`. Starting a run launches `python -m gmsjourney.console.runs <run_dir>` as **its own
+  and the campaign's `out/`. Starting a run launches `python -m gmsjourney.s10_console.runs <run_dir>` as **its own
   process** (one at a time), with the device in `GMSJOURNEY_DEVICE`. The worker is the leader of its own process group,
   so Cancel stops everything the campaign started, and its pid is in the run's first event, so a run started before a
   kernel restart is still found and can still be cancelled. `devices()` lists cpu and every CUDA GPU torch can see;
@@ -116,7 +116,7 @@ console/
 ## bots.py — the bot under test and the playground
 
 ```
-console/
+s10_console/
 └── bots.py   ◀   PART 1 extract (attachments)   PART 2 make_factory, suggested, check_gateway
                   PART 3 the playground: Bench, cases, Session, start, get
 ```
@@ -137,7 +137,7 @@ console/
 ## graphs.py — the graph pages
 
 ```
-console/
+s10_console/
 └── graphs.py   ◀   PART 1 open_graph, sections, core_segments, the editor
                     PART 2 the GMS sphere
 ```

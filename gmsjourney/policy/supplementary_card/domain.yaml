@@ -2,7 +2,7 @@
 #
 # The policy graph (supplementary_card_kg.json, schema gmsjourney.policy_graph/2) states the
 # whole policy and dialog; every other section a campaign reads (tools, figures, fixtures, rules,
-# flow, journeys, checks) is mined from it (gmsjourney/graph/model.py: derive_config). This file
+# flow, journeys, checks) is mined from it (gmsjourney/s02_graph/compact.py: derive_config). This file
 # adds only what a graph cannot carry: how customers word things (lexicon).
 
 domain:

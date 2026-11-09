@@ -3,13 +3,13 @@
 ```
 voicebot/
 └── gmsjourney/
-    ├── packs/  graph/
-    ├── knowledge/          ◀ this chapter
+    ├── s01_packs/  s02_graph/
+    ├── s03_knowledge/      ◀ this chapter
     │   ├── __init__.py
     │   ├── store.py        ingest, the symbolic store, canonicals, the GEODE view, the pack's store
     │   ├── build.py        self-correction, the knowlytix backend, the trained store
     │   └── questions.py    policy questions: true answers, grading, mining
-    ├── cases/  rewording/  bots/  checks/  campaign/  reports/  console/
+    ├── s04_cases/  s05_rewording/  s06_bots/  s07_checks/  s08_campaign/  s09_reports/  s10_console/
     └── policy/
 ```
 
@@ -47,7 +47,7 @@ flowchart LR
 ## store.py — the symbolic store
 
 ```
-knowledge/
+s03_knowledge/
 └── store.py   ◀   PART 1 ingest (Source, CandidateTriple, CandidateENM, Rule, WorkflowEdge, IngestResult)
                    PART 2 GMSStore, ENMEntry, IntegrityError
                    PART 3 export_canonicals (gms_canonicals.json)
@@ -110,7 +110,7 @@ it. The console, the studio and the playground run entirely on this.
 ## build.py — building the store
 
 ```
-knowledge/
+s03_knowledge/
 └── build.py   ◀   PART 1 build_store (self-correction), oracle_property, to_dot
                    PART 2 the knowlytix backend: available, require, describe, encoders, device
                    PART 3 build_kx_store, load_kx_store, CachedKX, KXPolicyStore
@@ -137,7 +137,7 @@ Each decision is a `Correction(iteration, decision, fact, reason, source)`; the 
 (convergence), then structural critics flag workflow nodes without a type and rules that reference an unknown limit.
 `build_store(..., inject_misread=True)` plants an OCR-style misread (expedited fee `$150` instead of `$15`) to prove
 the loop catches it: all 12 real prose figures corroborate and the misread is dropped
-(`injected_misread_caught: true`). For a compact graph, `build_store` calls `graph/compile.py: compile_graph`.
+(`injected_misread_caught: true`). For a compact graph, `build_store` calls `s02_graph/compile.py: compile_graph`.
 
 `oracle_property(store)` checks the store is an *oracle, not an index* (book Ch. 4): every ENM-backed fact scores
 inside its relation's cut, and the same fact with a substituted tail scores outside. `to_dot` draws the store (or
@@ -205,7 +205,7 @@ store runs in about 2.5 minutes on a CPU.
 ## questions.py — policy questions
 
 ```
-knowledge/
+s03_knowledge/
 └── questions.py   ◀   PART 1 kb_answer (the truth), judge_kb_answer (grading)
                        PART 2 mining charge review's questions (18 categories), two_way_check, store_self_tests
                        PART 3 questions of a compact graph (kb_frames, graph_kb_answer, mine_graph_kb_items)

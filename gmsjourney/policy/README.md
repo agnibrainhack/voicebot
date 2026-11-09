@@ -30,5 +30,5 @@ gmsjourney/policy/
 ```
 
 A new journey can be started from a compact graph alone: open its path in the console (or run
-`python -m gmsjourney.packs.drafting <pack> --write`), and the missing `domain.yaml` wording and `project.yaml` are
-drafted from the graph. Lint a pack with `python -m gmsjourney.packs.loading <pack>`.
+`python -m gmsjourney.s01_packs.drafting <pack> --write`), and the missing `domain.yaml` wording and `project.yaml` are
+drafted from the graph. Lint a pack with `python -m gmsjourney.s01_packs.loading <pack>`.

@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gmsjourney.reports.cases import write_case_comparison  # noqa: E402
+from gmsjourney.s09_reports.cases import write_case_comparison  # noqa: E402
 
 
 def main() -> None:

@@ -1,4 +1,4 @@
-"""The bot validation page (gmsjourney/checks/diagnosis.py) and the response cards it reads
+"""The bot validation page (gmsjourney/s07_checks/diagnosis.py) and the response cards it reads
 (evaluation/runner.response_cards), on small hand-made rows: no store, no campaign.
 
     python tests/test_bot_validation.py
@@ -11,8 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gmsjourney.checks import diagnosis as bv  # noqa: E402
-from gmsjourney.checks.scoring import response_cards  # noqa: E402
+from gmsjourney.s07_checks import diagnosis as bv  # noqa: E402
+from gmsjourney.s07_checks.scoring import response_cards  # noqa: E402
 
 R = {"design": {"factors": ["noise", "disfluency"], "levels": {"noise": ["none", "asr"], "disfluency": ["none", "fillers"]},
                 "level_provenance": [{"factor": "noise", "origin": "official"},

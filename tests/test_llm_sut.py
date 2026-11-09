@@ -1,4 +1,4 @@
-"""The LLM-driven bot (gmsjourney/bots/llm_bot.py) with a scripted fake model: no gateway, no key, no network.
+"""The LLM-driven bot (gmsjourney/s06_bots/llm_bot.py) with a scripted fake model: no gateway, no key, no network.
 
 The fake plays a minimal happy-path bot (authenticate, review the first charge, record it, summarise, end), so
 the checks are about the plumbing: tool calls reach the harness backend in order, acts are read as the trace
@@ -20,18 +20,18 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gmsjourney.cases.design import to_item  # noqa: E402
-from gmsjourney.rewording.catalog import Scenario  # noqa: E402
+from gmsjourney.s04_cases.design import to_item  # noqa: E402
+from gmsjourney.s05_rewording.catalog import Scenario  # noqa: E402
 from gmsjourney.llm import CachedLLM, LLMSettings  # noqa: E402
-from gmsjourney.rewording.wording import FrameReader  # noqa: E402
-from gmsjourney.rewording.wording import Realizer  # noqa: E402
-from gmsjourney.checks.scoring import run  # noqa: E402
-from gmsjourney.cases.journey import JourneySpec  # noqa: E402
+from gmsjourney.s05_rewording.wording import FrameReader  # noqa: E402
+from gmsjourney.s05_rewording.wording import Realizer  # noqa: E402
+from gmsjourney.s07_checks.scoring import run  # noqa: E402
+from gmsjourney.s04_cases.journey import JourneySpec  # noqa: E402
 from _store import kx_store  # noqa: E402
-from gmsjourney.graph.flow import GraphOracle as PolicyOracle  # noqa: E402
-from gmsjourney.bots.harness import JourneyRunner  # noqa: E402
-from gmsjourney.bots.llm_bot import LLMBot, make_llm_factory  # noqa: E402
-from gmsjourney.bots.tools import ToolEnvironment  # noqa: E402
+from gmsjourney.s02_graph.flow import GraphOracle as PolicyOracle  # noqa: E402
+from gmsjourney.s06_bots.harness import JourneyRunner  # noqa: E402
+from gmsjourney.s06_bots.llm_bot import LLMBot, make_llm_factory  # noqa: E402
+from gmsjourney.s06_bots.tools import ToolEnvironment  # noqa: E402
 
 POLICY_KG = Path(__file__).resolve().parents[1] / "gmsjourney" / "policy" / "charge_review" / "charge_review_kg.json"
 
@@ -164,7 +164,7 @@ def test_tool_errors_and_bad_arguments_reach_the_model_not_the_harness():
 
 
 def test_sample_bases_keeps_the_category_mix_and_all_by_default():
-    from gmsjourney.campaign.pipeline import sample_bases
+    from gmsjourney.s08_campaign.pipeline import sample_bases
     B = [SimpleNamespace(qid=f"{c}{i}", base=c) for c, n in (("a", 6), ("b", 3), ("c", 1)) for i in range(n)]
     assert sample_bases(B, None) == B and sample_bases(B, 99) == B
     pick = sample_bases(B, 6)
@@ -173,7 +173,7 @@ def test_sample_bases_keeps_the_category_mix_and_all_by_default():
 
 
 def test_failure_reasons_read_the_graded_row():
-    from gmsjourney.reports.report import failure_reasons, _strip
+    from gmsjourney.s09_reports.report import failure_reasons, _strip
     row = {"why": {"expected": {"end": "TRANSFERRED", "transfer_reason": "record_failed", "recorded": [], "action": None},
                    "actual": {"end": "COMPLETED", "transfer_reason": None, "recorded": [["T1", "RECOGNIZED"]],
                               "action": None},
@@ -188,7 +188,7 @@ def test_failure_reasons_read_the_graded_row():
 
 def test_case_comparison_page_from_campaign_files():
     import csv
-    from gmsjourney.reports.cases import write_case_comparison
+    from gmsjourney.s09_reports.cases import write_case_comparison
     d = Path(tempfile.mkdtemp())
     (d / "dataset").mkdir()
     sig_e = {"end": "TRANSFERRED", "transfer_reason": "record_failed", "recorded": [], "action": None}

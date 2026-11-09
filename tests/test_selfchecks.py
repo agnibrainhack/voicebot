@@ -11,21 +11,21 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from gmsjourney.cases.design import JourneyBaseGenerator, to_item  # noqa: E402
-from gmsjourney.knowledge.questions import mine_kb_items  # noqa: E402
-from gmsjourney.rewording.catalog import Catalog, resolve_profile, validate  # noqa: E402
-from gmsjourney.rewording.catalog import Scenario  # noqa: E402
-from gmsjourney.cases.design import compare_designs, compose  # noqa: E402
-from gmsjourney.rewording.proof import InvarianceValidator  # noqa: E402
-from gmsjourney.rewording.wording import FrameReader  # noqa: E402
-from gmsjourney.rewording.wording import Realizer  # noqa: E402
-from gmsjourney.cases.journey import JourneySpec  # noqa: E402
-from gmsjourney.knowledge.build import build_store  # noqa: E402
-from gmsjourney.cases.meaning import Ontology, SemanticFrame as F  # noqa: E402
-from gmsjourney.graph.flow import GraphOracle as PolicyOracle  # noqa: E402
-from gmsjourney.bots.harness import JourneyRunner, make_reference_factory  # noqa: E402
-from gmsjourney.checks.scoring import run  # noqa: E402
-from gmsjourney.checks.diagnosis import deviance_test  # noqa: E402
+from gmsjourney.s04_cases.design import JourneyBaseGenerator, to_item  # noqa: E402
+from gmsjourney.s03_knowledge.questions import mine_kb_items  # noqa: E402
+from gmsjourney.s05_rewording.catalog import Catalog, resolve_profile, validate  # noqa: E402
+from gmsjourney.s05_rewording.catalog import Scenario  # noqa: E402
+from gmsjourney.s04_cases.design import compare_designs, compose  # noqa: E402
+from gmsjourney.s05_rewording.proof import InvarianceValidator  # noqa: E402
+from gmsjourney.s05_rewording.wording import FrameReader  # noqa: E402
+from gmsjourney.s05_rewording.wording import Realizer  # noqa: E402
+from gmsjourney.s04_cases.journey import JourneySpec  # noqa: E402
+from gmsjourney.s03_knowledge.build import build_store  # noqa: E402
+from gmsjourney.s04_cases.meaning import Ontology, SemanticFrame as F  # noqa: E402
+from gmsjourney.s02_graph.flow import GraphOracle as PolicyOracle  # noqa: E402
+from gmsjourney.s06_bots.harness import JourneyRunner, make_reference_factory  # noqa: E402
+from gmsjourney.s07_checks.scoring import run  # noqa: E402
+from gmsjourney.s07_checks.diagnosis import deviance_test  # noqa: E402
 from _store import kx_store  # noqa: E402
 
 
@@ -181,8 +181,8 @@ def test_two_way_recovery_and_forged_triple():
 
 # Runtime governance: calibrated gates, live detection, tamper-evident audit -------------
 def test_runtime_gates_and_audit():
-    from gmsjourney.checks.gates import calibrate_plausibility, gate_probe_sweep
-    from gmsjourney.checks.runtime import GovernanceConfig
+    from gmsjourney.s07_checks.gates import calibrate_plausibility, gate_probe_sweep
+    from gmsjourney.s07_checks.runtime import GovernanceConfig
     store, oracle, R, rd = env()
     cal = calibrate_plausibility(store)
     assert cal["regulated"]["false_admits"] == 0
@@ -200,7 +200,7 @@ def test_runtime_gates_and_audit():
 
 
 def test_gms_view_is_table_shaped_for_geode():
-    from gmsjourney.knowledge.store import kx_triple, render_gms_markdown
+    from gmsjourney.s03_knowledge.store import kx_triple, render_gms_markdown
     store, *_ = env()
     md = render_gms_markdown(store)
     for sec in ("## Limits", "## Delivery options", "## Workflow", "## Aliases", "## Opposites"):
@@ -212,8 +212,8 @@ def test_gms_view_is_table_shaped_for_geode():
 
 # policy graph JSON + state-aware ontology mapping ---------------------------------------
 def test_policy_graph_is_valid_and_is_the_source():
-    from gmsjourney.knowledge.store import ingest_markdown
-    from gmsjourney.graph.triples import PolicyKG, resolve_policy
+    from gmsjourney.s03_knowledge.store import ingest_markdown
+    from gmsjourney.s02_graph.triples import PolicyKG, resolve_policy
     kg = PolicyKG.load(POLICY_KG)
     assert kg.validate() == []
     sm = kg.summary()
@@ -278,7 +278,7 @@ def test_oracle_conforms_to_the_state_graph():
 def test_turn_by_turn_oracle_vs_bot():
     """On clean base cases the reference bot does, turn by turn, what the oracle says it
     should; a seeded defect shows up as a divergence at the turn where it acts."""
-    from gmsjourney.reports.cases import turn_by_turn
+    from gmsjourney.s09_reports.cases import turn_by_turn
     store, oracle, R, rd = env()
     gen = JourneyBaseGenerator(oracle, kb_pool=[], seed=42)
     cover, _ = gen.covering()
@@ -297,8 +297,8 @@ def test_turn_by_turn_oracle_vs_bot():
 
 # the knowlytix store itself ------------------------------------------------------------
 def test_knowlytix_store():
-    from gmsjourney.checks.gates import calibrate_plausibility
-    from gmsjourney.knowledge.build import oracle_property
+    from gmsjourney.s07_checks.gates import calibrate_plausibility
+    from gmsjourney.s03_knowledge.build import oracle_property
     st, *_ = env()
     assert st.enm_agreement()["all_agree"]
     assert st.lookup_enm("delivery_fee_usd", "expedited_delivery") == 15
