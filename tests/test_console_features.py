@@ -378,6 +378,130 @@ def test_console_api_for_the_bot_cases_and_playground():
         srv.shutdown()
 
 
+# ----------------------------------------------------------------------------- progress, saved conversations, comparison
+def test_progress_reports_reach_a_sink_from_bars_phases_and_llm_calls():
+    from gmsjourney import progress
+    from gmsjourney.s07_checks.scoring import progress_bar
+    got = []
+    progress.set_sink(lambda **e: got.append(e))
+    try:
+        b = progress_bar(3, "SUT · base cases", show=False)        # counted even with no terminal bar
+        for _ in range(3):
+            b.update(1)
+        b.set_postfix_str("correct 3/3")
+        b.close()
+        bars = [e for e in got if e["key"] == "sut_base_cases"]
+        assert bars[0]["done"] == 0 and bars[-1]["done"] == 3 and bars[-1]["total"] == 3 and bars[-1]["final"]
+        assert bars[-1]["label"] == "Bot runs, original wording" and bars[-1]["note"] == "correct 3/3"
+        progress.phase("gms", 0, 2, "first", phases=["first", "second"], expect_s=4.0)
+        progress.phase("gms", 2, 2, "done")
+        ph = [e for e in got if e["key"] == "gms"]
+        assert ph[0]["phases"] == ["first", "second"] and ph[0]["expect_s"] == 4.0 and ph[-1]["done"] == ph[-1]["total"]
+        for outcome in ("cached", "live", "error"):
+            progress.llm_call("sut", outcome, 0.1, 5)
+        progress.llm_flush()
+        llm = [e for e in got if e["key"] == "llm"][-1]
+        assert (llm["done"], llm["cached"], llm["live"], llm["errors"]) == (3, 1, 1, 1) and llm["by_tag"]["sut"]["calls"] == 3
+    finally:
+        progress.set_sink(None)
+    assert not progress.active()
+    assert progress_bar(3, "x", show=False) is None                 # nobody listening, no terminal: no bar at all
+
+
+def test_the_run_step_hook_reads_both_step_counts():
+    import re
+    from gmsjourney.s08_campaign import pipeline
+    src = Path(pipeline.__file__).read_text()
+    pat = re.search(r're\.match\(r"(.+?)", str\(msg\)\)', src).group(1)
+    assert re.match(pat, "[1/13] building the store").group(1) == "1"
+    assert re.match(pat, "[5b/13] LLM arm").group(1) == "5b"
+    assert re.match(pat, "[10/12] mutation analysis").group(1) == "10"
+
+
+@_with_fake
+def test_a_playground_conversation_saved_as_a_test_case_is_replayed():
+    from gmsjourney.s10_console import bots as PG
+    domain.set_current("charge_review_graph")
+    f = PG._saved_file()
+    before = f.read_text() if f.exists() else None
+    try:
+        PG.cases("project", None)
+        s = PG.get(PG.start("project", "default", None)["id"])
+        s.say("", "journey")
+        s.say("No, that's not mine, I never made that purchase.", "free")
+        rec = PG.save_conversation(s.id, "", "keep this")
+        assert rec["lines"][0]["mode"] == "journey" and rec["lines"][1]["text"].startswith("No, that's not mine")
+        assert rec["name"].startswith("default:") and rec["note"] == "keep this" and rec["saved_with"]["first_deviation"] is None
+        assert [x["id"] for x in PG.saved_list()][0] == rec["id"]
+        r = PG.replay(rec)                                           # the reference bot: every turn as the graph says
+        assert r.replay_of == rec["id"] and [t["customer"]["mode"] for t in r.turns if t["customer"]] == ["replay", "replay"]
+        assert not r.deviations
+        res = PG.replay_all({"kind": "llm", "critique": False})       # the stand-in model deviates: flagged on replay
+        mine = next(x for x in res if x["id"] == rec["id"])
+        assert not mine["passed"] and mine["first_deviation"] is not None and mine["why"] and mine["sent"] == 2, mine
+        off = PG.replay(rec, {"kind": "llm", "critique": False})      # the same turns as a live conversation
+        on = PG.replay(rec, {"kind": "llm", "critique": True})
+        assert not off.turns[2]["tools_match"] and on.turns[2]["tools_match"]   # it records the wrong answer; critique fixes it
+        PG.delete_saved(rec["id"])
+        assert rec["id"] not in [x["id"] for x in PG.saved_list()]
+        try:
+            PG.save_conversation(PG.start("project", "default", None)["id"])
+            raise AssertionError("a conversation with no customer line cannot be saved")
+        except ValueError:
+            pass
+    finally:
+        if before is None:
+            f.unlink(missing_ok=True)
+        else:
+            f.write_text(before)
+
+
+def test_two_runs_are_compared_case_by_case():
+    import csv
+    from gmsjourney.s10_console.runs import compare
+    root = Path(tempfile.mkdtemp())
+    cols = ["sid", "base", "correct", "failure_codes", "c_record", "c_said"]
+    for rid, rows, head, sha in (
+            ("r1", [["a~base", "A", "True", "", "1", "1"], ["b~base", "B", "False", "wrong_record", "0", "1"],
+                    ["c~base", "C", "True", "", "1", "1"], ["x~base", "X", "True", "", "1", "1"]],
+             {"accuracy_original": 0.75, "gate": False, "bot": "one"}, "aaa"),
+            ("r2", [["a~base", "A", "False", "said_wrong", "1", "0"], ["b~base", "B", "True", "", "1", "1"],
+                    ["c~base", "C", "True", "", "1", "1"]],
+             {"accuracy_original": 0.67, "gate": True, "bot": "two"}, "bbb")):
+        d = root / rid / "out"
+        d.mkdir(parents=True)
+        (root / rid / "job.json").write_text(json.dumps({"pack": "charge_review_graph", "seed": 42}))
+        (root / rid / "headline.json").write_text(json.dumps(head))
+        (d / "report.json").write_text(json.dumps({"provenance": {"graph_sha": sha}}))
+        with open(d / "results_base_level.csv", "w", newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(cols)
+            w.writerows(rows)
+    C = compare(root, "r1", "r2")
+    assert [c["sid"] for c in C["now_failing"]] == ["a~base"] and C["now_failing"][0]["codes_b"] == "said_wrong"
+    assert [c["sid"] for c in C["now_passing"]] == ["b~base"] and C["still_passing"] == 1 and not C["still_failing"]
+    assert C["shared"] == 3 and C["only_a"] == 1 and C["only_b"] == 0
+    assert any("graph changed" in c for c in C["caveats"]) and any("only in r1" in c for c in C["caveats"])
+    st = {x["stage"]: (x["a"], x["b"]) for x in C["stages"]}
+    assert st["said"] == (1.0, 2 / 3) and st["record"] == (2 / 3, 1.0)
+    assert C["gates"][0]["a"] is False and C["gates"][0]["b"] is True
+    try:
+        compare(root, "r1", "nope")
+        raise AssertionError("an unknown run is refused")
+    except KeyError:
+        pass
+
+
+def test_the_graph_path_preview_says_what_opening_would_do():
+    from gmsjourney.s10_console.graphs import peek_graph
+    p = peek_graph("gmsjourney/policy/supplementary_card/supplementary_card_kg.json")
+    assert p["ok"] and p["kind"] == "compact graph" and p["counts"]["states"] > 5 and "supplementary_card" in p["action"]
+    assert "supplementary_card" in " ".join(peek_graph("gmsjourney/policy/supp")["suggest"])
+    assert not peek_graph("README.md")["ok"] and not peek_graph("")["ok"]
+    t = peek_graph("gmsjourney/policy/charge_review/charge_review_kg.json")
+    assert t["kind"] == "triples graph" and t["ok"] and t["counts"]["triples"] > 100
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):

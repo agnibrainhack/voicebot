@@ -482,15 +482,19 @@ def _loads(s):
         return s
 
 
-def progress_bar(total: int, desc: str, show: bool = True):
-    """A tqdm bar (notebook-aware) when tqdm is installed and show is True, else None."""
-    if not show or not total:
+LABELS = {"SUT · base cases": "Bot runs, original wording", "SUT · enriched": "Bot runs, reworded",
+          "SUT · enriched (template arm)": "Bot runs, reworded", "SUT · enriched (LLM arm)": "Bot runs, LLM-reworded",
+          "SUT · resilience (tool faults)": "Bot runs under tool faults", "turn-by-turn export": "Turn-by-turn export"}
+
+
+def progress_bar(total: int, desc: str, show: bool = True, key: str | None = None, label: str | None = None,
+                 unit: str = "cases"):
+    """A progress bar (``gmsjourney.progress``): tqdm on a terminal when show is True, a progress event when the
+    console is watching; None when there is nothing to count or no one to tell."""
+    from .. import progress
+    if not total or not (show or progress.active()):
         return None
-    try:
-        from tqdm.auto import tqdm
-    except ImportError:
-        return None
-    return tqdm(total=total, desc=desc, dynamic_ncols=True)
+    return progress.bar(total, desc, show=show, key=key, unit=unit, label=label or LABELS.get(desc, desc))
 
 
 def run(scenarios: list[Scenario], runner, limits: Limits, workflow, validator=None,

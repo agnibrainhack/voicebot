@@ -20,6 +20,12 @@
     POST /api/play/<pack>/start             a conversation (body: {source, case, sut})
     GET  /api/play/s/<sid>                  a conversation so far
     POST /api/play/s/<sid>/say              the customer's next turn (body: {mode: "journey" or "free", text})
+    GET  /api/runs/compare?a=A&b=B          what changed from test run A to test run B, case by case
+    POST /api/play/s/<sid>/save             keep the conversation as a test case (body: {name, note})
+    GET  /api/play/<pack>/saved             the journey's saved conversations
+    POST /api/play/<pack>/saved/<id>/replay replay one against a bot (body: {sut}); returns the conversation
+    POST /api/play/<pack>/saved/<id>/delete forget one
+    GET  /api/graph/peek?path=P             what opening P would do (title, size, journey), without opening it
     POST /api/graph/open                    open a graph by path: its journey, or a new journey made from it (body: {path})
     GET  /api/graph/<pack>/sections         the graph section by section, and its core segments (graphs.py)
     GET  /api/graph/<pack>/edit             the graph's own entries, for the editor
@@ -149,6 +155,13 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                         return self._json({"pack": parts[2], **st.state()})
                 if parts == ["api", "runs"]:
                     return self._json({"runs": runs.list(), "active": runs.active()})
+                if parts == ["api", "graph", "peek"]:
+                    from . import graphs as GR
+                    return self._json(GR.peek_graph((parse_qs(u.query).get("path") or [""])[0]))
+                if parts == ["api", "runs", "compare"]:
+                    from .runs import compare
+                    q = parse_qs(u.query)
+                    return self._json(compare(runs.root, (q.get("a") or [""])[0], (q.get("b") or [""])[0]))
                 if parts[:2] == ["api", "runs"] and len(parts) == 4 and parts[3] == "verdict":
                     from ..s09_reports.verdict import build
                     return self._json(build(runs._dir(parts[2])))
@@ -164,6 +177,10 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                     from . import bots as PG
                     with _on(parts[2]):
                         return self._json(PG.cases((parse_qs(u.query).get("source") or ["latest"])[0], runs.root))
+                if parts[:2] == ["api", "play"] and len(parts) == 4 and parts[3] == "saved":
+                    from . import bots as PG
+                    with _on(parts[2]):
+                        return self._json({"saved": PG.saved_list()})
                 if parts[:3] == ["api", "play", "s"] and len(parts) == 4:
                     from . import bots as PG
                     sess = PG.get(parts[3])
@@ -256,6 +273,21 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                     with _on(parts[2]):
                         return self._json(PG.start(str(body.get("source") or "project"), str(body.get("case") or ""),
                                                    body.get("sut")))
+                if parts[:3] == ["api", "play", "s"] and len(parts) == 5 and parts[4] == "save":
+                    from . import bots as PG
+                    sess = PG.get(parts[3])
+                    with _on(sess.pack):
+                        return self._json(PG.save_conversation(sess.id, str(body.get("name") or ""), str(body.get("note") or "")))
+                if parts[:2] == ["api", "play"] and len(parts) == 6 and parts[3] == "saved" and parts[5] in ("replay", "delete"):
+                    from . import bots as PG
+                    with _on(parts[2]):
+                        if parts[5] == "delete":
+                            PG.delete_saved(parts[4])
+                            return self._json({"ok": True})
+                        rec = next((x for x in PG.saved_list() if x["id"] == parts[4]), None)
+                        if rec is None:
+                            raise KeyError(f"saved conversation {parts[4]}")
+                        return self._json(PG.replay(rec, body.get("sut"), runs.root).view())
                 if parts[:3] == ["api", "play", "s"] and len(parts) == 5 and parts[4] == "say":
                     from . import bots as PG
                     sess = PG.get(parts[3])

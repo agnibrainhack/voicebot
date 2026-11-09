@@ -10,8 +10,8 @@ voicebot/
         ├── __main__.py       python -m gmsjourney.s10_console
         ├── server.py         the HTTP server and its JSON API
         ├── studio.py         the project studio: graph view, factor editor, preview, save
-        ├── runs.py           campaign runs in their own processes; step summaries; the case explorer
-        ├── bots.py           attachments, the bot under test, the playground
+        ├── runs.py           campaign runs in their own processes; step summaries; the case explorer; comparing runs
+        ├── bots.py           attachments, the bot under test, the playground, saved conversations
         ├── graphs.py         open a graph by path, sections, core segments, editor, the GMS sphere
         ├── ui.html           the console page
         └── studio_ui.html    the standalone studio page
@@ -52,6 +52,26 @@ and if the tab is hidden and the browser allows notifications (asked once, when 
 notification does too. Stage 2 of the route rail says *unsaved edits* as soon as the project has changes you have
 not saved. On narrower screens the top bar keeps its controls on one line by shortening labels (the full text is in
 each control's tooltip).
+
+**Undo.** Every edit to the project can be undone: Ctrl/⌘ Z (Shift for redo, or Ctrl Y), or Undo and Redo in the
+unsaved-changes bar. A burst of edits (typing in one field) is one step; up to 100 steps are kept, and Discard is
+itself a step, so it can be undone too. Inside a text field the field's own undo handles the typing.
+
+**Opening a graph.** As you type a path in the top bar, a preview under the field says what opening it would do,
+without opening anything (`GET /api/graph/peek`): the graph's title, format, size, states, tools and rules, and
+whether it opens a journey already here, switches a journey to this version, or makes a new journey. A partial path
+or a folder lists the graphs found there; arrow keys move through them and Enter picks one.
+
+**Progress.** Every long part of a test run reports how far it has got (`gmsjourney/progress.py`), and the run page
+draws it inside the running step: the knowledge store's training as one segment per phase (compile, GEODE loop,
+embed loop, contradiction SFT, relevance, production store, coverage, judge), with the time left in the current phase
+estimated from the last store built on the machine and a live count of optimizer steps (training runs inside
+knowlytix, so its steps are counted with torch's global optimizer hook); counted loops (cases played, reworded cases
+proved, runs under tool faults, planted defects, saved conversations) as a bar with the time left; and every LLM
+call of the run as a split of calls answered from the cache, calls to the model and failures, by caller (bot under
+test, critique, rewording ...), with the live call rate and tokens. The running step in the list shows a thin bar and
+its percentage, as do the top bar's run pill and the tab title. A finished step keeps one line per bar (what was
+counted and how long it took).
 
 ```mermaid
 flowchart LR
@@ -124,8 +144,18 @@ s10_console/
   kernel restart is still found and can still be cancelled. `devices()` lists cpu and every CUDA GPU torch can see;
   `check_device` says why one cannot be used.
 * **Part 4** `main`: the worker calls `run_campaign` with an `on_step` hook and appends events (start, step_start,
-  step_done with that step's summary, log lines, done with the headline, error). The page polls from the last event
-  it has, so a closed tab or a restarted kernel loses nothing.
+  step_done with that step's summary, log lines, progress, saved, done with the headline, error). The page polls from
+  the last event it has, so a closed tab or a restarted kernel loses nothing. It installs a sink on
+  `gmsjourney.progress` that writes every report as a `progress` event (at most two a second per bar, plus each
+  phase change and the last report). After the campaign it replays the journey's saved Playground conversations
+  against the run's bot (`_replay_saved`): `out/saved_conversations.json`, a `saved` event, and the counts in the
+  headline.
+* **Comparing runs** `compare(root, a, b)` (`GET /api/runs/compare?a=&b=`; Test runs › Compare, or Compare with the
+  previous run on a finished run): the cases both runs played, matched by sid from `results_base_level.csv` and
+  `results_enriched.csv`, sorted into now failing (regressions), now passing, still failing and still passing, with
+  the failure codes before and after; the headline numbers (also on the shared cases only), both release gates and
+  the per-stage scores, before beside after. It says when the runs are not like for like: another journey, another
+  graph version (the graph hash each run records), another seed, or cases only one of them played.
 * **Part 1** `summarize(step, R)`: what each of the 13 steps produced, as headline metrics, small tables and notes,
   read only from keys the pipeline writes (a step that was switched off reads as skipped; a summary never breaks a
   run). `headline` carries both release gates.
@@ -140,6 +170,7 @@ s10_console/
 s10_console/
 └── bots.py   ◀   PART 1 extract (attachments)   PART 2 make_factory, suggested, check_gateway
                   PART 3 the playground: Bench, cases, Session, start, get
+                  PART 4 saved conversations: save_conversation, saved_list, replay, replay_all
 ```
 
 * **Part 1** `extract(name, data)`: text from a file a tester attaches to the LLM bot's prompt (text, Markdown, JSON,
@@ -162,6 +193,13 @@ s10_console/
   answer sheet (`sheet`): the dialog state answered (`_state_sheet`: accepted acts, bare yes/no, rules, limits), the
   card as triples, and the graph transitions of the turn (`_hops`, cut from the oracle's own `flow_path`: a transition
   on a customer act starts a new turn) with condition, rules, triple and source.
+* **Part 4** **saved conversations**: *Save as a test case* keeps a conversation's customer lines, in order, with the
+  case it started from, a name and a note, in `<pack>/saved_conversations.json` (next to `project.yaml`, so it travels
+  with the journey). Only the customer's side is kept: the bot's side is what is tested. `replay(rec, sut)` sends the
+  same lines to a bot as `replay` turns and validates each turn exactly as the Playground does; the Playground lists
+  the saved conversations and replays any of them with the chosen bot, and every test run replays them all against
+  its bot (`replay_all`), so a deviation found by hand is checked on every later bot. A replay passes when every line
+  was sent and no turn deviated; a case that no longer exists in the project is reported, not skipped.
 
 ## graphs.py — the graph pages
 
@@ -172,6 +210,9 @@ s10_console/
 ```
 
 ### Part 1: open, read, edit
+
+`peek_graph(path)` is what the top bar's preview shows: never raises, says what is wrong with a path, and suggests the
+graphs in a folder or matching a partial name.
 
 * `open_graph(path)`: a graph inside a journey folder opens that journey (switched to that file if it is one of its
   versions, `set_graph`); a **compact graph from anywhere else becomes a new journey** (`new_journey`): copied into

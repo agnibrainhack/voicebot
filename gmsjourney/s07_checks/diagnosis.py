@@ -364,7 +364,13 @@ def mutation_analysis(store, runner_kwargs: dict, suites: dict[str, list], limit
             ref_fault[(tool, kind, scn.sid)] = ref.run(scn, faults=prof)
 
     results: dict[str, Any] = {}
+    from .scoring import progress_bar
+    mbar = progress_bar(len(mutants), "planted defects", show=False, key="mutants", label="Planted defects run",
+                        unit="defects")
     for m, desc in mutants.items():
+        if mbar is not None:
+            mbar.update(1)
+            mbar.set_postfix_str(m)
         runner = runner_cls(bot_factory=factory(store, frozenset({m})), **runner_kwargs)
         entry: dict[str, Any] = {"description": desc, "killed_by": {}}
         for name, scns in suites.items():
@@ -407,6 +413,8 @@ def mutation_analysis(store, runner_kwargs: dict, suites: dict[str, list], limit
                                                   "example": fk[0] if fk else None}
         entry["killed"] = any(v["killed"] for v in entry["killed_by"].values())
         results[m] = entry
+    if mbar is not None:
+        mbar.close()
     names = list(suites) + (["fault_probes"] if fault_scenarios else [])
     scores = {n: sum(results[m]["killed_by"].get(n, {}).get("killed", False) for m in results) / len(results)
               for n in names}

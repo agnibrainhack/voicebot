@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import json
+import time
 import re
 import shutil
 import tempfile
@@ -207,6 +208,65 @@ def check_wording(max_cases: int = 60) -> dict[str, Any]:
                 for a in t["bot"]["act_names"]:
                     bad.setdefault(a, {"act": a, "turns": 0, "example": t["bot"]["text"], "why": why[0]})["turns"] += 1
     return {"cases": len(cases), "turns": turns, "off_flow": flow, "speech_failures": sorted(bad.values(), key=lambda x: -x["turns"])}
+
+
+def peek_graph(path: str) -> dict[str, Any]:
+    """What opening ``path`` would do, without opening it: whether the file is a policy graph, its title and size, and
+    whether it opens a journey already here, switches one to this version, or makes a new journey. Never raises for a
+    bad path (it says what is wrong instead), so the console can show it as you type."""
+    out: dict[str, Any] = {"path": str(path or "").strip(), "ok": False}
+    try:
+        p = resolve(path)
+    except Exception as e:                              # noqa: BLE001
+        return {**out, "problem": f"not a path: {e}"}
+    if not str(path or "").strip():
+        return {**out, "problem": "type the path of a policy graph (.json)"}
+    def graphs_in(d: Path, prefix: str = "") -> list[str]:
+        found = []
+        for f in sorted(d.glob(prefix + "*")) if d.is_dir() else []:
+            if f.is_file() and f.suffix.lower() == ".json" and f.name != "saved_conversations.json":
+                found.append(str(rel(f)))
+            elif f.is_dir() and not f.name.startswith((".", "__")):
+                found += [str(rel(x)) for x in sorted(f.glob("*.json")) if x.name != "saved_conversations.json"]
+        return found[:8]
+    if p.is_dir():
+        return {**out, "problem": "that is a folder; pick a graph in it", "suggest": graphs_in(p)}
+    if not p.exists():
+        return {**out, "problem": "no file at this path yet", "suggest": graphs_in(p.parent, p.name)}
+    if p.suffix.lower() != ".json":
+        return {**out, "problem": "a policy graph is a .json file"}
+    try:
+        data = json.loads(p.read_text())
+    except (OSError, ValueError) as e:
+        return {**out, "problem": f"not valid JSON: {str(e)[:120]}"}
+    size = p.stat().st_size
+    pack_dir = p.parent
+    inside = pack_dir.parent == POLICY_ROOT and (pack_dir / "domain.yaml").exists()
+    info: dict[str, Any] = {**out, "file": p.name, "bytes": size, "modified": time.strftime("%Y-%m-%d %H:%M", time.localtime(p.stat().st_mtime))}
+    if isinstance(data, dict) and str(data.get("schema", "")).startswith("gmsjourney.policy_graph/"):
+        from ..s02_graph.compact import PolicyGraph
+        try:
+            g = PolicyGraph(data, p)
+            counts = {"states": len(g.states), "tools": len(data.get("tools") or {}), "rules": len(g.rules),
+                      "customer acts": len(data.get("acts") or {}), "limits": len(data.get("limits") or {})}
+        except Exception as e:                          # noqa: BLE001
+            return {**info, "problem": f"a compact graph that does not load: {type(e).__name__}: {str(e)[:160]}"}
+        info.update(kind="compact graph", title=data.get("title") or data.get("id") or p.stem, counts=counts, ok=True)
+    elif isinstance(data, dict) and isinstance(data.get("triples"), list):
+        info.update(kind="triples graph", title=data.get("title") or p.stem, counts={"triples": len(data["triples"]),
+                    "relations": len(data.get("relations") or {})}, ok=inside)
+        if not inside:
+            info["problem"] = "a triples graph opens only from a journey folder that has a domain.yaml"
+    else:
+        return {**info, "problem": "not a policy graph (no schema gmsjourney.policy_graph/2 and no triples)"}
+    if inside:
+        cur = _pack_graph(pack_dir)
+        info["action"] = (f"opens the journey {pack_dir.name}" if cur == p.name
+                          else f"switches the journey {pack_dir.name} to this version (now on {cur})")
+        info["pack"] = pack_dir.name
+    elif info["ok"]:
+        info["action"] = "makes a new journey from this graph (drafts its wording and project)"
+    return info
 
 
 def open_graph(path: str) -> dict[str, Any]:

@@ -770,6 +770,25 @@ def store_config(store_dir: str | Path, overrides: dict | None = None):
     return cfg
 
 
+# the phases of a store build, as the console's progress bar names them
+GMS_PHASES = ["Compile the policy and choose encoders", "GEODE self-correction loop", "Tune the meaning space (embed loop)",
+              "Tune the contradiction space (SFT)", "Calibrate relevance", "Train the production store",
+              "Measure coverage", "Calibrate the judge"]
+
+
+def _last_timings(store_dir: Path) -> dict[str, float]:
+    """Phase timings of the most recent store built on this machine (for the progress bar's estimate)."""
+    best, when = {}, 0.0
+    for rep in [store_dir / "gms_build_report.json", *store_dir.parent.glob("*/gms_build_report.json")]:
+        try:
+            m = rep.stat().st_mtime
+            if m > when:
+                best, when = json.loads(rep.read_text()).get("timings_s") or {}, m
+        except (OSError, ValueError):
+            continue
+    return best
+
+
 def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, geode_epochs: int = 300,
                    max_iters: int = 8, embed_trainer_epochs: int = 150, embed_max_iters: int = 2,
                    sft_epochs: int | None = None, contradiction_epochs: int = 400,
@@ -797,6 +816,14 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, geode_epoc
     t0 = time.time()
     store_dir = Path(store_dir)
     store_dir.mkdir(parents=True, exist_ok=True)
+    from .. import progress
+    last = _last_timings(store_dir)            # how long each phase took the last time a store was built here
+
+    def phase(i: int, timing: str | None = None) -> None:
+        progress.phase("gms", i, len(GMS_PHASES), GMS_PHASES[i] if i < len(GMS_PHASES) else "Store built",
+                       phases=GMS_PHASES if i == 0 else None, expect_s=last.get(timing) if timing else None)
+    steps = progress.StepCounter("gms")
+    phase(0)
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -823,7 +850,8 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, geode_epoc
 
     # 1. GEODE self-correction
     t = time.time()
-    with _quiet():
+    phase(1, "geode_loop")
+    with _quiet(), steps:
         loop = GeodeLoop(trainer, device=dev, ingest_mode=ingest, max_iters=max_iters,
                          residual_threshold=None, canonicalize=False, dedup=(dedup_mode != "off"))
         res = loop.run(str(view))
@@ -861,9 +889,11 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, geode_epoc
 
     modes = ["rotation", "full"] if v_sft_mode == "ab" else [v_sft_mode]
     trials = {}
+    phase(2, "embed_loop")
     for m in modes:
         t_m = time.time()
-        trials[m] = embed(m)
+        with steps:
+            trials[m] = embed(m)
         log(f"      GEODE embed loop ({m}): iterations={trials[m][0].iterations} converged={trials[m][0].converged} "
             f"noisy-alias binding {trials[m][1]['before']:.2f} -> {trials[m][1]['after']:.2f} ({time.time() - t_m:.0f}s)")
     # A/B rule: higher held-out noisy-alias binding wins; a tie keeps rotation (the book's choice)
@@ -887,7 +917,8 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, geode_epoc
     content_rels = sorted({r for _h, r, _t in kept if r.startswith("has_") and r != "has_alias"})
     for r in content_rels:
         phrasings.setdefault(r, [(r[4:] if r.startswith("has_") else r).replace("_", " ")])
-    with _quiet():
+    phase(3, "contradiction_sft")
+    with _quiet(), steps:
         u_enc = contradiction_sft(phrasings, base_model=enc["u"], epochs=contradiction_epochs)
         u_enc.save(store_dir / "contradiction_encoder")
     u_eval = _routing_eval(phrasings, enc["u"], contradiction_epochs)
@@ -896,13 +927,15 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, geode_epoc
         f"({timings['contradiction_sft']:.0f}s)")
 
     # 4. relevance calibration
+    phase(4)
     with _quiet():
         relcal = calibrate_relevance_thresholds(phrasings, eres.ft.encode, u_enc.encode)
     (store_dir / "relevance_calibration.json").write_text(json.dumps(relcal, indent=2, default=float))
 
     # 5. production store (cap admissibility, Mode-B tuned v vectors)
     t = time.time()
-    with _quiet():
+    phase(5, "store_training")
+    with _quiet(), steps:
         kx = store_from_triples(str(view), kept, cfg, dev, ingest_mode=ingest)
     timings["store_training"] = time.time() - t
     log(f"      production store trained ({timings['store_training']:.0f}s): "
@@ -910,6 +943,7 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, geode_epoc
     dedup_audit = _dedup_audit(kx, kept) if dedup_mode == "off" else None
 
     # 6. coverage
+    phase(6)
     with _quiet():
         cov = coverage_report(kx)
         gcov = graph_coverage(res.triples)
@@ -918,7 +952,8 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, geode_epoc
 
     # 7. calibrate the judge's operating points (persisted where the generators read them)
     t = time.time()
-    with _quiet():
+    phase(7, "calibration")
+    with _quiet(), steps:
         judge = GMSJudge(kx)
         judge.calibrate(seed=seed)
         judge.apply_thresholds()
@@ -958,6 +993,7 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, geode_epoc
         "elapsed_s": round(time.time() - t0, 1),
     }
     (store_dir / "gms_build_report.json").write_text(json.dumps(report, indent=1, default=str))
+    phase(len(GMS_PHASES))
     return KXBuild(store, report)
 
 

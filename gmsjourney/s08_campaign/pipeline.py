@@ -57,6 +57,7 @@ from typing import Any, Callable
 # release gate on every run (steps 7-8).
 # =====================================================================================================================
 
+from .. import progress as _progress
 from ..s03_knowledge import build as backend
 from ..s04_cases.design import JourneyBaseGenerator, primary_category, to_item
 from ..s03_knowledge.questions import mine_kb_items
@@ -202,7 +203,10 @@ def build_gms(policy_path: str | Path | None = None, *, kx_store_dir: str | None
     sdir = Path(kx_store_dir) if kx_store_dir else backend.CACHE / "stores" / key
     if (sdir / "gms_build_report.json").exists() and (sdir / "kx" / "model.pt").exists() and not rebuild:
         log(f"[1/13] loading the knowlytix GMS store ({sdir})")
+        _progress.phase("gms", 0, 1, "Load the trained store (built before, nothing to train)",
+                        phases=["Load the trained store"])
         kb = load_kx_store(policy_path, sdir)
+        _progress.phase("gms", 1, 1, "Store loaded")
     else:
         log(f"[1/13] building the knowlytix GMS store: GEODE loop -> embed loop -> contradiction SFT -> "
             f"production store -> GMSJudge calibration ({sdir})")
@@ -266,7 +270,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
 
         def log(msg: str, *a) -> None:            # noqa: F811
             _log(msg, *a)
-            m = re.match(r"\[(\d+[a-z]?)/12\]\s*(.*)", str(msg))
+            m = re.match(r"\[(\d+[a-z]?)/1[23]\]\s*(.*)", str(msg))
             if m:
                 _hook(m.group(1), m.group(2), R)
     dom = _domain.set_current(cfg.domain) if cfg.domain else _domain.current()
@@ -400,7 +404,8 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         validator = GraphInvarianceValidator(store, oracle, reader, realizer)
     else:
         validator = InvarianceValidator(store, oracle, reader, realizer)
-    proofs = [validator.prove(s) for s in scenarios]
+    proofs = [validator.prove(s) for s in _progress.bar(len(scenarios), "proofs", show=False, iterable=scenarios,
+                                                        key="proofs", unit="cases", label="Reworded cases proved")]
     controls = validator.negative_controls(scenarios, per_type=cfg.negative_controls_per_type)
     R["invariance"] = {"summary": validator.summarize(proofs, suite.factor_names), "negative_controls": controls,
                        "rejected": [p.sid for p in proofs if not p.accepted],
@@ -1101,7 +1106,8 @@ def run_graph_campaign(cfg, log: Callable[[str], None] = print) -> dict[str, Any
     log("[5/12] proving base/enriched equivalence for every scenario")
     realizer, reader = Realizer(), FrameReader(store)
     validator = GraphInvarianceValidator(store, oracle, reader, realizer)
-    proofs = [validator.prove(s) for s in scenarios]
+    proofs = [validator.prove(s) for s in _progress.bar(len(scenarios), "proofs", show=False, iterable=scenarios,
+                                                        key="proofs", unit="cases", label="Reworded cases proved")]
     controls = validator.negative_controls(scenarios, per_type=cfg.negative_controls_per_type)
     R["invariance"] = {"summary": validator.summarize(proofs, suite.factor_names), "negative_controls": controls,
                        "rejected": [p.sid for p in proofs if not p.accepted],

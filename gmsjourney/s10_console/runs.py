@@ -687,6 +687,120 @@ class Runs:
         return p
 
 
+# =====================================================================================================================
+# Comparing two test runs: what changed between them, case by case.
+#
+# Each run keeps one row per case played (out/results_base_level.csv: original wording; out/results_enriched.csv:
+# reworded). A case is identified by its sid, which depends only on the journey, the project and the seed, so two runs
+# of the same journey with the same project and seed play the same cases and can be compared one to one. The headline
+# numbers and the per-stage scores are compared as well, and the comparison says plainly when the two runs are not
+# like for like (another journey, another graph version, other cases).
+# =====================================================================================================================
+
+STAGE_COLUMNS_PREFIX = "c_"
+
+
+def _case_rows(run: Path) -> dict[str, dict]:
+    out = {}
+    for fname, wording in (("results_base_level.csv", "original"), ("results_enriched.csv", "reworded")):
+        f = run / "out" / fname
+        if not f.exists():
+            continue
+        import csv
+        with open(f, newline="", encoding="utf-8") as fh:
+            for r in csv.DictReader(fh):
+                if r.get("sid"):
+                    out[r["sid"]] = {**r, "_wording": wording}
+    return out
+
+
+def _truthy(v) -> bool:
+    return str(v).strip().lower() in ("true", "1", "1.0", "yes")
+
+
+def compare(root: Path, a: str, b: str) -> dict[str, Any]:
+    """What changed from run ``a`` to run ``b``: headline numbers, per-stage scores, and every case that flipped."""
+    runs = {}
+    for rid in (a, b):
+        d = Path(root) / rid
+        if not re.fullmatch(r"[0-9A-Za-z_\-]+", rid) or not (d / "job.json").exists():
+            raise KeyError(rid)
+        job = json.loads((d / "job.json").read_text())
+        head = json.loads((d / "headline.json").read_text()) if (d / "headline.json").exists() else {}
+        prov = {}
+        try:
+            prov = json.loads((d / "out" / "report.json").read_text()).get("provenance") or {}
+        except (OSError, ValueError):
+            pass
+        runs[rid] = {"id": rid, "job": job, "headline": head, "graph_sha": prov.get("graph_sha"),
+                     "commit": (prov.get("code") or {}).get("commit"), "rows": _case_rows(d)}
+    A, B = runs[a], runs[b]
+    if not A["rows"] or not B["rows"]:
+        raise ValueError("both runs need case results (finished runs; a run that stopped early has none)")
+    caveats = []
+    if A["job"].get("pack") != B["job"].get("pack"):
+        caveats.append(f"different journeys ({A['job'].get('pack')} and {B['job'].get('pack')}): few cases can match")
+    if A["graph_sha"] and B["graph_sha"] and A["graph_sha"] != B["graph_sha"]:
+        caveats.append(f"the policy graph changed between the runs ({A['graph_sha']} to {B['graph_sha']}): a flip can come "
+                       "from the graph, not the bot")
+    if A["job"].get("seed", 42) != B["job"].get("seed", 42):
+        caveats.append("different seeds: the reworded cases differ")
+    common = sorted(set(A["rows"]) & set(B["rows"]))
+    only_a, only_b = sorted(set(A["rows"]) - set(B["rows"])), sorted(set(B["rows"]) - set(A["rows"]))
+    if only_a or only_b:
+        caveats.append(f"{len(only_a)} case(s) only in {a} and {len(only_b)} only in {b} (other case limits or another "
+                       "project); they are left out of the case-by-case comparison")
+
+    def case(sid: str) -> dict:
+        ra, rb = A["rows"][sid], B["rows"][sid]
+        return {"sid": sid, "base": rb.get("base") or ra.get("base"), "wording": rb["_wording"],
+                "codes_a": ra.get("failure_codes") or "", "codes_b": rb.get("failure_codes") or "",
+                "severity": rb.get("severity") or ra.get("severity") or ""}
+    flips = {"now_failing": [], "now_passing": [], "still_failing": [], "still_passing": 0}
+    for sid in common:
+        pa, pb = _truthy(A["rows"][sid].get("correct")), _truthy(B["rows"][sid].get("correct"))
+        if pa and not pb:
+            flips["now_failing"].append(case(sid))
+        elif pb and not pa:
+            flips["now_passing"].append(case(sid))
+        elif not pa:
+            flips["still_failing"].append(case(sid))
+        else:
+            flips["still_passing"] += 1
+
+    def rate(R: dict, col: str, wording: str | None = None, sids=None) -> float | None:
+        vals = [r.get(col) for sid, r in R["rows"].items() if (sids is None or sid in sids) and (wording is None or r["_wording"] == wording)
+                and r.get(col) not in (None, "")]
+        try:
+            vals = [float(_truthy(v)) if str(v).lower() in ("true", "false") else float(v) for v in vals]
+        except ValueError:
+            return None
+        return sum(vals) / len(vals) if vals else None
+    cs = set(common)
+    stage_cols = sorted({k for R in (A, B) for r in R["rows"].values() for k in r if k.startswith(STAGE_COLUMNS_PREFIX)})
+    stages = [{"stage": c[len(STAGE_COLUMNS_PREFIX):], "a": rate(A, c, sids=cs), "b": rate(B, c, sids=cs)} for c in stage_cols]
+    stages = [x for x in stages if x["a"] is not None or x["b"] is not None]
+    metrics = []
+    for key, label in (("accuracy_original", "Correct, original wording"), ("accuracy_reworded", "Correct, reworded"),
+                       ("proved", "Reworded cases proved"), ("defects_caught", "Planted defects caught")):
+        metrics.append({"key": key, "label": label, "a": A["headline"].get(key), "b": B["headline"].get(key)})
+    metrics += [{"key": "same_cases_original", "label": "Correct on the shared cases, original", "a": rate(A, "correct", "original", cs), "b": rate(B, "correct", "original", cs)},
+                {"key": "same_cases_reworded", "label": "Correct on the shared cases, reworded", "a": rate(A, "correct", "reworded", cs), "b": rate(B, "correct", "reworded", cs)}]
+    gates = [{"label": "Release gate, original", "a": A["headline"].get("gate"), "b": B["headline"].get("gate")},
+             {"label": "Release gate, reworded", "a": A["headline"].get("gate_reworded"), "b": B["headline"].get("gate_reworded")}]
+    if A["headline"].get("saved_total") or B["headline"].get("saved_total"):
+        metrics.append({"key": "saved", "label": "Saved conversations without a deviation",
+                        "a": (A["headline"].get("saved_passed") or 0) / A["headline"]["saved_total"] if A["headline"].get("saved_total") else None,
+                        "b": (B["headline"].get("saved_passed") or 0) / B["headline"]["saved_total"] if B["headline"].get("saved_total") else None})
+    side = lambda R: {"id": R["id"], "pack": R["job"].get("pack"), "bot": R["headline"].get("bot"), "sut": R["job"].get("sut"),
+                      "graph_sha": R["graph_sha"], "commit": R["commit"], "cases": len(R["rows"]), "max_cases": R["job"].get("max_cases"),
+                      "seed": R["job"].get("seed", 42)}
+    return {"a": side(A), "b": side(B), "caveats": caveats, "shared": len(common), "only_a": len(only_a), "only_b": len(only_b),
+            "metrics": metrics, "gates": gates, "stages": stages,
+            "now_failing": flips["now_failing"], "now_passing": flips["now_passing"],
+            "still_failing": flips["still_failing"], "still_passing": flips["still_passing"]}
+
+
 def _alive(pid: int) -> bool:
     """True while a process with this pid exists (and is not a zombie)."""
     try:
@@ -719,6 +833,10 @@ def _elapsed(events) -> float | None:
 #     step_start   a step began (step, title)
 #     step_done    a step finished, with what it produced (summaries.summarize: metrics, tables, notes)
 #     log          a line the pipeline logged
+#     progress     how far a long part has got (gmsjourney.progress): key, label, done, total, unit and details;
+#                  the store's training phases, cases played, proofs, planted defects, LLM calls (at most two a
+#                  second per bar, plus the last one)
+#     saved        the journey's saved Playground conversations, replayed against this run's bot (bots.py part 4)
 #     done         the run finished (headline numbers); the outputs are under <run_dir>/out
 #     error        the run stopped (the traceback)
 #
@@ -743,6 +861,18 @@ def main(run_dir: str) -> int:
         events.write(json.dumps(e, default=str) + "\n")
 
     emit(type="start", job=job, pid=os.getpid())
+    from .. import progress
+    sent_at: dict[str, float] = {}
+
+    def on_progress(**p) -> None:
+        now = time.time()
+        k = p.get("key", "")
+        last = sent_at.get(k, 0.0)
+        if not (p.get("final") or p.get("phase") or p.get("done") == p.get("total") or now - last >= 0.5):
+            return
+        sent_at[k] = now
+        emit(type="progress", **p)
+    progress.set_sink(on_progress)
     try:
         from ..s03_knowledge.build import device as _device
         dev = _device()                            # what "auto" resolved to on this machine
@@ -768,6 +898,7 @@ def main(run_dir: str) -> int:
                     emit(type="step_done", step=k, details=summarize(k, R))
 
         def on_step(step: str, title: str, R) -> None:
+            progress.llm_flush()                            # the LLM counts so far, before the step changes
             finished(R, re.match(r"\d+", step).group(0))     # everything before this step is done
             emit(type="step_start", step=step, title=title)
 
@@ -808,8 +939,15 @@ def main(run_dir: str) -> int:
                 if fac.critique:
                     (run / "out" / "sut_critic_prompt.txt").write_text(fac.critic_prompt, encoding="utf-8")
         finished(R)
+        saved = _replay_saved(job, fac, (opts.get("bot_name") if fac is not None else None), run, log)
+        if saved is not None:
+            (run / "out" / "saved_conversations.json").write_text(json.dumps(saved, indent=1, default=str))
+            emit(type="saved", results=saved)
+        progress.llm_flush()
         head = headline(R)
         head["bot"] = (R.get("results") or {}).get("bot")
+        if saved:
+            head["saved_passed"], head["saved_total"] = sum(r["passed"] for r in saved), len(saved)
         (run / "headline.json").write_text(json.dumps(head, default=str))
         emit(type="done", headline=head)
         return 0
@@ -818,6 +956,33 @@ def main(run_dir: str) -> int:
         return 1
     finally:
         events.close()
+
+
+def _replay_saved(job: dict, fac, name: str | None, run: Path, log) -> list[dict] | None:
+    """Replay the journey's saved Playground conversations against this run's bot (None when there are none)."""
+    try:
+        from ..s01_packs.loading import set_current
+        from .. import progress
+        from . import bots as PG
+        set_current(job["pack"])
+        if not PG.saved_list():
+            return None
+        log(f"replaying {len(PG.saved_list())} saved Playground conversation(s) against the bot under test")
+        bar = progress.bar(len(PG.saved_list()), "saved conversations", show=False, key="saved", unit="conversations",
+                           label="Saved conversations replayed")
+        out: list[dict] = []
+
+        def each(i, n, r):
+            out.append(r)
+            bar.update(1)
+            bar.set_postfix_str(f"passed {sum(1 for x in out if x['passed'])}/{i}")
+        PG.replay_all(None, run.parent, fac=fac, name=name, on_each=each)
+        bar.close()
+        log(f"saved conversations: {sum(r['passed'] for r in out)} of {len(out)} replayed without a deviation")
+        return out
+    except Exception as e:                         # noqa: BLE001 - the test run's results stand without them
+        log(f"could not replay the saved conversations: {type(e).__name__}: {e}")
+        return None
 
 
 if __name__ == "__main__":

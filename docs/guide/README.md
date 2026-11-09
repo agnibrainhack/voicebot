@@ -144,6 +144,7 @@ voicebot/
 ├── gmsjourney/
 │   ├── __init__.py              the package overview
 │   ├── llm.py                   the model-gateway client with its replay cache                  ch. 12
+│   ├── progress.py              progress of the long parts (terminal bars, console events)      ch. 12
 │   ├── s01_packs/                                                                               ch. 1
 │   │   ├── __init__.py
 │   │   ├── loading.py           load a pack, make it active, lint it against its graph

@@ -68,12 +68,9 @@ MAX_LLM_ATTEMPTS = 3
 def progress(iterable=None, total: int | None = None, desc: str = "", show: bool = True):
     """A tqdm bar (notebook-aware via tqdm.auto) when tqdm is installed and show is True, else a
     silent stand-in with the same interface (iteration, update, set_postfix_str, close)."""
-    if show:
-        try:
-            from tqdm.auto import tqdm
-            return tqdm(iterable, total=total, desc=desc, dynamic_ncols=True)
-        except ImportError:
-            pass
+    from .. import progress as _progress
+    if show or _progress.active():
+        return _progress.bar(total, desc, show=show, iterable=iterable, unit="cases")
 
     class _Silent:
         def __init__(self, it):

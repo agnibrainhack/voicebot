@@ -181,7 +181,17 @@ studio shares the setting. Its parts:
   linked entities close (default 0.85 for a graph-only layout); **Full view** gives the sphere the whole window.
 - **Getting around**: Go to (Ctrl/⌘ K) searches pages, journeys, factors, states, recent test runs and common actions; a running test run
   shows its progress in the tab title and says when it finishes (a system notification if the tab is hidden and
-  allowed); stage 2 shows *unsaved edits* when the project has unsaved changes.
+  allowed); stage 2 shows *unsaved edits* when the project has unsaved changes; Ctrl/⌘ Z undoes project edits (Shift
+  to redo); typing a graph path previews what opening it would do (title, size, states, tools, rules, which journey).
+- **Progress**: a test run shows, inside the running step, the knowledge store's training phase by phase (with the time
+  left estimated from the last build and a live count of optimizer steps), bars with the time left for cases played,
+  proofs, tool-fault runs and planted defects, and every LLM call split into cache, model and failed, by caller.
+- **Saved conversations**: *Save as a test case* in the Playground keeps a conversation's customer lines with the
+  journey (`<pack>/saved_conversations.json`); replay one with any bot, and every test run replays them all against its
+  bot and reports which deviated.
+- **Compare test runs** (Test runs › Compare, or *Compare with the previous run*): cases now failing and now passing,
+  the headline numbers, release gates and per-stage scores before and after, and a warning when the runs are not like
+  for like (another graph version, seed or case set).
 - **You configure**: the journey factors (decision point, relevance, default, and per level a bank patch, a
   tool's returns call by call, or what the customer says, with a preview of the expected conversation for any
   level), the bank and the customer's scripts, case rules, categories, severities and the release gate. Every edit
@@ -706,6 +716,7 @@ the full guide, with the theory behind every step, is `docs/guide/README.md`.
 ```
 gmsjourney/
   llm.py             the model-gateway client (one cached chat call), shared by the LLM arm and the LLM bot
+  progress.py        progress of the long parts: tqdm on a terminal, progress events in the console
   s01_packs/         a journey's pack: loading.py (load, lint, the active pack), s01_packs/names.py (N.state.X ... and tools by
                      role), s01_packs/project.py (project.yaml: factors, levels, CaseView), drafting.py (lexicon, bot lines and
                      project.yaml drafted from a compact graph)

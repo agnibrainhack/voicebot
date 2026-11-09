@@ -1,4 +1,4 @@
-# 12. Around the package: llm.py, tests, tools, notebooks, root files
+# 12. Around the package: llm.py, progress.py, tests, tools, notebooks, root files
 
 ```
 voicebot/
@@ -6,7 +6,8 @@ voicebot/
 ├── pyproject.toml  requirements.txt  requirements-llm.txt  run_campaign.py
 ├── gmsjourney/
 │   ├── __init__.py                      the package overview
-│   └── llm.py                           ◀ the shared model client
+│   ├── llm.py                           ◀ the shared model client
+│   └── progress.py                      ◀ progress of the long parts, for a terminal or the console
 ├── tests/                               ◀ 17 test files and 4 helpers
 ├── tools/                               ◀ documentation builders and diagnostics
 │   └── templates/
@@ -43,7 +44,32 @@ One client is shared by every part that calls a language model: the LLM rewordin
 ingredients**: the same ingredients always open the same page. So a campaign re-runs byte for byte with no network
 (`mode="replay"`; a miss in replay mode raises `LLMUnavailable`). The cache holds model outputs only: prompts are
 hashed, not stored. `LLMStats` counts calls, cache hits and misses, errors, tokens and seconds. `parse_json_object`
-finds the first balanced `{...}` in a reply, tolerating code fences and prose around it.
+finds the first balanced `{...}` in a reply, tolerating code fences and prose around it. Every call is also counted
+in `progress` (from the cache, to the model, or failed, by cache tag), which is how the console shows a run's model
+calls as they happen.
+
+## gmsjourney/progress.py — how far the long parts have got
+
+```
+gmsjourney/
+└── progress.py   ◀   bar / Bar, phase, StepCounter, llm_call, llm_flush, set_sink, report
+```
+
+Every long loop reports here and does not care who listens. Analogy: a **departures board**: each flight posts its
+own status (boarding 40 of 130); the board flies nothing, and a terminal with no board still hears the announcements.
+
+* `bar(total, desc, show=...)`: a counted loop (cases played, proofs, tool-fault runs, planted defects): a tqdm bar on a
+  terminal when `show`, and a report to the sink when one is installed. `s07_checks/scoring.progress_bar` and the LLM
+  proof's `progress` both return one.
+* `phase(key, i, n, label, phases=..., expect_s=...)`: a sequence of named phases: the knowledge store's build reports
+  its eight phases (`s03_knowledge/build.GMS_PHASES`), each with how long it took in the last build on this machine
+  (`timings_s` of the newest `gms_build_report.json`) so the console can estimate the time left.
+* `StepCounter`: counts optimizer steps through torch's global post-step hook while knowlytix trains (its loops cannot
+  be instrumented from outside), so a long phase visibly moves.
+* `llm_call(tag, outcome, seconds, tokens)`: one LLM call; totals by tag are reported at most twice a second, and
+  `llm_flush()` sends them at once (at every step change).
+* `set_sink(fn)`: the console's worker installs one that writes every report as a `progress` event; with no sink and
+  no terminal bar a report costs nothing. A report never raises.
 
 ## tests/
 
@@ -59,7 +85,7 @@ without it; the rest run anywhere.
 | `test_loops.py` | loops over a returned list in journey generation (item count, window edges, per-item answers) |
 | `test_graph_tools.py` | opening a graph by path, its sections and core segments, the editor's versions, the GMS sphere, the LLM bot's tool factors |
 | `test_app.py` | the console's API: journeys, devices, check, preview, save, a run that outlives the server that started it |
-| `test_console_features.py` | the console's bot-under-test choice, the case explorer and the playground |
+| `test_console_features.py` | the console's bot-under-test choice, the case explorer and the playground; progress reports from bars, phases and LLM calls; saved Playground conversations replayed and flagged; two runs compared case by case; the graph path preview |
 | `test_flow_parity.py` | the graph-walking oracle reproduces the hand-written one it replaced (needs the store) |
 | `test_scenario_parity.py` | the configured journey factors reproduce the hand-written ones they replaced |
 | `test_selfchecks.py` | one self-check per layer (the book ends each chapter with assertions) |

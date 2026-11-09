@@ -549,6 +549,8 @@ class Session:
     sim: Any = None
     sim_calls: list = field(default_factory=list)
     last_acts: list = field(default_factory=list)
+    source: str = "project"
+    replay_of: str | None = None
 
     # ------------------------------------------------------------------ the journey's customer
     def _new_simulator(self):
@@ -731,7 +733,7 @@ class Session:
                 raise ValueError("the journey's customer has nothing to say here (the call should be ending); talk freely instead")
             text = self._words(jf)
             would = None
-        else:
+        else:                                           # "free" as typed, or "replay": a saved conversation's line
             text = (text or "").strip()
             if not text:
                 raise ValueError("type what the customer says, or stick to the journey")
@@ -753,6 +755,7 @@ class Session:
 
     def view(self) -> dict:
         return {"id": self.id, "pack": self.pack, "case": self.case["id"], "case_label": self.case["label"],
+                "source": self.source, "replay_of": self.replay_of,
                 "bot": self.bot_kind, "bot_name": self.bot_name, "turns": self.turns, "ended": self.ended,
                 "diverged_at": self.diverged_at, "deviations": list(self.deviations), "next_line": self._next_line(),
                 "journey_line": self.journey_line(),
@@ -770,8 +773,14 @@ _SESSIONS: "OrderedDict[str, Session]" = OrderedDict()
 
 def start(source: str, case_id: str, sut: dict | None) -> dict:
     """A new conversation on a case with the reference bot (``sut`` None or kind "reference") or the LLM bot."""
+    return _open(source, case_id, sut).view()
+
+
+def _open(source: str, case_id: str, sut: dict | None, fac=None, name: str | None = None) -> Session:
+    """A new conversation, opened: the bot's first turn is taken. ``fac``/``name``: a bot factory already built (a test
+    run's), used instead of building one from ``sut``."""
     from ..s06_bots.tools import ToolEnvironment
-    if (sut or {}).get("kind") == "llm" and (sut or {}).get("provider") == "local":
+    if fac is None and (sut or {}).get("kind") == "llm" and (sut or {}).get("provider") == "local":
         from ..s06_bots.llm_bot import status
         if not status(sut.get("local_path"), sut.get("vllm_url"))["url"]:   # a chat never loads a model into the console
             raise ValueError("in the Playground a local model needs a vLLM server URL (loading the model here would take "
@@ -779,17 +788,22 @@ def start(source: str, case_id: str, sut: dict | None) -> dict:
     B = bench()
     case = find_case(source, case_id)
     env = ToolEnvironment(json.loads(json.dumps(case["fixture"])))
-    fac, name, llm = make_factory(sut, B.store)
-    kind = "llm" if fac is not None else "reference"
-    if fac is None:
-        fac, name = B.reference_factory()
+    if fac is not None:
+        llm = fac if hasattr(fac, "stats") and hasattr(fac, "llm") else None     # an LLM bot's factory keeps its stats
+        kind = "llm" if llm is not None else "reference"
+    else:
+        fac, name, llm = make_factory(sut, B.store)
+        kind = "llm" if fac is not None else "reference"
+        if fac is None:
+            fac, name = B.reference_factory()
     checker = B.speech.conversation(case["fixture"].get("session_date")) if B.speech is not None else None
-    s = Session(uuid.uuid4().hex[:12], B.pack, case, kind, name, fac(env), env, checker, llm)
+    s = Session(uuid.uuid4().hex[:12], B.pack, case, kind, name or "the bot under test", fac(env), env, checker, llm,
+                source=source)
     _SESSIONS[s.id] = s
     while len(_SESSIONS) > MAX_SESSIONS:
         _SESSIONS.popitem(last=False)
     s.start()
-    return s.view()
+    return s
 
 
 def get(sid: str) -> Session:
@@ -799,3 +813,115 @@ def get(sid: str) -> Session:
         raise KeyError(f"conversation {sid} (it may have been closed; start a new one)")
     _SESSIONS.move_to_end(sid)
     return s
+
+
+# =====================================================================================================================
+# PART 4 - Saved conversations: a Playground conversation kept as a test case.
+#
+# A conversation that found something (or one worth keeping) is saved with the journey, in
+# ``<pack>/saved_conversations.json``: the case it started from and every customer line in order. Saving keeps the
+# customer's side only; the bot's side is what is being tested. Replaying sends the same lines, in the same order, to
+# a bot (the Playground's choice, or a test run's bot under test) and validates every turn exactly as the Playground
+# does. Every test run replays the journey's saved conversations after its steps (runs.py), so a deviation found by
+# hand is checked again on every later bot.
+# =====================================================================================================================
+
+def _saved_file() -> Path:
+    return Path(bench().dom.dir) / "saved_conversations.json"
+
+
+def saved_list() -> list[dict]:
+    """The active journey's saved conversations (newest first)."""
+    f = _saved_file()
+    try:
+        items = json.loads(f.read_text(encoding="utf-8")) if f.exists() else []
+    except (OSError, ValueError):
+        items = []
+    return sorted(items, key=lambda x: x.get("created", ""), reverse=True)
+
+
+def _write_saved(items: list[dict]) -> None:
+    f = _saved_file()
+    tmp = f.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(items, indent=1, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(f)
+
+
+def save_conversation(sid: str, name: str = "", note: str = "") -> dict:
+    """Keep conversation ``sid`` as a test case of its journey; returns the saved record."""
+    s = get(sid)
+    lines = [{"text": t["customer"]["text"], "mode": t["customer"].get("mode", "free")} for t in s.turns if t.get("customer")]
+    if not lines:
+        raise ValueError("say at least one customer line before saving the conversation")
+    first = s.diverged_at
+    rec = {"id": uuid.uuid4().hex[:10], "name": (name or "").strip()[:120] or
+           (f"{s.case['id']}: deviation at {'the opening' if first == 0 else f'turn {first}'}" if first is not None
+            else f"{s.case['id']}: {len(lines)} customer line{'s' if len(lines) != 1 else ''}"),
+           "note": (note or "").strip()[:1000], "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
+           "source": s.source, "case": s.case["id"], "case_label": s.case["label"], "lines": lines,
+           "saved_with": {"bot": s.bot_name, "deviations": list(s.deviations), "first_deviation": first,
+                          "why": s.turns[first]["why"] if first is not None and first < len(s.turns) else [],
+                          "ended": s.ended}}
+    _write_saved(saved_list() + [rec])
+    return rec
+
+
+def delete_saved(cid: str) -> None:
+    items = saved_list()
+    keep = [x for x in items if x["id"] != cid]
+    if len(keep) == len(items):
+        raise KeyError(f"saved conversation {cid}")
+    _write_saved(keep)
+
+
+def replay(rec: dict, sut: dict | None = None, runs_root: Path | None = None, fac=None, name: str | None = None) -> Session:
+    """Send a saved conversation's customer lines, in order, to a bot; the Session holds every validated turn."""
+    src = rec.get("source") or "project"
+    loaded = cases(src, runs_root)                      # the case list the conversation started from
+    try:
+        find_case(loaded["source"], rec["case"])
+        src = loaded["source"]
+    except KeyError:
+        src = cases("project", runs_root)["source"]     # that run is gone: the project may still have the case
+        find_case(src, rec["case"])                     # KeyError: the case no longer exists
+    s = _open(src, rec["case"], sut, fac=fac, name=name)
+    s.replay_of = rec["id"]
+    for ln in rec.get("lines") or []:
+        if s.ended or len(s.turns) >= MAX_TURNS:
+            break
+        s.say(ln["text"], "replay")
+    return s
+
+
+def replay_result(rec: dict, s: Session | None, error: str | None = None) -> dict:
+    """One saved conversation's replay, summarised: passed when every line was sent and no turn deviated."""
+    base = {"id": rec["id"], "name": rec.get("name"), "case": rec.get("case"), "lines": len(rec.get("lines") or []),
+            "saved_with": rec.get("saved_with")}
+    if s is None:
+        return {**base, "passed": False, "error": error or "could not be replayed"}
+    sent = sum(1 for t in s.turns if t.get("customer"))
+    first = s.diverged_at
+    out = {**base, "passed": not s.deviations and sent == base["lines"], "sent": sent, "deviations": list(s.deviations),
+           "first_deviation": first, "why": s.turns[first]["why"] if first is not None else [], "ended": s.ended,
+           "bot": s.bot_name, "session": s.id}
+    if sent < base["lines"]:
+        out["why"] = out["why"] + [f"the bot ended the call after {sent} of {base['lines']} customer lines"]
+    return out
+
+
+def replay_all(sut: dict | None = None, runs_root: Path | None = None, fac=None, name: str | None = None,
+               on_each=None) -> list[dict]:
+    """Replay every saved conversation of the active journey; ``on_each(i, n, result)`` after each."""
+    items = saved_list()
+    out = []
+    for i, rec in enumerate(items):
+        try:
+            res = replay_result(rec, replay(rec, sut, runs_root, fac=fac, name=name))
+        except KeyError:
+            res = replay_result(rec, None, f"its case {rec.get('case')} no longer exists in the project")
+        except Exception as e:                          # noqa: BLE001 - one bad replay must not stop the others
+            res = replay_result(rec, None, f"{type(e).__name__}: {str(e)[:200]}")
+        out.append(res)
+        if on_each is not None:
+            on_each(i + 1, len(items), res)
+    return out

@@ -30,6 +30,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
+from . import progress as _progress
 from typing import Any
 
 
@@ -352,8 +353,10 @@ class CachedLLM:
         p = self._path(key)
         if p.exists():
             try:
+                text = json.loads(p.read_text())["text"]
                 self.stats.cache_hits += 1
-                return json.loads(p.read_text())["text"]
+                _progress.llm_call(self.tag, "cached")
+                return text
             except (OSError, ValueError, KeyError):
                 pass
         if self._tripped:                            # the breaker is open: fail at once, no network
@@ -373,6 +376,7 @@ class CachedLLM:
             self.stats.errors += 1
             self.stats.last_error = f"{type(e).__name__}: {str(e)[:200]}"
             self._fails_in_row += 1
+            _progress.llm_call(self.tag, "error", time.time() - t0)
             if self.settings.log_responses or self.stats.errors <= 3:      # failures always show at first
                 _log_line(f"[LLM {self.tag} FAILED · {salt} · {time.time() - t0:.1f}s] {self.stats.last_error}")
             lim = self.settings.max_consecutive_failures
@@ -394,6 +398,8 @@ class CachedLLM:
         usage = getattr(out, "usage_metadata", None) or {}
         self.stats.input_tokens += int(usage.get("input_tokens", 0) or 0)
         self.stats.output_tokens += int(usage.get("output_tokens", 0) or 0)
+        _progress.llm_call(self.tag, "live", time.time() - t0,
+                           int(usage.get("input_tokens", 0) or 0) + int(usage.get("output_tokens", 0) or 0))
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps({"text": text, "model": self.settings.model,
                                  "provider": self.settings.effective_provider,
