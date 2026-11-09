@@ -57,7 +57,8 @@ p { margin: 0; max-width: 72ch; }
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 650; letter-spacing: -.01em; margin-right: 6px; }
 .brand svg { color: var(--graph); }
 .field-inline { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
-#pack { width: min(340px, 34vw); text-overflow: ellipsis; }
+#gpath { width: min(460px, 38vw); text-overflow: ellipsis; font-size: 12.5px; }
+.gopen #gpack:empty { display: none; }
 .top .field-inline { flex: 0 1 auto; }
 .field-inline label { font-size: 12px; color: var(--ink-3); }
 .top .spacer { flex: 1; }
@@ -351,17 +352,49 @@ table.heat th.rowh { position: static; background: var(--sunk); text-align: left
 }
 @media (max-width: 760px) { .vgrid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 1100px) { .fx, .runlayout, .cx, .pg, .pg-set { grid-template-columns: minmax(0, 1fr); } .flist, .clist { position: static; max-height: 300px; } }
-@media (max-width: 1100px) { .field-inline label { display: none; } #pack { width: min(260px, 30vw); } #help-btn .lbl { display: none; } .top { gap: 10px; } }
+@media (max-width: 1100px) { .field-inline label { display: none; } #gpath { width: min(300px, 30vw); } #help-btn .lbl { display: none; } .top { gap: 10px; } }
 @media (max-width: 760px) { .shell { grid-template-columns: minmax(0, 1fr); } nav.rail { position: static; height: auto; flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); }
   nav.rail .group { display: none; }
-  .top { gap: 8px; } .top .field-inline { flex: 1 1 100%; } #pack { flex: 1; width: auto; } .top .spacer { display: none; } .grid2, .grid3 { grid-template-columns: minmax(0, 1fr); } main { padding: 16px; } .form { grid-template-columns: minmax(0, 1fr); } .sut-choice { grid-template-columns: minmax(0, 1fr); } }
+  .top { gap: 8px; } .top .field-inline { flex: 1 1 100%; } #gpath { flex: 1; width: auto; } .top .spacer { display: none; } .grid2, .grid3 { grid-template-columns: minmax(0, 1fr); } main { padding: 16px; } .form { grid-template-columns: minmax(0, 1fr); } .sut-choice { grid-template-columns: minmax(0, 1fr); } }
+
+/* graph sections, editor, sphere: one colour per section (with its name beside it everywhere) */
+:root { --sc-customer: #1F63C6; --sc-bot: #C2560C; --sc-both: #7A3FD0; --sc-flow: #0B7A6B; --sc-rules: #A3226B; --sc-knowledge: #8A6A00; --sc-other: #7A807C; }
+@media (prefers-color-scheme: dark) { :root { --sc-customer: #6FA4F2; --sc-bot: #F0904F; --sc-both: #B48AF5; --sc-flow: #4FC9B4; --sc-rules: #EE7DB7; --sc-knowledge: #D9B24A; --sc-other: #9AA19D; } }
+.sdot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.secgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-top: 12px; }
+.seccard { text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 10px 12px; cursor: pointer; display: grid; gap: 3px; align-content: start; }
+.seccard:hover { border-color: var(--ink-3); }
+.seccard[aria-selected="true"] { border-color: var(--ink); box-shadow: var(--shadow); }
+.seccard .v { font-size: 20px; font-weight: 650; }
+.seccard .row { flex-wrap: nowrap; align-items: center; }
+.segs { max-height: 640px; overflow: auto; }
+.crit { margin-top: 6px; color: var(--ink-2); } .crit summary { cursor: pointer; color: var(--accent); } .crit-row { margin-top: 6px; padding: 6px 8px; background: var(--sunk); border-radius: 6px; display: grid; gap: 2px; overflow-wrap: anywhere; }
+.seccard .small { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.chips.ents { max-height: 150px; overflow: auto; }
+.chip .etype { font-family: var(--sans); font-size: 10.5px; color: var(--ink-3); }
+.segs { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.segs li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; }
+.segs .t { font-weight: 600; font-size: 13px; }
+.segs li.miss .t { color: var(--warn); }
+.elist { display: grid; gap: 4px; max-height: 560px; overflow: auto; }
+.eitem { text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 7px 9px; cursor: pointer; display: grid; gap: 2px; min-width: 0; }
+.eitem .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.eitem[aria-current="true"] { border-color: var(--accent); background: var(--accent-bg); }
+.input.s { height: 26px; font-size: 12px; padding: 0 6px; }
+tr.edited td { background: var(--warn-bg); }
+.sphwrap { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+.sphbox { position: relative; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+canvas.sph { display: block; width: 100%; height: min(72vh, 680px); cursor: grab; touch-action: none; border-radius: 10px; }
+canvas.sph:active { cursor: grabbing; }
+.sphtip { position: absolute; display: none; pointer-events: none; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 8px; box-shadow: var(--shadow); font-size: 12px; max-width: 280px; overflow-wrap: anywhere; }
+@media (max-width: 1000px) { .sphwrap { grid-template-columns: minmax(0, 1fr); } }
 </style>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 <header class="top">
   <div class="brand"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="4" cy="10" r="2.5" fill="currentColor"/><circle cx="16" cy="4.5" r="2.5" fill="currentColor"/><circle cx="16" cy="15.5" r="2.5" fill="currentColor"/><path d="M6 9.2 14 5.3M6 10.8l8 3.9" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>Journey Console</div>
-  <div class="field-inline"><label for="pack">Journey</label><select id="pack" class="select" name="pack"></select></div>
+  <form class="field-inline gopen" id="gopen" autocomplete="off"><label for="gpath">Graph</label><input id="gpath" class="select mono" name="gpath" list="gpaths" spellcheck="false" placeholder="path to a policy graph (.json)" aria-describedby="gpack"><datalist id="gpaths"></datalist><button class="btn" type="submit" id="gopen-btn">Open</button><span id="gpack" class="pill graph" title="The journey this graph belongs to"></span></form>
   <span id="validity"></span>
   <div class="spacer"></div>
   <span id="device-pill"></span>
@@ -416,7 +449,7 @@ const S = { meta: null, pack: null, J: null, P: null, dirty: false, issues: [], 
             preview: null, timer: null, checkT: null };
 const D = () => S.J.domain;
 const VIEWS = [
-  ["Journey", [["overview", "Overview"], ["graph", "Graph"]]],
+  ["Journey", [["overview", "Overview"], ["sections", "Graph Sections"], ["graph", "Flow"], ["edit", "Edit Graph"], ["sphere", "GMS Sphere"]]],
   ["You configure", [["factors", "Journey Factors"], ["bank", "Bank & Customer"], ["scoring", "Rules & Scoring"]]],
   ["Try the bot", [["play", "Playground"]]],
   ["Campaign", [["run", "Run Campaign"], ["runs", "Runs"]]],
@@ -434,16 +467,13 @@ async function boot() {
   try {
     S.meta = await api("api/meta");
   } catch (e) { $("#main").replaceChildren(h("div", { class: "notice bad" }, `The console server did not answer: ${e.message}`)); return; }
-  const sel = $("#pack");
-  sel.replaceChildren(...S.meta.packs.map(p => h("option", { value: p.name }, `${p.title} · ${p.name}`)));
-  let want = null; try { want = localStorage.getItem("jc.pack"); } catch {}
-  S.pack = S.meta.packs.some(p => p.name === want) ? want : (S.meta.packs.find(p => p.compiled) || S.meta.packs[0]).name;
-  sel.value = S.pack;
-  sel.addEventListener("change", async () => {
-    if (S.dirty && !(await confirmBox("Discard Unsaved Changes?", "You have edits to this journey's project that are not saved.", "Discard"))) { sel.value = S.pack; return; }
-    S.pack = sel.value; try { localStorage.setItem("jc.pack", S.pack); } catch {}
-    await loadJourney(); render();
-  });
+  let want = null; try { want = localStorage.getItem("jc.gpath"); } catch {}
+  gpaths();
+  $("#gpath").value = want || DEFAULT_GRAPH;
+  $("#gopen").addEventListener("submit", e => { e.preventDefault(); openGraph($("#gpath").value); });
+  const first = S.meta.packs.find(p => p.path === $("#gpath").value);
+  if (first) { S.pack = first.name; gpackPill(); }
+  else { const ok = await openGraph($("#gpath").value, true); if (!ok) { $("#gpath").value = DEFAULT_GRAPH; S.pack = (S.meta.packs.find(p => p.path === DEFAULT_GRAPH) || S.meta.packs[0]).name; gpackPill(); } }
   devicePill();
   $("#help-btn").addEventListener("click", openHelp);
   document.addEventListener("keydown", e => { if (e.key === "?" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "") && !$("#dlg").open) { e.preventDefault(); openHelp(); } });
@@ -453,6 +483,34 @@ async function boot() {
   window.addEventListener("beforeunload", e => { if (S.dirty) { e.preventDefault(); e.returnValue = ""; } });
   render();
   pollActive();
+}
+const DEFAULT_GRAPH = "gmsjourney/policy/charge_review/charge_review_kg.json";
+function recentPaths() { try { return JSON.parse(localStorage.getItem("jc.gpaths") || "[]"); } catch { return []; } }
+function gpaths() {
+  const seen = new Set(), opts = [];
+  for (const p of [...recentPaths(), ...S.meta.packs.map(p => p.path).filter(Boolean)]) if (!seen.has(p)) { seen.add(p); opts.push(p); }
+  $("#gpaths").replaceChildren(...opts.map(p => { const m = S.meta.packs.find(x => x.path === p); return h("option", { value: p }, m ? `${m.title} · ${m.name}` : "recent"); }));
+}
+function gpackPill() { const m = S.meta.packs.find(p => p.name === S.pack); $("#gpack").textContent = m ? m.name : ""; $("#gpack").title = m ? `Journey ${m.name}: ${m.title}` : ""; }
+// Open a graph by path: the journey that holds it (switched to that file), or a new journey made from it (graphs.py)
+async function openGraph(path, quiet) {
+  path = (path || "").trim() || DEFAULT_GRAPH;
+  if (S.dirty && !(await confirmBox("Discard Unsaved Changes?", "You have edits to this journey's project that are not saved.", "Discard"))) return false;
+  const btn = $("#gopen-btn"); btn.disabled = true;
+  try {
+    const r = await api("api/graph/open", { path });
+    S.meta = await api("api/meta"); S.pack = r.pack; S.ed = null; S.sec = null; S.sph = null;
+    const shown = r.graph || path; $("#gpath").value = shown;
+    try { localStorage.setItem("jc.gpath", shown); localStorage.setItem("jc.gpaths", JSON.stringify([shown, ...recentPaths().filter(x => x !== shown)].slice(0, 8))); } catch {}
+    gpaths(); gpackPill();
+    if (r.created) toast(`Made a new journey, ${r.pack}, from this graph: drafted its customer wording and project`);
+    else if (r.switched) toast(`${r.pack} now uses ${shown.split("/").pop()}`);
+    if (!quiet) { await loadJourney(); go("#/sections"); }
+    return true;
+  } catch (e) {
+    if (!quiet) { const d = $("#dlg"); d.replaceChildren(h("h2", {}, "Could Not Open This Graph"), h("p", { class: "muted", style: "margin:8px 0 6px" }, path), h("p", { style: "margin-bottom:16px" }, e.message), h("div", { class: "row", style: "justify-content:flex-end" }, h("button", { class: "btn primary", onclick: () => d.close() }, "OK"))); d.showModal(); }
+    return false;
+  } finally { btn.disabled = false; }
 }
 async function loadJourney(fresh) {
   const meta = S.meta.packs.find(p => p.name === S.pack);
@@ -558,12 +616,12 @@ function render() {
   const r = route();
   nav(r.view);
   const main = $("#main");
-  if (!S.J && !["run", "runs", "cases", "verdict"].includes(r.view)) { main.replaceChildren(h("div", { class: "notice bad" }, `This journey could not be read: ${S.err || "unknown error"}`)); return; }
-  const fn = { overview, graph, factors, bank, scoring, run: runView, runs: runsView, cases: casesView, play: playView, verdict: verdictView }[r.view] || overview;
+  if (!S.J && !["run", "runs", "cases", "verdict", "sections", "edit", "sphere"].includes(r.view)) { main.replaceChildren(h("div", { class: "notice bad" }, `This journey could not be read: ${S.err || "unknown error"}`)); return; }
+  const fn = { overview, graph, factors, bank, scoring, run: runView, runs: runsView, cases: casesView, play: playView, verdict: verdictView, sections: sectionsView, edit: editView, sphere: sphereView }[r.view] || overview;
   const out = fn(r);
   if (out) main.replaceChildren(...[out].flat().filter(x => x != null && x !== false));
-  if (S.dirty && !["run", "runs", "cases", "play", "verdict"].includes(r.view)) savebar();      // a re-render keeps the unsaved-changes bar
-  document.title = `${({ overview: "Overview", graph: "Graph", factors: "Journey Factors", bank: "Bank & Customer", scoring: "Rules & Scoring", run: "Run Campaign", runs: "Runs", cases: "Cases", play: "Playground", verdict: "Verdict" })[r.view] || "Journey Console"} · Journey Console`;
+  if (S.dirty && !["run", "runs", "cases", "play", "verdict", "sections", "edit", "sphere"].includes(r.view)) savebar();      // a re-render keeps the unsaved-changes bar
+  document.title = `${({ overview: "Overview", sections: "Graph Sections", edit: "Edit Graph", sphere: "GMS Sphere", graph: "Flow", factors: "Journey Factors", bank: "Bank & Customer", scoring: "Rules & Scoring", run: "Run Campaign", runs: "Runs", cases: "Cases", play: "Playground", verdict: "Verdict" })[r.view] || "Journey Console"} · Journey Console`;
 }
 function nav(view) {
   if (view === "cases" || view === "verdict") view = "runs";
@@ -622,6 +680,310 @@ function overview() {
           table(["Where", "Never produced", "Why it matters", ""], gaps, { mono: [0, 1] })] : h("p", { class: "muted" }, "Every tool outcome and customer choice is produced by some level."),
         (cov.rules_not_reached || []).length ? h("div", { class: "notice warn" }, `Rules no level reaches: ${cov.rules_not_reached.join(", ")}`) : null)),
   ];
+}
+
+// ---------------------------------------------------------------- graph sections (graphs.py)
+const SECT_COLOR = { customer: "var(--sc-customer)", bot: "var(--sc-bot)", both: "var(--sc-both)", flow: "var(--sc-flow)", rules: "var(--sc-rules)", knowledge: "var(--sc-knowledge)", other: "var(--sc-other)" };
+function secDot(k) { return h("span", { class: "sdot", style: `background:${SECT_COLOR[k] || "var(--ink-3)"}`, "aria-hidden": "true" }); }
+async function loadSections(force) {
+  if (S.sec && S.sec.pack === S.pack && !force) return;
+  S.sec = { pack: S.pack, loading: true, sel: (S.sec && S.sec.sel) || "customer", q: "" }; render();
+  try { Object.assign(S.sec, await api(`api/graph/${S.pack}/sections`), { loading: false }); }
+  catch (e) { S.sec.loading = false; S.sec.err = e.message; }
+  if (route().view === "sections") render();
+}
+function versionsRow(vs) {
+  if (!vs || vs.length < 2) return null;
+  return h("div", { class: "row small", style: "gap:6px;flex-wrap:wrap" }, h("span", { class: "muted" }, "Versions:"),
+    ...vs.map(v => h("button", { class: "chip", type: "button", "aria-pressed": v.active ? "true" : "false", title: v.path,
+      onclick: async () => { if (v.active) return; try { await api(`api/graph/${S.pack}/use`, { file: v.file }); toast(`${S.pack} now uses ${v.file}`); $("#gpath").value = v.path; try { localStorage.setItem("jc.gpath", v.path); } catch {} S.meta = await api("api/meta"); S.sec = null; S.ed = null; S.sph = null; await loadJourney(); render(); } catch (e) { toast(e.message); } } },
+      v.file + (v.original ? " (original)" : ""))));
+}
+function sectionsView() {
+  const X = S.sec;
+  if (!X || X.pack !== S.pack) { loadSections(); return h("div", { class: "empty" }, "Reading the graph…"); }
+  if (X.loading) return h("div", { class: "empty" }, "Reading the graph…");
+  if (X.err) return h("div", { class: "notice bad" }, X.err);
+  const cur = X.sections.find(s => s.key === X.sel) || X.sections[0];
+  const segs = X.segments || [], miss = segs.filter(s => !s.ok);
+  const q = (X.q || "").toLowerCase();
+  const rows = cur.triples.filter(t => !q || `${t.head} ${t.relation} ${t.tail}`.toLowerCase().includes(q));
+  return [
+    head("Graph Sections", `${X.title} · ${X.graph} · ${X.format === "compact" ? "compact graph (gmsjourney.policy_graph/2), compiled to " : "triples graph built from the PDF, "}${X.triples} triples`,
+      h("a", { class: "btn", href: "#/sphere" }, "See the GMS Sphere"), h("a", { class: "btn primary", href: "#/edit" }, "Edit the Graph")),
+    versionsRow(X.versions),
+    (X.lexicon_drafted || []).length ? h("div", { class: "notice info", style: "margin:10px 0" }, `Drafted customer wording is in use for ${X.lexicon_drafted.length} entr${X.lexicon_drafted.length === 1 ? "y" : "ies"} the journey's lexicon does not word yet (${X.lexicon_drafted.slice(0, 6).join(", ")}${X.lexicon_drafted.length > 6 ? ", …" : ""}). Write the real wording in domain.yaml when you can.`) : null,
+    h("div", { class: "secgrid", role: "tablist", "aria-label": "Sections of the graph" }, ...X.sections.map(s =>
+      h("button", { class: "seccard", type: "button", role: "tab", "aria-selected": s.key === cur.key ? "true" : "false", onclick: () => { X.sel = s.key; X.q = ""; render(); } },
+        h("div", { class: "row", style: "gap:7px" }, secDot(s.key), h("b", {}, s.title)), h("div", { class: "v num" }, s.count), h("div", { class: "small muted" }, s.about)))),
+    h("div", { class: "grid2", style: "grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);margin-top:16px" },
+      h("div", { class: "card" },
+        h("div", { class: "hd" }, h("div", { class: "row", style: "gap:8px" }, secDot(cur.key), h("h2", {}, cur.title)), h("span", { class: "small muted num" }, `${cur.count} triples · ${cur.entities.length} entities`)),
+        h("div", { class: "bd stack", style: "gap:12px" },
+          h("p", { class: "small muted" }, cur.about),
+          cur.key === "both" && X.shared_slots.length ? h("p", { class: "small" }, "Slots the customer fills and a tool takes as an argument: ", ...X.shared_slots.map(s => h("code", { style: "margin-right:6px" }, s))) : null,
+          h("div", {}, h("div", { class: "small muted", style: "margin-bottom:6px" }, "Relations"), h("div", { class: "chips" }, ...Object.entries(cur.relations).map(([r, n]) => h("button", { class: "chip", type: "button", onclick: () => { X.q = r; render(); } }, `${r} · ${n}`)))),
+          h("div", {}, h("div", { class: "small muted", style: "margin-bottom:6px" }, "Entities"), h("div", { class: "chips ents" }, ...cur.entities.map(e => h("button", { class: "chip", type: "button", title: e.type || "entity", onclick: () => { X.q = e.name; render(); } }, e.name, e.type ? h("span", { class: "etype" }, e.type.replace("_", " ")) : null)))),
+          h("div", { class: "row" }, h("input", { class: "input", type: "search", placeholder: "Filter triples (entity, relation, value)", "aria-label": "Filter triples", value: X.q || "", oninput: e => { X.q = e.target.value; renderKeep(e.target); } }), X.q ? h("button", { class: "btn s", type: "button", onclick: () => { X.q = ""; render(); } }, "Clear") : null),
+          table(["Head", "Relation", "Tail"], rows.map(t => [t.head, t.relation, String(t.tail)]), { mono: [0, 1, 2], max: 420 }),
+          cur.more ? h("p", { class: "small muted" }, `${cur.more} more triples in this section are not listed.`) : null)),
+      h("div", { class: "card" },
+        h("div", { class: "hd" }, h("h2", {}, "Core Segments"), h("span", { class: `pill ${miss.length ? "warn" : "ok"}` }, h("span", { class: "dot" }), miss.length ? `${miss.length} missing` : "all present")),
+        h("div", { class: "bd" }, h("p", { class: "small muted", style: "margin-bottom:10px" }, "What every graph needs for the validations a campaign runs. A missing segment means those checks have nothing to test."),
+          h("ul", { class: "segs" }, ...segs.map(s => h("li", { class: s.ok ? "ok" : "miss" },
+            h("span", { class: "mark " + (s.ok ? "ok" : "warn"), "aria-label": s.ok ? "present" : "missing" }, s.ok ? "✓" : "!"),
+            h("div", {}, h("div", { class: "t" }, s.name), h("div", { class: "small muted" }, s.detail), h("div", { class: "small", style: "color:var(--ink-3)" }, `Needed for ${s.needed_for}.`),
+              !s.ok && Object.keys(s.add || {}).length && X.format === "compact" ? h("button", { class: "btn s", type: "button", style: "margin-top:6px", onclick: () => { S.edSuggest = s; go("#/edit"); } }, "Add in the Editor…") : null,
+              !s.ok && X.format !== "compact" && (s.triples || []).length ? h("div", { class: "small mono", style: "margin-top:4px" }, "e.g. ", s.triples.map(t => `${t.head} ${t.relation} ${t.tail}`).join(" · ")) : null))))))),
+  ];
+}
+
+// ---------------------------------------------------------------- graph editor (graphs.py: editable, check, save)
+async function loadEditor(force) {
+  if (S.ed && S.ed.pack === S.pack && !force) return;
+  S.ed = { pack: S.pack, loading: true, sel: "customer", open: null, q: "", result: null, busy: false };
+  render();
+  try {
+    const E = await api(`api/graph/${S.pack}/edit`);
+    Object.assign(S.ed, E, { loading: false, base: clone(E.items || E.triples), work: clone(E.items || E.triples), dirty: false });
+    if (!S.sec || S.sec.pack !== S.pack) { try { S.sec = { pack: S.pack, sel: "customer", ...(await api(`api/graph/${S.pack}/sections`)) }; } catch {} }
+  } catch (e) { S.ed.loading = false; S.ed.err = e.message; }
+  if (route().view === "edit") render();
+}
+function edMark() { S.ed.dirty = JSON.stringify(S.ed.work) !== JSON.stringify(S.ed.base); S.ed.result = null; }
+function applySuggestion(seg) {
+  const E = S.ed; let opened = null;
+  for (const [path, val] of Object.entries(seg.add || {})) {
+    const holder = /<[^>]+>/.test(path);
+    const p = holder ? path : path;
+    const ex = E.work.find(it => it.path === p);
+    if (ex && !holder) { if (ex.value && typeof ex.value === "object" && !Array.isArray(ex.value) && typeof val === "object" && !Array.isArray(val)) ex.value = Object.assign({}, val, ex.value); }
+    else if (!ex) { const sec = p.startsWith("values.") ? "customer" : p.startsWith("acts.") ? "customer" : p.startsWith("tools.") || ["opening", "credential_hint"].includes(p) ? "bot" : p.startsWith("states.") || p.startsWith("global.") || p === "transfers" ? "flow" : p.startsWith("rules.") ? "rules" : p.startsWith("limits.") || p === "knowledge" || p.startsWith("facts.") ? "knowledge" : "other";
+      E.work.push({ path: p, section: sec, value: clone(val), added: true }); opened = opened || p; E.sel = sec; }
+  }
+  edMark(); if (opened) E.open = opened;
+  toast(`Added ${seg.name.toLowerCase()} as a draft: fill in the <…> placeholders, then Check`);
+}
+function itemPreview(v) { const s = JSON.stringify(v); return s.length > 120 ? s.slice(0, 117) + "…" : s; }
+function compactEditor(E) {
+  const items = E.work.filter(it => it.section === E.sel && (!E.q || it.path.toLowerCase().includes(E.q.toLowerCase()) || JSON.stringify(it.value).toLowerCase().includes(E.q.toLowerCase())));
+  const openIt = E.work.find(it => it.path === E.open);
+  return h("div", { class: "grid2", style: "grid-template-columns:minmax(0,1fr) minmax(0,1.2fr)" },
+    h("div", { class: "card" },
+      h("div", { class: "hd" }, h("h2", {}, "Entries"), h("button", { class: "btn s", type: "button", "aria-expanded": E.adding ? "true" : "false", onclick: () => { E.adding = !E.adding; render(); } }, "Add Entry")),
+      h("div", { class: "bd stack", style: "gap:8px" },
+        E.adding ? h("form", { class: "row", onsubmit: e => { e.preventDefault(); const path = e.target.querySelector("input").value.trim(); if (!path) return; E.adding = false;
+            if (!E.work.some(it => it.path === path)) { const top = path.split(".")[0]; E.work.push({ path, section: E.sel, value: top === "rules" ? ["must", "", {}] : top === "knowledge" ? [] : {}, added: true }); edMark(); }
+            E.open = path; render(); } },
+          h("input", { class: "input mono", placeholder: "values.my_set, acts.INFORM_X, tools.my_tool, states.ASK_X, rules.R30, limits.max_x", "aria-label": "Path of the new entry" }), h("button", { class: "btn s primary", type: "submit" }, "Add")) : null,
+        h("input", { class: "input", type: "search", placeholder: "Filter entries", "aria-label": "Filter entries", value: E.q, oninput: e => { E.q = e.target.value; renderKeep(e.target); } }),
+        h("div", { class: "elist" }, ...items.map(it => { const b = (E.base || []).find(x => x.path === it.path); const ch = !b ? "added" : JSON.stringify(b.value) !== JSON.stringify(it.value) ? "changed" : "";
+          return h("button", { type: "button", class: "eitem", "aria-current": it.path === E.open ? "true" : "false", onclick: () => { E.open = it.path; render(); } },
+            h("div", { class: "row", style: "justify-content:space-between" }, h("code", {}, it.path), ch ? h("span", { class: `pill ${ch === "added" ? "ok" : "warn"}` }, ch) : null), h("div", { class: "small muted mono" }, itemPreview(it.value))); }),
+          items.length ? null : h("p", { class: "small muted" }, "No entries in this section.")))),
+    h("div", { class: "card" },
+      h("div", { class: "hd" }, h("h2", {}, openIt ? openIt.path : "Choose an entry"), openIt ? h("div", { class: "row" },
+        h("button", { class: "btn s", type: "button", onclick: () => { const b = (E.base || []).find(x => x.path === openIt.path); if (b) openIt.value = clone(b.value); else E.work = E.work.filter(x => x !== openIt); edMark(); render(); } }, "Undo"),
+        h("button", { class: "btn s danger", type: "button", onclick: () => { E.work = E.work.filter(x => x !== openIt); E.open = null; edMark(); render(); } }, "Remove")) : null),
+      h("div", { class: "bd" }, openIt ? [
+        h("label", { class: "small muted", for: "ejson" }, "JSON for this entry. It is checked when you leave the box."),
+        h("textarea", { id: "ejson", class: "input mono", rows: 18, spellcheck: "false", onchange: e => { try { openIt.value = JSON.parse(e.target.value); E.jsonErr = null; edMark(); render(); } catch (x) { E.jsonErr = x.message; render(); } } }, JSON.stringify(openIt.value, null, 2)),
+        E.jsonErr ? h("p", { class: "small", style: "color:var(--bad);margin-top:6px" }, `Not valid JSON: ${E.jsonErr}`) : null,
+      ] : h("p", { class: "muted small" }, "Pick an entry on the left to edit it, or add one. Every entry is one value set, act, tool, state, rule or limit of the compact graph."))));
+}
+function triplesEditor(E) {
+  const q = (E.q || "").toLowerCase();
+  const idx = E.work.map((t, i) => [t, i]).filter(([t]) => t.section === E.sel && (!q || `${t.head} ${t.relation} ${t.tail}`.toLowerCase().includes(q)));
+  const shown = idx.slice(0, 250);
+  const cell = (t, k) => h("input", { class: "input mono s", value: typeof t[k] === "object" ? JSON.stringify(t[k]) : String(t[k] ?? ""), "aria-label": k,
+    onchange: e => { let v = e.target.value; if (k === "tail" && /^-?\d+(\.\d+)?$/.test(v)) v = Number(v); t[k] = v; edMark(); render(); } });
+  return h("div", { class: "card" },
+    h("div", { class: "hd" }, h("h2", {}, `Triples · ${_TITLE(E.sel)}`), h("button", { class: "btn s", type: "button", onclick: () => { E.work.push({ id: "", head: "", relation: "", tail: "", section: E.sel, kind: "policy", source: "user_edit" }); E.q = ""; edMark(); render(); } }, "Add Triple")),
+    h("div", { class: "bd stack", style: "gap:8px" },
+      h("input", { class: "input", type: "search", placeholder: "Filter triples", "aria-label": "Filter triples", value: E.q, oninput: e => { E.q = e.target.value; renderKeep(e.target); } }),
+      h("div", { class: "tw", style: "max-height:520px" }, h("table", {}, h("thead", {}, h("tr", {}, ...["Head", "Relation", "Tail", ""].map(c => h("th", {}, c)))),
+        h("tbody", {}, ...shown.map(([t, i]) => { const b = (E.base || []).find(x => x.id && x.id === t.id); const ch = !b ? "new" : (b.head !== t.head || b.relation !== t.relation || JSON.stringify(b.tail) !== JSON.stringify(t.tail)) ? "changed" : "";
+          return h("tr", { class: ch ? "edited" : null }, h("td", {}, cell(t, "head")), h("td", {}, cell(t, "relation")), h("td", {}, cell(t, "tail")),
+            h("td", {}, h("button", { class: "btn s ghost danger", type: "button", "aria-label": `Remove ${t.head} ${t.relation}`, onclick: () => { E.work.splice(i, 1); edMark(); render(); } }, "✕"))); })))),
+      idx.length > shown.length ? h("p", { class: "small muted" }, `Showing 250 of ${idx.length}; filter to find the rest.`) : null));
+}
+function _TITLE(k) { return ({ customer: "Used by the customer", bot: "Used by the bot", both: "Used by both", flow: "Defines the flow", rules: "Rules", knowledge: "Knowledge and figures", other: "Other" })[k] || k; }
+async function edCheck(save) {
+  const E = S.ed; E.busy = true; render();
+  const body = E.format === "compact" ? { items: E.work.map(({ path, value }) => ({ path, value })) } : { triples: E.work, note: "Edited in the journey console." };
+  try {
+    const r = await api(`api/graph/${S.pack}/${save ? "save" : "check"}`, body);
+    E.result = { ...r, saved: !!save };
+    if (save) {
+      toast(`Saved ${r.file} beside the original and switched ${S.pack} to it`);
+      $("#gpath").value = r.path; try { localStorage.setItem("jc.gpath", r.path); } catch {}
+      S.meta = await api("api/meta"); S.sec = null; S.sph = null; const keep = E.result; await loadJourney(); await loadEditor(true); S.ed.result = keep;
+    }
+  } catch (e) { E.result = { error: e.message }; }
+  S.ed.busy = false; render();
+}
+function edResult(R) {
+  if (!R) return null;
+  if (R.error) return h("div", { class: "notice bad" }, R.error);
+  const miss = (R.segments || []).filter(s => !s.ok);
+  return h("div", { class: "card", style: "margin-top:16px" },
+    h("div", { class: "hd" }, h("h2", {}, R.saved ? `Saved ${R.file}` : "Check"), h("span", { class: `pill ${(R.problems || []).length ? "warn" : "ok"}` }, h("span", { class: "dot" }), (R.problems || []).length ? `${R.problems.length} problem(s)` : "lint clean")),
+    h("div", { class: "bd stack", style: "gap:12px" },
+      R.saved ? h("p", { class: "small" }, `Written beside ${R.from}; the journey now uses it. The original is unchanged; switch back from the versions row.`) : null,
+      h("div", {}, h("h3", {}, `What Changed (${(R.changes || []).length})`), (R.changes || []).length ? table(["Change", "Entry", "Before", "After"], R.changes.map(c => [h("span", { class: `pill ${c.change === "added" ? "ok" : c.change === "removed" ? "bad" : "warn"}` }, c.change), c.path, c.before || "", c.after || ""]), { mono: [1, 2, 3], max: 300 }) : h("p", { class: "small muted" }, "Nothing changed yet.")),
+      (R.problems || []).length ? h("div", { class: "notice warn" }, "The lint found: ", h("ul", {}, ...R.problems.slice(0, 12).map(p => h("li", {}, p)))) : null,
+      miss.length ? h("div", { class: "notice warn" }, `Core segments still missing: ${miss.map(s => s.name).join(", ")}.`) : (R.segments || []).length ? h("div", { class: "notice ok" }, "Every core segment is present.") : null));
+}
+function editView() {
+  const E = S.ed;
+  if (!E || E.pack !== S.pack) { loadEditor(); return h("div", { class: "empty" }, "Reading the graph…"); }
+  if (E.loading) return h("div", { class: "empty" }, "Reading the graph…");
+  if (E.err) return h("div", { class: "notice bad" }, E.err);
+  if (S.edSuggest && E.format === "compact") { const sg = S.edSuggest; S.edSuggest = null; applySuggestion(sg); }
+  const segs = (S.sec && S.sec.pack === S.pack && S.sec.segments) || [];
+  const counts = {}; for (const it of E.work) counts[it.section] = (counts[it.section] || 0) + 1;
+  return [
+    head("Edit the Graph", `${E.path} · ${E.format === "compact" ? "compact graph: one entry per value set, act, tool, state, rule and limit" : "triples graph: one row per triple"}. Saving writes a new version beside the original and switches the journey to it; the original file is never changed.`,
+      h("button", { class: "btn", type: "button", disabled: E.busy || !E.dirty, onclick: () => edCheck(false) }, E.busy ? h("span", { class: "spin" }) : null, "Check"),
+      h("button", { class: "btn primary", type: "button", disabled: E.busy || !E.dirty, onclick: () => edCheck(true) }, "Save as New Version")),
+    versionsRow(E.versions),
+    h("nav", { class: "tabs", "aria-label": "Sections", style: "margin-top:10px" }, ...(E.sections || []).map(s => h("a", { href: "#/edit", "aria-current": s.key === E.sel ? "page" : null, onclick: e => { e.preventDefault(); E.sel = s.key; E.q = ""; render(); } }, secDot(s.key), " ", s.title, h("span", { class: "small muted num" }, ` ${counts[s.key] || 0}`)))),
+    E.dirty ? h("div", { class: "notice info", style: "margin-bottom:12px" }, "Unsaved edits. Check runs the lint and the core-segment checks on the edited graph without saving it.") : null,
+    E.format === "compact" ? compactEditor(E) : triplesEditor(E),
+    segs.length ? h("div", { class: "card", style: "margin-top:16px" }, h("div", { class: "hd" }, h("h2", {}, "Core Segments"), h("span", { class: "small muted" }, "add what the validations need")),
+      h("div", { class: "bd chips" }, ...segs.map(s => h("button", { class: `chip ${s.ok ? "ok" : "bad"}`, type: "button", title: `${s.detail}. Needed for ${s.needed_for}.`, disabled: s.ok || E.format !== "compact" || !Object.keys(s.add || {}).length ? true : null,
+        onclick: () => { applySuggestion(s); render(); } }, s.ok ? "✓ " : "+ ", s.name)))) : null,
+    edResult(E.result),
+  ];
+}
+
+// ---------------------------------------------------------------- GMS unit sphere (sphere.py)
+async function loadSphere(force) {
+  if (S.sph && S.sph.pack === S.pack && !force) return;
+  S.sph = { pack: S.pack, loading: true, on: new Set(["customer", "bot", "both", "flow", "rules", "knowledge", "other"]), rel: "", q: "", arcs: true, labels: true, rot: [0.5, -0.35], zoom: 1, pin: null };
+  render();
+  try { Object.assign(S.sph, await api(`api/graph/${S.pack}/sphere`), { loading: false }); }
+  catch (e) { S.sph.loading = false; S.sph.err = e.message; }
+  if (route().view === "sphere") render();
+}
+function sphereView() {
+  const G = S.sph;
+  if (!G || G.pack !== S.pack) { loadSphere(); return h("div", { class: "empty" }, "Placing the graph on the sphere…"); }
+  if (G.loading) return h("div", { class: "empty" }, "Placing the graph on the sphere…");
+  if (G.err) return h("div", { class: "notice bad" }, G.err);
+  const cv = h("canvas", { id: "sph", class: "sph", tabindex: 0, "aria-label": "The policy graph on the unit sphere. Drag to rotate, scroll to zoom, click a point to pin it." });
+  const tip = h("div", { class: "sphtip", role: "status" });
+  const side = h("div", { class: "card sphside" });
+  setTimeout(() => sphereMount(cv, tip, side), 0);
+  return [
+    head("GMS Sphere", `Every entity of the graph as a point on the unit sphere, every relation as an arc. ${G.placement === "store" ? "Placed from the knowledge store's learned geometry." : "Placed from the graph's relationships."}`,
+      h("a", { class: "btn", href: "#/sections" }, "Graph Sections")),
+    h("div", { class: `notice ${G.placement === "store" ? "ok" : "info"}`, style: "margin-bottom:12px" }, G.note,
+      G.fit ? h("span", { class: "small" }, ` · linked entities sit ${G.fit.edge_arc} rad apart on average, against ${G.fit.random_arc} rad for a random pair`) : null),
+    h("div", { class: "row sphctl", style: "flex-wrap:wrap;gap:6px;margin-bottom:10px" },
+      ...G.sections.map(s => h("button", { class: "chip", type: "button", "aria-pressed": G.on.has(s.key) ? "true" : "false", onclick: () => { G.on.has(s.key) ? G.on.delete(s.key) : G.on.add(s.key); render(); } }, secDot(s.key), s.title)),
+      h("select", { class: "select", "aria-label": "Relation", onchange: e => { G.rel = e.target.value; render(); } }, h("option", { value: "" }, "All relations"), ...Object.entries(G.relations).map(([r, n]) => h("option", { value: r, selected: G.rel === r ? true : null }, `${r} (${n})`))),
+      h("input", { class: "input", style: "width:200px", type: "search", placeholder: "Find an entity", "aria-label": "Find an entity", value: G.q, oninput: e => { G.q = e.target.value; const hit = G.nodes.find(n => G.q && n.id.toLowerCase().includes(G.q.toLowerCase())); G.pin = hit ? hit.id : G.pin; sphereDraw(); sphereSide(); } }),
+      h("label", { class: "small row", style: "gap:4px" }, h("input", { type: "checkbox", checked: G.arcs ? true : null, onchange: e => { G.arcs = e.target.checked; sphereDraw(); } }), "Arcs"),
+      h("label", { class: "small row", style: "gap:4px" }, h("input", { type: "checkbox", checked: G.labels ? true : null, onchange: e => { G.labels = e.target.checked; sphereDraw(); } }), "Labels")),
+    h("div", { class: "sphwrap" }, h("div", { class: "sphbox" }, cv, tip), side),
+  ];
+}
+function sphereMount(cv, tip, side) {
+  const G = S.sph; if (!G || !cv.isConnected) return;
+  G.cv = cv; G.tip = tip; G.side = side;
+  const fit = () => { const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1; cv.width = r.width * dpr; cv.height = r.height * dpr; sphereDraw(); };
+  new ResizeObserver(fit).observe(cv);
+  let drag = null;
+  cv.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY, moved: false }; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener("pointermove", e => {
+    if (drag) { const dx = e.clientX - drag.x, dy = e.clientY - drag.y; if (Math.abs(dx) + Math.abs(dy) > 2) drag.moved = true; G.rot[0] += dx * 0.008; G.rot[1] = Math.max(-1.5, Math.min(1.5, G.rot[1] + dy * 0.008)); drag.x = e.clientX; drag.y = e.clientY; sphereDraw(); return; }
+    const n = sphereHit(e); G.hover = n ? n.id : null; sphereDraw();
+    if (n) { const r = cv.getBoundingClientRect(); tip.style.display = "block"; tip.style.left = `${e.clientX - r.left + 12}px`; tip.style.top = `${e.clientY - r.top + 12}px`; tip.replaceChildren(h("b", {}, n.id), h("div", { class: "small" }, `${n.type || "entity"} · ${_TITLE(n.section)} · ${n.degree} relation${n.degree === 1 ? "" : "s"}`)); }
+    else tip.style.display = "none";
+  });
+  cv.addEventListener("pointerup", e => { if (drag && !drag.moved) { const n = sphereHit(e); G.pin = n ? n.id : null; sphereDraw(); sphereSide(); } drag = null; });
+  cv.addEventListener("pointerleave", () => { tip.style.display = "none"; G.hover = null; sphereDraw(); });
+  cv.addEventListener("wheel", e => { e.preventDefault(); G.zoom = Math.max(0.6, Math.min(3, G.zoom * (e.deltaY < 0 ? 1.1 : 0.9))); sphereDraw(); }, { passive: false });
+  cv.addEventListener("keydown", e => { const k = { ArrowLeft: [-0.12, 0], ArrowRight: [0.12, 0], ArrowUp: [0, -0.12], ArrowDown: [0, 0.12] }[e.key]; if (k) { e.preventDefault(); G.rot[0] += k[0]; G.rot[1] += k[1]; sphereDraw(); } });
+  fit(); sphereSide();
+}
+function sphereProj(p) {
+  const G = S.sph, [a, b] = G.rot, ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b);
+  const x1 = ca * p[0] + sa * p[2], z1 = -sa * p[0] + ca * p[2];
+  const y2 = cb * p[1] - sb * z1, z2 = sb * p[1] + cb * z1;
+  const W = G.cv.width, H = G.cv.height, R = Math.min(W, H) * 0.42 * G.zoom;
+  return [W / 2 + x1 * R, H / 2 - y2 * R, z2, R];
+}
+function sphereVisible(n) { const G = S.sph; return G.on.has(n.section); }
+function sphereHit(e) {
+  const G = S.sph, r = G.cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1, mx = (e.clientX - r.left) * dpr, my = (e.clientY - r.top) * dpr;
+  let best = null, bd = (12 * dpr) ** 2;
+  for (const n of G.nodes) { if (!sphereVisible(n)) continue; const [x, y, z] = sphereProj([n.x, n.y, n.z]); if (z < -0.15) continue; const d = (x - mx) ** 2 + (y - my) ** 2; if (d < bd) { bd = d; best = n; } }
+  return best;
+}
+function sphereDraw() {
+  const G = S.sph; if (!G || !G.cv || !G.cv.isConnected) return;
+  const c = G.cv.getContext("2d"), W = G.cv.width, H = G.cv.height, dpr = window.devicePixelRatio || 1, cs = getComputedStyle(document.documentElement);
+  const col = k => cs.getPropertyValue(`--sc-${k}`).trim() || "#888", ink = cs.getPropertyValue("--ink").trim(), line = cs.getPropertyValue("--line-strong").trim(), ink3 = cs.getPropertyValue("--ink-3").trim();
+  c.clearRect(0, 0, W, H);
+  const [cx, cy, , R] = sphereProj([0, 0, 0]);
+  c.beginPath(); c.arc(cx, cy, R, 0, 2 * Math.PI); c.strokeStyle = line; c.lineWidth = 1.2 * dpr; c.stroke();
+  c.globalAlpha = 0.45; c.lineWidth = 0.7 * dpr;
+  for (let k = -2; k <= 2; k++) { const lat = k * Math.PI / 6; c.beginPath(); let first = true; for (let t = 0; t <= 64; t++) { const lo = t / 64 * 2 * Math.PI; const [x, y, z] = sphereProj([Math.cos(lat) * Math.cos(lo), Math.sin(lat), Math.cos(lat) * Math.sin(lo)]); if (z < 0) { first = true; continue; } first ? c.moveTo(x, y) : c.lineTo(x, y); first = false; } c.stroke(); }
+  for (let k = 0; k < 6; k++) { const lo = k * Math.PI / 6; c.beginPath(); let first = true; for (let t = 0; t <= 64; t++) { const lat = -Math.PI / 2 + t / 64 * Math.PI; const [x, y, z] = sphereProj([Math.cos(lat) * Math.cos(lo), Math.sin(lat), Math.cos(lat) * Math.sin(lo)]); if (z < 0) { first = true; continue; } first ? c.moveTo(x, y) : c.lineTo(x, y); first = false; } c.stroke(); }
+  c.globalAlpha = 1;
+  const pos = {}; for (const n of G.nodes) pos[n.id] = n;
+  const focus = G.pin || G.hover, near = new Set();
+  if (focus) for (const e of G.edges) { if (e.s === focus) near.add(e.t); if (e.t === focus) near.add(e.s); }
+  if (G.arcs) {
+    for (const e of G.edges) {
+      if (G.rel && e.relation !== G.rel) continue;
+      const a = pos[e.s], b = pos[e.t]; if (!a || !b || !sphereVisible(a) || !sphereVisible(b) || !G.on.has(e.section)) continue;
+      const hot = focus && (e.s === focus || e.t === focus);
+      if (focus && !hot && !G.rel) { c.globalAlpha = 0.06; } else c.globalAlpha = hot ? 0.95 : 0.28;
+      const A = [a.x, a.y, a.z], B = [b.x, b.y, b.z], dot = Math.max(-1, Math.min(1, A[0] * B[0] + A[1] * B[1] + A[2] * B[2])), om = Math.acos(dot), so = Math.sin(om) || 1e-6;
+      c.beginPath(); let started = false;
+      const steps = Math.max(4, Math.ceil(om * 18));
+      for (let i = 0; i <= steps; i++) { const t = i / steps, f1 = om < 1e-4 ? 1 - t : Math.sin((1 - t) * om) / so, f2 = om < 1e-4 ? t : Math.sin(t * om) / so; const lift = 1 + 0.08 * Math.sin(Math.PI * t);
+        const [x, y, z] = sphereProj([(f1 * A[0] + f2 * B[0]) * lift, (f1 * A[1] + f2 * B[1]) * lift, (f1 * A[2] + f2 * B[2]) * lift]);
+        if (z < -0.05) { started = false; continue; } started ? c.lineTo(x, y) : c.moveTo(x, y); started = true; }
+      c.strokeStyle = col(e.section); c.lineWidth = (hot ? 2 : 1) * dpr; c.stroke();
+    }
+    c.globalAlpha = 1;
+  }
+  const q = (G.q || "").toLowerCase();
+  const drawn = G.nodes.filter(sphereVisible).map(n => [n, ...sphereProj([n.x, n.y, n.z])]).sort((u, v) => u[3] - v[3]);
+  for (const [n, x, y, z] of drawn) {
+    const back = z < 0, hit = focus === n.id, nb = near.has(n.id), match = q && n.id.toLowerCase().includes(q);
+    const r = (3 + Math.min(5, Math.sqrt(n.degree))) * dpr * (back ? 0.75 : 1);
+    c.globalAlpha = back ? 0.18 : focus && !hit && !nb ? 0.35 : 1;
+    c.beginPath(); c.arc(x, y, r + 1.5 * dpr, 0, 2 * Math.PI); c.fillStyle = cs.getPropertyValue("--panel").trim(); c.fill();
+    c.beginPath(); c.arc(x, y, r, 0, 2 * Math.PI); c.fillStyle = col(n.section); c.fill();
+    if (hit || match) { c.lineWidth = 2 * dpr; c.strokeStyle = ink; c.stroke(); }
+  }
+  c.globalAlpha = 1;
+  if (G.labels) {
+    c.font = `${11 * dpr}px ui-monospace, Menlo, monospace`; c.textBaseline = "middle";
+    const top = drawn.filter(([n, , , z]) => z > 0.25 && (n.degree >= 6 || n.id === focus || near.has(n.id) || (q && n.id.toLowerCase().includes(q)))).slice(-40);
+    const boxes = [], fh = 13 * dpr;
+    for (const [n, x, y] of top.reverse()) {                // nearest first; a label that would overlap one already drawn is left out
+      const w = c.measureText(n.id).width, bx = [x + 8 * dpr, y - fh / 2, w, fh];
+      if (n.id !== focus && boxes.some(b => bx[0] < b[0] + b[2] && b[0] < bx[0] + bx[2] && bx[1] < b[1] + b[3] && b[1] < bx[1] + bx[3])) continue;
+      boxes.push(bx); c.fillStyle = n.id === focus ? ink : ink3; c.fillText(n.id, bx[0], y); }
+  }
+}
+function sphereSide() {
+  const G = S.sph; if (!G || !G.side) return;
+  const n = G.nodes.find(x => x.id === G.pin);
+  const counts = {}; for (const x of G.nodes) counts[x.section] = (counts[x.section] || 0) + 1;
+  if (!n) { G.side.replaceChildren(h("div", { class: "hd" }, h("h2", {}, "Legend")), h("div", { class: "bd stack", style: "gap:6px" },
+    ...G.sections.map(s => h("div", { class: "row small", style: "gap:8px" }, secDot(s.key), h("span", {}, s.title), h("span", { class: "muted num", style: "margin-left:auto" }, counts[s.key] || 0))),
+    h("p", { class: "small muted", style: "margin-top:8px" }, `${G.nodes.length} entities, ${G.edges.length} relations. A point's size grows with how many relations it has; its colour is the section most of them belong to. Click a point to see its relations.`))); return; }
+  const rels = G.edges.filter(e => e.s === n.id || e.t === n.id);
+  G.side.replaceChildren(h("div", { class: "hd" }, h("h2", { class: "mono", style: "font-size:14px;overflow-wrap:anywhere" }, n.id), h("button", { class: "btn s", type: "button", onclick: () => { G.pin = null; sphereDraw(); sphereSide(); } }, "Clear")),
+    h("div", { class: "bd stack", style: "gap:8px" }, h("div", { class: "row small", style: "gap:6px" }, secDot(n.section), `${n.type || "entity"} · ${_TITLE(n.section)}`),
+      h("div", { class: "tw", style: "max-height:420px" }, h("table", {}, h("tbody", {}, ...rels.slice(0, 120).map(e => h("tr", {}, h("td", { class: "mono" }, e.s === n.id ? "→" : "←"), h("td", { class: "mono", style: "white-space:nowrap" }, e.relation), h("td", { class: "mono" }, h("a", { href: "#/sphere", onclick: ev => { ev.preventDefault(); G.pin = e.s === n.id ? e.t : e.s; sphereDraw(); sphereSide(); } }, e.s === n.id ? e.t : e.s)))))))));
 }
 
 // ---------------------------------------------------------------- graph
@@ -1047,7 +1409,7 @@ function runView(r) {
   const form = h("form", { class: "card", onsubmit: async e => { e.preventDefault(); startBtn.disabled = true; startBtn.replaceChildren(h("span", { class: "spin" }), "Starting…");
       if (S.dirty && !(await confirmBox("Save Before Running?", "The run reads the saved project. Your unsaved edits would not be used.", "Run Without Them"))) { startBtn.disabled = false; startBtn.replaceChildren("Start Run"); return; }
       try { const body = { ...F, max_cases: F.max_cases === "" ? null : Number(F.max_cases), runs_per_base: Number(F.runs_per_base) || 1, seed: Number(F.seed) || 42, sut: sutBody() };
-        if (body.sut.kind === "llm" && !(await confirmBox("Run the LLM Bot?", `Every customer turn of every case costs one to ${body.sut.max_steps + 1} gateway calls (${body.sut.mode === "replay" ? "replay: cached replies only, a reply that is not cached stops the run" : "live, cached for re-runs"}). Start with a few cases.`, "Start Run"))) { startBtn.disabled = false; startBtn.replaceChildren("Start Run"); return; }
+        if (body.sut.kind === "llm" && !(await confirmBox("Run the LLM Bot?", `Every customer turn of every case costs one to ${body.sut.max_steps + 1} gateway calls${body.sut.critique ? ", twice that with the critique layer" : ""} (${body.sut.mode === "replay" ? "replay: cached replies only, a reply that is not cached stops the run" : "live, cached for re-runs"}). Start with a few cases.`, "Start Run"))) { startBtn.disabled = false; startBtn.replaceChildren("Start Run"); return; }
         const { id } = await api("api/runs", body); S.meta.active_run = id; gMark("ran"); toast(`Run ${id} started. You can leave this page; it keeps running.`); go(`#/run/${id}`); }
       catch (x) { toast(x.message); startBtn.disabled = false; startBtn.replaceChildren("Start Run"); } } },
     h("div", { class: "hd" }, h("h2", {}, "Run Settings"), h("span", { class: "small muted" }, "The run uses the saved project of the journey.")),
@@ -1216,7 +1578,7 @@ function sutState() {
   S.sut = S.sut || {};
   if (!S.sut[S.pack]) {
     let saved = {}; try { saved = JSON.parse(localStorage.getItem(`jc.sut.${S.pack}`) || "{}"); } catch {}
-    S.sut[S.pack] = Object.assign({ kind: "reference", provider: "gateway", model: "", mode: "live", temperature: 0, max_steps: 6, instructions: null, references: [] }, saved, { suggested: null, check: null });
+    S.sut[S.pack] = Object.assign({ kind: "reference", provider: "gateway", model: "", mode: "live", temperature: 0, max_steps: 6, critique: true, instructions: null, references: [] }, saved, { suggested: null, check: null });
   }
   return S.sut[S.pack];
 }
@@ -1228,7 +1590,7 @@ function sutSave() {
 function sutBody() {
   const t = sutState();
   if (t.kind !== "llm") return { kind: "reference" };
-  return { kind: "llm", provider: t.provider === "local" ? "local" : "gateway", model: t.model || "", mode: t.mode, temperature: Number(t.temperature) || 0, max_steps: Number(t.max_steps) || 6,
+  return { kind: "llm", provider: t.provider === "local" ? "local" : "gateway", model: t.model || "", mode: t.mode, temperature: Number(t.temperature) || 0, max_steps: Number(t.max_steps) || 6, critique: t.critique !== false,
            instructions: t.instructions, custom_prompt: t.instructions != null, references: t.references };
 }
 function fileB64(f) {
@@ -1283,7 +1645,10 @@ function sutEditor(opts = {}) {
         h("input", { class: "input num", id: `${opts.id}-temp`, type: "number", min: 0, max: 2, step: 0.1, style: "width:90px", value: t.temperature, oninput: e => { t.temperature = e.target.value; sutSave(); } }),
         h("label", { class: "small muted", for: `${opts.id}-steps` }, "Tool calls per turn, at most"),
         h("input", { class: "input num", id: `${opts.id}-steps`, type: "number", min: 1, max: 12, style: "width:80px", value: t.max_steps, oninput: e => { t.max_steps = e.target.value; sutSave(); } })),
-      h("span", {}), h("span", { class: "small muted" }, "0 gives the same reply to the same conversation, so a run can be repeated exactly."));
+      h("span", {}), h("span", { class: "small muted" }, "0 gives the same reply to the same conversation, so a run can be repeated exactly."),
+      h("label", { for: `${opts.id}-crit` }, "Critique layer"), h("label", { class: "row small", style: "gap:8px" },
+        h("input", { type: "checkbox", id: `${opts.id}-crit`, checked: t.critique !== false ? true : null, onchange: e => { t.critique = e.target.checked; sutSave(); paint(); } }),
+        t.critique !== false ? "On: a second call reviews every step (each tool call and each reply) against the procedure and approves it or corrects it before it is carried out. About twice the calls." : "Off: the bot's steps are carried out as the model proposes them."));
     const edited = t.instructions != null;
     const status = h("span", { class: `pill ${edited ? "proj" : "graph"}` }, edited ? "Your prompt" : "Suggested prompt");
     const count = h("span", { class: "small muted num" });
@@ -1567,7 +1932,9 @@ function verdictBox(t) {
         ...finds.map(f => h("li", {}, h("b", {}, f.kind), ` ${f.act}: ${f.detail}`))) : null,
       adv.length ? h("details", {}, h("summary", { style: "padding:0;font-weight:500;font-size:12px" }, `${adv.length} advisory note${adv.length > 1 ? "s" : ""} (not failures)`), h("ul", { class: "small muted" }, ...adv.map(f => h("li", {}, `${f.kind} ${f.act}: ${f.detail}`)))) : null));
   }
-  return h("div", { class: "verdict", role: "group", "aria-label": `Checks of bot turn ${t.n}` }, tools, acts, matchRow, speech);
+  const crit = (t.critique || []).length ? h("details", { class: "small crit" }, h("summary", {}, `The critique layer corrected ${t.critique.length} step${t.critique.length === 1 ? "" : "s"} in this turn`),
+    ...t.critique.map(c => h("div", { class: "crit-row" }, h("div", {}, c.reason || "corrected"), h("div", { class: "mono" }, "proposed: ", JSON.stringify(c.before)), h("div", { class: "mono" }, "carried out: ", JSON.stringify(c.after))))) : null;
+  return h("div", { class: "verdict", role: "group", "aria-label": `Checks of bot turn ${t.n}` }, tools, acts, matchRow, speech, crit);
 }
 function playChat() {
   const P = pgState(), Ses = P.sess;

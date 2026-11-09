@@ -81,6 +81,14 @@ def bench(fresh: bool = False) -> Bench:
     return _BENCHES[name]
 
 
+def reset(pack: str | None = None) -> None:
+    """Forget the bench of ``pack`` (every bench if None): its graph changed."""
+    if pack is None:
+        _BENCHES.clear()
+    else:
+        _BENCHES.pop(pack, None)
+
+
 # ----------------------------------------------------------------------------- cases
 def _frame(d: dict):
     from ..ontology import SemanticFrame as F
@@ -320,9 +328,19 @@ class Session:
                "tools": tools, "expected": {"tools": [x["text"] for x in e_tools], "acts": _describe(e_acts),
                                            "ends": (not exp_turns or i >= len(exp_turns) - 1) and customer is not None
                                            and bool(e_acts) and str(e_acts[-1].get("act")) in ("END", "TRANSFER")},
-               "match": match, "tools_match": tools_match, "after_divergence": after, "speech": _speech(rep)}
+               "match": match, "tools_match": tools_match, "after_divergence": after, "speech": _speech(rep),
+               "critique": self._revisions_since()}
         self.turns.append(out)
         return out
+
+    def _revisions_since(self) -> list[dict]:
+        """The steps the critique layer corrected during this turn (LLM bot with critique on)."""
+        st = getattr(self.llm, "stats", None) if self.llm is not None else None
+        if st is None or not hasattr(st, "revisions"):
+            return []
+        revs = st.revisions()
+        new, self._rev0 = revs[getattr(self, "_rev0", 0):], len(revs)
+        return new
 
     def start(self) -> dict:
         n0 = len(self.env.log)
@@ -351,7 +369,8 @@ class Session:
         return {"id": self.id, "pack": self.pack, "case": self.case["id"], "case_label": self.case["label"],
                 "bot": self.bot_kind, "bot_name": self.bot_name, "turns": self.turns, "ended": self.ended,
                 "diverged_at": self.diverged_at, "next_line": self._next_line(),
-                "llm": ({"stats": self.llm.stats.as_dict(), "calls": self.llm.llm.report()} if self.llm is not None else None)}
+                "llm": ({"stats": self.llm.stats.as_dict(), "calls": self.llm.llm.report(),
+                         "critique": bool(getattr(self.llm, "critique", False))} if self.llm is not None else None)}
 
     def _next_line(self) -> int | None:
         """The scripted line that answers the bot's last question (the next turn of the case), if any."""

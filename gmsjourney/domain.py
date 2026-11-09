@@ -157,9 +157,14 @@ def load(spec: str | Path | None = None) -> Domain:
             # a compact policy graph: every section it implies is mined from it, domain.yaml on top
             graph = PolicyGraph.load(d / gfile)
             config = deep_merge(derive_config(graph, gfile), config)
+            # a value, act or slot member the graph has and the lexicon does not yet word gets drafted wording,
+            # so an edited graph runs while its wording is written (lexicon_draft.fill_lexicon)
+            from .lexicon_draft import fill_lexicon
+            config["lexicon"], drafted = fill_lexicon(config.get("lexicon"), graph)
     dom = Domain(name=(config.get("domain") or {}).get("id", d.name), dir=d, config=config)
     if graph is not None:
         dom.__dict__["_graph"] = graph
+        dom.__dict__["lexicon_drafted"] = drafted
     if not dom.graph_path.exists():
         raise DomainError(f"{cfg_path}: graph {dom.graph_path.name} not found")
     return dom

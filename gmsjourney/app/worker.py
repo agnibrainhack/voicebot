@@ -78,6 +78,7 @@ def main(run_dir: str) -> int:
         fac = None
         if sut.get("kind") == "llm":               # the tester's LLM bot instead of the journey's reference bot
             from ..domain import set_current
+            from ..sut.llm_bot import CRITIC_VERSION
             from .sut import make_factory
             set_current(job["pack"])
             fac, name, _ = make_factory(sut)
@@ -87,6 +88,9 @@ def main(run_dir: str) -> int:
             refs = [r.get("name") for r in sut.get("references") or [] if r.get("text")]
             log(f"bot under test: {name}; prompt {len(fac.system_prompt):,} characters"
                 + (f", with {', '.join(refs)} attached" if refs else "") + " (out/sut_prompt.txt); "
+                + ("critique layer on: a second call reviews every step and may correct it (out/sut_critic_prompt.txt); "
+                   if fac.critique else "")
+                + 
                 "planted defects (step 10) need the reference bot and are skipped")
         cfg = CampaignConfig(domain=job["pack"], out_dir=str(run / "out"), device=job.get("device") or None,
                              on_step=on_step, progress=False, **opts)
@@ -95,7 +99,11 @@ def main(run_dir: str) -> int:
         finally:
             if fac is not None:                    # what the model was asked and answered, even when the run stops
                 (run / "out" / "sut_llm.json").write_text(json.dumps(
-                    {"bot": fac.stats.as_dict(), "llm": fac.llm.report()}, indent=1, default=str))
+                    {"bot": fac.stats.as_dict(), "llm": fac.llm.report(),
+                     "critique": {"on": fac.critique, "version": CRITIC_VERSION, "revisions": fac.stats.revisions()}},
+                    indent=1, default=str))
+                if fac.critique:
+                    (run / "out" / "sut_critic_prompt.txt").write_text(fac.critic_prompt, encoding="utf-8")
         finished(R)
         head = S.headline(R)
         head["bot"] = (R.get("results") or {}).get("bot")

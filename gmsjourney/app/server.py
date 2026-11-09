@@ -18,6 +18,13 @@
     POST /api/play/<pack>/start             a conversation (body: {source, case, sut})
     GET  /api/play/s/<sid>                  a conversation so far
     POST /api/play/s/<sid>/say              the customer's next turn (body: {text})
+    POST /api/graph/open                    open a graph by path: its journey, or a new journey made from it (body: {path})
+    GET  /api/graph/<pack>/sections         the graph section by section, and its core segments (graphs.py)
+    GET  /api/graph/<pack>/edit             the graph's own entries, for the editor
+    POST /api/graph/<pack>/check            lint an edited graph without saving it (body: {items} or {triples})
+    POST /api/graph/<pack>/save             save it as <name>.vN.json beside the original and switch to it
+    POST /api/graph/<pack>/use              switch the journey to one of its graph versions (body: {file})
+    GET  /api/graph/<pack>/sphere           the unit-sphere view of the graph (sphere.py)
 
 The graph and project calls share one process-wide active journey, so they are serialised; campaign runs happen
 in their own processes (runs.py).
@@ -54,7 +61,8 @@ def packs() -> list[dict[str, Any]]:
             dom = load(d.name)
             g = dom.graph
             out.append({"name": d.name, "title": (g.title if g is not None else None) or d.name.replace("_", " ").title(),
-                        "graph": dom.graph_path.name, "compiled": g is not None,
+                        "graph": dom.graph_path.name, "path": str(dom.graph_path.relative_to(ROOT)),
+                        "compiled": g is not None,
                         "loops": len(g.loops()) if g is not None else 0,
                         "has_project": dom.project_path.exists()})
         except Exception as e:                     # noqa: BLE001
@@ -157,6 +165,17 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                     sess = PG.get(parts[3])
                     with _on(sess.pack):
                         return self._json(sess.view())
+                if parts[:2] == ["api", "graph"] and len(parts) == 4:
+                    from . import graphs as GR
+                    with _on(parts[2]) as dom:
+                        if parts[3] == "sections":
+                            return self._json({**GR.sections(dom), "segments": GR.core_segments(dom),
+                                               "lexicon_drafted": getattr(dom, "lexicon_drafted", None) or []})
+                        if parts[3] == "edit":
+                            return self._json(GR.editable(dom))
+                        if parts[3] == "sphere":
+                            from . import sphere
+                            return self._json(sphere.build(dom))
                 if parts[:2] == ["api", "runs"] and len(parts) == 3:
                     since = int((parse_qs(u.query).get("since") or ["0"])[0])
                     return self._json(runs.events(parts[2], since))
@@ -193,6 +212,30 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                         if action == "yaml":
                             from ..studio import to_yaml
                             return self._json({"yaml": to_yaml(raw)})
+                if parts == ["api", "graph", "open"]:
+                    from . import graphs as GR
+                    with _LOCK:
+                        out = GR.open_graph(str(body.get("path") or ""))
+                        _STUDIOS.pop(out["pack"], None)
+                        return self._json(out)
+                if parts[:2] == ["api", "graph"] and len(parts) == 4 and parts[3] in ("check", "save", "use"):
+                    from . import graphs as GR
+                    pack = parts[2]
+                    with _on(pack) as dom:
+                        if parts[3] == "check":
+                            orig, doc, fmt = GR.build_doc(dom, body)
+                            return self._json({"changes": GR.diff(orig, doc, fmt), **GR.check_candidate(dom, doc)})
+                        if parts[3] == "save":
+                            out = GR.save_version(dom, body)
+                        else:
+                            f = str(body.get("file") or "")
+                            if f not in {v["file"] for v in GR.versions(dom)}:
+                                raise ValueError(f"{f!r} is not a version of this journey's graph")
+                            out = {"switched": GR.set_graph(dom.dir, f), "file": f}
+                    _STUDIOS.pop(pack, None)
+                    from .playground import reset as _pg_reset
+                    _pg_reset(pack)
+                    return self._json(out)
                 if parts == ["api", "attach"]:
                     import base64
                     from .attachments import extract

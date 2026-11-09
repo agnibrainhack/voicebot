@@ -6,6 +6,10 @@ It plays a minimal charge-review bot (authenticate, present the first charge, re
 from the JSON conversation the LLM bot sends, so the console's LLM-bot paths can be exercised end to end. It is not
 a good bot on purpose: it reviews only the first charge and records every answer as RECOGNIZED, so the checks have
 something to find.
+
+It also plays the critique layer's reviewer (a request carrying "proposed_step"): it approves every step except
+recording RECOGNIZED when the customer plainly disowned the charge, which it corrects to UNRECOGNIZED - so with the
+critique layer on, that defect is caught before it reaches the backend.
 """
 from __future__ import annotations
 
@@ -24,7 +28,10 @@ class HappyPath:
 
     def invoke(self, msgs):
         self.calls += 1
-        conv = json.loads(msgs[-1].content)["conversation"]
+        payload = json.loads(msgs[-1].content)
+        if "proposed_step" in payload:
+            return self.review(payload)
+        conv = payload["conversation"]
         last = conv[-1]
         say = lambda acts, end=False: _r({"say": acts, "end": end})          # noqa: E731
         if "event" in last:
@@ -59,3 +66,16 @@ class HappyPath:
             return _r({"tool": "record_charge_response",
                        "args": {"transaction_id": prev.get("txn"), "disposition": "RECOGNIZED"}})
         return say([{"act": "END", "text": "Thank you, goodbye."}], True)
+
+    critiques = 0
+
+    def review(self, payload):
+        self.critiques += 1
+        step, conv = payload["proposed_step"], payload["conversation"]
+        said = next((x["customer"].lower() for x in reversed(conv) if "customer" in x), "")
+        disowned = re.search(r"\b(not mine|don'?t recognize|never (made|bought|seen)|wasn'?t me|not me|unauthori[sz]ed)\b", said)
+        args = step.get("args") or {}
+        if step.get("tool") == "record_charge_response" and args.get("disposition") == "RECOGNIZED" and disowned:
+            return _r({"verdict": "revise", "reason": "The customer said the charge is not theirs; record it as UNRECOGNIZED.",
+                       "step": {"tool": "record_charge_response", "args": {**args, "disposition": "UNRECOGNIZED"}}})
+        return _r({"verdict": "approve"})

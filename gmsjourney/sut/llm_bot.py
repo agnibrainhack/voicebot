@@ -262,9 +262,53 @@ class LLMBotStats:
     unknown_turns: int = 0
     step_limit_hits: int = 0
     unknown_acts: int = 0
+    critiques: int = 0                         # steps the critique layer reviewed
+    critique_approved: int = 0
+    critique_revised: int = 0                  # steps it replaced with a corrected one
+    critique_unusable: int = 0                 # a review that could not be read, or a correction that was not a valid step
 
-    def as_dict(self) -> dict[str, int]:
-        return dict(self.__dict__)
+    def as_dict(self) -> dict[str, Any]:
+        return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
+
+    def note_revision(self, entry: dict[str, Any], keep: int = 200) -> None:
+        log = self.__dict__.setdefault("_revisions", [])
+        if len(log) < keep:
+            log.append(entry)
+
+    def revisions(self) -> list[dict[str, Any]]:
+        return list(self.__dict__.get("_revisions", []))
+
+
+CRITIC_VERSION = "critic/1"
+
+CRITIC_INSTRUCTIONS = """You are the quality reviewer for a customer-service voice bot. Before each step the bot proposes is carried
+out, you check it against the bot's own instructions (below, between the markers) and the conversation so far.
+
+The bot's step is either a tool call {"tool": NAME, "args": {...}} or a reply {"say": [acts...], "end": true|false}.
+
+Check a TOOL CALL for: the right tool at this point of the procedure; its preconditions met (for example the caller is
+verified before any account tool); every argument taken exactly from what the customer said or a tool returned (no
+invented, guessed or reformatted ids, codes, amounts or choices); no repeat of a call that already succeeded; limits
+and attempt counts respected; no tool call after a transfer.
+
+Check a REPLY for: acts the procedure allows at this point, with the act names and fields of the reply format; every
+fact (ids, amounts, names, statuses, figures, fees, dates) exactly as the tool results and the policy state them; no
+claim that something was done unless a tool result says it succeeded; required confirmations and disclosures made
+before acting; a transfer whenever a rule requires one, and no early transfer or ending when the procedure continues;
+one question at a time; nothing promised that the procedure does not allow.
+
+Be conservative: approve unless the step clearly breaks the instructions or the facts. When it does, give the corrected
+step - the step the bot should take instead, in exactly the bot's reply format (a tool call or a reply, whichever is
+right now; it may be a different kind of step).
+
+Reply with exactly one JSON object and nothing else:
+  {"verdict": "approve"}
+  {"verdict": "revise", "reason": "<one sentence>", "step": <the corrected step>}"""
+
+
+def critic_system(bot_system: str) -> str:
+    return (CRITIC_INSTRUCTIONS + "\n\n===== THE BOT'S INSTRUCTIONS =====\n" + bot_system
+            + "\n===== END OF THE BOT'S INSTRUCTIONS =====")
 
 
 @dataclass
@@ -277,6 +321,8 @@ class LLMBot:
     stats: LLMBotStats = field(default_factory=LLMBotStats)
     act_names: frozenset = frozenset(ACTS)
     act_fields: dict | None = None            # act -> the fields it carries (default: the charge-review inventory)
+    critic: Any = None                        # an LLM (same interface as llm) that reviews every step; None = off
+    critic_system: str = ""
 
     def __post_init__(self) -> None:
         self.history: list[dict[str, Any]] = []
@@ -304,12 +350,46 @@ class LLMBot:
         self.stats.model_steps += 1
         return self.llm.invoke(self.system, json.dumps(user, ensure_ascii=False), salt="sut")
 
+    # ------------------------------------------------------------------ critique layer
+    def _valid(self, obj: Any) -> bool:
+        if not isinstance(obj, dict) or not ({"tool", "say"} & set(obj)):
+            return False
+        if "tool" in obj and "say" not in obj:
+            return bool(obj.get("tool")) and isinstance(obj.get("args", {}), dict)
+        return bool(self._acts(obj.get("say"), count=False))
+
+    def _review(self, obj: dict[str, Any]) -> dict[str, Any]:
+        """The step to carry out: ``obj``, or the critic's correction of it. One review per step (a correction is not
+        reviewed again), so the layer costs one extra call per step."""
+        if self.critic is None:
+            return obj
+        self.stats.critiques += 1
+        user = {"customer_turns_so_far": self.customer_turns, "conversation": self.history, "proposed_step": obj}
+        try:
+            out = _parse(self.critic.invoke(self.critic_system, json.dumps(user, ensure_ascii=False), salt="critique"))
+        except Exception:                         # noqa: BLE001 - a reviewer outage must not stop the bot
+            out = None
+        verdict = str((out or {}).get("verdict") or "").lower()
+        if verdict == "approve":
+            self.stats.critique_approved += 1
+            return obj
+        step = (out or {}).get("step")
+        if verdict == "revise" and self._valid(step):
+            self.stats.critique_revised += 1
+            self.stats.note_revision({"turn": self.customer_turns, "before": obj, "after": step,
+                                      "reason": str((out or {}).get("reason") or "")[:300]})
+            return step
+        self.stats.critique_unusable += 1
+        return obj
+
     def _turn(self) -> BotTurn:
         self.stats.turns += 1
         steps, invalid, feedback = 0, 0, None
         for _ in range(self.max_steps + 4):
             obj = _parse(self._ask(feedback))
             feedback = None
+            if self._valid(obj):
+                obj = self._review(obj)
             if obj is None or not ({"tool", "say"} & set(obj)):
                 invalid += 1
                 self.stats.invalid_replies += 1
@@ -364,7 +444,7 @@ class LLMBot:
             res = {"error": f"bad arguments: {e}"}
         self.history.append({"tool": name, "args": clean, "result": res})
 
-    def _acts(self, say: Any) -> list[dict[str, Any]]:
+    def _acts(self, say: Any, count: bool = True) -> list[dict[str, Any]]:
         if isinstance(say, dict):
             say = [say]
         if not isinstance(say, list):
@@ -376,7 +456,7 @@ class LLMBot:
             if not isinstance(a, dict) or not a.get("act"):
                 continue
             name = str(a["act"]).strip().upper()
-            if name not in self.act_names:
+            if name not in self.act_names and count:
                 self.stats.unknown_acts += 1
             act = {"act": name, "text": str(a.get("text") or "")}
             fields = (self.act_fields or {}).get(name) if self.act_fields else ACTS.get(name, ("", []))[1]
@@ -406,12 +486,17 @@ def fake_model():
 
 
 def make_llm_factory(store=None, settings=None, llm=None, policy_text: str | None = None, max_steps: int = 6,
-                     instructions: str | None = None, references: list[dict] | None = None):
+                     instructions: str | None = None, references: list[dict] | None = None, critique: bool = False,
+                     critic_llm=None):
     """A bot_factory for CampaignConfig / JourneyRunner. One CachedLLM (tag "sut") is shared by every
     conversation, so the cache and the call statistics cover the whole campaign: ``factory.llm.report()``,
     ``factory.stats.as_dict()``. settings default: the gateway's default deployment at temperature 0.
     ``instructions`` replaces the suggested instructions (who the bot is and its procedure); ``references`` are
-    attached files ({name, text}) added after them; the tools, acts and reply format are always appended."""
+    attached files ({name, text}) added after them; the tools, acts and reply format are always appended.
+
+    ``critique`` adds the critique layer: a second call (``critic_llm``, default the same model) reviews every
+    proposed step - each tool call and each reply - against the same instructions and approves it or returns a
+    corrected step, which the bot carries out instead (``LLMBot._review``)."""
     from ..enrich.llm.client import CachedLLM, LLMSettings
     if llm is None:
         s = settings or LLMSettings(temperature=0.0, max_tokens=900)
@@ -425,7 +510,12 @@ def make_llm_factory(store=None, settings=None, llm=None, policy_text: str | Non
     stats = LLMBotStats()
     names = frozenset(acts)
 
+    critic = (critic_llm or llm) if critique else None
+    csys = critic_system(system) if critique else ""
+
     def factory(tools):
-        return LLMBot(tools, llm, system, max_steps, stats, names, {k: f for k, (_, f) in acts.items()})
+        return LLMBot(tools, llm, system, max_steps, stats, names, {k: f for k, (_, f) in acts.items()},
+                      critic=critic, critic_system=csys)
     factory.llm, factory.stats, factory.system_prompt = llm, stats, system
+    factory.critique, factory.critic_llm, factory.critic_prompt = bool(critique), critic, csys
     return factory

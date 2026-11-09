@@ -5,7 +5,10 @@ A console job carries ``sut``::
 
     {"kind": "reference"}                                    the pack's reference bot (the default)
     {"kind": "llm", "provider": "gateway" | "local", "model": "gpt-41", "mode": "live" | "replay", "temperature": 0.0,
-     "max_steps": 6, "instructions": "...", "references": [{"name": "faq.pdf", "text": "..."}]}
+     "max_steps": 6, "critique": true, "instructions": "...", "references": [{"name": "faq.pdf", "text": "..."}]}
+
+``critique`` (default on) adds the critique layer: a second call of the same model reviews every step the bot
+proposes (each tool call and each reply) against the procedure and approves it or replaces it with a corrected step.
 
 ``provider`` "local" runs Llama (or any chat model) with vLLM from the folder in GMSJOURNEY_SUT_LOCAL_MODEL
 (sut/local_llm.py); campaign runs only, the Playground refuses it.
@@ -30,6 +33,12 @@ def suggested(store=None) -> dict[str, Any]:
             "protocol": protocol_text(act_inventory(store), transfer_reasons(store)), "version": SUT_PROMPT_VERSION,
             "policy_source": (f"the policy transcription ({src.name})" if src is not None and src.exists()
                               else f"the policy graph ({dom.graph_path.name}) as text")}
+
+
+def critique_on(sut: dict[str, Any]) -> bool:
+    """The critique layer is on unless the job turns it off."""
+    v = (sut or {}).get("critique", True)
+    return v not in (False, "off", "false", 0, "0", None)
 
 
 def settings_for(sut: dict[str, Any]):
@@ -57,9 +66,10 @@ def make_factory(sut: dict[str, Any] | None, store=None):
         llm, where = CachedLLM(s, model=chat, tag="sut"), "vLLM" + (" server" if st["url"] else ", this machine")
     fac = make_llm_factory(store, s, llm=llm, instructions=sut.get("instructions") or None,
                            references=[r for r in (sut.get("references") or []) if r.get("text")],
-                           max_steps=int(sut.get("max_steps") or 6))
+                           max_steps=int(sut.get("max_steps") or 6), critique=critique_on(sut))
     name = f"LLM bot ({fac.llm.settings.model}" + (f", {where}" if llm is not None else "") + \
-        (", replay" if s.mode == "replay" else "") + (", stand-in model" if llm is None and fake_model() is not None else "") + ")"
+        (", replay" if s.mode == "replay" else "") + (", stand-in model" if llm is None and fake_model() is not None else "") + \
+        (", with critique" if fac.critique else "") + ")"
     return fac, name, fac
 
 

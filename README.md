@@ -126,9 +126,38 @@ against the graph as you type; Save writes the YAML (the previous file is kept a
 Jupyter: `from gmsjourney import app; app.show()` in a notebook (`notebooks/journey_console.ipynb`), or
 `python -m gmsjourney.app --port 8790`. Its parts:
 
-- **Journey**: the pack picker, an overview that sets what the graph decides (states, acts, tools, value sets,
-  limits, rules, triggers, transitions) beside what the project configures, the coverage gaps, and a read-only
-  view of the graph.
+- **Graph path** (top bar; `app/graphs.py`): the journey is chosen by the path of its policy graph, by default
+  `gmsjourney/policy/charge_review/charge_review_kg.json` (charge review, built from the PDF). A graph inside a
+  journey folder opens that journey (and switches it to that file if it is one of its versions). A compact graph
+  (`gmsjourney.policy_graph/2`) from anywhere else becomes a **new journey**: copied into
+  `gmsjourney/policy/<its id>/` with a `domain.yaml` whose customer lexicon is drafted from the graph's values and
+  aliases (`lexicon_draft.py`; it passes the lexicon checks for the shipped graphs), the enrichment catalog copied
+  from a template journey, and a drafted `project.yaml`. A triples graph needs a full `domain.yaml` written for it,
+  so it opens only from a journey folder that has one. Recent paths are offered as you type.
+- **Journey**: an overview that sets what the graph decides (states, acts, tools, value sets, limits, rules,
+  triggers, transitions) beside what the project configures, the coverage gaps, and the flow.
+- **Graph Sections**: every triple the engine reads (the compiled graph, so both formats look alike) in seven
+  sections: used by the customer (acts, values and their words), used by the bot (prompts, lines, tools, their
+  arguments, results and statuses), used by both (the acts each prompt accepts, yes/no readings, the value sets that
+  pass from the customer's words into tool arguments), defining the flow (transitions, stages, handoff triggers),
+  rules, knowledge and figures, and other; with the entities and relations of each, and a filterable triple table.
+  Beside it, **Core Segments**: the 18 things every graph needs for the validations a campaign runs (opening,
+  caller verification and its attempt limit, customer acts with worded values, prompts, tools with success and
+  failure results, confirmation before acting, an echo check, justified handoffs, asking for a person, unclear
+  answers, a turn limit, policy questions, rules each checked somewhere, figures with units, reachability, the
+  bot's wording, the customer's wording), each with what it is needed for and what is missing.
+- **Edit Graph**: the graph's own entries by section - for a compact graph one JSON entry per value set, act, tool,
+  state, rule and limit; for a triples graph one row per triple. A missing core segment can be added as a draft
+  with its placeholders to fill. **Check** lints the edited graph in a scratch copy of the journey and lists what
+  changed; **Save as New Version** writes `<name>.v2.json` (then `.v3`, ...) beside the original, switches the
+  journey to it (only `domain.yaml`'s `graph:` line changes) and shows the changes. The original file is never
+  written; the versions row switches back. A value, act or slot member the lexicon does not word yet runs on
+  drafted wording (reported on Graph Sections) until you write it.
+- **GMS Sphere** (`app/sphere.py`): every entity as a point on the unit sphere and every relation as a great-circle
+  arc, coloured by section. When a campaign with knowlytix has built this journey's store, the points come from the
+  store's learned entity vectors (`v_emb.pt`, PCA to 3D); otherwise from the graph's relationships (a spectral layout
+  refined on the sphere, deterministic). Drag to turn, scroll to zoom, filter by section or relation, find an
+  entity, click one to list its relations; the page states how close linked entities sit against random pairs.
 - **You configure**: the journey factors (decision point, relevance, default, and per level a bank patch, a
   tool's returns call by call, or what the customer says, with a preview of the expected conversation for any
   level), the bank and the customer's scripts, case rules, categories, severities and the release gate. Every edit
@@ -145,7 +174,12 @@ Jupyter: `from gmsjourney import app; app.show()` in a notebook (`notebooks/jour
   after it as reference material. The journey's tools with their allowed values, the transfer reasons, the
   dialog acts and the JSON reply format are always appended (read-only on the page), because the harness needs
   them to run the bot's tool calls and read what it says. Model, live or replay, temperature and the tool-call
-  budget per turn are set there; **Check Gateway** makes one tiny call. The prompt and files are stored beside the
+  budget per turn are set there; **Check Gateway** makes one tiny call. The **critique layer** (on by default) makes
+  a second call before every step the bot proposes, each tool call and each reply: a reviewer given the same
+  instructions approves it or returns a corrected step, which is carried out instead (`LLMBot._review`; about twice
+  the calls). The bot's name says "with critique"; `out/sut_llm.json` counts reviews, approvals and corrections and
+  keeps each correction (proposed step, step carried out, reason), `out/sut_critic_prompt.txt` holds the reviewer's
+  prompt, and the Playground shows under each turn what the reviewer changed. The prompt and files are stored beside the
   run (`sut.json`, `out/sut_prompt.txt`), the model's call statistics in `out/sut_llm.json`. Step 10 is skipped
   for an LLM bot (it plants errors in copies of the reference bot).
 - **Explore Cases** (a finished run, from its results or step 11; `app/cases.py`): every generated case with its
@@ -598,7 +632,8 @@ redone without re-running the bot: `python tools/case_comparison.py --campaign o
 
 Each customer turn costs 1-4 gateway calls; replies are cached (temperature 0), so repeated runs of the same
 conversation and `mode="replay"` cost nothing. `bot.stats` / `bot.llm.report()` give calls, cache hits,
-malformed replies and tool errors. Tests: `python tests/test_llm_sut.py` (a scripted fake model, no network).
+malformed replies and tool errors. `make_llm_factory(..., critique=True)` adds the critique layer (a second call
+reviews every step and may correct it; `critic_llm=` gives the reviewer another model). Tests: `python tests/test_llm_sut.py` (a scripted fake model, no network).
 
 ## Outputs (`output/campaign_out/`)
 
@@ -652,8 +687,10 @@ gmsjourney/
   graph/             compact graphs: model, store compiler, interpreter (reference bot), KB mining, invariance controls
   knowledge/pack_compile.py  compact graph -> full graph (executable flow, speech layer)
   studio.py          the local studio server (studio_ui.html)
+  lexicon_draft.py   a customer lexicon drafted from a compact graph (new journeys; gaps after an edit)
   app/               the journey console: server.py (page + JSON API), runs.py (one process per run), worker.py,
-                     summaries.py (what each of the 13 steps produced), ui.html
+                     summaries.py (what each of the 13 steps produced), graphs.py (open by path, sections, core
+                     segments, versions), sphere.py (the GMS on the unit sphere), playground.py, verdict, ui.html
   ontology.py journey.py oracle.py kb_truth.py bases/ enrich/ design/ sut/ evaluation/ pipeline.py report.py
 run_campaign.py · tests/ · notebooks/ · DESIGN.md · NOTICE
 tools/             check_llm (one-call transport preflight), llm_rejections (why LLM turns were rejected),
