@@ -503,7 +503,7 @@ async function openGraph(path, quiet) {
     const shown = r.graph || path; $("#gpath").value = shown;
     try { localStorage.setItem("jc.gpath", shown); localStorage.setItem("jc.gpaths", JSON.stringify([shown, ...recentPaths().filter(x => x !== shown)].slice(0, 8))); } catch {}
     gpaths(); gpackPill();
-    if (r.created) toast(`Made a new journey, ${r.pack}, from this graph: drafted its customer wording and project`);
+    if (r.created) { S.made = { pack: r.pack, wording: r.wording }; toast(`Made a new journey, ${r.pack}, from this graph: drafted its customer wording, the bot's lines and the project`); }
     else if (r.switched) toast(`${r.pack} now uses ${shown.split("/").pop()}`);
     if (!quiet) { await loadJourney(); go("#/sections"); }
     return true;
@@ -705,14 +705,19 @@ function sectionsView() {
   if (X.loading) return h("div", { class: "empty" }, "Reading the graph…");
   if (X.err) return h("div", { class: "notice bad" }, X.err);
   const cur = X.sections.find(s => s.key === X.sel) || X.sections[0];
-  const segs = X.segments || [], miss = segs.filter(s => !s.ok);
+  const segs = X.segments || [], miss = segs.filter(s => !s.ok && !s.advisory);
+  const made = S.made && S.made.pack === S.pack ? S.made.wording : null;
   const q = (X.q || "").toLowerCase();
   const rows = cur.triples.filter(t => !q || `${t.head} ${t.relation} ${t.tail}`.toLowerCase().includes(q));
   return [
     head("Graph Sections", `${X.title} · ${X.graph} · ${X.format === "compact" ? "compact graph (gmsjourney.policy_graph/2), compiled to " : "triples graph built from the PDF, "}${X.triples} triples`,
       h("a", { class: "btn", href: "#/sphere" }, "See the GMS Sphere"), h("a", { class: "btn primary", href: "#/edit" }, "Edit the Graph")),
     versionsRow(X.versions),
-    (X.lexicon_drafted || []).length ? h("div", { class: "notice info", style: "margin:10px 0" }, `Drafted customer wording is in use for ${X.lexicon_drafted.length} entr${X.lexicon_drafted.length === 1 ? "y" : "ies"} the journey's lexicon does not word yet (${X.lexicon_drafted.slice(0, 6).join(", ")}${X.lexicon_drafted.length > 6 ? ", …" : ""}). Write the real wording in domain.yaml when you can.`) : null,
+    made ? h("div", { class: `notice ${made.speech_failures.length ? "warn" : "ok"}`, style: "margin:10px 0" },
+      `New journey: its customer wording and the bot's lines were drafted from the graph and checked by playing ${made.cases} cases (${made.turns} bot turns) with the reference bot. `,
+      made.speech_failures.length ? [`These lines fail the speech check; reword them under bot.says in domain.yaml: `, h("ul", {}, ...made.speech_failures.map(f => h("li", {}, h("code", {}, f.act), ` (${f.turns} turns): “${f.example}” — ${f.why}`)))]
+        : `Every line passed the speech check${made.off_flow ? `; ${made.off_flow} turns differed from the graph` : " and every turn followed the graph"}.`) : null,
+    (X.lexicon_drafted || []).length ? h("div", { class: "notice info", style: "margin:10px 0" }, `Drafted wording is in use for ${X.lexicon_drafted.length} entr${X.lexicon_drafted.length === 1 ? "y" : "ies"} that domain.yaml does not word yet (${X.lexicon_drafted.slice(0, 6).join(", ")}${X.lexicon_drafted.length > 6 ? ", …" : ""}). Write the real wording there when you can.`) : null,
     h("div", { class: "secgrid", role: "tablist", "aria-label": "Sections of the graph" }, ...X.sections.map(s =>
       h("button", { class: "seccard", type: "button", role: "tab", "aria-selected": s.key === cur.key ? "true" : "false", onclick: () => { X.sel = s.key; X.q = ""; render(); } },
         h("div", { class: "row", style: "gap:7px" }, secDot(s.key), h("b", {}, s.title)), h("div", { class: "v num" }, s.count), h("div", { class: "small muted" }, s.about)))),
@@ -730,8 +735,8 @@ function sectionsView() {
       h("div", { class: "card" },
         h("div", { class: "hd" }, h("h2", {}, "Core Segments"), h("span", { class: `pill ${miss.length ? "warn" : "ok"}` }, h("span", { class: "dot" }), miss.length ? `${miss.length} missing` : "all present")),
         h("div", { class: "bd" }, h("p", { class: "small muted", style: "margin-bottom:10px" }, "What every graph needs for the validations a campaign runs. A missing segment means those checks have nothing to test."),
-          h("ul", { class: "segs" }, ...segs.map(s => h("li", { class: s.ok ? "ok" : "miss" },
-            h("span", { class: "mark " + (s.ok ? "ok" : "warn"), "aria-label": s.ok ? "present" : "missing" }, s.ok ? "✓" : "!"),
+          h("ul", { class: "segs" }, ...segs.map(s => h("li", { class: s.ok ? "ok" : s.advisory ? "adv" : "miss" },
+            h("span", { class: "mark " + (s.ok ? "ok" : s.advisory ? "" : "warn"), "aria-label": s.ok ? "present" : s.advisory ? "advisory" : "missing" }, s.ok ? "✓" : s.advisory ? "i" : "!"),
             h("div", {}, h("div", { class: "t" }, s.name), h("div", { class: "small muted" }, s.detail), h("div", { class: "small", style: "color:var(--ink-3)" }, `Needed for ${s.needed_for}.`),
               !s.ok && Object.keys(s.add || {}).length && X.format === "compact" ? h("button", { class: "btn s", type: "button", style: "margin-top:6px", onclick: () => { S.edSuggest = s; go("#/edit"); } }, "Add in the Editor…") : null,
               !s.ok && X.format !== "compact" && (s.triples || []).length ? h("div", { class: "small mono", style: "margin-top:4px" }, "e.g. ", s.triples.map(t => `${t.head} ${t.relation} ${t.tail}`).join(" · ")) : null))))))),
@@ -832,7 +837,7 @@ function edResult(R) {
       R.saved ? h("p", { class: "small" }, `Written beside ${R.from}; the journey now uses it. The original is unchanged; switch back from the versions row.`) : null,
       h("div", {}, h("h3", {}, `What Changed (${(R.changes || []).length})`), (R.changes || []).length ? table(["Change", "Entry", "Before", "After"], R.changes.map(c => [h("span", { class: `pill ${c.change === "added" ? "ok" : c.change === "removed" ? "bad" : "warn"}` }, c.change), c.path, c.before || "", c.after || ""]), { mono: [1, 2, 3], max: 300 }) : h("p", { class: "small muted" }, "Nothing changed yet.")),
       (R.problems || []).length ? h("div", { class: "notice warn" }, "The lint found: ", h("ul", {}, ...R.problems.slice(0, 12).map(p => h("li", {}, p)))) : null,
-      miss.length ? h("div", { class: "notice warn" }, `Core segments still missing: ${miss.map(s => s.name).join(", ")}.`) : (R.segments || []).length ? h("div", { class: "notice ok" }, "Every core segment is present.") : null));
+      miss.filter(s => !s.advisory).length ? h("div", { class: "notice warn" }, `Core segments still missing: ${miss.filter(s => !s.advisory).map(s => s.name).join(", ")}.`) : (R.segments || []).length ? h("div", { class: "notice ok" }, "Every core segment is present.") : null));
 }
 function editView() {
   const E = S.ed;
@@ -851,7 +856,7 @@ function editView() {
     E.dirty ? h("div", { class: "notice info", style: "margin-bottom:12px" }, "Unsaved edits. Check runs the lint and the core-segment checks on the edited graph without saving it.") : null,
     E.format === "compact" ? compactEditor(E) : triplesEditor(E),
     segs.length ? h("div", { class: "card", style: "margin-top:16px" }, h("div", { class: "hd" }, h("h2", {}, "Core Segments"), h("span", { class: "small muted" }, "add what the validations need")),
-      h("div", { class: "bd chips" }, ...segs.map(s => h("button", { class: `chip ${s.ok ? "ok" : "bad"}`, type: "button", title: `${s.detail}. Needed for ${s.needed_for}.`, disabled: s.ok || E.format !== "compact" || !Object.keys(s.add || {}).length ? true : null,
+      h("div", { class: "bd chips" }, ...segs.map(s => h("button", { class: `chip ${s.ok ? "ok" : s.advisory ? "" : "bad"}`, type: "button", title: `${s.detail}. Needed for ${s.needed_for}.`, disabled: s.ok || E.format !== "compact" || !Object.keys(s.add || {}).length ? true : null,
         onclick: () => { applySuggestion(s); render(); } }, s.ok ? "✓ " : "+ ", s.name)))) : null,
     edResult(E.result),
   ];

@@ -60,6 +60,41 @@ def test_shipped_journeys_need_no_drafted_wording():
         assert domain.load(pack).lexicon_drafted == [], pack
 
 
+def test_drafted_bot_lines_say_every_field_with_its_unit_and_pass_the_speech_check():
+    import re
+    import yaml
+    from gmsjourney.app import graphs as GR
+    from gmsjourney.lexicon_draft import draft_bot_says
+    for pack in ("supplementary_card", "charge_review_graph"):
+        g = domain.load(pack).graph
+        says = draft_bot_says(g)
+        for st, s in g.states.items():
+            if g.kind(st) in ("call", "each"):
+                continue
+            assert st in says, (pack, st)
+            for f in (s.get("say") or {}):
+                assert "{" + f + "}" in says[st], (pack, st, f)
+        assert re.search(r"\{min_age\} years", says.get("EXPLAIN_AGE_LIMIT", "{min_age} years"))
+        # the same journey with every bot line drafted: the speech check passes on every turn of every case
+        src = POLICY / pack
+        dst = POLICY / f"{pack}_drafted_test"
+        shutil.rmtree(dst, ignore_errors=True)
+        shutil.copytree(src, dst)
+        try:
+            cfg = yaml.safe_load((dst / "domain.yaml").read_text())
+            cfg.setdefault("domain", {})["id"] = dst.name
+            cfg.get("bot", {}).pop("says", None)
+            (dst / "domain.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True))
+            d = domain.set_current(dst.name)
+            assert sorted(x for x in d.lexicon_drafted if x.startswith("bot.says.")) == sorted(f"bot.says.{k}" for k in says)
+            seg = next(x for x in GR.core_segments(d) if x["id"] == "speech")
+            assert seg["ok"] and seg["advisory"] and seg["drafted"]
+            w = GR.check_wording()
+            assert w["speech_failures"] == [] and w["off_flow"] == 0 and w["turns"] > 100, (pack, w)
+        finally:
+            _cleanup(dst.name)
+
+
 # ----------------------------------------------------------------------------- open by path
 def test_an_outside_graph_becomes_a_journey_that_plays_and_versions_without_touching_the_original():
     from gmsjourney.app import graphs as GR
@@ -68,6 +103,8 @@ def test_an_outside_graph_becomes_a_journey_that_plays_and_versions_without_touc
     r = GR.open_graph(str(src))
     try:
         assert r["created"] and r["pack"] == "pet_card_test" and r["problems"] == []
+        w = r["wording"]                                     # drafted wording, checked by playing the project's cases
+        assert w["cases"] > 10 and w["turns"] > 50 and w["speech_failures"] == [] and w["off_flow"] == 0, w
         d = domain.set_current(r["pack"])
         assert d.name == "pet_card_test" and (d.dir / "project.yaml").exists() and (d.dir / "application.yaml").exists()
         L = PG.cases("project", None)
@@ -258,8 +295,7 @@ def test_graph_api_open_sections_edit_check_save_use_sphere():
         assert any(p["name"] == "api_card_test" and p["path"].endswith("api_card_test.json") for p in meta["packs"])
         code, S = call("api/graph/api_card_test/sections")
         assert code == 200 and len(S["sections"]) == 7
-        # a new journey has every core segment but the bot's wording, which lives in domain.yaml (bot.says)
-        assert [s["id"] for s in S["segments"] if not s["ok"]] == ["speech"], S["segments"]
+        assert all(s["ok"] for s in S["segments"]), [s for s in S["segments"] if not s["ok"]]
         code, E = call("api/graph/api_card_test/edit")
         items = E["items"]
         next(it for it in items if it["path"] == "limits.max_auth_attempts")["value"]["value"] = 3

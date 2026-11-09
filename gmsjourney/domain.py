@@ -161,6 +161,11 @@ def load(spec: str | Path | None = None) -> Domain:
             # so an edited graph runs while its wording is written (lexicon_draft.fill_lexicon)
             from .lexicon_draft import fill_lexicon
             config["lexicon"], drafted = fill_lexicon(config.get("lexicon"), graph)
+            # and a state that speaks with no line of the bot's gets a drafted one (lexicon_draft.fill_bot_says)
+            from .lexicon_draft import fill_bot_says
+            bot = dict(config.get("bot") or {})
+            bot["says"], said = fill_bot_says(bot.get("says"), graph)
+            config["bot"], drafted = bot, drafted + said
     dom = Domain(name=(config.get("domain") or {}).get("id", d.name), dir=d, config=config)
     if graph is not None:
         dom.__dict__["_graph"] = graph

@@ -131,8 +131,14 @@ Jupyter: `from gmsjourney import app; app.show()` in a notebook (`notebooks/jour
   journey folder opens that journey (and switches it to that file if it is one of its versions). A compact graph
   (`gmsjourney.policy_graph/2`) from anywhere else becomes a **new journey**: copied into
   `gmsjourney/policy/<its id>/` with a `domain.yaml` whose customer lexicon is drafted from the graph's values and
-  aliases (`lexicon_draft.py`; it passes the lexicon checks for the shipped graphs), the enrichment catalog copied
-  from a template journey, and a drafted `project.yaml`. A triples graph needs a full `domain.yaml` written for it,
+  aliases (`lexicon_draft.py`; it passes the lexicon checks for the shipped graphs) and whose reference-bot lines
+  (`bot.says`) are drafted from its states: a prompt asks for what its acts carry (listing the choices when there
+  are few), a confirmation reads its fields back and asks to go ahead, a line states every field it must say, with
+  numbers in their units ("18 years", "7 business days") so the speech check reads them, and optional fields said
+  only when they have a value. The enrichment catalog is copied from a template journey and `project.yaml` drafted.
+  The new journey is then checked by playing every project case with the reference bot and the speech check, and
+  the page reports any line that fails (for both shipped compact graphs, with every bot line drafted, every turn of
+  every case passes and follows the graph). A triples graph needs a full `domain.yaml` written for it,
   so it opens only from a journey folder that has one. Recent paths are offered as you type.
 - **Journey**: an overview that sets what the graph decides (states, acts, tools, value sets, limits, rules,
   triggers, transitions) beside what the project configures, the coverage gaps, and the flow.
@@ -151,8 +157,9 @@ Jupyter: `from gmsjourney import app; app.show()` in a notebook (`notebooks/jour
   with its placeholders to fill. **Check** lints the edited graph in a scratch copy of the journey and lists what
   changed; **Save as New Version** writes `<name>.v2.json` (then `.v3`, ...) beside the original, switches the
   journey to it (only `domain.yaml`'s `graph:` line changes) and shows the changes. The original file is never
-  written; the versions row switches back. A value, act or slot member the lexicon does not word yet runs on
-  drafted wording (reported on Graph Sections) until you write it.
+  written; the versions row switches back. A value, act or slot member the lexicon does not word yet, or a state
+  with no bot line, runs on drafted wording (reported on Graph Sections) until you write it. "What each state says"
+  is advisory for compact graphs: the speech check reads what each state must say from the graph itself.
 - **GMS Sphere** (`app/sphere.py`): every entity as a point on the unit sphere and every relation as a great-circle
   arc, coloured by section. When a campaign with knowlytix has built this journey's store, the points come from the
   store's learned entity vectors (`v_emb.pt`, PCA to 3D); otherwise from the graph's relationships (a spectral layout
@@ -687,7 +694,7 @@ gmsjourney/
   graph/             compact graphs: model, store compiler, interpreter (reference bot), KB mining, invariance controls
   knowledge/pack_compile.py  compact graph -> full graph (executable flow, speech layer)
   studio.py          the local studio server (studio_ui.html)
-  lexicon_draft.py   a customer lexicon drafted from a compact graph (new journeys; gaps after an edit)
+  lexicon_draft.py   customer lexicon and reference-bot lines drafted from a compact graph (new journeys; gaps after an edit)
   app/               the journey console: server.py (page + JSON API), runs.py (one process per run), worker.py,
                      summaries.py (what each of the 13 steps produced), graphs.py (open by path, sections, core
                      segments, versions), sphere.py (the GMS on the unit sphere), playground.py, verdict, ui.html

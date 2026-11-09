@@ -289,3 +289,136 @@ def fill_lexicon(lex: dict[str, Any] | None, g) -> tuple[dict[str, Any], list[st
         out["kb_questions"] = draft["kb_questions"]
         filled.append("kb_questions")
     return out, filled
+
+
+# ---------------------------------------------------------------------- the bot's wording (domain.yaml -> bot.says)
+_FIXED_SAYS = {"TRANSFER": "Let me transfer you to a representative who can help.",
+               "END": "Thank you for calling. Goodbye.",
+               "ASK_CLARIFY": "Sorry, I didn't catch that."}
+
+
+def _unit(g, ref: Any) -> str:
+    """The unit a said number is worded with, so the speech check reads it as that figure ('18 years',
+    '7 business days'); money is worded $N by the bot already."""
+    if not isinstance(ref, str) or not ref.startswith("$"):
+        return ""
+    path = ref[1:].split(".")
+    if len(path) == 1 and path[0] in g.limits:
+        return str(g.limits[path[0]].get("unit") or "")
+    attr = path[-1]
+    if attr.endswith("_usd"):
+        return ""
+    for suf in ("business_days", "calendar_days", "days", "hours", "minutes", "months", "years"):
+        if attr.endswith(suf):
+            return suf.replace("_", " ")
+    return ""
+
+
+def _the(fields: list[str], g=None, refs: dict | None = None) -> str:
+    """'the card product is {card_product}[, the reference is {reference}][ and the delivery is {delivery_days}
+    business days]': every field after the first is said only when it has a value."""
+    parts = []
+    for f in fields:
+        unit = _unit(g, (refs or {}).get(f)) if g is not None else ""
+        name = _words(f)
+        for w in unit.split():                           # 'delivery days' + 'business days' -> 'delivery'
+            name = re.sub(rf"\s*\b{w}\b", "", name).strip() or _words(f)
+        parts.append(f"the {name} is {{{f}}}" + (f" {unit}" if unit else ""))
+    if len(parts) == 1:
+        return parts[0]
+    return parts[0] + "".join(f"[, {x}]" for x in parts[1:-1]) + f"[ and {parts[-1]}]"
+
+
+def _question(g, state: str) -> str | None:
+    """What a prompt asks for, from the slots of the acts it accepts."""
+    s = g.states[state]
+    for a in s.get("on") or {}:
+        specs = g.slot_specs(a) if a in (g.data.get("acts") or {}) else {}
+        for sl, sp in specs.items():
+            if sp.get("optional") or sp.get("correction_of"):
+                continue
+            if sp["set"] == "credential_code":
+                hint = str(g.data.get("credential_hint") or "your security code")
+                return f"Please tell me {hint}."
+            members = list(g.values.get(sp["set"]) or {})
+            if not members:
+                continue
+            words = _words(sl)
+            if len(members) <= 3:
+                names = [((g.values[sp["set"]][m] or {}).get("aliases") or [_words(m)])[0] for m in members]
+                return f"Could you tell me the {words}: " + (", ".join(names[:-1]) + " or " + names[-1]) + "?"
+            return f"Could you tell me the {words}?"
+    return None
+
+
+def draft_bot_says(g) -> dict[str, str]:
+    """The reference bot's line for every state that speaks, from the graph: a prompt asks for what its acts carry,
+    a confirmation reads back its fields and asks to go ahead, a line states every field it carries. Every field a
+    state must say is in its line, so the speech check finds it."""
+    out: dict[str, str] = {}
+    for name, s in g.states.items():
+        k = g.kind(name)
+        if k in ("call", "each"):
+            continue
+        fields = list((s.get("say") or {}).keys())
+        refs = s.get("say") or {}
+        the = lambda fs: _the(fs, g, refs)                 # noqa: E731
+        if name in _FIXED_SAYS and not fields:
+            out[name] = _FIXED_SAYS[name]
+            continue
+        if fields == ["text"]:
+            out[name] = "{text}"
+            continue
+        if k == "end":
+            out[name] = _FIXED_SAYS["END"]
+            continue
+        retry = "RETRY" in name
+        if "MORE_HELP" in name or "ANYTHING_ELSE" in name:
+            out[name] = "Is there anything else I can help with?"
+            continue
+        if k == "ask":
+            on = s.get("on") or {}
+            if "CONFIRM" in on and fields:
+                out[name] = f"To confirm: {the(fields)}. Shall I go ahead?"
+                continue
+            if "CONFIRM" in on:
+                out[name] = "Shall I go ahead?"
+                continue
+            q = _question(g, name)
+            pre = "That didn't match. " if retry else ""
+            if q is None:
+                q = "Is there anything else I can help with?" if set(on) <= {"END"} else "How can I help?"
+            out[name] = pre + (f"{the(fields)[:1].upper()}{the(fields)[1:]}. " if fields else "") + q
+            continue
+        # a line: what it carries, framed by what kind of line it is
+        if not fields:
+            out[name] = ("Okay, I won't go ahead with that." if name.startswith(("ACK", "DECLINE"))
+                         else "I'm sorry, that isn't available right now." if name.startswith(("INFORM_NO", "UNAVAILABLE"))
+                         else "I'm sorry, I can't help with that here." if name.startswith(("EXPLAIN", "DENY", "REFUSE"))
+                         else "Okay.")
+            continue
+        body = the(fields)
+        if name.startswith(("EXPLAIN", "INFORM_NO", "DENY", "REFUSE")):
+            out[name] = f"I'm sorry, I can't go further with this: {body}."
+        elif name.startswith(("DISCLOSE", "WARN", "NOTE")):
+            out[name] = f"Before we go on, please note that {body}."
+        elif s.get("claims") or name.endswith(("DONE", "SUBMITTED", "RECORDED", "COMPLETE", "COMPLETED")):
+            out[name] = f"All done: {body}."
+        else:
+            out[name] = f"{body[:1].upper()}{body[1:]}."
+    ts = g.transfer_state
+    out.setdefault(ts, _FIXED_SAYS["TRANSFER"])
+    if (g.glob.get("unclear") or {}).get("clarify"):
+        out.setdefault(g.glob["unclear"]["clarify"], _FIXED_SAYS["ASK_CLARIFY"])
+    return out
+
+
+def fill_bot_says(says: dict[str, str] | None, g) -> tuple[dict[str, str], list[str]]:
+    """``says`` with a drafted line for every speaking state it has none for (lines it has are kept)."""
+    out = dict(says or {})
+    filled = []
+    for st, line in draft_bot_says(g).items():
+        if st not in out:
+            out[st] = line
+            filled.append(f"bot.says.{st}")
+    return out, filled

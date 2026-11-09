@@ -124,7 +124,7 @@ def new_journey(src: Path, name: str | None = None) -> dict[str, Any]:
     """A journey folder for a compact graph from outside the journey folders."""
     import yaml
     from ..graph.model import PolicyGraph
-    from ..lexicon_draft import draft_lexicon
+    from ..lexicon_draft import draft_bot_says, draft_lexicon
     g = PolicyGraph.load(src)
     slug = _unique(_slug(name or g.data.get("id") or src.stem))
     d = POLICY_ROOT / slug
@@ -135,9 +135,11 @@ def new_journey(src: Path, name: str | None = None) -> dict[str, Any]:
         title = g.data.get("title") or slug.replace("_", " ").title()
         head = (f"# {title}\n#\n# Made by the journey console from {src.name}. The policy graph states the policy and the "
                 "dialog; every section a\n# campaign reads (tools, figures, rules, flow, journeys, checks) is mined from "
-                "it. The lexicon below is a\n# first draft from the graph's values and aliases "
-                "(gmsjourney/lexicon_draft.py): replace its plain wording\n# with the way your customers speak.\n\n")
-        body = {"domain": {"id": slug, "graph": gname, "title": title}, "lexicon": draft_lexicon(g)}
+                "it. The lexicon (how customers\n# word things) and bot.says (how the reference bot words its lines) below are first drafts from "
+                "the\n# graph (gmsjourney/lexicon_draft.py), checked by playing the project's cases: replace their plain "
+                "wording\n# with the way your customers and your bot speak.\n\n")
+        body = {"domain": {"id": slug, "graph": gname, "title": title}, "lexicon": draft_lexicon(g),
+                "bot": {"says": draft_bot_says(g)}}
         (d / "domain.yaml").write_text(head + yaml.safe_dump(body, sort_keys=False, allow_unicode=True, width=110))
         tpl = POLICY_ROOT / TEMPLATE_PACK
         app = (tpl / "application.yaml").read_text()
@@ -155,10 +157,39 @@ def new_journey(src: Path, name: str | None = None) -> dict[str, Any]:
         with _on(slug) as dom:
             from ..domain import lint
             problems = lint(dom)
+            wording = check_wording()
     except Exception:
         shutil.rmtree(d, ignore_errors=True)
         raise
-    return {"pack": slug, "folder": rel(d), "graph": rel(d / gname), "problems": problems[:20]}
+    return {"pack": slug, "folder": rel(d), "graph": rel(d / gname), "problems": problems[:20], "wording": wording}
+
+
+def check_wording(max_cases: int = 60) -> dict[str, Any]:
+    """Play the active journey's project cases with its reference bot and the speech check: how many turns, how
+    many the graph agrees with, and every bot line whose words fail the check (with an example). A drafted
+    journey is checked this way when it is made."""
+    from . import playground as PG
+    PG.reset()
+    cases = PG.cases("project", None)["cases"][:max_cases]
+    turns = flow = 0
+    bad: dict[str, dict] = {}
+    for c in cases:
+        sess = PG.get(PG.start("project", c["id"], None)["id"])
+        ts = list(sess.turns)
+        for ln in c["lines"]:
+            try:
+                ts.append(sess.say(ln["text"]))
+            except ValueError:
+                break
+        for t in ts:
+            turns += 1
+            flow += not t["match"]
+            sp = t.get("speech")
+            if sp and not sp["ok"]:
+                why = [f["detail"] for f in sp["findings"] if not f["advisory"]] or ["a claim did not check out"]
+                for a in t["bot"]["act_names"]:
+                    bad.setdefault(a, {"act": a, "turns": 0, "example": t["bot"]["text"], "why": why[0]})["turns"] += 1
+    return {"cases": len(cases), "turns": turns, "off_flow": flow, "speech_failures": sorted(bad.values(), key=lambda x: -x["turns"])}
 
 
 def open_graph(path: str) -> dict[str, Any]:
@@ -464,10 +495,20 @@ def core_segments(dom) -> list[dict[str, Any]]:
     else:
         speakers = states if kg.where("says") else set()
     speak = sorted(speakers - worded - {"ANSWER_KB"})
-    out.append(_seg("speech", "What each state says", "the speech check (the bot's words against what the state must say)",
-                    not speak, (f"no wording for: {', '.join(speak[:10])}" + (" - the reference bot says their fields; write their wording under bot.says in domain.yaml" if g is not None else "")
-                                ) if speak else "every speaking state has its wording",
-                    {}, [{"head": "<STATE>", "relation": "says", "tail": "<field>"}]))
+    drafted = sorted(x.split(".", 2)[2] for x in (getattr(dom, "lexicon_drafted", None) or []) if x.startswith("bot.says."))
+    if speak:
+        detail = f"no wording for: {', '.join(speak[:10])}"
+    elif drafted:
+        detail = (f"drafted wording for {len(drafted)} state(s) ({', '.join(drafted[:6])}{', ...' if len(drafted) > 6 else ''}); "
+                  "write your own under bot.says in domain.yaml when you can")
+    else:
+        detail = "every speaking state has its wording"
+    seg = _seg("speech", "What each state says", "how the reference bot words its lines (the speech check reads what "
+               "each state must say from the graph, so it runs either way)", not speak, detail,
+               {}, [{"head": "<STATE>", "relation": "says", "tail": "<field>"}])
+    seg["advisory"] = g is not None                       # compact graphs: wording only, the checks need none
+    seg["drafted"] = drafted
+    out.append(seg)
 
     from ..domain_checks import lexicon_matches_graph
     try:

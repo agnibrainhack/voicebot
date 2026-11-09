@@ -241,6 +241,8 @@ def test_local_model_through_a_vllm_server_runs_the_llm_bot():
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     old = {k: os.environ.pop(k, None) for k in (ENV, "GMSJOURNEY_VLLM_URL", "GMSJOURNEY_SUT_FAKE_MODEL", "GMSJOURNEY_CACHE")}
     os.environ.update({ENV: "llama-8b-test", "GMSJOURNEY_VLLM_URL": f"http://127.0.0.1:{port}/v1"})
+    from gmsjourney import backend
+    keep_cache, backend.CACHE = backend.CACHE, Path(tempfile.mkdtemp(prefix="gms_llm_cache_"))   # every call reaches the server
     try:
         domain.set_current("charge_review_graph")
         from gmsjourney.app.sut import make_factory
@@ -256,7 +258,9 @@ def test_local_model_through_a_vllm_server_runs_the_llm_bot():
         turn = bot.respond("The last four digits of my card are 4821.")
         assert [c["tool"] for c in env.log][:2] == ["authenticate_customer", "get_review_transactions"] and turn.acts
         assert fac.llm.report()["calls"] >= 3 and model.calls >= 3
+        assert fac.critique and model.critiques >= 3          # the critique layer reviewed every step on the same server
     finally:
+        backend.CACHE = keep_cache
         srv.shutdown()
         for k, v in old.items():
             os.environ.pop(k, None)
