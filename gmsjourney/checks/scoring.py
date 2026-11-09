@@ -99,7 +99,7 @@ def check_constraints(bot_turns: list[dict[str, Any]], tool_calls: int, oracle_t
 #           ESCALATION_INAPPROPRIATE, UNCLEAN_TERMINATION, STAGE_INCORRECT
 # LOW       BUDGET_EXCEEDED (latency / length / tool calls), TOOL_LOOP, RUNTIME_INVARIANCE
 #
-# What the bot said (gmsjourney/speech):
+# What the bot said (checks/speech_*.py):
 # CRITICAL  SPEECH_CONTRADICTED (it told the customer something false: the wrong fee, the opposite of
 #           what was recorded), SPEECH_UNSUPPORTED (it stated something nothing backs: "recorded" or
 #           "done" without a success, a charge no tool returned)
@@ -338,7 +338,7 @@ def release_gate(rows: list[dict[str, Any]], profiles: dict[str, TierProfile] | 
 #                               per-turn constraint budgets (checks/scoring.py; not part of `correct`),
 #   risk_tier, severity, failure_codes
 #                               gmsh-style severity with risk-tier escalation (checks/scoring.py),
-#   c_speech, speech_*          what the bot SAID, read on its own and checked (gmsjourney/speech):
+#   c_speech, speech_*          what the bot SAID, read on its own and checked (checks/speech_*.py):
 #                               claims supported / contradicted / unsupported / unverifiable, words that
 #                               contradict the act labels, required information not said; c_flow and
 #                               speech_flow: acts where the dialog-state graph does not allow them.

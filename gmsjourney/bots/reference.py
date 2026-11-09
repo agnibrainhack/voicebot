@@ -54,7 +54,7 @@ MUTATIONS = {
     "kb_first_amount": "Answers fee questions with the first dollar amount in the knowledge base.",
     "kb_fabricate_unknown": "Answers fee/time questions about options or facts the policy does not state with the expedited figures.",
     # defects in the WORDS only: the act labels and every tool call stay correct, so only the check of
-    # what the bot says (gmsjourney/speech) can catch them
+    # what the bot says (checks/speech_*.py) can catch them
     "says_wrong_fee": "Labels the $15 expedited fee correctly but tells the customer $25.",
     "misstates_recorded_answer": "Records the right answer but tells the customer it recorded the opposite.",
     "names_wrong_amount": "Presents the right charge but reads out an amount one dollar off.",

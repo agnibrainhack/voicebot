@@ -1,4 +1,4 @@
-# LLM enrichment arm (gmsjourney/enrich/llm): the internal Microsoft (Azure OpenAI) model gateway.
+# LLM enrichment arm (gmsjourney/rewording/llm_*.py, gmsjourney/llm.py): the internal Microsoft (Azure OpenAI) model gateway.
 # Needs only `requests`. Token: `gcloud auth print-access-token` (AEXP_ACCESS_TOKEN overrides);
 # routing header: AEXP_USE_CASE_ID (default 825); endpoint: GMSJOURNEY_LLM_URL; CA bundle:
 # GMSJOURNEY_CA_BUNDLE / REQUESTS_CA_BUNDLE. Credentials are never written to outputs.

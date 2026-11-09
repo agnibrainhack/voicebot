@@ -134,7 +134,7 @@ def pfmt(p: float) -> str:
 
 
 def _speech_section(R: dict[str, Any]) -> str:
-    """5a. What the bot said: every utterance read on its own and checked (gmsjourney/speech)."""
+    """5a. What the bot said: every utterance read on its own and checked (checks/speech_*.py)."""
     sp = R.get("speech")
     if not sp:
         return ""

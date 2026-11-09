@@ -1,4 +1,4 @@
-"""What the bot says: the reader, the session facts, the verifier and the controls (gmsjourney/speech).
+"""What the bot says: the reader, the session facts, the verifier and the controls (gmsjourney/checks/speech_*.py).
 
 The first group runs on the policy graph alone (exact figures and rule stances read straight from
 the graph, no knowlytix needed): fast, and it pins the behaviour of each piece. The second group

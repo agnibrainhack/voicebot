@@ -572,7 +572,7 @@ GMS_STATE_RELATIONS = ("in_stage", "accepts_act", "leads_to", "applies_rule", "l
 
 # =========================================================================== the speech layer
 # What the bot tells the customer, declared once so every sentence it speaks can be checked
-# (gmsjourney/speech). The PDF's own words set the standard: "The bot may naturally explain a
+# (checks/speech_*.py). The PDF's own words set the standard: "The bot may naturally explain a
 # returned transaction or answer a general replacement-delivery question, provided the response
 # stays grounded in the API result or knowledge base" (pdf.6).
 #

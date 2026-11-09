@@ -9,9 +9,9 @@ This package depends on, but does not include or redistribute:
 
 It includes material from beyond-ship-and-pray (https://github.com/knowlytix/beyond-ship-and-pray),
 Copyright 2026 Knowlytix, Apache License 2.0:
-  * gmsjourney/catalogs/official/{base_catalog,factor_catalog,profiles}.yaml — verbatim copies
+  * gmsjourney/rewording/catalogs/official/{base_catalog,factor_catalog,profiles}.yaml — verbatim copies
     (fallback when proofloop is not installed; sha256 recorded in PROVENANCE.md);
-  * gmsjourney/design/doe.py: balanced_design / coverage_report — adapted from
+  * gmsjourney/cases/design.py: balanced_design / coverage_report — adapted from
     proofloop/evaluation/doe.py;
-  * gmsjourney/governance/gates.py: INJECTION_PATTERNS — from forgeloop/governance/policies.py;
-  * the catalog validation rules in gmsjourney/catalog.py — from code/scripts/validate_catalogs.py.
+  * gmsjourney/checks/gates.py: INJECTION_PATTERNS — from forgeloop/governance/policies.py;
+  * the catalog validation rules in gmsjourney/rewording/catalog.py — from code/scripts/validate_catalogs.py.

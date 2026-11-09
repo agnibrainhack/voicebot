@@ -500,7 +500,7 @@ def probe(runner, oracle, scenarios, tools=None, kinds=KINDS, show: bool = True)
 #                         which card action truly completed; for a policy question, the answer), graded against
 #                         the oracle's answer key (evaluation/runner.score -> ``outcome_correct``)
 #   said it right         the response check: every claim the bot's words make, checked where its truth lives
-#                         (gmsjourney/speech -> ``c_speech``): the tools' results, the writes that truly succeeded,
+#                         (checks/speech_*.py -> ``c_speech``): the tools' results, the writes that truly succeeded,
 #                         the customer's own answers, and for policy figures and stances the GMS
 #
 # A run is correct when both hold (the default ``--speech-gate fail``).

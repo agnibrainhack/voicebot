@@ -123,7 +123,7 @@ against the graph as you type; Save writes the YAML (the previous file is kept a
 `python -m gmsjourney.packs.project check` validates a project file from the command line.
 
 **The journey console** (`gmsjourney/console/`) puts the studio and the campaign behind one page, served from Python or
-Jupyter: `from gmsjourney import app; app.show()` in a notebook (`notebooks/journey_console.ipynb`), or
+Jupyter: `from gmsjourney import console; console.show()` in a notebook (`notebooks/journey_console.ipynb`), or
 `python -m gmsjourney.console --port 8790`. Its parts:
 
 - **Graph path** (top bar; `console/graphs.py`): the journey is chosen by the path of its policy graph, by default
@@ -225,7 +225,7 @@ Jupyter: `from gmsjourney import app; app.show()` in a notebook (`notebooks/jour
   `GMSJOURNEY_SUT_FAKE_MODEL=module:Class` puts a stand-in model behind the LLM bot (tests, demos without the
   gateway; `tests/fake_sut_model.py`).
 
-`app.show()` finds the right address for your browser. On JupyterHub, or on any Jupyter server with
+`console.show()` finds the right address for your browser. On JupyterHub, or on any Jupyter server with
 jupyter-server-proxy (it checks that `<server>/proxy/<port>/` reaches the console), the page is shown through
 Jupyter, which works when the kernel runs on a remote GPU machine. Otherwise it uses `http://127.0.0.1:<port>/` and
 says which port to forward. `GMSJOURNEY_CONSOLE_URL` overrides the address. If another kernel holds the port, the

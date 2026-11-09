@@ -511,7 +511,7 @@ class RuntimeMonitor:
             self._seal("speech", {"text": text}, res, "flagged")
 
     def on_speech(self, report) -> None:
-        """Seal the speech check's verdict on one bot turn (gmsjourney/speech, a ``TurnReport``) into the audit,
+        """Seal the speech check's verdict on one bot turn (checks/speech_checks.py, a ``TurnReport``) into the audit,
         as the gate ``speech_grounding``.
 
         Input   the turn's report (None or an ok report: nothing is sealed)

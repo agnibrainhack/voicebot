@@ -31,7 +31,7 @@ from typing import Any, Callable
 # (ToolEnvironment / ToolGateway), so components, outcome and trajectory are read
 # from what the bot actually did, not from what it says it did.
 #
-# After every bot turn the runner also checks what the bot SAID (gmsjourney/speech): the words are
+# After every bot turn the runner also checks what the bot SAID (checks/speech_*.py): the words are
 # read on their own, every fact they state is checked against the tool results, the customer's turns
 # and the GMS, and against the bot's own act labels (``extras["speech"]``, graded as ``c_speech``).
 #
@@ -108,7 +108,7 @@ class JourneyRunner:
     governance: Any = None            # governance.monitor.GovernanceConfig -> runtime gates on every run
     arm_realizers: dict[str, Any] | None = None   # enrichment arm -> realizer (scenario.metadata['arm'])
     budgets: Any = None               # evaluation.constraints.ConstraintBudget -> per-turn budgets in every row
-    check_speech: bool = True         # read and verify every bot utterance (gmsjourney/speech)
+    check_speech: bool = True         # read and verify every bot utterance (checks/speech_*.py)
 
     def __post_init__(self) -> None:
         self.ont = Ontology.from_store(self.store)

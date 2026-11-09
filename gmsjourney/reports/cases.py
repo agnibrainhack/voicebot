@@ -261,7 +261,7 @@ class LLMNarrator:
 #   optional acknowledgements such as CONFIRM_RECORDED and a re-presentation of the same
 #   charge after a clarification are ignored, see ``normalize_acts``), turn_match (both), and
 #   the first turn where the two runs diverge;
-# * speech_check: what the speech check (gmsjourney/speech) found in the bot's WORDS that turn -
+# * speech_check: what the speech check (checks/speech_*.py) found in the bot's WORDS that turn -
 #   "ok", or each false / unsupported claim and missing or unfaithful act. The oracle comparison
 #   above is on tools and acts; this column is where a right act said wrongly shows up.
 #
@@ -736,7 +736,7 @@ def _col(kind: str, tools: str, acts: str, words: str = "") -> str:
 
 
 def _speech_rows(row: dict) -> list[str]:
-    """The speech check's verdict on the bot's words (gmsjourney/speech), as table rows: one for the words,
+    """The speech check's verdict on the bot's words (checks/speech_*.py), as table rows: one for the words,
     one for the flow (part of the verdict only under --speech-gate strict)."""
     ok, flow = bool(int(row.get("c_speech", 1))), bool(int(row.get("c_flow", 1)))
     n, good = row.get("speech_claims", 0), row.get("speech_supported", 0)
