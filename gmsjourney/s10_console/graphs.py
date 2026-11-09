@@ -802,10 +802,31 @@ def _entity_graph(kg) -> tuple[list[str], list[dict], dict[str, str], dict[str, 
         s = sec_of.get(t.get("id") or id(t), "other")
         nodes[t["head"]][s] += 1
         nodes[tail][s] += 1
-        edges.append({"s": t["head"], "t": tail, "relation": t["relation"], "section": s})
+        ev = str(t.get("evidence") or "")
+        edges.append({"s": t["head"], "t": tail, "relation": t["relation"], "section": s, "id": t.get("id"),
+                      "src": t.get("source"), "ev": ev[:200] + ("…" if len(ev) > 200 else "")})
     names = sorted(nodes)
     sec = {n: nodes[n].most_common(1)[0][0] for n in names}
     return names, edges, sec, ty
+
+
+def _relation_docs(kg, used: set[str]) -> dict[str, str]:
+    """What each relation on the sphere means, from the graph's own relation table (``head -> tail`` in words),
+    else from the full graph's documented relations."""
+    docs = dict((kg.data.get("relations") or {}) if kg is not None else {})
+    try:
+        from ..s02_graph.triples import _relation_docs as full_docs
+        docs = {**full_docs(), **docs}
+    except Exception:                                  # noqa: BLE001
+        pass
+    out = {}
+    for r in used:
+        d = docs.get(r)
+        if isinstance(d, dict):
+            d = d.get("doc") or d.get("text") or ", ".join(f"{k} {v}" for k, v in d.items())
+        if d:
+            out[r] = str(d)
+    return out
 
 
 def _unit(X: np.ndarray, seed: int = 7) -> np.ndarray:
@@ -954,5 +975,6 @@ def build(dom, runs_root: Path | None = None, store_dir: str | None = None) -> d
     note = note[:1].upper() + note[1:]
     return {"pack": dom.dir.name, "placement": placement, "note": note, "nodes": nodes, "edges": edges,
             "relations": dict(Counter(e["relation"] for e in edges).most_common()),
+            "relation_docs": _relation_docs(dom.kg, {e["relation"] for e in edges}),
             "sections": [{"key": k, "title": t} for k, t, _ in SECTIONS],
             "fit": {"edge_arc": round(ang(I, J), 3), "random_arc": round(ang(R1, R2), 3)}}

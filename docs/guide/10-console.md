@@ -135,9 +135,7 @@ s10_console/
 
 * **Part 1** `extract(name, data)`: text from a file a tester attaches to the LLM bot's prompt (text, Markdown, JSON,
   YAML, CSV, PDF, Word, Excel), capped in size.
-* **Part 2** `make_factory(job)`: the reference bot, or an LLM bot through the gateway or a local model, with the
-  critique layer on by default (`critique_on`), from a job's `sut` settings (`settings_for`). `suggested()` gives the
-  suggested prompt and the fixed protocol the harness adds; `check_gateway` makes one tiny call.
+* **Part 2** `make_factory(job)`: the reference bot (no LLM), or an LLM bot through the gateway or a local model, with the critique layer on by default (`critique_on`) and reviewed by `critic_model` when one is given (else by the bot's own model), from a job's `sut` settings (`settings_for`). The console's **Bot:** switch in the top bar shows which bot is in use for the journey and opens the choice, which the Playground and test runs share. `suggested()` gives the suggested prompt and the fixed protocol the harness adds; `check_gateway` makes one tiny call.
 * **Part 3** the **playground**: talk to the bot yourself on one case of any journey. `Bench` holds the journey's
   store, oracle, reader, realizer and speech verifier (built once per journey; `reset` forgets it when the graph
   changes). `cases` offers the cases of the latest finished test run, any test run (`run_cases` rebuilds them
@@ -188,6 +186,16 @@ s10_console/
   `domain.yaml`'s `graph:` line changes; the original file is never written); `versions` lists them.
 
 ### Part 2: the GMS sphere
+
+On the page the sphere turns slowly on its own (paused while you hover, select or drag; off under reduced motion),
+keeps the momentum of a drag, and turns to face whatever you select. Selecting a relation (side list, menu, or a click
+on an arc, found from points sampled along the drawn arcs) draws its arcs with a flowing dash and an arrowhead in the
+relation's direction and fades the rest; the panel shows the relation's meaning (`relation_docs`, from the graph's
+relation table), its counts, section, pattern (entity type to entity type), the relations that share its entities
+(ranked by how many) and every triple with its id, source and evidence. Turning to face a selection is a small
+calculation: with `c` the normalised mean of the selected points, the yaw `a = atan2(-c.x, c.z)` brings `c` into the
+y-z plane and the pitch `b = atan2(c.y, sqrt(c.x² + c.z²))` then brings it to the front; the view eases towards
+`(a, b)` the short way round.
 
 `build()` places every entity of the graph as a point on the unit sphere and every relation as a great-circle arc,
 coloured by section:

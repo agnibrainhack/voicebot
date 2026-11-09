@@ -513,6 +513,35 @@ table.hops td { font-size: 12px; white-space: pre-line; } table.hops td.mono { f
 .devlist { margin: 0; padding-left: 18px; font-size: 13px; display: grid; gap: 3px; }
 @media (max-width: 1100px) { .xgrid, .xsheet .xgrid, .compose2, .cmp2 { grid-template-columns: minmax(0, 1fr); } .pgside { position: static; } }
 
+/* the bot under test: two different machines, said plainly */
+.botpick label { gap: 6px; padding: 12px 14px; }
+.botpick .t { font: 600 15px var(--head); }
+.botpick .bt { font-size: 11.5px; font-weight: 600; border-radius: 999px; padding: 1px 9px; white-space: nowrap; }
+.botpick .bt.reference { background: var(--graph-bg); color: var(--graph); } .botpick .bt.llm { background: var(--proj-bg); color: var(--proj); }
+.botpick ul.p { margin: 2px 0 0; padding-left: 16px; display: grid; gap: 2px; font-size: 12.5px; color: var(--ink-2); }
+.botpill { cursor: pointer; } .botpill b { font-weight: 600; }
+.botpill.llm { background: var(--proj-bg); color: var(--proj); border-color: transparent; }
+
+/* sphere: a heads-up bar over the canvas, and the relation panel */
+.sphhud { position: absolute; left: 10px; top: 10px; right: 10px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; pointer-events: none; }
+.sphhud > * { pointer-events: auto; }
+.sphhud .btn { background: color-mix(in srgb, var(--panel) 88%, transparent); backdrop-filter: blur(6px); }
+.sphhud .btn[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.hudsel { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 2px 0 10px; border-radius: 7px; background: var(--accent); color: var(--accent-ink); font-size: 12.5px; }
+.hudsel .k { opacity: .8; } .hudsel .btn { height: 24px; color: var(--accent-ink); background: transparent; border: 0; }
+.sphside .k { font-size: 11.5px; color: var(--ink-3); margin-bottom: 4px; }
+.rellist { display: grid; gap: 2px; max-height: 470px; overflow: auto; }
+.relbtn, .conbtn { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 8px; align-items: center; text-align: left; border: 0; background: transparent; color: inherit;
+  padding: 5px 7px; border-radius: 7px; cursor: pointer; font-size: 12.5px; }
+.relbtn:hover, .conbtn:hover { background: var(--sunk); }
+.relbtn .mono, .conbtn .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conrel { display: grid; gap: 2px; }
+.conbtn { grid-template-columns: minmax(0, 1fr) 70px 24px; }
+.conbtn .bar { height: 5px; } .conbtn .bar i { background: var(--accent); }
+.relgrp { border-top: 1px solid var(--line); padding-top: 8px; display: grid; gap: 3px; }
+.relline { padding-left: 4px; overflow-wrap: anywhere; }
+.sphside { max-height: min(78vh, 760px); overflow: auto; }
+
 /* responsive */
 @media (max-width: 1000px) { .sphwrap { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 760px) { .vgrid { grid-template-columns: minmax(0, 1fr); } }
@@ -542,6 +571,7 @@ table.hops td { font-size: 12px; white-space: pre-line; } table.hops td.mono { f
   <div class="spacer"></div>
   <span id="device-pill"></span>
   <span id="run-pill"></span>
+  <span id="bot-pill"></span>
   <div class="theme" role="group" aria-label="Colour theme" id="theme"></div>
   <button class="btn ghost" id="help-btn" type="button" aria-haspopup="dialog" aria-label="Help" title="Help (press ?)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6.2 6.1a1.9 1.9 0 1 1 2.6 1.8c-.5.2-.8.6-.8 1.1v.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="11.6" r=".8" fill="currentColor"/></svg><span class="lbl">Help</span></button>
   <a class="btn primary" id="go-run" href="#/run">Put the bot to test</a>
@@ -692,7 +722,7 @@ async function loadJourney(fresh) {
     S.P = clone(S.J.project); S.issues = S.J.issues || []; S.coverage = S.J.coverage; S.dirty = false;
   } catch (e) { S.J = null; S.err = e.message; }
   $("#frames")?.remove(); if (S.J) document.body.append(h("datalist", { id: "frames" }, ...frameOptions().map(f => h("option", { value: f }))));
-  validityPill();
+  validityPill(); botPill();
 }
 function devicePill() {
   const d = S.meta.devices, n = d.cuda;
@@ -1067,13 +1097,21 @@ function editView() {
   ];
 }
 
-// ---------------------------------------------------------------- GMS unit sphere (sphere.py)
+// ---------------------------------------------------------------- GMS unit sphere (graphs.py, part 2)
+// Every entity on the unit sphere, every relation an arc. The sphere turns slowly on its own (paused while you work
+// with it, off when reduced motion is asked for); drag to turn it, with momentum; scroll to zoom. Pick a relation
+// (the list, the menu, or click an arc) and the sphere turns to face it: its arcs are drawn with their direction
+// flowing from head to tail, and the panel shows what the relation means, its pattern, every triple, and the
+// relations connected to it through the same entities. Click a point for its relations.
+const REDUCED = (() => { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } })();
 async function loadSphere(force) {
   if (S.sph && S.sph.pack === S.pack && !force) return;
-  S.sph = { pack: S.pack, loading: true, on: new Set(["customer", "bot", "both", "flow", "rules", "knowledge", "other"]), rel: "", q: "", arcs: true, labels: true, rot: [0.5, -0.35], zoom: 1, pin: null };
+  S.sph = { pack: S.pack, loading: true, on: new Set(["customer", "bot", "both", "flow", "rules", "knowledge", "other"]), rel: "", q: "", arcs: true, labels: true,
+            rot: [0.5, -0.35], zoom: 1, pin: null, spin: !REDUCED, vel: 0, target: null, dirty: true, t0: performance.now() };
   render();
   try { Object.assign(S.sph, await api(`api/graph/${S.pack}/sphere`), { loading: false }); }
   catch (e) { S.sph.loading = false; S.sph.err = e.message; }
+  if (S.sph.nodes) { S.sph.byId = {}; for (const n of S.sph.nodes) S.sph.byId[n.id] = n; }
   if (route().view === "sphere") render();
 }
 function sphereView() {
@@ -1081,42 +1119,97 @@ function sphereView() {
   if (!G || G.pack !== S.pack) { loadSphere(); return h("div", { class: "empty" }, "Placing the graph on the sphere…"); }
   if (G.loading) return h("div", { class: "empty" }, "Placing the graph on the sphere…");
   if (G.err) return h("div", { class: "notice bad" }, G.err);
-  const cv = h("canvas", { id: "sph", class: "sph", tabindex: 0, "aria-label": "The policy graph on the unit sphere. Drag to rotate, scroll to zoom, click a point to pin it." });
+  const cv = h("canvas", { id: "sph", class: "sph", tabindex: 0, "aria-label": "The policy graph on the unit sphere. Drag to turn it, scroll to zoom, click a point or an arc to select it, arrow keys to turn, space to pause the rotation." });
   const tip = h("div", { class: "sphtip", role: "status" });
+  const hud = h("div", { class: "sphhud" });
   const side = h("div", { class: "card sphside" });
-  setTimeout(() => sphereMount(cv, tip, side), 0);
+  setTimeout(() => sphereMount(cv, tip, side, hud), 0);
   return [
     head("GMS sphere", `Every entity of the graph as a point on the unit sphere, every relation as an arc. ${G.placement === "store" ? "Placed from the knowledge store's learned geometry." : "Placed from the graph's relationships."}`,
       h("a", { class: "btn", href: "#/sections" }, "Graph sections")),
     h("div", { class: `notice ${G.placement === "store" ? "ok" : "info"}`, style: "margin-bottom:12px" }, G.note,
-      G.fit ? h("span", { class: "small" }, ` · linked entities sit ${G.fit.edge_arc} rad apart on average, against ${G.fit.random_arc} rad for a random pair`) : null),
+      G.fit ? h("span", { class: "small" }, `. Linked entities sit ${G.fit.edge_arc} rad apart on average, against ${G.fit.random_arc} rad for a random pair.`) : null),
     h("div", { class: "row sphctl", style: "flex-wrap:wrap;gap:6px;margin-bottom:10px" },
-      ...G.sections.map(s => h("button", { class: "chip", type: "button", "aria-pressed": G.on.has(s.key) ? "true" : "false", onclick: () => { G.on.has(s.key) ? G.on.delete(s.key) : G.on.add(s.key); render(); } }, secDot(s.key), s.title)),
-      h("select", { class: "select", "aria-label": "Relation", onchange: e => { G.rel = e.target.value; render(); } }, h("option", { value: "" }, "All relations"), ...Object.entries(G.relations).map(([r, n]) => h("option", { value: r, selected: G.rel === r ? true : null }, `${r} (${n})`))),
-      h("input", { class: "input", style: "width:200px", type: "search", placeholder: "Find an entity", "aria-label": "Find an entity", value: G.q, oninput: e => { G.q = e.target.value; const hit = G.nodes.find(n => G.q && n.id.toLowerCase().includes(G.q.toLowerCase())); G.pin = hit ? hit.id : G.pin; sphereDraw(); sphereSide(); } }),
-      h("label", { class: "small row", style: "gap:4px" }, h("input", { type: "checkbox", checked: G.arcs ? true : null, onchange: e => { G.arcs = e.target.checked; sphereDraw(); } }), "Arcs"),
-      h("label", { class: "small row", style: "gap:4px" }, h("input", { type: "checkbox", checked: G.labels ? true : null, onchange: e => { G.labels = e.target.checked; sphereDraw(); } }), "Labels")),
-    h("div", { class: "sphwrap" }, h("div", { class: "sphbox" }, cv, tip), side),
+      ...G.sections.map(s => h("button", { class: "chip", type: "button", "aria-pressed": G.on.has(s.key) ? "true" : "false", onclick: () => { G.on.has(s.key) ? G.on.delete(s.key) : G.on.add(s.key); G.dirty = true; render(); } }, secDot(s.key), s.title)),
+      h("select", { class: "select", "aria-label": "Relation", onchange: e => sphereSelectRel(e.target.value) }, h("option", { value: "" }, "All relations"), ...Object.entries(G.relations).map(([r, n]) => h("option", { value: r, selected: G.rel === r ? true : null }, `${r} (${n})`))),
+      h("input", { class: "input", style: "width:200px", type: "search", placeholder: "Find an entity", "aria-label": "Find an entity", value: G.q, oninput: e => { G.q = e.target.value; const hit = G.nodes.find(n => G.q && n.id.toLowerCase().includes(G.q.toLowerCase())); if (hit) sphereSelectNode(hit.id, true); else { G.dirty = true; } } }),
+      h("label", { class: "small row", style: "gap:4px" }, h("input", { type: "checkbox", checked: G.arcs ? true : null, onchange: e => { G.arcs = e.target.checked; G.dirty = true; } }), "Arcs"),
+      h("label", { class: "small row", style: "gap:4px" }, h("input", { type: "checkbox", checked: G.labels ? true : null, onchange: e => { G.labels = e.target.checked; G.dirty = true; } }), "Labels")),
+    h("div", { class: "sphwrap" }, h("div", { class: "sphbox" }, cv, hud, tip), side),
   ];
 }
-function sphereMount(cv, tip, side) {
+// ---- selection: a relation or an entity, and the turn of the sphere that brings it to the front
+function sphereFace(ids) {                    // rotation angles that bring the mean of these points to the front
+  const G = S.sph; let x = 0, y = 0, z = 0;
+  for (const id of ids) { const n = G.byId[id]; if (n) { x += n.x; y += n.y; z += n.z; } }
+  const r = Math.hypot(x, y, z); if (r < 1e-6) return null;
+  x /= r; y /= r; z /= r;
+  const a = Math.atan2(-x, z), z1 = Math.hypot(x, z), b = Math.max(-1.4, Math.min(1.4, Math.atan2(y, z1)));
+  let da = a - G.rot[0]; da = Math.atan2(Math.sin(da), Math.cos(da));     // the short way round
+  return [G.rot[0] + da, b];
+}
+function sphereSelectRel(rel) {
+  const G = S.sph; G.rel = rel || ""; G.pin = null; G.vel = 0;
+  if (G.rel) { const ids = new Set(); for (const e of G.edges) if (e.relation === G.rel) { ids.add(e.s); ids.add(e.t); } G.target = sphereFace(ids); }
+  G.dirty = true; sphereSide(); sphereHud();
+  const sel = document.querySelector('select[aria-label="Relation"]'); if (sel) sel.value = G.rel;
+}
+function sphereSelectNode(id, keepRel) {
+  const G = S.sph; G.pin = id; G.vel = 0; if (!keepRel) G.rel = "";
+  if (id) G.target = sphereFace([id]);
+  G.dirty = true; sphereSide(); sphereHud();
+  const sel = document.querySelector('select[aria-label="Relation"]'); if (sel) sel.value = G.rel;
+}
+function sphereHud() {
+  const G = S.sph; if (!G || !G.hud) return;
+  G.hud.replaceChildren(...[
+    h("button", { class: "btn s", type: "button", "aria-pressed": G.spin ? "true" : "false", title: "Turn the sphere slowly (space)", onclick: () => { G.spin = !G.spin; G.dirty = true; sphereHud(); } },
+      h("span", { html: G.spin ? '<svg width="12" height="12" viewBox="0 0 12 12"><rect x="2" y="1.5" width="3" height="9" rx="1" fill="currentColor"/><rect x="7" y="1.5" width="3" height="9" rx="1" fill="currentColor"/></svg>' : '<svg width="12" height="12" viewBox="0 0 12 12"><path d="M3 1.5v9l7.5-4.5z" fill="currentColor"/></svg>' }), G.spin ? "Pause rotation" : "Rotate"),
+    h("button", { class: "btn s", type: "button", onclick: () => { G.target = [0.5, -0.35]; G.zoom = 1; G.dirty = true; } }, "Reset view"),
+    G.rel ? h("span", { class: "hudsel" }, h("span", { class: "k" }, "Relation"), h("b", { class: "mono" }, G.rel), h("button", { class: "btn s ghost", type: "button", "aria-label": "Clear the relation", onclick: () => sphereSelectRel("") }, "×")) : null,
+    G.pin ? h("span", { class: "hudsel" }, h("span", { class: "k" }, "Entity"), h("b", { class: "mono" }, G.pin), h("button", { class: "btn s ghost", type: "button", "aria-label": "Clear the entity", onclick: () => sphereSelectNode(null) }, "×")) : null].filter(Boolean));
+}
+function sphereMount(cv, tip, side, hud) {
   const G = S.sph; if (!G || !cv.isConnected) return;
-  G.cv = cv; G.tip = tip; G.side = side;
-  const fit = () => { const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1; cv.width = r.width * dpr; cv.height = r.height * dpr; sphereDraw(); };
+  G.cv = cv; G.tip = tip; G.side = side; G.hud = hud;
+  const fit = () => { const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1; cv.width = r.width * dpr; cv.height = r.height * dpr; G.dirty = true; };
   new ResizeObserver(fit).observe(cv);
   let drag = null;
-  cv.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY, moved: false }; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener("pointerdown", e => { drag = { x: e.clientX, y: e.clientY, moved: false, t: performance.now() }; G.vel = 0; G.target = null; cv.setPointerCapture(e.pointerId); });
   cv.addEventListener("pointermove", e => {
-    if (drag) { const dx = e.clientX - drag.x, dy = e.clientY - drag.y; if (Math.abs(dx) + Math.abs(dy) > 2) drag.moved = true; G.rot[0] += dx * 0.008; G.rot[1] = Math.max(-1.5, Math.min(1.5, G.rot[1] + dy * 0.008)); drag.x = e.clientX; drag.y = e.clientY; sphereDraw(); return; }
-    const n = sphereHit(e); G.hover = n ? n.id : null; sphereDraw();
-    if (n) { const r = cv.getBoundingClientRect(); tip.style.display = "block"; tip.style.left = `${e.clientX - r.left + 12}px`; tip.style.top = `${e.clientY - r.top + 12}px`; tip.replaceChildren(h("b", {}, n.id), h("div", { class: "small" }, `${n.type || "entity"} · ${_TITLE(n.section)} · ${n.degree} relation${n.degree === 1 ? "" : "s"}`)); }
+    if (drag) { const dx = e.clientX - drag.x, dy = e.clientY - drag.y, now = performance.now(); if (Math.abs(dx) + Math.abs(dy) > 2) drag.moved = true;
+      G.rot[0] += dx * 0.008; G.rot[1] = Math.max(-1.5, Math.min(1.5, G.rot[1] + dy * 0.008)); G.vel = dx * 0.008 / Math.max(8, now - drag.t) * 16; drag.x = e.clientX; drag.y = e.clientY; drag.t = now; G.dirty = true; return; }
+    const n = sphereHit(e), arc = n ? null : sphereArcHit(e); G.hover = n ? n.id : null; G.hoverArc = arc; G.dirty = true;
+    const r = cv.getBoundingClientRect();
+    if (n || arc) { tip.style.display = "block"; tip.style.left = `${e.clientX - r.left + 12}px`; tip.style.top = `${e.clientY - r.top + 12}px`;
+      tip.replaceChildren(...(n ? [h("b", {}, n.id), h("div", { class: "small" }, `${n.type || "entity"}, ${_TITLE(n.section).toLowerCase()}, ${n.degree} relation${n.degree === 1 ? "" : "s"}`)]
+        : [h("div", { class: "mono small" }, arc.s), h("div", { class: "small" }, h("b", {}, arc.relation)), h("div", { class: "mono small" }, arc.t), h("div", { class: "small muted" }, "Click to select this relation")])); }
     else tip.style.display = "none";
   });
-  cv.addEventListener("pointerup", e => { if (drag && !drag.moved) { const n = sphereHit(e); G.pin = n ? n.id : null; sphereDraw(); sphereSide(); } drag = null; });
-  cv.addEventListener("pointerleave", () => { tip.style.display = "none"; G.hover = null; sphereDraw(); });
-  cv.addEventListener("wheel", e => { e.preventDefault(); G.zoom = Math.max(0.6, Math.min(3, G.zoom * (e.deltaY < 0 ? 1.1 : 0.9))); sphereDraw(); }, { passive: false });
-  cv.addEventListener("keydown", e => { const k = { ArrowLeft: [-0.12, 0], ArrowRight: [0.12, 0], ArrowUp: [0, -0.12], ArrowDown: [0, 0.12] }[e.key]; if (k) { e.preventDefault(); G.rot[0] += k[0]; G.rot[1] += k[1]; sphereDraw(); } });
-  fit(); sphereSide();
+  cv.addEventListener("pointerup", e => {
+    if (drag && !drag.moved) { const n = sphereHit(e); if (n) sphereSelectNode(n.id); else { const a = sphereArcHit(e); if (a) sphereSelectRel(a.relation); else if (G.pin || G.rel) { sphereSelectNode(null); } } }
+    drag = null; });
+  cv.addEventListener("pointerleave", () => { tip.style.display = "none"; G.hover = null; G.hoverArc = null; G.dirty = true; });
+  cv.addEventListener("wheel", e => { e.preventDefault(); G.zoom = Math.max(0.6, Math.min(3, G.zoom * (e.deltaY < 0 ? 1.1 : 0.9))); G.dirty = true; }, { passive: false });
+  cv.addEventListener("keydown", e => {
+    if (e.key === " ") { e.preventDefault(); G.spin = !G.spin; sphereHud(); return; }
+    if (e.key === "Escape") { sphereSelectNode(null); return; }
+    const k = { ArrowLeft: [-0.12, 0], ArrowRight: [0.12, 0], ArrowUp: [0, -0.12], ArrowDown: [0, 0.12] }[e.key]; if (k) { e.preventDefault(); G.target = null; G.rot[0] += k[0]; G.rot[1] = Math.max(-1.5, Math.min(1.5, G.rot[1] + k[1])); G.dirty = true; } });
+  fit(); sphereSide(); sphereHud();
+  cancelAnimationFrame(G.raf);
+  const me = G.loopId = (G.loopId || 0) + 1;
+  const loop = () => {
+    if (G.loopId !== me || !G.cv || !G.cv.isConnected || S.sph !== G) return;
+    let moving = false;
+    if (G.target) { const da = G.target[0] - G.rot[0], db = G.target[1] - G.rot[1];
+      if (Math.abs(da) + Math.abs(db) < 0.002) { G.rot = [...G.target]; G.target = null; } else { G.rot[0] += da * (REDUCED ? 1 : 0.09); G.rot[1] += db * (REDUCED ? 1 : 0.09); } moving = true; }
+    else if (!drag && Math.abs(G.vel) > 0.0004) { G.rot[0] += G.vel; G.vel *= 0.94; moving = true; }
+    else if (!drag && G.spin && !G.hover && !G.hoverArc && !G.pin && !G.rel) { G.rot[0] += 0.0022; moving = true; }
+    const flowing = !!G.rel && !REDUCED;
+    if (moving || flowing || G.dirty) { sphereDraw(); G.dirty = false; }
+    G.raf = requestAnimationFrame(loop);
+  };
+  G.raf = requestAnimationFrame(loop);
 }
 function sphereProj(p) {
   const G = S.sph, [a, b] = G.rot, ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b);
@@ -1132,70 +1225,147 @@ function sphereHit(e) {
   for (const n of G.nodes) { if (!sphereVisible(n)) continue; const [x, y, z] = sphereProj([n.x, n.y, n.z]); if (z < -0.15) continue; const d = (x - mx) ** 2 + (y - my) ** 2; if (d < bd) { bd = d; best = n; } }
   return best;
 }
+function sphereArcHit(e) {                    // the arc nearest the pointer, from the points sampled while drawing
+  const G = S.sph; if (!G.arcPts) return null;
+  const r = G.cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1, mx = (e.clientX - r.left) * dpr, my = (e.clientY - r.top) * dpr;
+  let best = null, bd = (7 * dpr) ** 2;
+  for (let i = 0; i < G.arcPts.length; i += 3) { const d = (G.arcPts[i + 1] - mx) ** 2 + (G.arcPts[i + 2] - my) ** 2; if (d < bd) { bd = d; best = G.arcPts[i]; } }
+  return best == null ? null : G.edges[best];
+}
 function sphereDraw() {
   const G = S.sph; if (!G || !G.cv || !G.cv.isConnected) return;
   const c = G.cv.getContext("2d"), W = G.cv.width, H = G.cv.height, dpr = window.devicePixelRatio || 1, cs = getComputedStyle(document.documentElement);
-  const col = k => cs.getPropertyValue(`--sc-${k}`).trim() || "#888", ink = cs.getPropertyValue("--ink").trim(), line = cs.getPropertyValue("--line-strong").trim(), ink3 = cs.getPropertyValue("--ink-3").trim();
+  const v = k => cs.getPropertyValue(k).trim();
+  const col = k => v(`--sc-${k}`) || "#888", ink = v("--ink"), line = v("--line-strong"), ink3 = v("--ink-3"), panel = v("--panel"), accent = v("--accent");
   c.clearRect(0, 0, W, H);
   const [cx, cy, , R] = sphereProj([0, 0, 0]);
-  c.beginPath(); c.arc(cx, cy, R, 0, 2 * Math.PI); c.strokeStyle = line; c.lineWidth = 1.2 * dpr; c.stroke();
-  c.globalAlpha = 0.45; c.lineWidth = 0.7 * dpr;
+  // the body: lit from the upper left, with a faint rim
+  const body = c.createRadialGradient(cx - R * 0.35, cy - R * 0.4, R * 0.05, cx, cy, R);
+  body.addColorStop(0, hexA(accent, 0.12));
+  body.addColorStop(0.7, hexA(accent, 0.035)); body.addColorStop(1, hexA(accent, 0.09));
+  c.beginPath(); c.arc(cx, cy, R, 0, 2 * Math.PI); c.fillStyle = body; c.fill();
+  c.strokeStyle = hexA(accent, 0.35); c.lineWidth = 1.2 * dpr; c.stroke();
+  c.globalAlpha = 0.35; c.lineWidth = 0.7 * dpr; c.strokeStyle = line;
   for (let k = -2; k <= 2; k++) { const lat = k * Math.PI / 6; c.beginPath(); let first = true; for (let t = 0; t <= 64; t++) { const lo = t / 64 * 2 * Math.PI; const [x, y, z] = sphereProj([Math.cos(lat) * Math.cos(lo), Math.sin(lat), Math.cos(lat) * Math.sin(lo)]); if (z < 0) { first = true; continue; } first ? c.moveTo(x, y) : c.lineTo(x, y); first = false; } c.stroke(); }
   for (let k = 0; k < 6; k++) { const lo = k * Math.PI / 6; c.beginPath(); let first = true; for (let t = 0; t <= 64; t++) { const lat = -Math.PI / 2 + t / 64 * Math.PI; const [x, y, z] = sphereProj([Math.cos(lat) * Math.cos(lo), Math.sin(lat), Math.cos(lat) * Math.sin(lo)]); if (z < 0) { first = true; continue; } first ? c.moveTo(x, y) : c.lineTo(x, y); first = false; } c.stroke(); }
   c.globalAlpha = 1;
-  const pos = {}; for (const n of G.nodes) pos[n.id] = n;
-  const focus = G.pin || G.hover, near = new Set();
+  const pos = G.byId || {};
+  const focus = G.pin || G.hover, near = new Set(), relEnts = new Set();
   if (focus) for (const e of G.edges) { if (e.s === focus) near.add(e.t); if (e.t === focus) near.add(e.s); }
-  if (G.arcs) {
-    for (const e of G.edges) {
-      if (G.rel && e.relation !== G.rel) continue;
+  if (G.rel) for (const e of G.edges) if (e.relation === G.rel) { relEnts.add(e.s); relEnts.add(e.t); }
+  const pts = []; const flow = ((performance.now() - G.t0) / 40) % 24;
+  const arcs = G.arcs || G.rel;
+  if (arcs) {
+    const order = G.edges.map((e, i) => i).sort((i, j) => (G.edges[i].relation === G.rel) - (G.edges[j].relation === G.rel));   // the selected relation on top
+    for (const i of order) {
+      const e = G.edges[i];
       const a = pos[e.s], b = pos[e.t]; if (!a || !b || !sphereVisible(a) || !sphereVisible(b) || !G.on.has(e.section)) continue;
-      const hot = focus && (e.s === focus || e.t === focus);
-      if (focus && !hot && !G.rel) { c.globalAlpha = 0.06; } else c.globalAlpha = hot ? 0.95 : 0.28;
+      const isRel = G.rel && e.relation === G.rel, hot = focus && (e.s === focus || e.t === focus), hov = G.hoverArc === e;
+      if (!G.arcs && !isRel) continue;
+      let alpha = 0.26;
+      if (G.rel) alpha = isRel ? 0.95 : 0.05; else if (focus) alpha = hot ? 0.95 : 0.06;
+      if (hov) alpha = 1;
       const A = [a.x, a.y, a.z], B = [b.x, b.y, b.z], dot = Math.max(-1, Math.min(1, A[0] * B[0] + A[1] * B[1] + A[2] * B[2])), om = Math.acos(dot), so = Math.sin(om) || 1e-6;
-      c.beginPath(); let started = false;
-      const steps = Math.max(4, Math.ceil(om * 18));
-      for (let i = 0; i <= steps; i++) { const t = i / steps, f1 = om < 1e-4 ? 1 - t : Math.sin((1 - t) * om) / so, f2 = om < 1e-4 ? t : Math.sin(t * om) / so; const lift = 1 + 0.08 * Math.sin(Math.PI * t);
+      const steps = Math.max(4, Math.ceil(om * 18)), lift0 = isRel ? 0.16 : 0.08;
+      let started = false, back = false; c.beginPath();
+      for (let k = 0; k <= steps; k++) { const t = k / steps, f1 = om < 1e-4 ? 1 - t : Math.sin((1 - t) * om) / so, f2 = om < 1e-4 ? t : Math.sin(t * om) / so, lift = 1 + lift0 * Math.sin(Math.PI * t);
         const [x, y, z] = sphereProj([(f1 * A[0] + f2 * B[0]) * lift, (f1 * A[1] + f2 * B[1]) * lift, (f1 * A[2] + f2 * B[2]) * lift]);
-        if (z < -0.05) { started = false; continue; } started ? c.lineTo(x, y) : c.moveTo(x, y); started = true; }
-      c.strokeStyle = col(e.section); c.lineWidth = (hot ? 2 : 1) * dpr; c.stroke();
+        if (z < -0.05) { started = false; back = true; continue; } started ? c.lineTo(x, y) : c.moveTo(x, y); started = true;
+        if (alpha > 0.04 && (k % 2 === 0)) pts.push(i, x, y); }
+      c.globalAlpha = alpha; c.strokeStyle = isRel ? accent : col(e.section); c.lineWidth = (isRel || hov ? 2.2 : hot ? 1.8 : 1) * dpr;
+      if (isRel && !REDUCED) { c.setLineDash([6 * dpr, 6 * dpr]); c.lineDashOffset = -flow * dpr; }
+      c.stroke(); c.setLineDash([]);
+      if (isRel && started) {                      // an arrowhead at the tail end: the relation's direction
+        const [x2, y2] = sphereProj(B), [x1, y1] = sphereProj([(Math.sin(0.12 * om) / so) * A[0] + (Math.sin(0.88 * om) / so) * B[0], (Math.sin(0.12 * om) / so) * A[1] + (Math.sin(0.88 * om) / so) * B[1], (Math.sin(0.12 * om) / so) * A[2] + (Math.sin(0.88 * om) / so) * B[2]].map(u => u * (1 + lift0 * Math.sin(Math.PI * 0.88))));
+        const ang = Math.atan2(y2 - y1, x2 - x1), L = 7 * dpr;
+        c.beginPath(); c.moveTo(x2, y2); c.lineTo(x2 - L * Math.cos(ang - 0.45), y2 - L * Math.sin(ang - 0.45)); c.lineTo(x2 - L * Math.cos(ang + 0.45), y2 - L * Math.sin(ang + 0.45)); c.closePath(); c.fillStyle = accent; c.fill();
+      }
     }
     c.globalAlpha = 1;
   }
+  G.arcPts = pts;
   const q = (G.q || "").toLowerCase();
-  const drawn = G.nodes.filter(sphereVisible).map(n => [n, ...sphereProj([n.x, n.y, n.z])]).sort((u, v) => u[3] - v[3]);
+  const drawn = G.nodes.filter(sphereVisible).map(n => [n, ...sphereProj([n.x, n.y, n.z])]).sort((u, w) => u[3] - w[3]);
   for (const [n, x, y, z] of drawn) {
-    const back = z < 0, hit = focus === n.id, nb = near.has(n.id), match = q && n.id.toLowerCase().includes(q);
-    const r = (3 + Math.min(5, Math.sqrt(n.degree))) * dpr * (back ? 0.75 : 1);
-    c.globalAlpha = back ? 0.18 : focus && !hit && !nb ? 0.35 : 1;
-    c.beginPath(); c.arc(x, y, r + 1.5 * dpr, 0, 2 * Math.PI); c.fillStyle = cs.getPropertyValue("--panel").trim(); c.fill();
+    const back = z < 0, hit = focus === n.id, nb = near.has(n.id), inRel = relEnts.has(n.id), match = q && n.id.toLowerCase().includes(q);
+    const r = (3 + Math.min(5, Math.sqrt(n.degree))) * dpr * (back ? 0.75 : 1) * (0.85 + 0.15 * Math.max(0, z));
+    c.globalAlpha = back ? 0.16 : (G.rel ? (inRel ? 1 : 0.22) : focus && !hit && !nb ? 0.35 : 1);
+    c.beginPath(); c.arc(x, y, r + 1.5 * dpr, 0, 2 * Math.PI); c.fillStyle = panel; c.fill();
     c.beginPath(); c.arc(x, y, r, 0, 2 * Math.PI); c.fillStyle = col(n.section); c.fill();
-    if (hit || match) { c.lineWidth = 2 * dpr; c.strokeStyle = ink; c.stroke(); }
+    if (!back) { c.beginPath(); c.arc(x - r * 0.3, y - r * 0.3, r * 0.35, 0, 2 * Math.PI); c.fillStyle = "rgba(255,255,255,.35)"; c.fill(); }
+    if (hit || match || (inRel && !back)) { c.lineWidth = (hit ? 2.4 : 1.4) * dpr; c.strokeStyle = hit ? ink : accent; c.beginPath(); c.arc(x, y, r + 1 * dpr, 0, 2 * Math.PI); c.stroke(); }
   }
   c.globalAlpha = 1;
   if (G.labels) {
-    c.font = `${11 * dpr}px ui-monospace, Menlo, monospace`; c.textBaseline = "middle";
-    const top = drawn.filter(([n, , , z]) => z > 0.25 && (n.degree >= 6 || n.id === focus || near.has(n.id) || (q && n.id.toLowerCase().includes(q)))).slice(-40);
+    c.font = `${11 * dpr}px "IBM Plex Mono", ui-monospace, Menlo, monospace`; c.textBaseline = "middle";
+    const want = n => n.id === focus || near.has(n.id) || relEnts.has(n.id) || (q && n.id.toLowerCase().includes(q)) || (!G.rel && !focus && n.degree >= 6);
+    const top = drawn.filter(([n, , , z]) => z > 0.2 && want(n)).slice(-48);
     const boxes = [], fh = 13 * dpr;
     for (const [n, x, y] of top.reverse()) {                // nearest first; a label that would overlap one already drawn is left out
       const w = c.measureText(n.id).width, bx = [x + 8 * dpr, y - fh / 2, w, fh];
       if (n.id !== focus && boxes.some(b => bx[0] < b[0] + b[2] && b[0] < bx[0] + bx[2] && bx[1] < b[1] + b[3] && b[1] < bx[1] + bx[3])) continue;
-      boxes.push(bx); c.fillStyle = n.id === focus ? ink : ink3; c.fillText(n.id, bx[0], y); }
+      boxes.push(bx); c.fillStyle = hexA(panel, 0.78); c.fillRect(bx[0] - 3 * dpr, bx[1], w + 6 * dpr, fh);
+      c.fillStyle = n.id === focus || relEnts.has(n.id) ? ink : ink3; c.fillText(n.id, bx[0], y); }
   }
+}
+function hexA(col, a) {                       // a CSS hex colour with alpha, for the canvas
+  const m = /^#([0-9a-f]{6})$/i.exec(col || ""); if (!m) return col;
+  const n = parseInt(m[1], 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`;
+}
+function relPattern(G, rel) {                 // what kinds of entity the relation links, with counts
+  const ty = id => (G.byId[id] || {}).type || "entity", out = {};
+  for (const e of G.edges) if (e.relation === rel) { const k = `${ty(e.s)} → ${ty(e.t)}`; out[k] = (out[k] || 0) + 1; }
+  return Object.entries(out).sort((a, b) => b[1] - a[1]);
+}
+function relConnected(G, rel) {               // other relations that touch the same entities, by how many they share
+  const ents = new Set(); for (const e of G.edges) if (e.relation === rel) { ents.add(e.s); ents.add(e.t); }
+  const shared = {};
+  for (const e of G.edges) { if (e.relation === rel) continue; for (const x of [e.s, e.t]) if (ents.has(x)) (shared[e.relation] = shared[e.relation] || new Set()).add(x); }
+  return Object.entries(shared).map(([r, s]) => [r, s.size]).sort((a, b) => b[1] - a[1]);
 }
 function sphereSide() {
   const G = S.sph; if (!G || !G.side) return;
-  const n = G.nodes.find(x => x.id === G.pin);
+  const entLink = id => h("a", { href: "#/sphere", class: "mono", onclick: ev => { ev.preventDefault(); sphereSelectNode(id); } }, id);
+  const relLink = r => h("a", { href: "#/sphere", class: "mono", onclick: ev => { ev.preventDefault(); sphereSelectRel(r); } }, r);
+  const n = G.byId[G.pin];
+  if (n) {
+    const rels = G.edges.filter(e => e.s === n.id || e.t === n.id);
+    const byRel = {}; for (const e of rels) (byRel[e.relation] = byRel[e.relation] || []).push(e);
+    G.side.replaceChildren(h("div", { class: "hd" }, h("h2", { class: "mono", style: "font-size:15px;overflow-wrap:anywhere" }, n.id), h("button", { class: "btn s", type: "button", onclick: () => sphereSelectNode(null) }, "Clear")),
+      h("div", { class: "bd stack", style: "gap:10px" }, h("div", { class: "row small", style: "gap:6px" }, secDot(n.section), `${n.type || "entity"}, ${_TITLE(n.section).toLowerCase()}, ${rels.length} relation${rels.length === 1 ? "" : "s"}`),
+        ...Object.entries(byRel).sort((a, b) => b[1].length - a[1].length).map(([r, es]) => h("div", { class: "relgrp" },
+          h("div", { class: "row", style: "justify-content:space-between" }, relLink(r), h("span", { class: "small muted num" }, es.length)),
+          h("div", { class: "small" }, ...es.slice(0, 12).map(e => h("div", { class: "relline", title: e.ev || "" }, e.s === n.id ? ["→ ", entLink(e.t)] : ["← ", entLink(e.s)])), es.length > 12 ? h("div", { class: "muted" }, `and ${es.length - 12} more`) : null)))));
+    return;
+  }
+  if (G.rel) {
+    const es = G.edges.filter(e => e.relation === G.rel), pat = relPattern(G, G.rel), con = relConnected(G, G.rel).slice(0, 12);
+    const secs = {}; for (const e of es) secs[e.section] = (secs[e.section] || 0) + 1;
+    const doc = (G.relation_docs || {})[G.rel];
+    const ents = new Set(); for (const e of es) { ents.add(e.s); ents.add(e.t); }
+    G.side.replaceChildren(h("div", { class: "hd" }, h("h2", { class: "mono", style: "font-size:15px;overflow-wrap:anywhere" }, G.rel), h("button", { class: "btn s", type: "button", onclick: () => sphereSelectRel("") }, "Clear")),
+      h("div", { class: "bd stack", style: "gap:12px" },
+        h("p", { class: "small" }, doc || `Links ${pat.map(([k]) => k).slice(0, 2).join(", or ")}.`),
+        h("div", { class: "tiles", style: "grid-template-columns:repeat(3,minmax(0,1fr))" }, tile(es.length, "triples"), tile(ents.size, "entities"), tile(con.length, "connected relations")),
+        h("div", {}, h("div", { class: "k" }, "Section"), h("div", { class: "chips" }, ...Object.entries(secs).map(([s, k]) => h("span", { class: "chip" }, secDot(s), `${_TITLE(s)} (${k})`)))),
+        h("div", {}, h("div", { class: "k" }, "Pattern"), ...pat.slice(0, 6).map(([k, m]) => h("div", { class: "row small", style: "justify-content:space-between" }, h("span", { class: "mono" }, k), h("span", { class: "muted num" }, m)))),
+        h("div", {}, h("div", { class: "k" }, "Connected through the same entities"), con.length ? h("div", { class: "conrel" }, ...con.map(([r, k]) => h("button", { type: "button", class: "conbtn", onclick: () => sphereSelectRel(r) },
+            h("span", { class: "mono" }, r), h("span", { class: "bar" }, h("i", { style: `width:${Math.round(100 * k / Math.max(...con.map(x => x[1])))}%` })), h("span", { class: "num small muted" }, k))))
+          : h("p", { class: "small muted" }, "None: no other relation touches these entities.")),
+        h("div", {}, h("div", { class: "k" }, `Triples (${es.length})`), h("div", { class: "tw", style: "max-height:300px" }, h("table", {}, h("tbody", {}, ...es.slice(0, 200).map(e => h("tr", { title: e.ev ? `${e.src || ""}: ${e.ev}` : (e.src || "") },
+          h("td", {}, entLink(e.s)), h("td", { class: "muted" }, "→"), h("td", {}, entLink(e.t)), h("td", { class: "small muted mono" }, e.id || "")))))))));
+    return;
+  }
   const counts = {}; for (const x of G.nodes) counts[x.section] = (counts[x.section] || 0) + 1;
-  if (!n) { G.side.replaceChildren(h("div", { class: "hd" }, h("h2", {}, "Legend")), h("div", { class: "bd stack", style: "gap:6px" },
-    ...G.sections.map(s => h("div", { class: "row small", style: "gap:8px" }, secDot(s.key), h("span", {}, s.title), h("span", { class: "muted num", style: "margin-left:auto" }, counts[s.key] || 0))),
-    h("p", { class: "small muted", style: "margin-top:8px" }, `${G.nodes.length} entities, ${G.edges.length} relations. A point's size grows with how many relations it has; its colour is the section most of them belong to. Click a point to see its relations.`))); return; }
-  const rels = G.edges.filter(e => e.s === n.id || e.t === n.id);
-  G.side.replaceChildren(h("div", { class: "hd" }, h("h2", { class: "mono", style: "font-size:14px;overflow-wrap:anywhere" }, n.id), h("button", { class: "btn s", type: "button", onclick: () => { G.pin = null; sphereDraw(); sphereSide(); } }, "Clear")),
-    h("div", { class: "bd stack", style: "gap:8px" }, h("div", { class: "row small", style: "gap:6px" }, secDot(n.section), `${n.type || "entity"} · ${_TITLE(n.section)}`),
-      h("div", { class: "tw", style: "max-height:420px" }, h("table", {}, h("tbody", {}, ...rels.slice(0, 120).map(e => h("tr", {}, h("td", { class: "mono" }, e.s === n.id ? "→" : "←"), h("td", { class: "mono", style: "white-space:nowrap" }, e.relation), h("td", { class: "mono" }, h("a", { href: "#/sphere", onclick: ev => { ev.preventDefault(); G.pin = e.s === n.id ? e.t : e.s; sphereDraw(); sphereSide(); } }, e.s === n.id ? e.t : e.s)))))))));
+  const relSec = {}; for (const e of G.edges) relSec[e.relation] = relSec[e.relation] || e.section;
+  G.side.replaceChildren(h("div", { class: "hd" }, h("h2", {}, "Relations")),
+    h("div", { class: "bd stack", style: "gap:10px" },
+      h("p", { class: "small muted" }, `${G.nodes.length} entities, ${G.edges.length} triples, ${Object.keys(G.relations).length} relations. Pick a relation to see what it means, its triples and the relations connected to it; or click an arc or a point on the sphere.`),
+      h("div", { class: "rellist" }, ...Object.entries(G.relations).map(([r, k]) => h("button", { type: "button", class: "relbtn", onclick: () => sphereSelectRel(r), title: (G.relation_docs || {})[r] || "" },
+        secDot(relSec[r]), h("span", { class: "mono" }, r), h("span", { class: "num small muted" }, k)))),
+      h("details", {}, h("summary", { style: "padding:0;font-size:12.5px" }, "Colours"), h("div", { class: "stack", style: "gap:4px;margin-top:6px" },
+        ...G.sections.map(s => h("div", { class: "row small", style: "gap:8px" }, secDot(s.key), h("span", {}, s.title), h("span", { class: "muted num", style: "margin-left:auto" }, counts[s.key] || 0)))))));
 }
-
 // ---------------------------------------------------------------- graph
 function graph(r) {
   const tab = r.q.get("tab") || "states";
@@ -1798,7 +1968,7 @@ function runsView() {
 // ---------------------------------------------------------------- bot under test: the reference bot, or an LLM bot with your prompt and files
 function botLabel(job) {
   const s = (job || {}).sut || {};
-  return s.kind === "llm" ? `LLM bot ${s.model || "gpt-41"}${s.provider === "local" ? " (local, vLLM)" : ""}${s.mode === "replay" ? " (replay)" : ""}` : "reference bot";
+  return s.kind === "llm" ? `LLM bot ${s.model || "gpt-41"}${s.provider === "local" ? " (local, vLLM)" : ""}${s.mode === "replay" ? " (replay)" : ""}${s.critique === false ? ", no critique" : s.critique ? `, critique by ${s.critic_model || "the same model"}` : ""}` : "reference bot (no LLM)";
 }
 function sutState() {
   S.sut = S.sut || {};
@@ -1808,7 +1978,24 @@ function sutState() {
   }
   return S.sut[S.pack];
 }
+function sutSummary(t) {
+  t = t || sutState();
+  if (t.kind !== "llm") return { short: "Reference bot", long: "the reference bot: it follows the graph by rules and reads customers by keywords; no LLM is called" };
+  const m = t.provider === "local" ? "a local model (vLLM)" : (t.model || "gpt-41");
+  const crit = t.critique === false ? "no critique" : `critique by ${t.critic_model && t.provider !== "local" ? t.critic_model : "the same model"}`;
+  return { short: `LLM bot · ${t.provider === "local" ? "local" : (t.model || "gpt-41")}${t.critique === false ? "" : " + critique"}`, long: `an LLM bot on ${m}, ${crit}` };
+}
+function botPill() {
+  const el = $("#bot-pill"); if (!el || !S.pack) return;
+  const t = sutState(), s = sutSummary(t);
+  el.replaceChildren(h("button", { class: `pill botpill ${t.kind === "llm" ? "llm" : ""}`, type: "button", title: `Bot under test for ${S.pack}: ${s.long}. Click to change.`,
+    onclick: () => { const d = $("#dlg"); d.className = "help"; d.replaceChildren(h("div", { class: "row", style: "justify-content:space-between;margin-bottom:10px" }, h("h2", {}, "Bot under test"), h("button", { class: "btn s ghost", onclick: () => d.close() }, "Close")),
+      sutEditor({ id: "dlg", campaign: true }), h("div", { class: "row", style: "justify-content:flex-end;margin-top:14px" }, h("button", { class: "btn primary", onclick: () => { d.close(); render(); } }, "Done")));
+      d.addEventListener("close", () => { d.className = ""; }, { once: true }); d.showModal(); } },
+    h("span", { class: "dot" }), "Bot: ", h("b", {}, s.short)));
+}
 function sutSave() {
+  setTimeout(() => { botPill(); document.querySelectorAll(".inuse").forEach(el => { el.textContent = sutSummary().long; }); }, 0);
   const { suggested, check, ...keep } = sutState();
   try { localStorage.setItem(`jc.sut.${S.pack}`, JSON.stringify(keep)); }
   catch { try { localStorage.setItem(`jc.sut.${S.pack}`, JSON.stringify({ ...keep, references: [] })); } catch {} }
@@ -1817,6 +2004,7 @@ function sutBody() {
   const t = sutState();
   if (t.kind !== "llm") return { kind: "reference" };
   return { kind: "llm", provider: t.provider === "local" ? "local" : "gateway", model: t.model || "", mode: t.mode, temperature: Number(t.temperature) || 0, max_steps: Number(t.max_steps) || 6, critique: t.critique !== false,
+           critic_model: t.critique !== false && t.provider !== "local" ? (t.critic_model || "") : "",
            instructions: t.instructions, custom_prompt: t.instructions != null, references: t.references };
 }
 function fileB64(f) {
@@ -1835,11 +2023,15 @@ function sutEditor(opts = {}) {
     paint();
   }
   function parts() {
-    const choice = h("div", { class: "sut-choice", role: "radiogroup", "aria-label": "Bot under test" },
-      ...[["reference", "Reference bot", "The journey's own bot: it follows the graph and understands customers by keywords. Good for checking the test suite itself."],
-          ["llm", "LLM bot through the model gateway", "A model with your prompt, plus the journey's tools and dialog acts. Every turn is graded exactly like the reference bot's."]]
-        .map(([k, tt, p]) => h("label", {}, h("input", { type: "radio", name: `sut-${opts.id || "x"}`, value: k, checked: t.kind === k, onchange: () => { t.kind = k; sutSave(); paint(); } }),
-          h("span", { class: "t" }, tt), h("span", { class: "p" }, p))));
+    const where = opts.id === "pg" ? "this conversation" : opts.id === "run" ? "this test run" : "the Playground and test runs";
+    const choice = h("div", { class: "stack", style: "gap:8px" },
+      h("div", { class: "sut-choice botpick", role: "radiogroup", "aria-label": "Bot under test" },
+        ...[["reference", "Reference bot", "No LLM", ["Follows the journey's graph step by step, by rules", "Reads the customer by keywords only", "No model, no network: instant and free", "Use it to check the test suite, or as the baseline"]],
+            ["llm", "LLM bot", "LLM + critique LLM", ["A language model with your prompt, files, the tools and the dialog acts", "A critique LLM reviews every step before it runs (on by default)", "Model gateway; a local vLLM model in test runs", "Use it to test the bot you would ship"]]]
+          .map(([k, tt, tag, pts]) => h("label", {}, h("input", { type: "radio", name: `sut-${opts.id || "x"}`, value: k, checked: t.kind === k, onchange: () => { t.kind = k; sutSave(); paint(); } }),
+            h("span", { class: "row", style: "justify-content:space-between;flex-wrap:nowrap" }, h("span", { class: "t" }, tt), h("span", { class: `bt ${k}` }, tag)),
+            h("ul", { class: "p" }, ...pts.map(x => h("li", {}, x)))))),
+      h("p", { class: "small", role: "status" }, h("b", {}, "In use: "), h("span", { class: "inuse" }, sutSummary(t).long), `. This choice is kept per journey and shared by the Playground and test runs; it applies to ${where}.`));
     if (t.kind !== "llm") return [choice];
     const sg = t.suggested;
     if (!sg) { api(`api/journey/${S.pack}/sut`).then(x => { t.suggested = x; paint(); }).catch(e => toast(e.message)); }
@@ -1874,7 +2066,10 @@ function sutEditor(opts = {}) {
       h("span", {}), h("span", { class: "small muted" }, "0 gives the same reply to the same conversation, so a run can be repeated exactly."),
       h("label", { for: `${opts.id}-crit` }, "Critique layer"), h("label", { class: "row small", style: "gap:8px" },
         h("input", { type: "checkbox", id: `${opts.id}-crit`, checked: t.critique !== false ? true : null, onchange: e => { t.critique = e.target.checked; sutSave(); paint(); } }),
-        t.critique !== false ? "On: a second call reviews every step (each tool call and each reply) against the procedure and approves it or corrects it before it is carried out. About twice the calls." : "Off: the bot's steps are carried out as the model proposes them."));
+        t.critique !== false ? "On: a second call reviews every step (each tool call and each reply) against the procedure and approves it or corrects it before it is carried out. About twice the calls." : "Off: the bot's steps are carried out as the model proposes them."),
+      t.critique !== false ? h("label", { for: `${opts.id}-critic` }, "Critique model") : null,
+      t.critique !== false ? h("div", { class: "row" }, h("input", { class: "input mono", id: `${opts.id}-critic`, style: "width:150px", value: t.critic_model || "", placeholder: t.model || "gpt-41", autocomplete: "off", spellcheck: "false",
+          oninput: e => { t.critic_model = e.target.value.trim(); sutSave(); } }), h("span", { class: "small muted" }, "Empty: the bot's own model reviews its steps. Another deployment name gives an independent reviewer.")) : null);
     const edited = t.instructions != null;
     const status = h("span", { class: `pill ${edited ? "proj" : "graph"}` }, edited ? "Your prompt" : "Suggested prompt");
     const count = h("span", { class: "small muted num" });
@@ -2197,7 +2392,7 @@ function exchange(t, Ses) {
       c.journey_would_say ? h("div", { class: "small muted" }, c.journey_would_say.same_meaning ? "Same meaning as the journey's line: " : "The journey's customer would have said: ", `“${c.journey_would_say.text}”`, c.journey_would_say.same_meaning ? "" : ` (${c.journey_would_say.read})`) : null)
     : h("div", { class: "xside cust" }, h("div", { class: "xlbl" }, "Customer"), h("div", { class: "small muted" }, "The bot opens the call."));
   const botSide = h("div", { class: "xside bot" },
-    h("div", { class: "xlbl" }, Ses.bot === "llm" ? "Agent (LLM bot)" : "Agent (reference bot)"),
+    h("div", { class: "xlbl" }, "Agent", h("span", { class: `mode ${Ses.bot === "llm" ? "free" : ""}`, title: Ses.bot_name }, Ses.bot === "llm" ? (Ses.llm && Ses.llm.critique ? "LLM bot + critique LLM" : "LLM bot, no critique") : "reference bot, no LLM")),
     h("div", { class: "said" }, t.bot.text ? `“${t.bot.text}”` : h("i", { class: "muted" }, "(said nothing)")),
     h("div", { class: "cmp2" },
       h("div", {}, h("div", { class: "k" }, "The graph expects"), h("div", { class: "chips" }, ...[...t.expected.tools.map(x => h("span", { class: "chip graph" }, x)), ...t.expected.acts.map(a => h("span", { class: "chip graph" }, a))]),

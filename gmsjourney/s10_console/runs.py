@@ -572,6 +572,8 @@ class Runs:
                 (run / "sut.json").write_text(json.dumps(sut, indent=1, ensure_ascii=False), encoding="utf-8")
             job = {**job, "sut": {"kind": "llm", "provider": sut.get("provider") or "gateway", "model": sut.get("model") or "",
                                   "mode": sut.get("mode") or "live",
+                                  "critique": sut.get("critique", True) is not False,
+                                  "critic_model": str(sut.get("critic_model") or ""),
                                   "custom_prompt": bool(sut.get("custom_prompt")),
                                   "references": [{"name": r.get("name"), "chars": len(r.get("text") or "")}
                                                  for r in sut.get("references") or []]}}

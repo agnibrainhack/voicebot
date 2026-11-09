@@ -132,9 +132,9 @@ def extract(name: str, data: bytes) -> dict[str, Any]:
 #
 #     {"kind": "reference"}                                    the pack's reference bot (the default)
 #     {"kind": "llm", "provider": "gateway" | "local", "model": "gpt-41", "mode": "live" | "replay", "temperature": 0.0,
-#      "max_steps": 6, "critique": true, "instructions": "...", "references": [{"name": "faq.pdf", "text": "..."}]}
+#      "max_steps": 6, "critique": true, "critic_model": "", "instructions": "...", "references": [{"name": "faq.pdf", "text": "..."}]}
 #
-# ``critique`` (default on) adds the critique layer: a second call of the same model reviews every step the bot
+# ``critique`` (default on) adds the critique layer: a second call (of ``critic_model``, default the same model) reviews every step the bot
 # proposes (each tool call and each reply) against the procedure and approves it or replaces it with a corrected step.
 #
 # ``provider`` "local" runs Llama (or any chat model) with vLLM from the folder in GMSJOURNEY_SUT_LOCAL_MODEL
@@ -187,12 +187,19 @@ def make_factory(sut: dict[str, Any] | None, store=None):
         chat = LocalChat(temperature=s.temperature, max_tokens=s.max_tokens)
         s.model = chat.name
         llm, where = CachedLLM(s, model=chat, tag="sut"), "vLLM" + (" server" if st["url"] else ", this machine")
+    critic, cname = None, ""
+    want = str(sut.get("critic_model") or "").strip()
+    if critique_on(sut) and want and want != (s.model or "") and sut.get("provider") != "local":
+        from ..llm import CachedLLM, LLMSettings           # a different model reviews the bot's steps
+        cs = LLMSettings(model=want, temperature=0.0, max_tokens=s.max_tokens, mode=s.mode)
+        fake = fake_model()
+        critic, cname = CachedLLM(cs, model=fake, tag="critic") if fake is not None else CachedLLM(cs, tag="critic"), want
     fac = make_llm_factory(store, s, llm=llm, instructions=sut.get("instructions") or None,
                            references=[r for r in (sut.get("references") or []) if r.get("text")],
-                           max_steps=int(sut.get("max_steps") or 6), critique=critique_on(sut))
+                           max_steps=int(sut.get("max_steps") or 6), critique=critique_on(sut), critic_llm=critic)
     name = f"LLM bot ({fac.llm.settings.model}" + (f", {where}" if llm is not None else "") + \
         (", replay" if s.mode == "replay" else "") + (", stand-in model" if llm is None and fake_model() is not None else "") + \
-        (", with critique" if fac.critique else "") + ")"
+        ((f", critique by {cname}" if cname else ", critique by the same model") if fac.critique else ", no critique") + ")"
     return fac, name, fac
 
 

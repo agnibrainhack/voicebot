@@ -170,8 +170,14 @@ studio shares the setting. Its parts:
 - **GMS sphere** (`s10_console/graphs.py`): every entity as a point on the unit sphere and every relation as a great-circle
   arc, coloured by section. When a campaign with knowlytix has built this journey's store, the points come from the
   store's learned entity vectors (`v_emb.pt`, PCA to 3D); otherwise from the graph's relationships (a spectral layout
-  refined on the sphere, deterministic). Drag to turn, scroll to zoom, filter by section or relation, find an
-  entity, click one to list its relations; the page states how close linked entities sit against random pairs.
+  refined on the sphere, deterministic). The sphere turns slowly on its own (Pause rotation / Rotate, or space;
+  off when the system asks for reduced motion); drag to turn it, with momentum, scroll to zoom, Reset view to go
+  back. **Pick a relation** from the side list, the menu, or by clicking an arc: the sphere turns to face it, its
+  arcs are drawn with their direction flowing head to tail, and the panel shows what the relation means (the
+  graph's own relation table), how many triples and entities it has, its section, its pattern (which kinds of
+  entity it links), the relations connected to it through the same entities (click one to move to it) and every
+  triple with its id and source. Click a point for its relations, grouped by relation; the page states how close
+  linked entities sit against random pairs.
 - **You configure**: the journey factors (decision point, relevance, default, and per level a bank patch, a
   tool's returns call by call, or what the customer says, with a preview of the expected conversation for any
   level), the bank and the customer's scripts, case rules, categories, severities and the release gate. Every edit
@@ -181,8 +187,12 @@ studio shares the setting. Its parts:
   its 13 steps live and shows what each produced (metrics and tables: the store, the questions, the cases, the
   rewording, the proof, the gates, the bot's results, attribution, tool faults, planted defects, training data,
   the release gate), then links the report. Runs are kept under `output/console_runs/<id>/`.
-- **Bot under test** (Run campaign, shared with the Playground): the journey's reference bot, or an **LLM bot
-  through the model gateway** (`s06_bots/llm_bot.py`). For the LLM bot the page shows a suggested prompt (who the bot is,
+- **Bot under test** (Start a test run and the Playground, and the **Bot:** switch in the top bar, which always says
+  which bot is in use and opens the same choice): the **reference bot** (no LLM: it follows the graph by rules and
+  reads the customer by keywords; instant, free, the baseline that checks the test suite) or the **LLM bot** (a
+  language model with your prompt and files, every step reviewed by a **critique LLM** by default;
+  `s06_bots/llm_bot.py`). The choice is kept per journey and shared by the Playground and test runs; runs, verdicts
+  and the case explorer name the bot each run used, with its critique model. For the LLM bot the page shows a suggested prompt (who the bot is,
   how it behaves, the journey's operating procedure: its transcription, or the graph as text) that you edit
   freely, and takes files (text, Markdown, JSON, YAML, CSV, PDF, Word, Excel; `s10_console/bots.py`) that are added
   after it as reference material. The journey's tools with their allowed values, the transfer reasons, the
@@ -191,7 +201,8 @@ studio shares the setting. Its parts:
   budget per turn are set there; **Check gateway** makes one tiny call. The **critique layer** (on by default) makes
   a second call before every step the bot proposes, each tool call and each reply: a reviewer given the same
   instructions approves it or returns a corrected step, which is carried out instead (`LLMBot._review`; about twice
-  the calls). The bot's name says "with critique"; `out/sut_llm.json` counts reviews, approvals and corrections and
+  the calls). **Critique model** picks the reviewer: empty for the bot's own model, or another gateway deployment
+  for an independent reviewer (`critic_model` in the job). The bot's name says which model critiques; `out/sut_llm.json` counts reviews, approvals and corrections and
   keeps each correction (proposed step, step carried out, reason), `out/sut_critic_prompt.txt` holds the reviewer's
   prompt, and the Playground shows under each turn what the reviewer changed. The prompt and files are stored beside the
   run (`sut.json`, `out/sut_prompt.txt`), the model's call statistics in `out/sut_llm.json`. Step 10 is skipped
