@@ -401,7 +401,7 @@ def core_segments(dom) -> list[dict[str, Any]]:
                     [{"head": "PROVIDE_CREDENTIAL", "relation": "has_slot", "tail": "credential"},
                      {"head": "authenticate_customer", "relation": "has_arg", "tail": "credential"}]))
 
-    auth_lim = [x for x in limits if "auth" in x]
+    auth_lim = sorted(x for x in limits if "auth" in x)
     out.append(_seg("auth_limit", "Verification attempt limit", "retry journeys and the limit-plus-one mutant",
                     auth_lim, ", ".join(auth_lim) or "no limit on verification attempts",
                     {"limits.max_auth_attempts": {"value": 2, "unit": "attempts", "text": "At most 2 authentication attempts; then transfer."}},
@@ -423,7 +423,7 @@ def core_segments(dom) -> list[dict[str, Any]]:
                      "acts.<INFORM_X>": {"<slot>": "<set>"}},
                     [{"head": "<VALUE>", "relation": "has_alias", "tail": "how a customer says it"}]))
 
-    asks = [s for s in states if accepts.get(s)]
+    asks = sorted(s for s in states if accepts.get(s))
     unknown = sorted({a for s in asks for a in accepts[s]} - acts)
     out.append(_seg("prompts", "Bot prompts that accept acts", "the flow walk: each prompt is where a customer turn lands",
                     asks and not unknown,
@@ -467,7 +467,7 @@ def core_segments(dom) -> list[dict[str, Any]]:
                     "REQUEST_HUMAN is accepted everywhere" if human else "no act for asking for a person",
                     {"global.human": {"act": "REQUEST_HUMAN", "then": "!customer_requested_human"}}))
 
-    clar = [x for x in limits if "clarif" in x or "unsure" in x]
+    clar = sorted(x for x in limits if "clarif" in x or "unsure" in x)
     unclear = "UNCLEAR" in acts
     out.append(_seg("unclear", "Unclear answers and a retry limit", "noise and ambiguity cases, the ambiguity handoff",
                     unclear and clar, ("UNCLEAR act; " if unclear else "no UNCLEAR act; ") + (", ".join(clar) or "no clarification limit"),
@@ -475,7 +475,7 @@ def core_segments(dom) -> list[dict[str, Any]]:
                      "global.unclear": {"act": "UNCLEAR", "clarify": "ASK_CLARIFY", "limit": "max_clarification_retries",
                                         "rule": "<rule id>", "else": "!ambiguity_persists"}}))
 
-    turns = [x for x in limits if "turn" in x]
+    turns = sorted(x for x in limits if "turn" in x)
     out.append(_seg("turn_limit", "Turn limit", "long-conversation cases and the turn-limit handoff", turns,
                     ", ".join(turns) or "no limit on the number of turns",
                     {"limits.max_turns": {"value": 20, "unit": "turns", "text": "Transfer after 20 customer turns.", "internal": True},
