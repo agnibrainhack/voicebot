@@ -3,26 +3,35 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>gmsjourney Studio</title>
+<title>Project Studio</title>
+<script>try { const m = localStorage.getItem("jc.theme"); if (m === "day" || m === "night") document.documentElement.dataset.theme = m; } catch {}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
 /* Layout: a fixed left rail of sections, a sticky action bar, one working pane; colour marks graph vs project data */
 :root {
-  --bg: #f4f5f7; --surface: #ffffff; --raised: #fafbfc; --ink: #191d24; --muted: #5b6372; --faint: #8a93a3;
-  --line: #dde1e7; --line2: #c9cfd8; --accent: #2156b3; --accent-ink: #ffffff; --accent-soft: #e5edfa;
-  --graph: #1c6a3a; --graph-soft: #e0f1e6; --proj: #8a4d00; --proj-soft: #fbefd6;
-  --ok: #1b7543; --ok-soft: #e2f2e8; --warn: #8a6100; --warn-soft: #fbf0d3; --bad: #ae2a1c; --bad-soft: #fae5e2;
-  --f-body: "IBM Plex Sans", "Segoe UI", Helvetica, Arial, sans-serif;
-  --f-head: "IBM Plex Sans Condensed", "Arial Narrow", Arial, sans-serif;
+  color-scheme: light;
+  --bg: #F3F6FB; --surface: #FFFFFF; --raised: #EAF0F8; --ink: #0D1B30; --muted: #384A64; --faint: #62748E;
+  --line: #D6E0EE; --line2: #B9C8DD; --accent: #1D4ED8; --accent-ink: #FFFFFF; --accent-soft: #E3EBFC;
+  --graph: #0A6B96; --graph-soft: #E1F1F8; --proj: #6236C9; --proj-soft: #EFE9FC;
+  --ok: #0F7A55; --ok-soft: #E2F4EC; --warn: #8F5E00; --warn-soft: #FBF0D9; --bad: #BE2F28; --bad-soft: #FCE8E6;
+  --f-body: "IBM Plex Sans", ui-sans-serif, system-ui, "Segoe UI", Helvetica, Arial, sans-serif;
+  --f-head: "IBM Plex Sans Condensed", "IBM Plex Sans", "Arial Narrow", Arial, sans-serif;
   --f-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
-@media (prefers-color-scheme: dark) { :root {
-  --bg: #111418; --surface: #191d23; --raised: #1e232a; --ink: #e6e9ee; --muted: #9ca4b2; --faint: #6f7886;
-  --line: #2b3139; --line2: #3a414c; --accent: #86abff; --accent-ink: #0f1420; --accent-soft: #1c2944;
-  --graph: #7fd3a0; --graph-soft: #15301f; --proj: #f2c46d; --proj-soft: #3a2d10;
-  --ok: #6bcf94; --ok-soft: #15301f; --warn: #e9bf5e; --warn-soft: #3a2f12; --bad: #ff8f80; --bad-soft: #3b1d19;
-  color-scheme: dark; } }
+:root[data-theme="night"] { color-scheme: dark;
+  --bg: #060B15; --surface: #0C1424; --raised: #091120; --ink: #E2E9F5; --muted: #A8B7CE; --faint: #7487A3;
+  --line: #1A2740; --line2: #2A3B5A; --accent: #6F9BFF; --accent-ink: #061024; --accent-soft: #13234A;
+  --graph: #4FC1EE; --graph-soft: #0B2638; --proj: #B9A0FF; --proj-soft: #1F1745;
+  --ok: #4CCB9B; --ok-soft: #0C2A22; --warn: #F0B651; --warn-soft: #2E2209; --bad: #FF7F74; --bad-soft: #36110F; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="day"]) { color-scheme: dark;
+  --bg: #060B15; --surface: #0C1424; --raised: #091120; --ink: #E2E9F5; --muted: #A8B7CE; --faint: #7487A3;
+  --line: #1A2740; --line2: #2A3B5A; --accent: #6F9BFF; --accent-ink: #061024; --accent-soft: #13234A;
+  --graph: #4FC1EE; --graph-soft: #0B2638; --proj: #B9A0FF; --proj-soft: #1F1745;
+  --ok: #4CCB9B; --ok-soft: #0C2A22; --warn: #F0B651; --warn-soft: #2E2209; --bad: #FF7F74; --bad-soft: #36110F; } }
+.theme { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 2px; background: var(--raised); }
+.theme button { border: 0; background: transparent; height: 24px; padding: 0 9px; border-radius: 999px; cursor: pointer; color: var(--faint); font: 500 12px var(--f-body); }
+.theme button[aria-pressed="true"] { background: var(--surface); color: var(--accent); }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
 body { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--f-body); display: grid; grid-template-columns: 220px 1fr; grid-template-rows: auto 1fr; }
@@ -36,7 +45,7 @@ nav button { display: flex; width: 100%; justify-content: space-between; align-i
   color: var(--ink); font: 500 13.5px var(--f-body); padding: 8px 10px; border-radius: 6px; cursor: pointer; }
 nav button:hover { background: var(--raised); }
 nav button.on { background: var(--accent-soft); color: var(--accent); }
-nav .grp { font: 500 10.5px var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--faint); padding: 14px 10px 4px; }
+nav .grp { font: 600 12px var(--f-head); color: var(--faint); padding: 14px 10px 4px; }
 main { overflow-y: auto; padding: 20px 24px 80px; min-width: 0; }
 h2 { font: 600 1.35rem var(--f-head); margin: 0 0 4px; }
 h3 { font: 600 1.02rem var(--f-head); margin: 18px 0 8px; }
@@ -65,7 +74,7 @@ code { background: var(--raised); border: 1px solid var(--line); padding: 0 4px;
 .tw { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--line); }
-th { font: 500 11px var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); background: var(--raised); position: sticky; top: 0; }
+th { font: 600 12px var(--f-body); color: var(--muted); background: var(--raised); position: sticky; top: 0; }
 input, select, textarea { font: 13px var(--f-body); color: var(--ink); background: var(--surface); border: 1px solid var(--line2); border-radius: 5px; padding: 4px 6px; max-width: 100%; }
 input.mono, textarea.mono { font-family: var(--f-mono); font-size: 12.5px; }
 textarea { width: 100%; }
@@ -88,7 +97,7 @@ label.f { display: grid; gap: 3px; font-size: 12px; color: var(--muted); }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .convo { display: grid; gap: 6px; }
 .turn { display: grid; grid-template-columns: 90px 1fr; gap: 8px; align-items: start; }
-.turn .who { font: 500 11px var(--f-mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding-top: 3px; }
+.turn .who { font: 600 11.5px var(--f-body); color: var(--muted); padding-top: 3px; }
 .turn.bot .body { background: var(--accent-soft); border-radius: 8px; padding: 6px 10px; }
 .turn.customer .body { background: var(--raised); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-family: var(--f-mono); font-size: 12.5px; }
 .turn.tool .body { font-family: var(--f-mono); font-size: 12px; color: var(--muted); padding: 2px 0; }
@@ -103,7 +112,7 @@ svg .node.sel rect { fill: var(--accent-soft); stroke: var(--accent); stroke-wid
 svg .edge { fill: none; stroke: var(--line2); stroke-width: 1.1; }
 svg .edge.hi { stroke: var(--accent); stroke-width: 1.8; }
 svg .edge.dim { opacity: .15; }
-svg .stage { font: 500 10.5px var(--f-mono); letter-spacing: .08em; fill: var(--faint); text-transform: uppercase; }
+svg .stage { font: 500 11px var(--f-mono); fill: var(--faint); }
 .toast { position: fixed; right: 18px; bottom: 18px; background: var(--ink); color: var(--bg); border-radius: 8px; padding: 10px 14px; font-size: 13px; z-index: 10; max-width: 420px; }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
@@ -116,17 +125,25 @@ svg .stage { font: 500 10.5px var(--f-mono); letter-spacing: .08em; fill: var(--
 </head>
 <body>
 <header>
-  <h1>gmsjourney Studio</h1>
+  <h1>Project studio</h1>
   <span class="meta" id="meta">loading…</span>
   <span class="spacer"></span>
   <span id="dirty" class="pill n">saved</span>
   <span id="issuecount" class="pill n">checking…</span>
+  <span class="theme" role="group" aria-label="Colour theme" id="theme"><button type="button" data-m="auto">Auto</button><button type="button" data-m="day">Day</button><button type="button" data-m="night">Night</button></span>
   <button class="btn" id="btnCheck">Check</button>
   <button class="btn primary" id="btnSave">Save</button>
 </header>
 <nav id="nav"></nav>
 <main id="main"><p class="muted">Loading the policy graph and the project…</p></main>
 <script>
+(function () {   // the colour theme, shared with the console: auto follows the system, day / night are kept
+  const paint = () => { let m = "auto"; try { m = localStorage.getItem("jc.theme") || "auto"; } catch {}
+    document.querySelectorAll("#theme button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.m === m))); };
+  document.addEventListener("DOMContentLoaded", () => { paint(); document.querySelectorAll("#theme button").forEach(b => b.addEventListener("click", () => {
+    const m = b.dataset.m; try { m === "auto" ? localStorage.removeItem("jc.theme") : localStorage.setItem("jc.theme", m); } catch {}
+    if (m === "auto") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = m; paint(); })); });
+})();
 "use strict";
 let S = null;          // server state: domain, derived, coverage, issues, path, fixture_keys
 let P = null;          // the project being edited (raw YAML as an object)

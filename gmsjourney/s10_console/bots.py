@@ -225,16 +225,27 @@ def check_gateway(model: str = "", timeout: float = 30.0) -> dict[str, Any]:
 # =====================================================================================================================
 # PART 3 - The playground: talk to the bot under test yourself, one turn at a time, with every turn checked as you go.
 #
-# A session is one conversation on one case. The case sets the mock bank (the items, which tools fail or decline) and
-# offers its customer lines - the scripted words of each turn and, for cases of a finished run, the reworded versions
-# that were proved to mean the same. The tester clicks a line or types their own. For every bot turn the session
-# shows:
+# A session is one conversation on one case of any journey. The case sets the mock bank (the items, which tools fail or
+# decline) and its simulated customer. At every turn the tester chooses how the customer answers:
 #
+# * stick to the journey: the case's own customer answers whatever the bot just asked (the same simulator a test run
+#   uses, so after a bot mistake it still answers the question the bot actually asked);
+# * talk freely: the tester types anything.
+#
+# Either way the words are read into a meaning card and the turn is validated the same way. For every bot turn the
+# session shows, as the answer sheet does:
+#
+# * the customer side: the dialog state answered, what it accepts, how it reads a bare yes or no, its rules and
+#   limits; the meaning card read from the words, whether the state admits it, the card as triples; and, for free
+#   talk, what the journey's customer would have said instead;
+# * the agent side: the graph's hops for this turn (state before, trigger, tool calls with results, condition, state
+#   after, rules with their text, the graph triple and its source), the tools and acts the graph expects, and the
+#   bot's own tools, acts and words;
 # * the tool calls the bot made, with their results (the mock bank's log);
 # * what the graph expects at this turn: the oracle replays the customer's turns so far (each read into its meaning
 #   card by the frame reader) and gives the tools it would call and the acts it would say; the turn matches when the
-#   tools (with their key arguments) and the decision acts are the same (turn_compare's rules); after the first
-#   mismatch the conversations may legitimately differ, so later turns are marked "after divergence";
+#   tools (with their key arguments) and the decision acts are the same (turn_compare's rules); every turn that does
+#   not match is flagged as a deviation, with the reasons (the first one is where the bot left the journey);
 # * the speech check of what the bot said (claims supported, contradicted or unsupported; policy statements;
 #   findings such as a missing or unfaithful act), as the campaign grades it.
 #
@@ -523,14 +534,99 @@ class Session:
     frames: list = field(default_factory=list)
     turns: list[dict] = field(default_factory=list)
     diverged_at: int | None = None
+    deviations: list[int] = field(default_factory=list)
     ended: bool = False
     created: float = field(default_factory=time.time)
+    sim: Any = None
+    sim_calls: list = field(default_factory=list)
+    last_acts: list = field(default_factory=list)
 
-    # ------------------------------------------------------------------ what the graph expects
+    # ------------------------------------------------------------------ the journey's customer
+    def _new_simulator(self):
+        from ..s04_cases.journey import UserSimulator
+        B = bench()
+        return UserSimulator(self.case["spec"], json.loads(json.dumps(self.case["fixture"])),
+                             getattr(B.oracle.limits, "lookback_days", None))
+
+    def _journey_frame(self, consume: bool):
+        """What the case's customer says to the bot's last question (None: nothing, e.g. the call is ending).
+
+        The simulator keeps queues of scripted answers; a preview replays the questions it already answered on a fresh
+        simulator, so looking at the next line never uses it up."""
+        if not self.last_acts:
+            return None
+        if self.sim is None:
+            self.sim, self.sim_calls = self._new_simulator(), []
+        act = dict(self.last_acts[-1])
+        if consume:
+            sim = self.sim
+            self.sim_calls.append(act)
+        else:
+            sim = self._new_simulator()
+            for a in self.sim_calls:
+                try:
+                    sim.respond(dict(a))
+                except Exception:                       # noqa: BLE001
+                    pass
+        try:
+            return sim.respond(act)
+        except Exception:                               # noqa: BLE001 - a bot act the script cannot answer
+            return None
+
+    def _words(self, frame) -> str:
+        B = bench()
+        state = self.last_acts[-1].get("act") if self.last_acts else None
+        try:
+            return B.realizer.realize(frame, {}, f"{self.case['id']}~play|{len(self.frames)}", {"state": state})
+        except Exception:                               # noqa: BLE001
+            return str(frame)
+
+    def journey_line(self) -> dict | None:
+        """The journey's next customer line, without using it up: {text, card} or None."""
+        if self.ended:
+            return None
+        fr = self._journey_frame(consume=False)
+        if fr is None:
+            return None
+        return {"text": self._words(fr), "read": str(fr)}
+
+    # ------------------------------------------------------------------ the answer sheet of one turn
+    def _state_sheet(self, state: str | None) -> dict | None:
+        kg = getattr(bench().store, "kg", None)
+        if kg is None or not state:
+            return None
+        y, n = kg.interprets(state)
+        return {"state": state, "stage": kg.stage(state), "asks": state in kg.prompt_states,
+                "accepts": kg.accepted_acts(state), "yes_means": y, "no_means": n,
+                "rules": [{"id": r, "text": kg.rule_text(r)} for r in kg.rules_for(state)],
+                "limits": [{"key": k, "value": kg.limit(k)} for k in kg.limits_for(state)]}
+
+    def _hops(self, i: int | None) -> list[dict]:
+        """The graph transitions the oracle took in customer turn ``i`` (None: the opening), each with its condition,
+        rules and graph triple. A transition on a customer act (anything but "auto" or the turn-limit "any") starts a
+        new customer turn."""
+        from ..s09_reports.cases import graph_edge
+        kg = getattr(bench().store, "kg", None)
+        turns = [[]]                                    # turns[0]: the opening; turns[k]: customer turn k-1
+        for src, dst, on in getattr(self, "_trace").flow_path:
+            if on not in ("auto", "any"):
+                turns.append([])
+            turns[-1].append((src, dst, on))
+        seg = turns[0] if i is None else (turns[i + 1] if i + 1 < len(turns) else [])
+        out = []
+        for src, dst, on in seg:
+            e = graph_edge(kg, src, dst, on)
+            q = (e or {}).get("qualifiers") or {}
+            out.append({"from": src, "to": dst, "trigger": on, "condition": q.get("when") or q.get("guard"),
+                        "rules": [{"id": r, "text": kg.rule_text(r)} for r in q.get("rules") or []] if kg else [],
+                        "triple": (e or {}).get("id"), "source": (e or {}).get("source"), "evidence": (e or {}).get("evidence")})
+        return out
+
     def _expected(self) -> tuple[list[dict], list[dict]]:
         from ..s09_reports.cases import segment
         B = bench()
         tr = B.oracle.run(self.case["spec"], json.loads(json.dumps(self.case["fixture"])), frames_override=list(self.frames))
+        self._trace = tr
         opening, turns = segment(tr.events)
         return opening, turns
 
@@ -560,16 +656,39 @@ class Session:
                 [_tool_key({"tool": t["tool"], "args": t["args"]}) for t in tools]
             match = e is not None and tools_match and normalize_acts(e_acts) == normalize_acts(acts)
         after = self.diverged_at is not None
-        if not match and self.diverged_at is None:
-            self.diverged_at = len(self.turns)
+        speech = _speech(rep)
+        why = []
+        if customer is not None and i >= len(exp_turns):
+            why.append("the graph's conversation has already ended here, but the bot carried on")
+        else:
+            if not tools_match:
+                why.append("tools: the graph calls " + (", ".join(x["text"] for x in e_tools) or "no tool") +
+                           "; the bot called " + (", ".join(x["text"] for x in tools) or "no tool"))
+            if normalize_acts(e_acts) != normalize_acts(acts):
+                why.append("acts: the graph says " + (", ".join(_describe(e_acts)) or "nothing") +
+                           "; the bot said " + (", ".join(_describe(acts)) or "nothing"))
+        if speech and not speech["ok"]:
+            bad = [f"{c['status']} {c['field']} '{c['words']}'" for c in speech["claims"] if c["status"] in ("contradicted", "unsupported")]
+            bad += [f"{f['kind']} {f.get('act') or ''}".strip() for f in speech["findings"] if not f["advisory"]]
+            if bad:
+                why.append("words: " + "; ".join(bad))
+        deviated = not match or bool(speech and not speech["ok"])
+        if deviated:
+            self.deviations.append(len(self.turns))
+            if self.diverged_at is None:
+                self.diverged_at = len(self.turns)
         self.ended = bool(turn.ended) or self.ended
+        self.last_acts = [a for a in acts if not str(a.get("act", "")).startswith("(")] or self.last_acts
+        state = customer.get("state") if customer else None
+        sheet = {"state": self._state_sheet(state), "hops": self._hops(None if customer is None else i)}
         out = {"n": len(self.turns), "customer": customer, "bot": {"text": turn.text, "acts": _describe(acts),
                "act_names": [a.get("act") for a in acts], "ended": bool(turn.ended)},
                "tools": tools, "expected": {"tools": [x["text"] for x in e_tools], "acts": _describe(e_acts),
                                            "ends": (not exp_turns or i >= len(exp_turns) - 1) and customer is not None
                                            and bool(e_acts) and str(e_acts[-1].get("act")) in ("END", "TRANSFER")},
-               "match": match, "tools_match": tools_match, "after_divergence": after, "speech": _speech(rep),
-               "critique": self._revisions_since()}
+               "match": match, "tools_match": tools_match, "after_divergence": after, "speech": speech,
+               "deviated": deviated, "first_deviation": deviated and self.diverged_at == len(self.turns),
+               "why": why, "sheet": sheet, "critique": self._revisions_since()}
         self.turns.append(out)
         return out
 
@@ -587,28 +706,47 @@ class Session:
         turn = self.bot.start()
         return self._bot_turn(turn, n0, None)
 
-    def say(self, text: str) -> dict:
+    def say(self, text: str = "", mode: str = "free") -> dict:
+        """The customer's next turn. ``mode`` "journey": the case's customer answers the bot's last question (``text``
+        is ignored); "free": ``text`` as typed. Both are read into a meaning card and validated the same way."""
+        from ..s09_reports.cases import frame_hrt
         if self.ended:
             raise ValueError("the conversation has ended; start a new one")
         if len(self.turns) >= MAX_TURNS:
             raise ValueError(f"{MAX_TURNS} turns is the playground's limit; start a new conversation")
-        text = (text or "").strip()
-        if not text:
-            raise ValueError("type what the customer says, or pick a line")
         B = bench()
         last = (self.turns[-1]["bot"]["act_names"] or [None])[-1] if self.turns else None
+        if mode == "journey":
+            jf = self._journey_frame(consume=True)
+            if jf is None:
+                raise ValueError("the journey's customer has nothing to say here (the call should be ending); talk freely instead")
+            text = self._words(jf)
+            would = None
+        else:
+            text = (text or "").strip()
+            if not text:
+                raise ValueError("type what the customer says, or stick to the journey")
+            jf = self._journey_frame(consume=False)
+            would = {"text": self._words(jf), "read": str(jf)} if jf is not None else None
         frame = B.reader.read(text, last)
-        card = B.ont.card(frame, last) if last else {"act": frame.act, "slots": dict(frame.slots)}
+        card = B.ont.card(frame, last) if last else {"act": frame.act, "slots": dict(frame.slots), "admissible": True}
+        if would is not None:
+            wc = B.ont.card(jf, last) if last else {"act": jf.act, "slots": dict(jf.slots)}
+            would["same_meaning"] = (wc.get("act"), wc.get("slots")) == (card.get("act"), card.get("slots"))
         self.frames.append(frame)
         n0 = len(self.env.log)
         turn = self.bot.respond(text)
-        return self._bot_turn(turn, n0, {"text": text, "state": last, "read": str(frame),
-                                         "card": {"act": card.get("act"), "slots": card.get("slots")}})
+        return self._bot_turn(turn, n0, {"text": text, "mode": mode, "state": last, "read": str(frame),
+                                         "card": {"act": card.get("act"), "slots": card.get("slots")},
+                                         "admissible": card.get("admissible", True), "why_not": card.get("why_not"),
+                                         "triples": [list(x) for x in frame_hrt(frame, B.ont, f"turn{len(self.frames)}", last)],
+                                         "journey_would_say": would})
 
     def view(self) -> dict:
         return {"id": self.id, "pack": self.pack, "case": self.case["id"], "case_label": self.case["label"],
                 "bot": self.bot_kind, "bot_name": self.bot_name, "turns": self.turns, "ended": self.ended,
-                "diverged_at": self.diverged_at, "next_line": self._next_line(),
+                "diverged_at": self.diverged_at, "deviations": list(self.deviations), "next_line": self._next_line(),
+                "journey_line": self.journey_line(),
                 "llm": ({"stats": self.llm.stats.as_dict(), "calls": self.llm.llm.report(),
                          "critique": bool(getattr(self.llm, "critique", False))} if self.llm is not None else None)}
 

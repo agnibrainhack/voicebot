@@ -32,6 +32,18 @@ console.stop()      # stop it; runs in progress keep going
 or `python -m gmsjourney.s10_console --port 8790` from a shell. The page keeps two sources apart everywhere, in colour and
 in words: **what the graph decides** (read-only) and **what the project sets** (editable).
 
+**The flow.** The left rail is the route through the work, as five stations on a line: 1 Understand the policy,
+2 Set up the tests, 3 Try the bot, 4 Put the bot to test, 5 Read the results. In the console a campaign is called a
+*test run*; in code it is still `run_campaign`. A station fills in when its work is done (the
+same record as the getting-started steps, kept per journey in the browser), every page names its stage above its
+title and ends with a link to the next page, and Overview shows only the next getting-started step (Help lists them
+all). Cyan marks what the graph decides, violet what you set; green, amber and red are only ever status.
+
+**Themes.** Day is Prussian blue on white drafting film, night is pale blue on a blue-black cyanotype. Auto follows
+the system; the switch in the top bar keeps your choice (`jc.theme` in the browser), the studio page shares it, and
+the GMS sphere redraws in the new colours. Fonts are IBM Plex Sans, Sans Condensed (titles) and Mono (graph names),
+loaded without blocking the page; offline, the system fonts are used.
+
 ```mermaid
 flowchart LR
     B["browser<br/>(ui.html)"] <-->|JSON API| S["server.py"]
@@ -126,13 +138,23 @@ s10_console/
 * **Part 2** `make_factory(job)`: the reference bot, or an LLM bot through the gateway or a local model, with the
   critique layer on by default (`critique_on`), from a job's `sut` settings (`settings_for`). `suggested()` gives the
   suggested prompt and the fixed protocol the harness adds; `check_gateway` makes one tiny call.
-* **Part 3** the **playground**: talk to the bot yourself on one case. `Bench` holds the journey's store, oracle,
-  reader, realizer and speech verifier (built once per journey; `reset` forgets it when the graph changes). `cases`
-  offers the cases of the latest finished run, any run (`run_cases` rebuilds them exactly), or the project's default
-  case and one case per non-default level (`factor_cases`). A `Session` sets the mock bank from the case, offers its
-  customer lines (scripted and the proved rewordings), and under every bot turn shows the tools it called, whether
-  that is what the graph expects at this point (the oracle replays your turns, each read into its meaning card), and
-  the speech check of what it said.
+* **Part 3** the **playground**: talk to the bot yourself on one case of any journey. `Bench` holds the journey's
+  store, oracle, reader, realizer and speech verifier (built once per journey; `reset` forgets it when the graph
+  changes). `cases` offers the cases of the latest finished test run, any test run (`run_cases` rebuilds them
+  exactly), or the project's default case and one case per non-default level (`factor_cases`). A `Session` sets the
+  mock bank from the case and keeps the case's simulated customer. At every turn the tester picks one of two ways to
+  answer (`Session.say(text, mode)`):
+  * `journey`: the case's customer answers the bot's last act (the same `UserSimulator` a test run uses, so after a
+    bot mistake it still answers what the bot actually asked; `journey_line` previews it without using it up by
+    replaying the questions already answered on a fresh simulator);
+  * `free`: the typed words, shown next to what the journey's customer would have said and whether it means the same.
+
+  Both are read into a meaning card and validated identically: the oracle replays the cards so far and the bot's
+  turn is compared with the graph's (tools with key arguments, decision acts) and speech-checked. Every turn that
+  differs is a deviation (`deviations`, the first is `diverged_at`) with its reasons (`why`). Each turn carries its
+  answer sheet (`sheet`): the dialog state answered (`_state_sheet`: accepted acts, bare yes/no, rules, limits), the
+  card as triples, and the graph transitions of the turn (`_hops`, cut from the oracle's own `flow_path`: a transition
+  on a customer act starts a new turn) with condition, rules, triple and source.
 
 ## graphs.py — the graph pages
 

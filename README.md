@@ -124,7 +124,14 @@ against the graph as you type; Save writes the YAML (the previous file is kept a
 
 **The journey console** (`gmsjourney/s10_console/`) puts the studio and the campaign behind one page, served from Python or
 Jupyter: `from gmsjourney import s10_console as console; console.show()` in a notebook (`notebooks/journey_console.ipynb`), or
-`python -m gmsjourney.s10_console --port 8790`. Its parts:
+`python -m gmsjourney.s10_console --port 8790`. The left rail is the route through the work, in five stages:
+**1 Understand the policy** (Overview, Graph sections, Flow, Edit graph, GMS sphere), **2 Set up the tests** (Journey
+factors, Bank and customer, Rules and scoring), **3 Try the bot** (Playground), **4 Put the bot to test** (Start a test run) and **5 Read the
+results** (Test runs, with each run's verdict and cases). In the console a campaign is called a test run; in code it is
+still `run_campaign`. A stage is ticked when its work is done, every page says which
+stage it belongs to and ends with a link to the next page, and Overview shows the next getting-started step. The
+theme switch in the top bar picks Day (blue on white), Night (blue on black) or Auto (follow the system); the
+studio shares the setting. Its parts:
 
 - **Graph path** (top bar; `s10_console/graphs.py`): the journey is chosen by the path of its policy graph, by default
   `gmsjourney/policy/charge_review/charge_review_kg.json` (charge review, built from the PDF). A graph inside a
@@ -142,25 +149,25 @@ Jupyter: `from gmsjourney import s10_console as console; console.show()` in a no
   so it opens only from a journey folder that has one. Recent paths are offered as you type.
 - **Journey**: an overview that sets what the graph decides (states, acts, tools, value sets, limits, rules,
   triggers, transitions) beside what the project configures, the coverage gaps, and the flow.
-- **Graph Sections**: every triple the engine reads (the compiled graph, so both formats look alike) in seven
+- **Graph sections**: every triple the engine reads (the compiled graph, so both formats look alike) in seven
   sections: used by the customer (acts, values and their words), used by the bot (prompts, lines, tools, their
   arguments, results and statuses), used by both (the acts each prompt accepts, yes/no readings, the value sets that
   pass from the customer's words into tool arguments), defining the flow (transitions, stages, handoff triggers),
   rules, knowledge and figures, and other; with the entities and relations of each, and a filterable triple table.
-  Beside it, **Core Segments**: the 18 things every graph needs for the validations a campaign runs (opening,
+  Beside it, **Core segments**: the 18 things every graph needs for the validations a campaign runs (opening,
   caller verification and its attempt limit, customer acts with worded values, prompts, tools with success and
   failure results, confirmation before acting, an echo check, justified handoffs, asking for a person, unclear
   answers, a turn limit, policy questions, rules each checked somewhere, figures with units, reachability, the
   bot's wording, the customer's wording), each with what it is needed for and what is missing.
-- **Edit Graph**: the graph's own entries by section - for a compact graph one JSON entry per value set, act, tool,
+- **Edit graph**: the graph's own entries by section - for a compact graph one JSON entry per value set, act, tool,
   state, rule and limit; for a triples graph one row per triple. A missing core segment can be added as a draft
   with its placeholders to fill. **Check** lints the edited graph in a scratch copy of the journey and lists what
-  changed; **Save as New Version** writes `<name>.v2.json` (then `.v3`, ...) beside the original, switches the
+  changed; **Save as new version** writes `<name>.v2.json` (then `.v3`, ...) beside the original, switches the
   journey to it (only `domain.yaml`'s `graph:` line changes) and shows the changes. The original file is never
   written; the versions row switches back. A value, act or slot member the lexicon does not word yet, or a state
-  with no bot line, runs on drafted wording (reported on Graph Sections) until you write it. "What each state says"
+  with no bot line, runs on drafted wording (reported on Graph sections) until you write it. "What each state says"
   is advisory for compact graphs: the speech check reads what each state must say from the graph itself.
-- **GMS Sphere** (`s10_console/graphs.py`): every entity as a point on the unit sphere and every relation as a great-circle
+- **GMS sphere** (`s10_console/graphs.py`): every entity as a point on the unit sphere and every relation as a great-circle
   arc, coloured by section. When a campaign with knowlytix has built this journey's store, the points come from the
   store's learned entity vectors (`v_emb.pt`, PCA to 3D); otherwise from the graph's relationships (a spectral layout
   refined on the sphere, deterministic). Drag to turn, scroll to zoom, filter by section or relation, find an
@@ -174,14 +181,14 @@ Jupyter: `from gmsjourney import s10_console as console; console.show()` in a no
   its 13 steps live and shows what each produced (metrics and tables: the store, the questions, the cases, the
   rewording, the proof, the gates, the bot's results, attribution, tool faults, planted defects, training data,
   the release gate), then links the report. Runs are kept under `output/console_runs/<id>/`.
-- **Bot under test** (Run Campaign, shared with the Playground): the journey's reference bot, or an **LLM bot
+- **Bot under test** (Run campaign, shared with the Playground): the journey's reference bot, or an **LLM bot
   through the model gateway** (`s06_bots/llm_bot.py`). For the LLM bot the page shows a suggested prompt (who the bot is,
   how it behaves, the journey's operating procedure: its transcription, or the graph as text) that you edit
   freely, and takes files (text, Markdown, JSON, YAML, CSV, PDF, Word, Excel; `s10_console/bots.py`) that are added
   after it as reference material. The journey's tools with their allowed values, the transfer reasons, the
   dialog acts and the JSON reply format are always appended (read-only on the page), because the harness needs
   them to run the bot's tool calls and read what it says. Model, live or replay, temperature and the tool-call
-  budget per turn are set there; **Check Gateway** makes one tiny call. The **critique layer** (on by default) makes
+  budget per turn are set there; **Check gateway** makes one tiny call. The **critique layer** (on by default) makes
   a second call before every step the bot proposes, each tool call and each reply: a reviewer given the same
   instructions approves it or returns a corrected step, which is carried out instead (`LLMBot._review`; about twice
   the calls). The bot's name says "with critique"; `out/sut_llm.json` counts reviews, approvals and corrections and
@@ -189,7 +196,7 @@ Jupyter: `from gmsjourney import s10_console as console; console.show()` in a no
   prompt, and the Playground shows under each turn what the reviewer changed. The prompt and files are stored beside the
   run (`sut.json`, `out/sut_prompt.txt`), the model's call statistics in `out/sut_llm.json`. Step 10 is skipped
   for an LLM bot (it plants errors in copies of the reference bot).
-- **Explore Cases** (a finished run, from its results or step 11; `s10_console/runs.py`): every generated case with its
+- **Explore cases** (a finished run, from its results or step 11; `s10_console/runs.py`): every generated case with its
   customer turns in the original words next to each reworded version (the wording factors that changed, and per
   turn the meaning card it was read back as, equivalent or not, and its surface similarity), the expected run,
   and, where the case was run, the bot's result with its turn-by-turn comparison against the graph. **Bot Results**
@@ -197,7 +204,7 @@ Jupyter: `from gmsjourney import s10_console as console; console.show()` in a no
   factors as a grid of how many cases combine each pair of levels (click a cell to list them), the rules and
   transfer triggers reached, and the rewording design. All of it is read from the run's files.
 - **Verdict**, step 13 of every campaign (`s09_reports/verdict.py`; written as `out/verdict.html` and `out/verdict.json`, from the
-  console or from code; **Open the Verdict** on a run's results or *Verdict* in the run list, also for runs older
+  console or from code; **Open the verdict** on a run's results or *Verdict* in the run list, also for runs older
   than step 13):
   one page to judge the bot. Ready to release or not, with each release gate's reasons in words; the headline
   numbers; the top risks (failure codes ranked by severity and by runs hit, each in plain words with an example
@@ -205,18 +212,26 @@ Jupyter: `from gmsjourney import s10_console as console; console.show()` in a no
   seed, cases, device, store, package versions; the commit and graph hash are recorded when a run starts). Then
   every case run, failed first: the expected outcome (end, transfer reason, writes) on the left beside the bot's on
   the right, and per customer turn the graph's expected tools and decisions beside the bot's tools, decisions and
-  words, the first difference marked and later turns folded. **Print or Save as PDF** gives the first page as the
+  words, the first difference marked and later turns folded. **Print or save as PDF** gives the first page as the
   one-pager and the cases after it, expected and actual still side by side.
-- **Playground** (`s10_console/bots.py`): talk to the bot under test yourself. Pick a case (from the latest finished
-  run, any run, or the project's default and one-per-level cases); it sets the mock bank and offers its customer
-  lines, the scripted words and the reworded versions that run proved, to send with a click, or type your own.
-  Under every bot turn: the tools it called with their results, whether that is what the graph expects at this
-  point (the oracle replays your turns, each read into its meaning card; after the first difference the turns are
-  marked as such), and the speech check of what it said. It runs on the store compiled from the graph, so it
-  needs no training and no licence; the transcript can be downloaded as JSON.
-  **A local model as the bot under test** (campaign runs only; `s06_bots/llm_bot.py`): set
+- **Playground** (`s10_console/bots.py`): talk to the bot under test yourself. Pick any journey (switching it here
+  switches the console's journey too) and a case (from the latest finished test run, any test run, or the project's
+  default and one-per-level cases); it sets the mock bank and the case's simulated customer. At every turn choose how
+  the customer answers: **stick to the journey** (the case's own customer answers whatever the bot just asked, so it
+  keeps following the case even after the bot goes wrong) or **talk freely** (type anything; the page also shows what
+  the journey's customer would have said and whether it means the same). Either way every bot turn is validated the
+  same way: the oracle replays your turns, each read into its meaning card, and the turn is compared with the
+  graph's (tools with their key arguments, decision acts) and its words are speech-checked. A turn that differs is
+  flagged **Bot deviated here** (later ones **Still off the journey**), with the reasons, and listed in the side
+  panel. Each turn opens to its **answer sheet**: on the customer side the dialog state answered (what it accepts,
+  how it reads a bare yes or no, its rules and limits), the meaning read and the card as triples; on the agent side
+  the tool calls the graph makes with their results and every graph transition of the turn (state before, trigger,
+  condition, state after, rules with their text, the graph triple and its source), beside the speech check of what
+  the bot said. It runs on the store compiled from the graph, so it needs no training and no licence; the
+  transcript can be downloaded as JSON.
+  **A local model as the bot under test** (test runs only; `s06_bots/llm_bot.py`): set
   `GMSJOURNEY_SUT_LOCAL_MODEL` to the folder of a Llama 3.1 8B Instruct (or any chat model vLLM serves) before
-  opening the console (`LOCAL_SUT_MODEL` in the notebook's first cell). Bot Under Test then offers *Model runs on:
+  opening the console (`LOCAL_SUT_MODEL` in the notebook's first cell). Bot under test then offers *Model runs on:
   Local model (vLLM)*. The campaign's own process loads it with vLLM when the run starts (greedy, temperature 0,
   replies cached by content like the gateway's); `GMSJOURNEY_VLLM_GPU_UTIL` (default 0.80), `GMSJOURNEY_VLLM_MAX_LEN`
   (16384), `GMSJOURNEY_VLLM_TP` (1) and `GMSJOURNEY_VLLM_DTYPE` tune it, and `GMSJOURNEY_VLLM_URL` sends the calls to
@@ -232,7 +247,7 @@ says which port to forward. `GMSJOURNEY_CONSOLE_URL` overrides the address. If a
 next free one is used. The page talks to the server with relative paths, so it works under any proxy prefix.
 
 The page guides a new user:
-- **Start Here** on Overview: seven steps that tick themselves off.
+- **Getting started** on Overview: seven steps that tick themselves off.
 - **Help** (or `?`): the workflow and a glossary.
 - A dismissible hint on each page.
 - Help under every factor field, and a one-line summary of what each level changes.
@@ -464,7 +479,7 @@ to the asked one. `speech.policy` in `project.yaml` sets:
   cached;
 - `markers`: the plain-English cue words.
 
-The console edits these under Rules & Scoring. Four planted errors per journey (`invented_policy`,
+The console edits these under Rules and scoring. Four planted errors per journey (`invented_policy`,
 `wrong_policy_figure`, `unauthorised_promise`, `internal_disclosure`) measure that the checks fire. Matching a clause
 to a statement uses shared word stems and equal figures: it finds which statement a clause is about, not whether a
 paraphrase keeps its meaning. That second part is what the LLM judge is for.

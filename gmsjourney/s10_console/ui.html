@@ -3,166 +3,253 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#F7F7F5" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#111312" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#060B15" media="(prefers-color-scheme: dark)">
+<script>try { const m = localStorage.getItem("jc.theme"); if (m === "day" || m === "night") document.documentElement.dataset.theme = m; } catch {}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <title>Journey Console</title>
 <style>
-/* Journey Console. Layout: a top bar (journey, device, run status), a section rail, and one working area per
-   section. Two source colours carry meaning everywhere: graph (decided by the policy) and project (set by you). */
+/* Journey Console — "blueprint" theme.
+   The policy graph is the blueprint and this console is the drafting table: day is white drafting film with
+   Prussian-blue ink, night is the blue-black of a cyanotype. Blue is the only family used for structure; colour that
+   is not blue always means something (cyan = decided by the graph, violet = set by you, green / amber / red = status).
+   The one expressive element is the route in the left rail: the five stages of the work as stations on a line. */
 :root {
   color-scheme: light;
-  --bg: #F7F7F5; --panel: #FFFFFF; --sunk: #F0F1EE; --line: #E2E4DF; --line-strong: #CDD1CA;
-  --ink: #141716; --ink-2: #4B524E; --ink-3: #737A76;
-  --graph: #0B6E60; --graph-bg: #E3F2EE; --proj: #9A5B00; --proj-bg: #FBF0DD;
-  --accent: #1F4FD1; --accent-ink: #FFFFFF; --accent-bg: #E8EEFC;
-  --ok: #15703A; --ok-bg: #E4F4EA; --warn: #8A5A00; --warn-bg: #FBF1DA; --bad: #B42318; --bad-bg: #FDECEA;
-  --run: #1F4FD1; --run-bg: #E8EEFC;
-  --shadow: 0 1px 1px rgba(20,23,22,.04), 0 2px 6px rgba(20,23,22,.05);
-  --radius: 10px; --radius-s: 6px;
-  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --bg: #F3F6FB; --panel: #FFFFFF; --sunk: #EAF0F8; --line: #D6E0EE; --line-strong: #B9C8DD;
+  --ink: #0D1B30; --ink-2: #384A64; --ink-3: #62748E;
+  --accent: #1D4ED8; --accent-ink: #FFFFFF; --accent-bg: #E3EBFC; --accent-2: #173EAD;
+  --graph: #0A6B96; --graph-bg: #E1F1F8; --proj: #6236C9; --proj-bg: #EFE9FC;
+  --ok: #0F7A55; --ok-bg: #E2F4EC; --warn: #8F5E00; --warn-bg: #FBF0D9; --bad: #BE2F28; --bad-bg: #FCE8E6;
+  --run: #1D4ED8; --run-bg: #E3EBFC;
+  --grid: rgba(29, 78, 216, .055);
+  --float: 0 10px 30px rgba(13, 27, 48, .14), 0 2px 6px rgba(13, 27, 48, .06);
+  --shadow: none;
+  --radius: 12px; --radius-s: 7px;
+  --sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --head: "IBM Plex Sans Condensed", "IBM Plex Sans", "Arial Narrow", ui-sans-serif, system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sc-customer: #1D5FD0; --sc-bot: #C2560C; --sc-both: #6236C9; --sc-flow: #0A7F8F; --sc-rules: #B0266B; --sc-knowledge: #8A6A00; --sc-other: #6B7A90;
+}
+:root[data-theme="night"] {
+  color-scheme: dark;
+  --bg: #060B15; --panel: #0C1424; --sunk: #091120; --line: #1A2740; --line-strong: #2A3B5A;
+  --ink: #E2E9F5; --ink-2: #A8B7CE; --ink-3: #7487A3;
+  --accent: #6F9BFF; --accent-ink: #061024; --accent-bg: #13234A; --accent-2: #9DBBFF;
+  --graph: #4FC1EE; --graph-bg: #0B2638; --proj: #B9A0FF; --proj-bg: #1F1745;
+  --ok: #4CCB9B; --ok-bg: #0C2A22; --warn: #F0B651; --warn-bg: #2E2209; --bad: #FF7F74; --bad-bg: #36110F;
+  --run: #6F9BFF; --run-bg: #13234A;
+  --grid: rgba(111, 155, 255, .06);
+  --float: 0 14px 40px rgba(0, 0, 0, .55), 0 2px 8px rgba(0, 0, 0, .35);
+  --sc-customer: #6FA4FF; --sc-bot: #F49456; --sc-both: #B9A0FF; --sc-flow: #4FD1D9; --sc-rules: #F07DB8; --sc-knowledge: #E0BA52; --sc-other: #8C9BB3;
 }
 @media (prefers-color-scheme: dark) {
-  :root { color-scheme: dark;
-    --bg: #111312; --panel: #181B1A; --sunk: #141716; --line: #2A2F2D; --line-strong: #3A403D;
-    --ink: #E9ECEA; --ink-2: #B4BBB7; --ink-3: #8A928E;
-    --graph: #5FCDB8; --graph-bg: #12302A; --proj: #E6AA55; --proj-bg: #33260F;
-    --accent: #7EA2FF; --accent-ink: #0D1530; --accent-bg: #1A2546;
-    --ok: #6CCB8A; --ok-bg: #14301F; --warn: #E6AA55; --warn-bg: #33260F; --bad: #F2847C; --bad-bg: #3A1714;
-    --run: #7EA2FF; --run-bg: #1A2546;
-    --shadow: 0 1px 1px rgba(0,0,0,.3), 0 2px 8px rgba(0,0,0,.25); }
+  :root:not([data-theme="day"]) {
+    color-scheme: dark;
+    --bg: #060B15; --panel: #0C1424; --sunk: #091120; --line: #1A2740; --line-strong: #2A3B5A;
+    --ink: #E2E9F5; --ink-2: #A8B7CE; --ink-3: #7487A3;
+    --accent: #6F9BFF; --accent-ink: #061024; --accent-bg: #13234A; --accent-2: #9DBBFF;
+    --graph: #4FC1EE; --graph-bg: #0B2638; --proj: #B9A0FF; --proj-bg: #1F1745;
+    --ok: #4CCB9B; --ok-bg: #0C2A22; --warn: #F0B651; --warn-bg: #2E2209; --bad: #FF7F74; --bad-bg: #36110F;
+    --run: #6F9BFF; --run-bg: #13234A;
+    --grid: rgba(111, 155, 255, .06);
+    --float: 0 14px 40px rgba(0, 0, 0, .55), 0 2px 8px rgba(0, 0, 0, .35);
+    --sc-customer: #6FA4FF; --sc-bot: #F49456; --sc-both: #B9A0FF; --sc-flow: #4FD1D9; --sc-rules: #F07DB8; --sc-knowledge: #E0BA52; --sc-other: #8C9BB3;
+  }
 }
+
+/* base */
 * { box-sizing: border-box; }
 html { -webkit-tap-highlight-color: transparent; }
 @media (pointer: fine) { html { overscroll-behavior: none; } }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans); }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.55 var(--sans); -webkit-font-smoothing: antialiased; }
 button, input, select, textarea { font: inherit; color: inherit; }
 select, input, textarea { background-color: var(--panel); color: var(--ink); }
-a { color: var(--accent); }
-code, .mono { font-family: var(--mono); font-size: .88em; }
+a { color: var(--accent); text-underline-offset: 2px; }
+code, .mono { font-family: var(--mono); font-size: .9em; }
 .num { font-variant-numeric: tabular-nums; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+::selection { background: var(--accent-bg); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .skip { position: absolute; left: 8px; top: -40px; background: var(--panel); padding: 6px 10px; border-radius: 6px; z-index: 50; }
 .skip:focus { top: 8px; }
-h1, h2, h3 { margin: 0; line-height: 1.25; text-wrap: balance; }
-h1 { font-size: 22px; letter-spacing: -.01em; } h2 { font-size: 17px; } h3 { font-size: 14px; }
-p { margin: 0; max-width: 72ch; }
+h1, h2, h3 { margin: 0; line-height: 1.2; text-wrap: balance; font-family: var(--head); font-weight: 600; }
+h1 { font-size: 28px; letter-spacing: -.005em; }
+h2 { font-size: 18px; }
+h3 { font-size: 15px; }
+p { margin: 0; max-width: 74ch; }
 .muted { color: var(--ink-3); } .small { font-size: 12.5px; }
 
-/* top bar */
-.top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-  padding: 10px 18px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px);
+/* top bar: the journey you are on, and the machine it runs on */
+.top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  min-height: 56px; padding: 9px 20px; background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--line); }
-.brand { display: flex; align-items: center; gap: 9px; font-weight: 650; letter-spacing: -.01em; margin-right: 6px; }
-.brand svg { color: var(--graph); }
+.brand { display: flex; align-items: center; gap: 10px; font: 600 16px var(--head); letter-spacing: .01em; margin-right: 8px; white-space: nowrap; }
+.brand svg { color: var(--accent); }
 .field-inline { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
-#gpath { width: min(400px, 30vw); text-overflow: ellipsis; font-size: 12.5px; }
+.gopen { background: var(--sunk); border: 1px solid var(--line); border-radius: 10px; padding: 3px 3px 3px 10px; flex: 1 1 360px !important; min-width: 220px; max-width: 600px; }
+.gopen label { font-size: 12px; color: var(--ink-3); }
+.gopen #gpath { border: 0; background: transparent; height: 30px; flex: 1; width: auto; min-width: 60px; text-overflow: ellipsis; font-size: 12.5px; padding: 0 4px; }
+.gopen #gpath:focus-visible { outline: none; }
+.gopen:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+.gopen .btn { height: 30px; }
 .gopen #gpack:empty { display: none; }
 .top .field-inline { flex: 0 1 auto; }
-.field-inline label { font-size: 12px; color: var(--ink-3); }
-.top .spacer { flex: 1; }
+.top .spacer { flex: 0 1 0; }
+@media (min-width: 761px) { .top { flex-wrap: nowrap; } .top > * { flex-shrink: 0; } .top > .gopen { flex-shrink: 1; } }
 .select { height: 32px; border: 1px solid var(--line-strong); border-radius: var(--radius-s); padding: 0 8px; min-width: 0; }
-.pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px;
-  font-weight: 550; white-space: nowrap; background: var(--sunk); color: var(--ink-2); border: 1px solid var(--line); }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 999px; font-size: 12px;
+  font-weight: 500; white-space: nowrap; background: var(--sunk); color: var(--ink-2); border: 1px solid var(--line); }
 .pill .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .pill.ok { background: var(--ok-bg); color: var(--ok); border-color: transparent; }
 .pill.bad { background: var(--bad-bg); color: var(--bad); border-color: transparent; }
 .pill.warn { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
 .pill.run { background: var(--run-bg); color: var(--run); border-color: transparent; }
-.pill.graph { background: var(--graph-bg); color: var(--graph); border-color: transparent; }
+.pill.graph { background: var(--graph-bg); color: var(--graph); border-color: transparent; font-family: var(--mono); font-size: 11.5px; }
 .pill.proj { background: var(--proj-bg); color: var(--proj); border-color: transparent; }
 a.pill { text-decoration: none; }
+a.pill:hover { filter: brightness(.97); }
 
-.btn { height: 32px; padding: 0 12px; border-radius: var(--radius-s); border: 1px solid var(--line-strong); background: var(--panel);
-  cursor: pointer; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; touch-action: manipulation;
+/* buttons: one primary per screen, the rest outlined; ghost for quiet actions */
+.btn { height: 34px; padding: 0 14px; border-radius: var(--radius-s); border: 1px solid var(--line-strong); background: var(--panel);
+  cursor: pointer; display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; touch-action: manipulation; font-weight: 500;
   transition: background-color .12s, border-color .12s, color .12s; }
-.btn:hover { border-color: var(--ink-3); }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
 a.btn { text-decoration: none; color: inherit; }
-a.btn.primary { color: var(--accent-ink); }
-.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
-.btn.primary:hover { filter: brightness(1.08); }
-.btn.danger { color: var(--bad); }
-.btn.ghost { border-color: transparent; background: transparent; }
-.btn.ghost:hover { background: var(--sunk); }
-.btn.s { height: 26px; padding: 0 9px; font-size: 12.5px; }
-.btn[disabled] { opacity: .55; cursor: not-allowed; }
+a.btn:hover { color: var(--accent); }
+.btn.primary, a.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.btn.primary:hover, a.btn.primary:hover { background: var(--accent-2); border-color: var(--accent-2); color: var(--accent-ink); }
+:root[data-theme="night"] .btn.primary:hover { color: var(--accent-ink); }
+.btn.danger { color: var(--bad); } .btn.danger:hover { border-color: var(--bad); }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--ink-2); }
+.btn.ghost:hover { background: var(--sunk); color: var(--ink); }
+.btn.s { height: 28px; padding: 0 10px; font-size: 12.5px; }
+.btn[disabled] { opacity: .5; cursor: not-allowed; }
+.btn.icon { width: 34px; padding: 0; justify-content: center; }
 .spin { width: 13px; height: 13px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: sp .8s linear infinite; }
 @keyframes sp { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } }
+@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } * { transition: none !important; } }
+
+/* theme switch: auto / day / night */
+.theme { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 2px; background: var(--sunk); }
+.theme .tl { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.theme button { border: 0; background: transparent; height: 26px; min-width: 30px; padding: 0 8px; border-radius: 999px; cursor: pointer;
+  color: var(--ink-3); display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-size: 12px; }
+.theme button[aria-pressed="true"] { background: var(--panel); color: var(--accent); box-shadow: 0 1px 2px rgba(13,27,48,.12); }
+.theme button:hover { color: var(--ink); }
 
 /* shell */
-.shell { display: grid; grid-template-columns: 210px minmax(0, 1fr); min-height: calc(100vh - 53px); }
-nav.rail { border-right: 1px solid var(--line); padding: 14px 10px; display: flex; flex-direction: column; gap: 2px;
-  position: sticky; top: 53px; align-self: start; height: calc(100vh - 53px); overflow: auto; }
-nav.rail .group { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); padding: 12px 10px 4px; }
-nav.rail a { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; border-radius: var(--radius-s);
-  color: var(--ink-2); text-decoration: none; min-height: 32px; }
-nav.rail a:hover { background: var(--sunk); color: var(--ink); }
-nav.rail a[aria-current="page"] { background: var(--panel); color: var(--ink); box-shadow: var(--shadow); font-weight: 600; }
-nav.rail .count { font-size: 11.5px; color: var(--ink-3); }
-nav.rail .key { color: var(--proj); }
-main { padding: 22px 26px 80px; min-width: 0; }
-.page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
-.page-head .lede { color: var(--ink-2); margin-top: 6px; }
+.shell { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: calc(100vh - 56px); }
+main { padding: 28px 34px 96px; min-width: 0; }
+main > * { max-width: 1320px; }
 
-/* panels */
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
-.card > .hd { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
-.card > .bd { padding: 14px; }
-.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+/* the route: five stages of the work as stations on a line */
+nav.rail { border-right: 1px solid var(--line); padding: 20px 14px 24px; position: sticky; top: 56px; align-self: start;
+  height: calc(100vh - 56px); overflow: auto; background: var(--panel); }
+.route { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.stn { position: relative; padding: 0 0 14px 34px; }
+.stn::before { content: ""; position: absolute; left: 11px; top: 26px; bottom: -2px; width: 2px; border-radius: 2px; background: var(--line); }
+.stn:last-child::before { display: none; }
+.stn.done::before { background: var(--accent); }
+.stn .dot { position: absolute; left: 0; top: 2px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  font: 600 11.5px var(--mono); background: var(--panel); border: 2px solid var(--line-strong); color: var(--ink-3); }
+.stn.done .dot { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.stn.here .dot { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 4px var(--accent-bg); }
+.stn .sh { display: block; font: 600 14px/1.25 var(--head); color: var(--ink); padding-top: 4px; letter-spacing: .01em; }
+.stn .sp { display: block; font-size: 11.5px; color: var(--ink-3); margin: 1px 0 6px; }
+.stn ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.stn a { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 9px; margin-left: -9px; border-radius: 7px;
+  color: var(--ink-2); text-decoration: none; min-height: 30px; font-size: 13.5px; }
+.stn a:hover { background: var(--sunk); color: var(--ink); }
+.stn a[aria-current="page"] { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+:root[data-theme="night"] .stn a[aria-current="page"] { color: var(--accent-2); }
+.stn .count { font: 11px var(--mono); color: var(--ink-3); }
+.stn a.key .lbl { color: var(--proj); }
+.rail-foot { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-3); display: grid; gap: 6px; }
+.rail-foot .legend { display: flex; align-items: center; gap: 7px; }
+.rail-foot .sw { width: 10px; height: 10px; border-radius: 3px; }
+
+/* page head: where you are, what this page is for, the page's actions */
+.crumb { font-size: 12.5px; color: var(--ink-3); margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+.crumb b { font: 600 11.5px var(--mono); color: var(--accent); background: var(--accent-bg); border-radius: 5px; padding: 1px 6px; }
+.page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; flex-wrap: wrap; margin-bottom: 22px;
+  padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+.page-head .lede { color: var(--ink-2); margin-top: 8px; font-size: 14.5px; }
+
+/* next step: the forward path on every page */
+.pagefoot { margin-top: 30px; display: flex; justify-content: flex-end; }
+.pagefoot a { display: grid; gap: 1px; text-decoration: none; padding: 12px 18px 12px 16px; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--panel); min-width: 260px; color: var(--ink); }
+.pagefoot a:hover { border-color: var(--accent); }
+.pagefoot .k { font-size: 12px; color: var(--ink-3); }
+.pagefoot .t { font: 600 15px var(--head); color: var(--accent); display: flex; align-items: center; gap: 8px; }
+
+/* the next-step strip on Overview (replaces the long checklist; the full list is in Help) */
+.guide { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 16px 18px; margin-bottom: 22px;
+  border-radius: var(--radius); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); background: var(--accent-bg); }
+.guide .meter { display: flex; gap: 4px; }
+.guide .meter i { width: 18px; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.guide .meter i.on { background: var(--accent); }
+.guide .t { font: 600 16px var(--head); }
+.guide .p { font-size: 13px; color: var(--ink-2); }
+.guide .k { font-size: 12px; color: var(--ink-3); margin-bottom: 2px; }
+.guide .acts { display: flex; gap: 6px; align-items: center; }
+
+/* panels: flat sheets ruled by hairlines; only floating things cast a shadow */
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+.card > .hd { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--line); }
+.card > .bd { padding: 16px; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
 .stack { display: grid; gap: 16px; align-content: start; }
-.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
-.tile { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--panel); }
-.tile .v { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 14px 18px; }
+.tile { padding: 2px 0 2px 12px; border-left: 2px solid var(--line); }
+.tile.graph { border-left-color: color-mix(in srgb, var(--graph) 45%, var(--line)); } .tile.proj { border-left-color: color-mix(in srgb, var(--proj) 45%, var(--line)); }
+.tile .v { font: 600 24px/1.15 var(--head); font-variant-numeric: tabular-nums; }
 .tile .l { font-size: 12px; color: var(--ink-3); }
-.tile .v.txt { font-size: 14px; font-weight: 600; line-height: 1.35; padding: 3px 0; }
-.tile.graph { border-left: 3px solid var(--graph); } .tile.proj { border-left: 3px solid var(--proj); }
-.src { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; letter-spacing: .02em; }
+.tile .v.txt { font: 600 14px/1.35 var(--sans); padding: 4px 0; }
+.tile.graph .v { color: var(--graph); } .tile.proj .v { color: var(--proj); }
+.src { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
 .src.graph { color: var(--graph); } .src.proj { color: var(--proj); }
-.src::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: currentColor; }
-.notice { border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+.src::before { content: ""; width: 9px; height: 9px; border-radius: 2px; background: currentColor; }
+.notice { border-radius: 9px; padding: 11px 14px; font-size: 13px; border: 1px solid transparent; }
 .notice.ok { background: var(--ok-bg); color: var(--ok); } .notice.bad { background: var(--bad-bg); color: var(--bad); }
 .notice.warn { background: var(--warn-bg); color: var(--warn); }
-.notice.info { background: var(--accent-bg); color: var(--ink); }
-.hint { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 16px; }
+.notice.info { background: var(--panel); color: var(--ink); border-color: var(--line); border-left: 3px solid var(--accent); }
+.hint { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 18px; }
 .hint svg { flex: none; margin-top: 2px; color: var(--accent); }
-.hint .txt { flex: 1; min-width: 0; }
-.guide ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.guide li { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 8px 10px; border-radius: 8px; }
-.guide li.next { background: var(--accent-bg); }
-.guide .n { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font: 600 11px var(--mono); border: 1.5px solid var(--line-strong); color: var(--ink-3); }
-.guide li.done .n { background: var(--ok); border-color: var(--ok); color: var(--bg); }
-.guide li.done .t { color: var(--ink-2); }
-.guide .t { font-weight: 600; } .guide .p { font-size: 12.5px; color: var(--ink-3); }
+.hint .txt { flex: 1; min-width: 0; color: var(--ink-2); }
 .fhelp { grid-column: 2; margin-top: -4px; font-size: 12px; color: var(--ink-3); }
 .lsum { font-size: 13px; color: var(--ink-2); }
 .lsum b { color: var(--ink); font-weight: 600; }
 kbd { font: 11px var(--mono); border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--panel); }
-dialog.help { max-width: 760px; width: calc(100vw - 32px); max-height: calc(100vh - 48px); overflow: auto; }
+dialog.help { max-width: 780px; width: calc(100vw - 32px); max-height: calc(100vh - 48px); overflow: auto; }
 dialog.help dl { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 8px 14px; font-size: 13px; margin: 8px 0 0; }
 dialog.help dt { font-weight: 600; } dialog.help dd { margin: 0; color: var(--ink-2); }
+dialog.help ol li.done { color: var(--ink-3); }
 .meaning ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
-.look { font-size: 12.5px; color: var(--ink-2); background: var(--sunk); border-radius: 8px; padding: 8px 10px; margin-bottom: 12px; }
+.look { font-size: 12.5px; color: var(--ink-2); background: var(--sunk); border-radius: 8px; padding: 9px 11px; margin-bottom: 12px; }
 .notice ul { margin: 6px 0 0; padding-left: 18px; }
-.empty { padding: 28px; text-align: center; color: var(--ink-3); }
+.empty { padding: 40px 28px; text-align: center; color: var(--ink-3); border: 1px dashed var(--line-strong); border-radius: var(--radius); }
 
 /* tables */
-.tw { overflow: auto; max-height: 480px; border: 1px solid var(--line); border-radius: 8px; }
+.tw { overflow: auto; max-height: 480px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
-th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
-th { position: sticky; top: 0; background: var(--sunk); font-size: 11.5px; font-weight: 600; color: var(--ink-2); z-index: 1; white-space: nowrap; }
-tbody tr:hover { background: color-mix(in srgb, var(--sunk) 60%, transparent); }
+th, td { text-align: left; padding: 8px 11px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tbody tr:last-child td { border-bottom: 0; }
+th { position: sticky; top: 0; background: var(--sunk); font-size: 12px; font-weight: 600; color: var(--ink-2); z-index: 1; white-space: nowrap; }
+tbody tr:hover { background: color-mix(in srgb, var(--accent-bg) 45%, transparent); }
 td.mono, td .mono { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
 tr.click { cursor: pointer; }
 
 /* tabs */
-.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 16px; flex-wrap: wrap; }
-.tabs a { padding: 8px 12px; text-decoration: none; color: var(--ink-2); border-bottom: 2px solid transparent; margin-bottom: -1px; }
-.tabs a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 18px; flex-wrap: wrap; }
+.tabs a { padding: 9px 13px; text-decoration: none; color: var(--ink-2); border-bottom: 2px solid transparent; margin-bottom: -1px; font-weight: 500; }
+.tabs a:hover { color: var(--ink); }
+.tabs a[aria-current="page"] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 
-/* chips */
+/* chips: names from the graph are identifiers, so they are set in mono */
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border-radius: 6px; font: 12px var(--mono);
   background: var(--sunk); border: 1px solid var(--line); color: var(--ink-2); white-space: nowrap; }
@@ -171,116 +258,121 @@ tr.click { cursor: pointer; }
 .chip.graph { background: var(--graph-bg); color: var(--graph); border-color: transparent; }
 .chip.proj { background: var(--proj-bg); color: var(--proj); border-color: transparent; }
 button.chip { cursor: pointer; }
-button.chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+button.chip:hover { border-color: var(--accent); }
+button.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 
-/* state machine lanes */
-.lanes { display: grid; gap: 8px; }
+/* state machine lanes, drawn on the blueprint grid */
+.lanes { display: grid; gap: 10px; background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 16px 16px; border-radius: 0 0 var(--radius) var(--radius); }
 .lane { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 10px; align-items: start; }
-.lane .ln { font: 11px var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); padding-top: 6px; }
-.node { font: 12px var(--mono); height: 30px; padding: 0 10px; border-radius: 15px; border: 1.5px solid var(--graph); background: var(--panel); cursor: pointer; }
+.lane .ln { font: 500 11.5px var(--mono); color: var(--ink-3); padding-top: 7px; }
+.node { font: 12px var(--mono); height: 30px; padding: 0 11px; border-radius: 15px; border: 1.5px solid var(--graph); background: var(--panel); color: var(--ink); cursor: pointer; }
+.node:hover { background: var(--graph-bg); }
 .node.says { border-style: dashed; border-radius: 6px; }
-.node[aria-pressed="true"] { background: var(--graph); color: var(--bg); }
+.node[aria-pressed="true"] { background: var(--graph); color: var(--panel); }
 
 /* factor editor */
-.fx { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 16px; align-items: start; }
-.flist { position: sticky; top: 70px; max-height: calc(100vh - 90px); overflow: auto; }
+.fx { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 18px; align-items: start; }
+.flist { position: sticky; top: 76px; max-height: calc(100vh - 96px); overflow: auto; }
 .flist .search { padding: 10px; border-bottom: 1px solid var(--line); }
-.flist input[type=search] { width: 100%; height: 30px; border: 1px solid var(--line-strong); border-radius: var(--radius-s); padding: 0 8px; }
-.flist a { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding: 9px 12px; text-decoration: none; color: var(--ink);
-  border-bottom: 1px solid var(--line); }
+.flist input[type=search] { width: 100%; height: 32px; border: 1px solid var(--line-strong); border-radius: var(--radius-s); padding: 0 9px; }
+.flist a { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding: 9px 13px; text-decoration: none; color: var(--ink);
+  border-bottom: 1px solid var(--line); border-left: 3px solid transparent; }
 .flist a:hover { background: var(--sunk); }
-.flist a[aria-current="true"] { background: var(--proj-bg); }
+.flist a[aria-current="true"] { background: var(--proj-bg); border-left-color: var(--proj); }
 .flist .fn { font: 12.5px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .flist .fm { grid-column: 1 / -1; font-size: 11.5px; color: var(--ink-3); }
 .flist .err { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); align-self: center; }
-.form { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 10px 14px; align-items: center; }
+.form { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px 14px; align-items: center; }
 .form label { font-size: 12.5px; color: var(--ink-2); }
-.input { height: 32px; border: 1px solid var(--line-strong); border-radius: var(--radius-s); padding: 0 9px; width: 100%; min-width: 0; }
-textarea.input { height: auto; padding: 7px 9px; resize: vertical; }
+.input { height: 34px; border: 1px solid var(--line-strong); border-radius: var(--radius-s); padding: 0 10px; width: 100%; min-width: 0; }
+textarea.input { height: auto; padding: 8px 10px; resize: vertical; }
 .input.mono { font: 12.5px var(--mono); }
 .input:hover { border-color: var(--ink-3); }
-.level { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.input:focus-visible, .select:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
+.level { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
 .level + .level { margin-top: 10px; }
-.level .lh { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--sunk);
-  border-radius: 8px 8px 0 0; }
-.level .lb { padding: 10px; display: grid; gap: 8px; }
+.level .lh { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 12px; border-bottom: 1px solid var(--line); background: var(--sunk);
+  border-radius: 10px 10px 0 0; }
+.level .lb { padding: 12px; display: grid; gap: 8px; }
 .level.default .lh { background: var(--graph-bg); }
-.patch { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 8px; align-items: start; }
-.patch .kind { font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: .06em; padding-top: 6px; }
+.patch { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+.patch .kind { font: 600 12px var(--sans); padding-top: 6px; }
 .patch .kind.bank { color: var(--proj); } .patch .kind.cust { color: var(--accent); } .patch .kind.other { color: var(--ink-3); }
 .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 label.row:has(> input[type=checkbox]) { flex-wrap: nowrap; }
-label.row > input[type=checkbox] { margin-top: 3px; flex: none; }
+label.row > input[type=checkbox] { margin-top: 3px; flex: none; accent-color: var(--accent); }
 label.row > input[type=checkbox] + span { flex: 1; min-width: 0; }
 .seq { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .seq .arrow { color: var(--ink-3); font-size: 12px; }
-.savebar { position: sticky; bottom: 14px; z-index: 15; display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin-top: 16px;
-  background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: 0 6px 24px rgba(0,0,0,.12); }
+.savebar { position: sticky; bottom: 16px; z-index: 15; display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin-top: 18px;
+  background: var(--panel); border: 1px solid var(--accent); border-radius: var(--radius); box-shadow: var(--float); }
 
 /* conversation */
 .conv { display: grid; gap: 6px; }
-.turn { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 8px; font-size: 13px; }
-.turn .who { font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-3); padding-top: 4px; }
-.turn .what { padding: 6px 10px; border-radius: 8px; background: var(--sunk); }
+.turn { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 8px; font-size: 13px; }
+.turn .who { font: 600 11.5px var(--sans); color: var(--ink-3); padding-top: 5px; }
+.turn .what { padding: 7px 11px; border-radius: 9px; background: var(--sunk); }
 .turn.bot .what { background: var(--graph-bg); }
 .turn.customer .what { background: var(--proj-bg); font-family: var(--mono); font-size: 12px; }
 .turn.tool .what { background: transparent; border: 1px dashed var(--line-strong); font-family: var(--mono); font-size: 12px; }
 .act { font: 600 11.5px var(--mono); }
 
-/* device picker */
-.devs { display: flex; flex-wrap: wrap; gap: 6px; }
-.devs label { position: relative; display: inline-flex; flex-direction: column; justify-content: center; min-height: 44px; padding: 6px 12px; border: 1px solid var(--line-strong);
-  border-radius: 8px; cursor: pointer; background: var(--panel); min-width: 92px; }
+/* device and bot pickers: selectable sheets */
+.devs { display: flex; flex-wrap: wrap; gap: 8px; }
+.devs label { position: relative; display: inline-flex; flex-direction: column; justify-content: center; min-height: 46px; padding: 6px 13px; border: 1px solid var(--line-strong);
+  border-radius: 9px; cursor: pointer; background: var(--panel); min-width: 96px; }
 .devs input { position: absolute; opacity: 0; pointer-events: none; }
 .devs label:has(input:checked) { border-color: var(--accent); background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent); }
 .devs label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
-.devs label:has(input:disabled) { cursor: not-allowed; opacity: .55; }
+.devs label:has(input:disabled) { cursor: not-allowed; opacity: .5; }
 .devs .dn { font: 600 13px var(--mono); } .devs .dd { font-size: 11px; color: var(--ink-3); }
-/* run */
-.runlayout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; align-items: start; }
-.steps { list-style: none; margin: 0; padding: 6px; display: grid; gap: 2px; }
+
+/* run: the thirteen campaign steps */
+.runlayout { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 18px; align-items: start; }
+.steps { list-style: none; margin: 0; padding: 6px; display: grid; gap: 1px; }
 .steps button { width: 100%; display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; align-items: center; text-align: left;
   padding: 8px; border: 0; background: transparent; border-radius: 8px; cursor: pointer; min-height: 44px; }
 .steps button:hover { background: var(--sunk); }
-.steps button[aria-current="true"] { background: var(--sunk); box-shadow: inset 2px 0 0 var(--accent); }
+.steps button[aria-current="true"] { background: var(--accent-bg); }
 .steps .n { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font: 600 11px var(--mono);
-  border: 1.5px solid var(--line-strong); color: var(--ink-3); }
-.steps .t { font-weight: 550; } .steps .p { font-size: 11.5px; color: var(--ink-3); }
+  border: 2px solid var(--line-strong); color: var(--ink-3); background: var(--panel); }
+.steps .t { font-weight: 500; } .steps .p { font-size: 11.5px; color: var(--ink-3); }
 .steps .s { font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
-.st-done .n { background: var(--ok); border-color: var(--ok); color: var(--bg); }
-.st-running .n { border-color: var(--run); color: var(--run); }
-.st-failed .n { background: var(--bad); border-color: var(--bad); color: var(--bg); }
+.st-done .n { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.st-running .n { border-color: var(--run); color: var(--run); box-shadow: 0 0 0 3px var(--run-bg); }
+.st-failed .n { background: var(--bad); border-color: var(--bad); color: var(--panel); }
 .st-skipped .t { color: var(--ink-3); text-decoration: line-through; }
-.log { font: 12px/1.5 var(--mono); max-height: 260px; overflow: auto; padding: 10px 12px; background: var(--sunk); border-radius: 8px; white-space: pre-wrap; }
-details > summary { cursor: pointer; padding: 10px 14px; font-weight: 600; }
+.log { font: 12px/1.55 var(--mono); max-height: 260px; overflow: auto; padding: 11px 13px; background: var(--sunk); border-radius: 9px; white-space: pre-wrap; }
+details > summary { cursor: pointer; padding: 11px 16px; font-weight: 600; }
 .bar { height: 6px; background: var(--sunk); border-radius: 3px; overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
-.toast { position: fixed; right: 18px; bottom: 18px; z-index: 60; display: grid; gap: 8px; }
-.toast div { background: var(--ink); color: var(--bg); padding: 10px 14px; border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.2); max-width: 420px; }
-dialog { border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel); color: var(--ink); padding: 18px; max-width: 440px;
-  box-shadow: 0 20px 60px rgba(0,0,0,.25); }
-dialog::backdrop { background: rgba(0,0,0,.3); }
-.kv { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 6px 12px; font-size: 13px; }
+.toast { position: fixed; right: 20px; bottom: 20px; z-index: 60; display: grid; gap: 8px; }
+.toast div { background: var(--ink); color: var(--bg); padding: 11px 15px; border-radius: 10px; box-shadow: var(--float); max-width: 440px; font-size: 13.5px; }
+dialog { border: 1px solid var(--line-strong); border-radius: 14px; background: var(--panel); color: var(--ink); padding: 22px; max-width: 460px; box-shadow: var(--float); }
+dialog::backdrop { background: color-mix(in srgb, #050A14 45%, transparent); backdrop-filter: blur(2px); }
+dialog h2 { font-size: 20px; }
+.kv { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 7px 12px; font-size: 13px; }
 .kv dt { color: var(--ink-3); } .kv dd { margin: 0; }
 /* bot under test */
 .sut-choice { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.sut-choice label { position: relative; display: grid; gap: 2px; align-content: start; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 8px; cursor: pointer; background: var(--panel); }
+.sut-choice label { position: relative; display: grid; gap: 2px; align-content: start; padding: 11px 13px; border: 1px solid var(--line-strong); border-radius: 10px; cursor: pointer; background: var(--panel); }
 .sut-choice input { position: absolute; opacity: 0; pointer-events: none; }
 .sut-choice label:has(input:checked) { border-color: var(--accent); background: var(--accent-bg); box-shadow: inset 0 0 0 1px var(--accent); }
 .sut-choice label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sut-choice .t { font-weight: 600; } .sut-choice .p { font-size: 12px; color: var(--ink-3); }
-textarea.prompt { font: 12.5px/1.55 var(--mono); min-height: 280px; width: 100%; }
-.fixed { font: 11.5px/1.5 var(--mono); max-height: 260px; overflow: auto; background: var(--sunk); padding: 10px 12px; border-radius: 8px; white-space: pre-wrap; margin: 0 14px 14px; }
-.drop { border: 1.5px dashed var(--line-strong); border-radius: 8px; padding: 10px 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+textarea.prompt { font: 12.5px/1.6 var(--mono); min-height: 280px; width: 100%; }
+.fixed { font: 11.5px/1.55 var(--mono); max-height: 260px; overflow: auto; background: var(--sunk); padding: 11px 13px; border-radius: 9px; white-space: pre-wrap; margin: 0 16px 16px; }
+.drop { border: 1.5px dashed var(--line-strong); border-radius: 10px; padding: 11px 13px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .drop.over { border-color: var(--accent); background: var(--accent-bg); }
 /* case explorer */
-.cx { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 16px; align-items: start; }
-.clist { position: sticky; top: 70px; max-height: calc(100vh - 90px); display: flex; flex-direction: column; }
+.cx { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 18px; align-items: start; }
+.clist { position: sticky; top: 76px; max-height: calc(100vh - 96px); display: flex; flex-direction: column; }
 .clist .search { padding: 10px; border-bottom: 1px solid var(--line); display: grid; gap: 6px; }
 .clist .items { overflow: auto; }
 .ci { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line);
-  background: transparent; padding: 9px 12px; cursor: pointer; color: inherit; }
-.ci:hover { background: var(--sunk); } .ci[aria-current="true"] { background: var(--accent-bg); }
+  background: transparent; padding: 9px 13px; cursor: pointer; color: inherit; border-left: 3px solid transparent; }
+.ci:hover { background: var(--sunk); } .ci[aria-current="true"] { background: var(--accent-bg); border-left-color: var(--accent); }
 .ci .id { font: 600 12.5px var(--mono); } .ci .sub { grid-column: 1 / -1; font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dots { display: inline-flex; gap: 3px; align-items: center; }
 .res { width: 10px; height: 10px; border-radius: 50%; display: inline-block; border: 1.5px solid var(--line-strong); }
@@ -297,110 +389,162 @@ table.heat th.rowh { position: static; background: var(--sunk); text-align: left
 .hbar .track { height: 10px; background: var(--sunk); border-radius: 3px; overflow: hidden; display: flex; gap: 2px; }
 .hbar .track i { display: block; height: 100%; background: var(--accent); border-radius: 0 3px 3px 0; }
 /* playground */
-.pg-set { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-.pg { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
-.pg > aside { position: sticky; top: 70px; }
-.chat { display: grid; gap: 10px; padding: 14px; }
-.msg { max-width: min(86%, 720px); padding: 9px 12px; border-radius: 12px; overflow-wrap: anywhere; }
-.msg .who { font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-3); margin-bottom: 3px; }
+.pg-set { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.pg { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 18px; align-items: start; }
+.pg > aside { position: sticky; top: 76px; }
+.chat { display: grid; gap: 10px; padding: 16px; }
+.msg { max-width: min(86%, 720px); padding: 10px 13px; border-radius: 14px; overflow-wrap: anywhere; }
+.msg .who { font: 600 11.5px var(--sans); color: var(--ink-3); margin-bottom: 3px; }
 .msg.bot { background: var(--graph-bg); justify-self: start; border-top-left-radius: 4px; }
 .msg.cust { background: var(--proj-bg); justify-self: end; border-top-right-radius: 4px; }
 .msg .read { font: 11.5px var(--mono); color: var(--ink-3); margin-top: 4px; }
-.verdict { justify-self: start; width: min(100%, 760px); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: grid; gap: 7px; font-size: 12.5px; background: var(--panel); }
+.verdict { justify-self: start; width: min(100%, 760px); border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; display: grid; gap: 7px; font-size: 12.5px; background: var(--panel); }
 .verdict .r { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 8px; align-items: start; }
-.verdict .lbl { font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-3); padding-top: 3px; }
+.verdict .lbl { font: 600 11.5px var(--sans); color: var(--ink-3); padding-top: 3px; }
 .verdict .chips .chip { height: auto; min-height: 22px; white-space: normal; overflow-wrap: anywhere; padding: 2px 7px; }
 .verdict ul { margin: 0; padding-left: 16px; }
 .mark { font-weight: 650; } .mark.ok { color: var(--ok); } .mark.bad { color: var(--bad); } .mark.warn { color: var(--warn); }
-.composer { border-top: 1px solid var(--line); padding: 12px 14px; display: grid; gap: 8px; background: var(--panel); border-radius: 0 0 var(--radius) var(--radius); }
-.composer .row textarea { flex: 1; min-height: 44px; }
-.lines { display: grid; gap: 6px; padding: 10px; max-height: calc(100vh - 160px); overflow: auto; }
-.line { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: grid; gap: 4px; font-size: 12.5px; }
+.composer { border-top: 1px solid var(--line); padding: 12px 16px; display: grid; gap: 8px; background: var(--panel); border-radius: 0 0 var(--radius) var(--radius); }
+.composer .row textarea { flex: 1; min-height: 46px; }
+.lines { display: grid; gap: 6px; padding: 10px; max-height: calc(100vh - 170px); overflow: auto; }
+.line { border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; display: grid; gap: 4px; font-size: 12.5px; }
 .line.next { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
 .line.used { opacity: .6; }
 .line .st { font: 11px var(--mono); color: var(--ink-3); overflow-wrap: anywhere; }
 .line button.use { justify-self: start; }
 .typing { justify-self: start; color: var(--ink-3); display: flex; gap: 8px; align-items: center; font-size: 12.5px; }
 /* verdict */
-.vbanner { border-radius: 10px; padding: 14px 16px; display: grid; gap: 6px; }
+.vbanner { border-radius: var(--radius); padding: 16px 18px; display: grid; gap: 6px; }
 .vbanner.ok { background: var(--ok-bg); color: var(--ok); } .vbanner.bad { background: var(--bad-bg); color: var(--bad); }
-.vbanner .big { font-size: 24px; font-weight: 700; letter-spacing: -.01em; } .vbanner .why { font-size: 13px; display: grid; gap: 2px; }
+.vbanner .big { font: 600 28px var(--head); } .vbanner .why { font-size: 13px; display: grid; gap: 2px; }
 .kv.fp { grid-template-columns: 170px minmax(0, 1fr); font-size: 12.5px; } .kv.fp dd { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
 .vcase { margin-bottom: 14px; } .vcase.fail { border-left: 3px solid var(--bad); }
 .vgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
-.vside { border-radius: 8px; padding: 8px 10px; display: grid; gap: 3px; align-content: start; overflow-wrap: anywhere; }
+.vside { border-radius: 9px; padding: 9px 11px; display: grid; gap: 3px; align-content: start; overflow-wrap: anywhere; }
 .vside.exp { background: var(--graph-bg); } .vside.bot { background: var(--sunk); } .vside.bot.diff { box-shadow: inset 3px 0 0 var(--bad); }
-.vside .lbl { font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-3); }
+.vside .lbl { font: 600 11.5px var(--sans); color: var(--ink-3); }
 .vside .said { font-size: 13px; margin-top: 3px; }
-.vhead { font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-3); padding: 0 10px; }
+.vhead { font: 600 11.5px var(--sans); color: var(--ink-3); padding: 0 10px; }
 .vrest > summary { padding: 4px 0; font-weight: 500; color: var(--ink-2); }
-.vturn { border: 1px solid var(--line); border-radius: 8px; padding: 8px; display: grid; gap: 8px; }
+.vturn { border: 1px solid var(--line); border-radius: 9px; padding: 9px; display: grid; gap: 8px; }
 .vturn.bad { border-color: var(--bad); } .vturn.after { opacity: .75; }
 .vcust { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; font-size: 13px; }
 .vcust .who { font: 600 11px var(--mono); color: var(--ink-3); } .vcust .mark { margin-left: auto; font-size: 12px; }
 @media print {
-  .top, nav.rail, .no-print, .hint, .toast, #savebar, .savebar { display: none !important; }
+  .top, nav.rail, .no-print, .hint, .toast, #savebar, .savebar, .pagefoot, .crumb { display: none !important; }
   .shell { display: block; } main { padding: 0; } body { background: #fff; color: #000; font-size: 11.5px; }
   .card { box-shadow: none; } .vpage { break-after: page; border: 0; } .vturn, .vcase > .hd, .vgrid.head { break-inside: avoid; } .vcase > .hd, .vcases > .row { break-after: avoid; }
   .tw { max-height: none !important; overflow: visible; } a { color: inherit; text-decoration: none; }
   .vgrid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important; } .vside .mono, .vside .small { font-size: 10.5px; } .vside .said { font-size: 11.5px; }
-  .vpage > .bd { padding: 0; gap: 10px; } .vpage .tiles { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+  .vpage > .bd { padding: 0; gap: 10px; } .vpage .tiles { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .vpage .tile { padding: 6px 8px; } .vpage .tile .v { font-size: 16px; } .vpage .tile .l { font-size: 10.5px; }
   .vbanner { padding: 10px 12px; } .vbanner .big { font-size: 20px; } .vbanner .why { font-size: 11.5px; }
   .vpage table { font-size: 11px; } .vpage th, .vpage td { padding: 4px 6px; }
   .kv.fp { grid-template-columns: 110px minmax(0, 1fr) 110px minmax(0, 1fr); gap: 3px 10px; font-size: 10.5px; } .kv.fp dd { font-size: 10.5px; }
 }
-@media (max-width: 760px) { .vgrid { grid-template-columns: minmax(0, 1fr); } }
-@media (max-width: 1100px) { .fx, .runlayout, .cx, .pg, .pg-set { grid-template-columns: minmax(0, 1fr); } .flist, .clist { position: static; max-height: 300px; } }
-@media (max-width: 1100px) { .field-inline label { display: none; } #gpath { width: min(300px, 30vw); } #help-btn .lbl { display: none; } .top { gap: 10px; } }
-@media (max-width: 760px) { .shell { grid-template-columns: minmax(0, 1fr); } nav.rail { position: static; height: auto; flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); }
-  nav.rail .group { display: none; }
-  .top { gap: 8px; } .top .field-inline { flex: 1 1 100%; } #gpath { flex: 1; width: auto; } .top .spacer { display: none; } .grid2, .grid3 { grid-template-columns: minmax(0, 1fr); } main { padding: 16px; } .form { grid-template-columns: minmax(0, 1fr); } .sut-choice { grid-template-columns: minmax(0, 1fr); } }
 
 /* graph sections, editor, sphere: one colour per section (with its name beside it everywhere) */
-:root { --sc-customer: #1F63C6; --sc-bot: #C2560C; --sc-both: #7A3FD0; --sc-flow: #0B7A6B; --sc-rules: #A3226B; --sc-knowledge: #8A6A00; --sc-other: #7A807C; }
-@media (prefers-color-scheme: dark) { :root { --sc-customer: #6FA4F2; --sc-bot: #F0904F; --sc-both: #B48AF5; --sc-flow: #4FC9B4; --sc-rules: #EE7DB7; --sc-knowledge: #D9B24A; --sc-other: #9AA19D; } }
 .sdot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: none; }
 .secgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; margin-top: 12px; }
-.seccard { text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 10px 12px; cursor: pointer; display: grid; gap: 3px; align-content: start; }
-.seccard:hover { border-color: var(--ink-3); }
-.seccard[aria-selected="true"] { border-color: var(--ink); box-shadow: var(--shadow); }
-.seccard .v { font-size: 20px; font-weight: 650; }
+.seccard { text-align: left; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 11px 13px; cursor: pointer; display: grid; gap: 3px; align-content: start; color: inherit; }
+.seccard:hover { border-color: var(--accent); }
+.seccard[aria-selected="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-bg); }
+.seccard .v { font: 600 24px/1.1 var(--head); }
 .seccard .row { flex-wrap: nowrap; align-items: center; }
-.segs { max-height: 640px; overflow: auto; }
-.crit { margin-top: 6px; color: var(--ink-2); } .crit summary { cursor: pointer; color: var(--accent); } .crit-row { margin-top: 6px; padding: 6px 8px; background: var(--sunk); border-radius: 6px; display: grid; gap: 2px; overflow-wrap: anywhere; }
+.crit { margin-top: 6px; color: var(--ink-2); } .crit summary { cursor: pointer; color: var(--accent); } .crit-row { margin-top: 6px; padding: 7px 9px; background: var(--sunk); border-radius: 7px; display: grid; gap: 2px; overflow-wrap: anywhere; }
 .seccard .small { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .chips.ents { max-height: 150px; overflow: auto; }
 .chip .etype { font-family: var(--sans); font-size: 10.5px; color: var(--ink-3); }
-.segs { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.segs { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; max-height: 640px; overflow: auto; }
 .segs li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; }
 .segs .t { font-weight: 600; font-size: 13px; }
 .segs li.miss .t { color: var(--warn); }
 .elist { display: grid; gap: 4px; max-height: 560px; overflow: auto; }
-.eitem { text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 7px 9px; cursor: pointer; display: grid; gap: 2px; min-width: 0; }
+.eitem { text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 7px 10px; cursor: pointer; display: grid; gap: 2px; min-width: 0; color: inherit; }
+.eitem:hover { border-color: var(--accent); }
 .eitem .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .eitem[aria-current="true"] { border-color: var(--accent); background: var(--accent-bg); }
-.input.s { height: 26px; font-size: 12px; padding: 0 6px; }
+.input.s { height: 28px; font-size: 12px; padding: 0 7px; }
 tr.edited td { background: var(--warn-bg); }
-.sphwrap { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
-.sphbox { position: relative; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
-canvas.sph { display: block; width: 100%; height: min(72vh, 680px); cursor: grab; touch-action: none; border-radius: 10px; }
+.sphwrap { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; align-items: start; }
+.sphbox { position: relative; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
+  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px); background-size: 24px 24px; }
+canvas.sph { display: block; width: 100%; height: min(72vh, 680px); cursor: grab; touch-action: none; border-radius: var(--radius); }
 canvas.sph:active { cursor: grabbing; }
-.sphtip { position: absolute; display: none; pointer-events: none; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 6px; padding: 6px 8px; box-shadow: var(--shadow); font-size: 12px; max-width: 280px; overflow-wrap: anywhere; }
+.sphtip { position: absolute; display: none; pointer-events: none; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 7px; padding: 6px 9px; box-shadow: var(--float); font-size: 12px; max-width: 280px; overflow-wrap: anywhere; }
+
+/* playground: one exchange per turn, customer beside agent, the answer sheet folded underneath */
+.jlines { margin: 4px 0 0; padding-left: 20px; display: grid; gap: 3px; color: var(--ink-2); }
+.xlist { display: grid; gap: 12px; }
+.xturn { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 12px 14px; display: grid; gap: 10px; scroll-margin-top: 80px; }
+.xturn.first { border-color: var(--bad); box-shadow: inset 3px 0 0 var(--bad); }
+.xturn.dev { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+.xhd { display: flex; align-items: center; gap: 10px; }
+.xhd .n { font: 600 14px var(--head); }
+.xbadge { margin-left: auto; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 2px 10px; }
+.xbadge.ok { background: var(--ok-bg); color: var(--ok); } .xbadge.first, .xbadge.dev { background: var(--bad-bg); color: var(--bad); }
+.xgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 12px; }
+.xside { border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; align-content: start; min-width: 0; }
+.xside.cust { background: var(--proj-bg); } .xside.bot { background: var(--graph-bg); }
+.xlbl { font: 600 12px var(--sans); color: var(--ink-3); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.xside .said { font-size: 14px; overflow-wrap: anywhere; }
+.mode { font-weight: 500; font-size: 11.5px; border-radius: 999px; padding: 1px 8px; background: var(--panel); color: var(--ink-2); border: 1px solid var(--line); }
+.mode.free { color: var(--proj); border-color: color-mix(in srgb, var(--proj) 40%, var(--line)); }
+.cmp2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.cmp2 .k, .pgside .k { font-size: 11.5px; color: var(--ink-3); margin-bottom: 3px; }
+.cmp2 .chip { height: auto; min-height: 22px; white-space: normal; overflow-wrap: anywhere; padding: 2px 7px; background: var(--panel); }
+.xwhy { margin: 0; padding: 8px 12px 8px 28px; background: var(--bad-bg); color: var(--bad); border-radius: 9px; font-size: 13px; display: grid; gap: 3px; }
+.xsheet > summary { padding: 4px 0; font-size: 13px; color: var(--accent); font-weight: 600; }
+.xsheet[open] > summary { margin-bottom: 8px; }
+.xsheet .xgrid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+.xsheet .sheet-kv { grid-template-columns: 110px minmax(0, 1fr); max-width: 900px; }
+.sheet-kv { grid-template-columns: 100px minmax(0, 1fr); }
+ul.rl { margin: 0; padding-left: 16px; display: grid; gap: 2px; }
+table.hops td { font-size: 12px; white-space: pre-line; } table.hops td.mono { font-size: 11.5px; }
+.compose2 { position: sticky; bottom: 12px; z-index: 5; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding: 12px;
+  background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: var(--float); }
+.compose2.ended { position: static; box-shadow: none; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; }
+.compose2 .opt { display: grid; gap: 7px; align-content: start; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); }
+.compose2 .opt.journey { background: var(--graph-bg); border-color: transparent; }
+.compose2 .ot { font: 600 14px var(--head); }
+.compose2 .line-q { font-size: 14px; }
+.compose2 .opt .btn { justify-self: start; }
+.pgside { position: sticky; top: 76px; }
+.devlist { margin: 0; padding-left: 18px; font-size: 13px; display: grid; gap: 3px; }
+@media (max-width: 1100px) { .xgrid, .xsheet .xgrid, .compose2, .cmp2 { grid-template-columns: minmax(0, 1fr); } .pgside { position: static; } }
+
+/* responsive */
 @media (max-width: 1000px) { .sphwrap { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 760px) { .vgrid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1100px) {
+  .fx, .runlayout, .cx, .pg, .pg-set { grid-template-columns: minmax(0, 1fr); } .flist, .clist { position: static; max-height: 300px; }
+  .gopen label, .brand .bt { display: none; } #help-btn .lbl { display: none; } .top { gap: 10px; }
+  .shell { grid-template-columns: 210px minmax(0, 1fr); } main { padding: 22px 22px 80px; }
+}
+@media (max-width: 760px) {
+  .top { padding: 8px 16px; gap: 8px; } .top .field-inline { flex: 1 1 100% !important; max-width: none; } .top .spacer { display: none; } .brand .bt { display: inline; }
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  nav.rail { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 12px 16px; }
+  .route { grid-auto-flow: column; grid-auto-columns: max-content; overflow-x: auto; gap: 18px; }
+  .stn { padding: 0 0 0 30px; } .stn::before, .stn .sp, .rail-foot { display: none; } .stn ul { display: none; } .stn.here ul { display: flex; flex-wrap: wrap; gap: 2px; }
+  .grid2, .grid3 { grid-template-columns: minmax(0, 1fr); } main { padding: 18px 16px 72px; }
+  .form { grid-template-columns: minmax(0, 1fr); } .sut-choice { grid-template-columns: minmax(0, 1fr); }
+  .guide { grid-template-columns: minmax(0, 1fr); } h1 { font-size: 24px; }
+}
 </style>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
 <header class="top">
-  <div class="brand"><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="4" cy="10" r="2.5" fill="currentColor"/><circle cx="16" cy="4.5" r="2.5" fill="currentColor"/><circle cx="16" cy="15.5" r="2.5" fill="currentColor"/><path d="M6 9.2 14 5.3M6 10.8l8 3.9" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>Journey Console</div>
-  <form class="field-inline gopen" id="gopen" autocomplete="off"><label for="gpath">Graph</label><input id="gpath" class="select mono" name="gpath" list="gpaths" spellcheck="false" placeholder="path to a policy graph (.json)" aria-describedby="gpack"><datalist id="gpaths"></datalist><button class="btn" type="submit" id="gopen-btn">Open</button><span id="gpack" class="pill graph" title="The journey this graph belongs to"></span></form>
+  <div class="brand"><svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><path d="M4 18V11a4 4 0 0 1 4-4h6a4 4 0 0 0 4-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="4" cy="18" r="2.6" fill="currentColor"/><circle cx="11" cy="7" r="2.2" fill="var(--panel)" stroke="currentColor" stroke-width="1.8"/><circle cx="18" cy="3.6" r="2.2" fill="var(--panel)" stroke="currentColor" stroke-width="1.8"/></svg><span class="bt">Journey Console</span></div>
+  <form class="field-inline gopen" id="gopen" autocomplete="off"><label for="gpath">Graph</label><input id="gpath" class="mono" name="gpath" list="gpaths" spellcheck="false" placeholder="Path to a policy graph (.json)" aria-describedby="gpack"><datalist id="gpaths"></datalist><span id="gpack" class="pill graph" title="The journey this graph belongs to"></span><button class="btn s" type="submit" id="gopen-btn">Open</button></form>
   <span id="validity"></span>
   <div class="spacer"></div>
   <span id="device-pill"></span>
   <span id="run-pill"></span>
+  <div class="theme" role="group" aria-label="Colour theme" id="theme"></div>
   <button class="btn ghost" id="help-btn" type="button" aria-haspopup="dialog" aria-label="Help" title="Help (press ?)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6.2 6.1a1.9 1.9 0 1 1 2.6 1.8c-.5.2-.8.6-.8 1.1v.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="11.6" r=".8" fill="currentColor"/></svg><span class="lbl">Help</span></button>
-  <a class="btn primary" id="go-run" href="#/run">Run Campaign</a>
+  <a class="btn primary" id="go-run" href="#/run">Put the bot to test</a>
 </header>
 <div class="shell">
   <nav class="rail" id="nav" aria-label="Sections"></nav>
@@ -448,12 +592,37 @@ function confirmBox(title, text, okLabel) {
 const S = { meta: null, pack: null, J: null, P: null, dirty: false, issues: [], coverage: null, run: null, runs: null,
             preview: null, timer: null, checkT: null };
 const D = () => S.J.domain;
-const VIEWS = [
-  ["Journey", [["overview", "Overview"], ["sections", "Graph Sections"], ["graph", "Flow"], ["edit", "Edit Graph"], ["sphere", "GMS Sphere"]]],
-  ["You configure", [["factors", "Journey Factors"], ["bank", "Bank & Customer"], ["scoring", "Rules & Scoring"]]],
-  ["Try the bot", [["play", "Playground"]]],
-  ["Campaign", [["run", "Run Campaign"], ["runs", "Runs"]]],
+// The work, in the order it is done: five stages, each with its pages (the route in the left rail).
+const STAGES = [
+  ["understand", "Understand the policy", "What the graph decides", [["overview", "Overview"], ["sections", "Graph sections"], ["graph", "Flow"], ["edit", "Edit graph"], ["sphere", "GMS sphere"]]],
+  ["setup", "Set up the tests", "Your project", [["factors", "Journey factors"], ["bank", "Bank and customer"], ["scoring", "Rules and scoring"]]],
+  ["try", "Try the bot", "One conversation, checked live", [["play", "Playground"]]],
+  ["run", "Put the bot to test", "Every case, every check", [["run", "Start a test run"]]],
+  ["read", "Read the results", "Verdict, cases, reports", [["runs", "Test runs"]]],
 ];
+const VIEWS = STAGES.map(([, label, , items]) => [label, items]);
+const PAGES = STAGES.flatMap(([sid, label, , items], si) => items.map(([id, l]) => ({ id, label: l, stage: si, stageLabel: label })));
+const PAGE_OF = { cases: "runs", verdict: "runs" };
+function pageInfo(view) { return PAGES.find(p => p.id === (PAGE_OF[view] || view)) || PAGES[0]; }
+function stageDone(si) {
+  const st = guideState(), g = gGet();
+  return [st.valid && st.graph, st.factors && st.saved, !!g.played, st.ran, st.read][si];
+}
+// theme: follow the system, or keep day / night
+function themeMode() { try { return localStorage.getItem("jc.theme") || "auto"; } catch { return "auto"; } }
+function setTheme(m) {
+  try { if (m === "auto") localStorage.removeItem("jc.theme"); else localStorage.setItem("jc.theme", m); } catch {}
+  if (m === "auto") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = m;
+  themeSwitch(); if (S.sph && typeof sphereDraw === "function" && document.querySelector("canvas.sph")) sphereDraw();
+}
+const ICON_AUTO = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M7 1.5a5.5 5.5 0 0 1 0 11z" fill="currentColor"/></svg>';
+const ICON_DAY = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="2.8" fill="currentColor"/><path d="M7 .8v1.7M7 11.5v1.7M.8 7h1.7M11.5 7h1.7M2.6 2.6l1.2 1.2M10.2 10.2l1.2 1.2M2.6 11.4l1.2-1.2M10.2 3.8l1.2-1.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
+const ICON_NIGHT = '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M11.8 9.2A5.6 5.6 0 0 1 4.8 2.2a5.6 5.6 0 1 0 7 7z" fill="currentColor"/></svg>';
+function themeSwitch() {
+  const m = themeMode();
+  $("#theme").replaceChildren(...[["auto", "Auto", ICON_AUTO, "Follow the system"], ["day", "Day", ICON_DAY, "Day: blue on white"], ["night", "Night", ICON_NIGHT, "Night: blue on black"]].map(([k, l, ic, tip]) =>
+    h("button", { type: "button", "aria-pressed": m === k ? "true" : "false", title: tip, onclick: () => setTheme(k) }, h("span", { html: ic }), h("span", { class: "tl" }, l))));
+}
 function route() {
   const raw = location.hash.replace(/^#\/?/, "");
   const [path, q] = raw.split("?");
@@ -474,7 +643,8 @@ async function boot() {
   const first = S.meta.packs.find(p => p.path === $("#gpath").value);
   if (first) { S.pack = first.name; gpackPill(); }
   else { const ok = await openGraph($("#gpath").value, true); if (!ok) { $("#gpath").value = DEFAULT_GRAPH; S.pack = (S.meta.packs.find(p => p.path === DEFAULT_GRAPH) || S.meta.packs[0]).name; gpackPill(); } }
-  devicePill();
+  devicePill(); themeSwitch();
+  try { matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (themeMode() === "auto" && S.sph && document.querySelector("canvas.sph")) sphereDraw(); }); } catch {}
   $("#help-btn").addEventListener("click", openHelp);
   document.addEventListener("keydown", e => { if (e.key === "?" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "") && !$("#dlg").open) { e.preventDefault(); openHelp(); } });
   try { S.runsList = (await api("api/runs")).runs; } catch { S.runsList = []; }
@@ -495,7 +665,7 @@ function gpackPill() { const m = S.meta.packs.find(p => p.name === S.pack); $("#
 // Open a graph by path: the journey that holds it (switched to that file), or a new journey made from it (graphs.py)
 async function openGraph(path, quiet) {
   path = (path || "").trim() || DEFAULT_GRAPH;
-  if (S.dirty && !(await confirmBox("Discard Unsaved Changes?", "You have edits to this journey's project that are not saved.", "Discard"))) return false;
+  if (S.dirty && !(await confirmBox("Discard unsaved changes?", "You have edits to this journey's project that are not saved.", "Discard"))) return false;
   const btn = $("#gopen-btn"); btn.disabled = true;
   try {
     const r = await api("api/graph/open", { path });
@@ -508,7 +678,7 @@ async function openGraph(path, quiet) {
     if (!quiet) { await loadJourney(); go("#/sections"); }
     return true;
   } catch (e) {
-    if (!quiet) { const d = $("#dlg"); d.replaceChildren(h("h2", {}, "Could Not Open This Graph"), h("p", { class: "muted", style: "margin:8px 0 6px" }, path), h("p", { style: "margin-bottom:16px" }, e.message), h("div", { class: "row", style: "justify-content:flex-end" }, h("button", { class: "btn primary", onclick: () => d.close() }, "OK"))); d.showModal(); }
+    if (!quiet) { const d = $("#dlg"); d.replaceChildren(h("h2", {}, "Could not open this graph"), h("p", { class: "muted", style: "margin:8px 0 6px" }, path), h("p", { style: "margin-bottom:16px" }, e.message), h("div", { class: "row", style: "justify-content:flex-end" }, h("button", { class: "btn primary", onclick: () => d.close() }, "OK"))); d.showModal(); }
     return false;
   } finally { btn.disabled = false; }
 }
@@ -540,11 +710,11 @@ function validityPill() {
 // ---------------------------------------------------------------- guidance: the getting-started path, page hints, help
 const GUIDE = [
   ["valid", "Check the journey is valid", "The project may only use names the policy graph defines. Problems show at the top of Overview.", "#/overview"],
-  ["graph", "Look at what the graph decides", "States, tools, rules and limits come from the policy graph (Graph Sections, Flow). The project only refers to them; to change them, Edit Graph saves a new version of the graph.", "#/sections"],
+  ["graph", "Look at what the graph decides", "States, tools, rules and limits come from the policy graph (Graph sections, Flow). The project only refers to them; to change them, Edit graph saves a new version of the graph.", "#/sections"],
   ["factors", "Review the journey factors", "Each factor is one thing a test case can vary in; each level is one value of it.", "#/factors"],
   ["preview", "Preview a level", "Press Preview on a level to see the conversation the graph expects for it.", "#/factors"],
-  ["saved", "Save your changes", "Runs read the saved project. Save Project, or Ctrl/⌘ S.", null],
-  ["ran", "Run a campaign", "Start small (10 to 40 cases). Each step reports what it produced as it finishes.", "#/run"],
+  ["saved", "Save your changes", "Runs read the saved project. Save project, or Ctrl/⌘ S.", null],
+  ["ran", "Put the bot to test", "Start small (10 to 40 cases). Each step reports what it produced as it finishes.", "#/run"],
   ["read", "Read the results", "Open the finished run: what each step found, what it means and the reports.", "#/runs"],
 ];
 function gGet() { try { return JSON.parse(localStorage.getItem(`jc.guide.${S.pack}`) || "{}"); } catch { return {}; } }
@@ -561,23 +731,26 @@ function guideCard() {
   const st = guideState();
   const next = GUIDE.find(([k]) => !st[k]);
   const done = GUIDE.filter(([k]) => st[k]).length;
-  return h("section", { class: "card guide", style: "margin-bottom:16px", "aria-labelledby": "guide-h" },
-    h("div", { class: "hd" }, h("div", {}, h("h2", { id: "guide-h" }, "Start Here"),
-        h("p", { class: "small muted" }, next ? `Step ${GUIDE.indexOf(next) + 1} of ${GUIDE.length} is next. Steps tick themselves off as you go.` : "All steps done for this journey. Change a factor and run again to compare.")),
-      h("div", { class: "row" }, h("span", { class: "small muted num" }, `${done}/${GUIDE.length}`),
-        h("button", { class: "btn s ghost", onclick: () => { try { localStorage.setItem("jc.guide.hidden", "1"); } catch {} render(); toast("Guide hidden. Bring it back from Help."); } }, "Hide Guide"))),
-    h("div", { class: "bd" }, h("ol", {}, ...GUIDE.map(([k, t, p, href], i) => h("li", { class: `${st[k] ? "done" : ""} ${next && next[0] === k ? "next" : ""}` },
-      h("span", { class: "n", "aria-hidden": "true" }, st[k] ? "✓" : String(i + 1)),
-      h("span", {}, h("div", { class: "t" }, t, h("span", { class: "sr-only" }, st[k] ? " (done)" : "")), h("div", { class: "p" }, p)),
-      next && next[0] === k ? (k === "saved" ? h("button", { class: "btn s primary", onclick: () => S.dirty ? save() : (gMark("saved"), render()) }, S.dirty ? "Save Project" : "Nothing to Save")
-        : h("a", { class: "btn s primary", href: href }, k === "valid" ? "See Problems" : "Go")) : h("span"))))));
+  const meter = h("div", { class: "meter", role: "img", "aria-label": `${done} of ${GUIDE.length} steps done` }, ...GUIDE.map(([k]) => h("i", { class: st[k] ? "on" : null })));
+  if (!next) return h("section", { class: "guide", "aria-label": "Getting started" }, meter,
+    h("div", {}, h("div", { class: "t" }, "Every getting-started step is done for this journey"), h("div", { class: "p" }, "Change a factor and run again to compare runs.")),
+    h("div", { class: "acts" }, h("button", { class: "btn s ghost", onclick: hideGuide }, "Hide")));
+  const [k, title, text, href] = next;
+  return h("section", { class: "guide", "aria-label": "Getting started" }, meter,
+    h("div", {}, h("div", { class: "k" }, `Next step, ${GUIDE.indexOf(next) + 1} of ${GUIDE.length}`), h("div", { class: "t" }, title), h("div", { class: "p" }, text)),
+    h("div", { class: "acts" },
+      k === "saved" ? h("button", { class: "btn primary", onclick: () => S.dirty ? save() : (gMark("saved"), render()) }, S.dirty ? "Save project" : "Nothing to save")
+        : h("a", { class: "btn primary", href }, k === "valid" ? "See problems" : ({ graph: "Open graph sections", factors: "Open journey factors", preview: "Preview a level", ran: "Put the bot to test", read: "Open test runs" })[k] || "Go"),
+      h("button", { class: "btn s ghost", onclick: openHelp }, "All steps"),
+      h("button", { class: "btn s ghost", onclick: hideGuide }, "Hide")));
 }
+function hideGuide() { try { localStorage.setItem("jc.guide.hidden", "1"); } catch {} render(); toast("Getting-started steps hidden. Bring them back from Help."); }
 const ICON_INFO = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 7v4.2M8 4.6v.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
 function hint(id, ...kids) {
   let off = false; try { off = localStorage.getItem(`jc.hint.${id}`) === "off"; } catch {}
   if (off) return null;
   const el = h("div", { class: "notice info hint", role: "note" }, h("span", { html: ICON_INFO }), h("div", { class: "txt" }, ...kids),
-    h("button", { class: "btn s ghost", onclick: () => { try { localStorage.setItem(`jc.hint.${id}`, "off"); } catch {} el.remove(); } }, "Got It"));
+    h("button", { class: "btn s ghost", onclick: () => { try { localStorage.setItem(`jc.hint.${id}`, "off"); } catch {} el.remove(); } }, "Got it"));
   return el;
 }
 const GLOSSARY = [
@@ -592,26 +765,28 @@ const GLOSSARY = [
   ["Original / reworded", "Each case is run as scripted and again with the customer's words reworded. Reworded cases are proved to mean the same before they count."],
   ["Planted defects", "Copies of the reference bot with one deliberate error each. A suite that cannot catch them cannot be trusted."],
   ["Release gate", "Pass or fail per risk tier: accuracy, critical failures, high-severity rate. Shown for the original and the reworded wording."],
-  ["Bot under test", "The bot a campaign or the Playground talks to: the journey's reference bot, or an LLM bot with your prompt and files, on the model gateway or (campaigns only) a local model with vLLM (Run Campaign › Bot Under Test)."],
+  ["Bot under test", "The bot a test run or the Playground talks to: the journey's reference bot, or an LLM bot with your prompt and files, on the model gateway or (test runs only) a local model with vLLM (Start a test run › Bot under test)."],
   ["Critique layer", "For the LLM bot: a second call reviews every step it proposes (each tool call and each reply) against the procedure and approves it or replaces it with a corrected step. On by default; the Playground shows what it changed."],
   ["Graph path", "The top bar opens a journey by the path of its policy graph. A compact graph from outside the journey folders becomes a new journey, with its customer wording, the bot's lines and the project drafted and checked."],
-  ["Graph sections", "The graph split by who uses each part: the customer, the bot, both, the flow, the rules, knowledge and figures, and the rest (Graph Sections)."],
-  ["Core segments", "What every graph needs for the validations a campaign runs (verification, tool results, handoffs, limits, rules, wording...). A missing one means those checks have nothing to test."],
-  ["Graph version", "Edit Graph saves your changes as <name>.v2.json (then .v3 ...) beside the original and switches the journey to it. The original file is never changed; switch back from the versions row."],
-  ["GMS sphere", "Every entity of the graph as a point on the unit sphere and every relation as an arc: from the knowledge store's learned vectors when a campaign has built it, else from the graph's relationships."],
-  ["Playground", "Talk to the bot yourself on one case: pick the case's scripted lines or type your own. Every bot turn is checked against the graph as you go."],
-  ["Volunteered / unread", "Advisory speech findings: a figure about something not asked; a clause no check could read. Counted, not failed, unless you say so (Rules & Scoring)."],
+  ["Graph sections", "The graph split by who uses each part: the customer, the bot, both, the flow, the rules, knowledge and figures, and the rest (Graph sections)."],
+  ["Core segments", "What every graph needs for the validations a test run makes (verification, tool results, handoffs, limits, rules, wording...). A missing one means those checks have nothing to test."],
+  ["Graph version", "Edit graph saves your changes as <name>.v2.json (then .v3 ...) beside the original and switches the journey to it. The original file is never changed; switch back from the versions row."],
+  ["GMS sphere", "Every entity of the graph as a point on the unit sphere and every relation as an arc: from the knowledge store's learned vectors when a test run has built it, else from the graph's relationships."],
+  ["Playground", "Talk to the bot yourself on one case of any journey. At every turn, stick to the journey (the case's customer answers whatever the bot asked) or talk freely. Every bot turn is validated against the graph either way; a turn that differs is flagged as a deviation, with the answer sheet for both sides."],
+  ["Put the bot to test", "A test run: every generated case, original and reworded, played against the bot and checked; it ends with the verdict (Start a test run). In code it is run_campaign."],
+  ["Volunteered / unread", "Advisory speech findings: a figure about something not asked; a clause no check could read. Counted, not failed, unless you say so (Rules and scoring)."],
 ];
 function openHelp() {
   const d = $("#dlg"); d.className = "help";
-  d.replaceChildren(h("div", { class: "row", style: "justify-content:space-between" }, h("h2", {}, "How to Use the Console"), h("button", { class: "btn s ghost", onclick: () => d.close(), "aria-label": "Close help" }, "Close")),
-    h("p", { class: "muted", style: "margin:6px 0 12px" }, "Everything green comes from the policy graph (change it in Edit Graph, which saves a new version); everything amber is your project, which you edit and save. The campaign tests a bot against cases built from your journey factors."),
-    h("h3", {}, "The usual path"), h("ol", { style: "margin:6px 0 14px;padding-left:20px;display:grid;gap:4px" }, ...GUIDE.map(([, t, p]) => h("li", {}, h("b", {}, t), ": ", p))),
+  d.replaceChildren(h("div", { class: "row", style: "justify-content:space-between" }, h("h2", {}, "How to use the console"), h("button", { class: "btn s ghost", onclick: () => d.close(), "aria-label": "Close help" }, "Close")),
+    h("p", { class: "muted", style: "margin:6px 0 12px" }, "Everything green comes from the policy graph (change it in Edit graph, which saves a new version); everything amber is your project, which you edit and save. A test run puts a bot through cases built from your journey factors."),
+    h("h3", {}, "The usual path"), h("ol", { style: "margin:6px 0 14px;padding-left:20px;display:grid;gap:4px" }, ...GUIDE.map(([k, t, p]) => h("li", { class: S.J && guideState()[k] ? "done" : null }, h("b", {}, t), S.J && guideState()[k] ? " (done)" : "", ": ", p))),
+    h("h3", {}, "Colour theme"), h("p", { class: "small", style: "margin:4px 0 14px" }, "Day is blue on white, night is blue on black; Auto follows your system. The switch is in the top bar."),
     h("h3", {}, "Words used here"), h("dl", {}, ...GLOSSARY.flatMap(([t, x]) => [h("dt", {}, t), h("dd", {}, x)])),
     h("h3", { style: "margin-top:14px" }, "Keys"), h("p", { class: "small" }, h("kbd", {}, "?"), " this help · ", h("kbd", {}, "Ctrl/⌘"), " ", h("kbd", {}, "S"), " save the project · ", h("kbd", {}, "Esc"), " close a dialog"),
     h("div", { class: "row", style: "justify-content:flex-end;margin-top:14px" },
-      guideHidden() ? h("button", { class: "btn", onclick: () => { try { localStorage.removeItem("jc.guide.hidden"); } catch {} d.close(); go("#/overview"); } }, "Show the Start Here Guide") : null,
-      h("button", { class: "btn", onclick: () => { try { Object.keys(localStorage).filter(k => k.startsWith("jc.hint.")).forEach(k => localStorage.removeItem(k)); } catch {} d.close(); render(); toast("Page hints are back."); } }, "Show Page Hints Again"),
+      guideHidden() ? h("button", { class: "btn", onclick: () => { try { localStorage.removeItem("jc.guide.hidden"); } catch {} d.close(); go("#/overview"); } }, "Show the getting-started steps") : null,
+      h("button", { class: "btn", onclick: () => { try { Object.keys(localStorage).filter(k => k.startsWith("jc.hint.")).forEach(k => localStorage.removeItem(k)); } catch {} d.close(); render(); toast("Page hints are back."); } }, "Show page hints again"),
       h("button", { class: "btn primary", onclick: () => d.close() }, "Done")));
   d.addEventListener("close", () => { d.className = ""; }, { once: true });
   d.showModal();
@@ -625,20 +800,43 @@ function render() {
   if (!S.J && !["run", "runs", "cases", "verdict", "sections", "edit", "sphere"].includes(r.view)) { main.replaceChildren(h("div", { class: "notice bad" }, `This journey could not be read: ${S.err || "unknown error"}`)); return; }
   const fn = { overview, graph, factors, bank, scoring, run: runView, runs: runsView, cases: casesView, play: playView, verdict: verdictView, sections: sectionsView, edit: editView, sphere: sphereView }[r.view] || overview;
   const out = fn(r);
-  if (out) main.replaceChildren(...[out].flat().filter(x => x != null && x !== false));
+  if (out) main.replaceChildren(...[out, pageFoot(r.view)].flat().filter(x => x != null && x !== false));
   if (S.dirty && !["run", "runs", "cases", "play", "verdict", "sections", "edit", "sphere"].includes(r.view)) savebar();      // a re-render keeps the unsaved-changes bar
-  document.title = `${({ overview: "Overview", sections: "Graph Sections", edit: "Edit Graph", sphere: "GMS Sphere", graph: "Flow", factors: "Journey Factors", bank: "Bank & Customer", scoring: "Rules & Scoring", run: "Run Campaign", runs: "Runs", cases: "Cases", play: "Playground", verdict: "Verdict" })[r.view] || "Journey Console"} · Journey Console`;
+  document.title = `${({ cases: "Cases", verdict: "Verdict" })[r.view] || (PAGES.find(p => p.id === r.view) || {}).label || "Journey Console"} · Journey Console`;
 }
 function nav(view) {
-  if (view === "cases" || view === "verdict") view = "runs";
+  const here = pageInfo(view);
   const facN = S.P ? (S.P.factors || []).length : "";
-  $("#nav").replaceChildren(...VIEWS.flatMap(([g, items]) => [h("div", { class: "group" }, g),
-    ...items.map(([id, label]) => h("a", { href: `#/${id}`, "aria-current": view === id ? "page" : null },
-      h("span", { class: id === "factors" ? "key" : null }, label),
-      id === "factors" ? h("span", { class: "count num" }, facN) : id === "graph" && S.J ? h("span", { class: "count num" }, D().states.length) : null))]));
+  const ok = !!S.J;
+  $("#nav").replaceChildren(h("ol", { class: "route" }, ...STAGES.map(([sid, label, sub, items], si) => {
+      const done = ok && stageDone(si), cur = here.stage === si;
+      return h("li", { class: `stn ${done ? "done" : ""} ${cur ? "here" : ""}` },
+        h("span", { class: "dot", "aria-hidden": "true" }, done ? "✓" : String(si + 1)),
+        h("span", { class: "sh" }, label, h("span", { class: "sr-only" }, done ? " (done)" : cur ? " (you are here)" : "")),
+        h("span", { class: "sp" }, sub),
+        h("ul", {}, ...items.map(([id, l]) => h("li", {}, h("a", { href: `#/${id}`, class: id === "factors" ? "key" : null, "aria-current": here.id === id ? "page" : null },
+          h("span", { class: "lbl" }, l),
+          id === "factors" ? h("span", { class: "count" }, facN) : id === "graph" && S.J ? h("span", { class: "count" }, D().states.length) : null)))));
+    })),
+    h("div", { class: "rail-foot" },
+      h("span", { class: "legend" }, h("span", { class: "sw", style: "background:var(--graph)" }), "Decided by the graph"),
+      h("span", { class: "legend" }, h("span", { class: "sw", style: "background:var(--proj)" }), "Set by you (project)")));
 }
 function head(title, lede, ...actions) {
-  return h("div", { class: "page-head" }, h("div", {}, h("h1", {}, title), lede ? h("p", { class: "lede" }, lede) : null), h("div", { class: "row" }, ...actions));
+  const pi = pageInfo(route().view);
+  return h("div", { class: "page-head" }, h("div", {},
+      h("div", { class: "crumb" }, h("b", {}, String(pi.stage + 1)), pi.stageLabel),
+      h("h1", {}, title), lede ? h("p", { class: "lede" }, lede) : null), h("div", { class: "row" }, ...actions));
+}
+// the forward path: every page ends with the next page of the work
+function pageFoot(view) {
+  if (PAGE_OF[view]) return null;
+  const i = PAGES.findIndex(p => p.id === view), nx = PAGES[i + 1];
+  if (i < 0 || !nx) return null;
+  const same = nx.stage === PAGES[i].stage;
+  return h("nav", { class: "pagefoot", "aria-label": "Next page" }, h("a", { href: `#/${nx.id}` },
+    h("span", { class: "k" }, same ? "Next in this stage" : `Next stage: ${nx.stage + 1}. ${nx.stageLabel}`),
+    h("span", { class: "t" }, nx.label, h("span", { "aria-hidden": "true", html: '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>' }))));
 }
 function tile(v, l, kind) { return h("div", { class: `tile ${kind || ""}` }, h("div", { class: "v" }, v ?? "–"), h("div", { class: "l" }, l)); }
 function table(cols, rows, opts = {}) {
@@ -657,13 +855,13 @@ function overview() {
   const gaps = [];
   const fixBtn = (kind, where, what) => {
     const f = (P.factors || []).find(x => x.anchor && (kind === "tool" ? x.anchor.tool === where : x.anchor.state === where));
-    return h("a", { class: "btn s", href: `#/factors?${f ? `f=${encodeURIComponent(f.name)}&` : ""}gap=${encodeURIComponent(`${kind}|${where}|${what}`)}` }, f ? `Fix in ${f.name}` : "Add a Factor…");
+    return h("a", { class: "btn s", href: `#/factors?${f ? `f=${encodeURIComponent(f.name)}&` : ""}gap=${encodeURIComponent(`${kind}|${where}|${what}`)}` }, f ? `Fix in ${f.name}` : "Add a factor…");
   };
   for (const [t, xs] of Object.entries(cov.tool_outcomes_missing || {})) if (xs.length) gaps.push([t, xs.join(", "), `No case has ${t} answer ${xs.join(" or ")}, so how the bot handles it is never tested.`, fixBtn("tool", t, xs[0])]);
   for (const [st, xs] of Object.entries(cov.customer_choices_missing || {})) if (xs.length) gaps.push([st, xs.join(", "), `No case has the customer say ${xs.join(" or ")} at ${st}, so that branch is never tested.`, fixBtn("say", st, xs[0])]);
   return [
     head(d.title, `${S.pack} · ${meta.graph || ""} · ${meta.compiled ? "compact graph, compiled" : "graph built from the PDF"}${d.loop ? " · loops over " + d.loop.tool + "." + d.loop.field : ""}`,
-      h("a", { class: "btn", href: "#/factors" }, "Edit Journey Factors"), h("a", { class: "btn primary", href: "#/run" }, "Run Campaign")),
+      h("a", { class: "btn", href: "#/factors" }, "Edit journey factors"), h("a", { class: "btn primary", href: "#/run" }, "Put the bot to test")),
     guideCard(),
     S.issues.length ? h("div", { class: "notice bad", style: "margin-bottom:16px" }, `${S.issues.length} problem(s) against the graph:`, h("ul", {}, ...S.issues.slice(0, 12).map(i => h("li", { class: "mono" }, i))))
       : h("div", { class: "notice ok", style: "margin-bottom:16px" }, "The project is valid against the policy graph: every name it uses is one the graph defines."),
@@ -717,8 +915,8 @@ function sectionsView() {
   const q = (X.q || "").toLowerCase();
   const rows = cur.triples.filter(t => !q || `${t.head} ${t.relation} ${t.tail}`.toLowerCase().includes(q));
   return [
-    head("Graph Sections", `${X.title} · ${X.graph} · ${X.format === "compact" ? "compact graph (gmsjourney.policy_graph/2), compiled to " : "triples graph built from the PDF, "}${X.triples} triples`,
-      h("a", { class: "btn", href: "#/sphere" }, "See the GMS Sphere"), h("a", { class: "btn primary", href: "#/edit" }, "Edit the Graph")),
+    head("Graph sections", `${X.title} · ${X.graph} · ${X.format === "compact" ? "compact graph (gmsjourney.policy_graph/2), compiled to " : "triples graph built from the PDF, "}${X.triples} triples`,
+      h("a", { class: "btn", href: "#/sphere" }, "See the GMS sphere"), h("a", { class: "btn primary", href: "#/edit" }, "Edit the graph")),
     versionsRow(X.versions),
     made ? h("div", { class: `notice ${made.speech_failures.length ? "warn" : "ok"}`, style: "margin:10px 0" },
       `New journey: its customer wording and the bot's lines were drafted from the graph and checked by playing ${made.cases} cases (${made.turns} bot turns) with the reference bot. `,
@@ -740,12 +938,12 @@ function sectionsView() {
           table(["Head", "Relation", "Tail"], rows.map(t => [t.head, t.relation, String(t.tail)]), { mono: [0, 1, 2], max: 420 }),
           cur.more ? h("p", { class: "small muted" }, `${cur.more} more triples in this section are not listed.`) : null)),
       h("div", { class: "card" },
-        h("div", { class: "hd" }, h("h2", {}, "Core Segments"), h("span", { class: `pill ${miss.length ? "warn" : "ok"}` }, h("span", { class: "dot" }), miss.length ? `${miss.length} missing` : "all present")),
-        h("div", { class: "bd" }, h("p", { class: "small muted", style: "margin-bottom:10px" }, "What every graph needs for the validations a campaign runs. A missing segment means those checks have nothing to test."),
+        h("div", { class: "hd" }, h("h2", {}, "Core segments"), h("span", { class: `pill ${miss.length ? "warn" : "ok"}` }, h("span", { class: "dot" }), miss.length ? `${miss.length} missing` : "all present")),
+        h("div", { class: "bd" }, h("p", { class: "small muted", style: "margin-bottom:10px" }, "What every graph needs for the validations a test run makes. A missing segment means those checks have nothing to test."),
           h("ul", { class: "segs" }, ...segs.map(s => h("li", { class: s.ok ? "ok" : s.advisory ? "adv" : "miss" },
             h("span", { class: "mark " + (s.ok ? "ok" : s.advisory ? "" : "warn"), "aria-label": s.ok ? "present" : s.advisory ? "advisory" : "missing" }, s.ok ? "✓" : s.advisory ? "i" : "!"),
             h("div", {}, h("div", { class: "t" }, s.name), h("div", { class: "small muted" }, s.detail), h("div", { class: "small", style: "color:var(--ink-3)" }, `Needed for ${s.needed_for}.`),
-              !s.ok && Object.keys(s.add || {}).length && X.format === "compact" ? h("button", { class: "btn s", type: "button", style: "margin-top:6px", onclick: () => { S.edSuggest = s; go("#/edit"); } }, "Add in the Editor…") : null,
+              !s.ok && Object.keys(s.add || {}).length && X.format === "compact" ? h("button", { class: "btn s", type: "button", style: "margin-top:6px", onclick: () => { S.edSuggest = s; go("#/edit"); } }, "Add in the editor…") : null,
               !s.ok && X.format !== "compact" && (s.triples || []).length ? h("div", { class: "small mono", style: "margin-top:4px" }, "e.g. ", s.triples.map(t => `${t.head} ${t.relation} ${t.tail}`).join(" · ")) : null))))))),
   ];
 }
@@ -782,7 +980,7 @@ function compactEditor(E) {
   const openIt = E.work.find(it => it.path === E.open);
   return h("div", { class: "grid2", style: "grid-template-columns:minmax(0,1fr) minmax(0,1.2fr)" },
     h("div", { class: "card" },
-      h("div", { class: "hd" }, h("h2", {}, "Entries"), h("button", { class: "btn s", type: "button", "aria-expanded": E.adding ? "true" : "false", onclick: () => { E.adding = !E.adding; render(); } }, "Add Entry")),
+      h("div", { class: "hd" }, h("h2", {}, "Entries"), h("button", { class: "btn s", type: "button", "aria-expanded": E.adding ? "true" : "false", onclick: () => { E.adding = !E.adding; render(); } }, "Add entry")),
       h("div", { class: "bd stack", style: "gap:8px" },
         E.adding ? h("form", { class: "row", onsubmit: e => { e.preventDefault(); const path = e.target.querySelector("input").value.trim(); if (!path) return; E.adding = false;
             if (!E.work.some(it => it.path === path)) { const top = path.split(".")[0]; E.work.push({ path, section: E.sel, value: top === "rules" ? ["must", "", {}] : top === "knowledge" ? [] : {}, added: true }); edMark(); }
@@ -810,7 +1008,7 @@ function triplesEditor(E) {
   const cell = (t, k) => h("input", { class: "input mono s", value: typeof t[k] === "object" ? JSON.stringify(t[k]) : String(t[k] ?? ""), "aria-label": k,
     onchange: e => { let v = e.target.value; if (k === "tail" && /^-?\d+(\.\d+)?$/.test(v)) v = Number(v); t[k] = v; edMark(); render(); } });
   return h("div", { class: "card" },
-    h("div", { class: "hd" }, h("h2", {}, `Triples · ${_TITLE(E.sel)}`), h("button", { class: "btn s", type: "button", onclick: () => { E.work.push({ id: "", head: "", relation: "", tail: "", section: E.sel, kind: "policy", source: "user_edit" }); E.q = ""; edMark(); render(); } }, "Add Triple")),
+    h("div", { class: "hd" }, h("h2", {}, `Triples · ${_TITLE(E.sel)}`), h("button", { class: "btn s", type: "button", onclick: () => { E.work.push({ id: "", head: "", relation: "", tail: "", section: E.sel, kind: "policy", source: "user_edit" }); E.q = ""; edMark(); render(); } }, "Add triple")),
     h("div", { class: "bd stack", style: "gap:8px" },
       h("input", { class: "input", type: "search", placeholder: "Filter triples", "aria-label": "Filter triples", value: E.q, oninput: e => { E.q = e.target.value; renderKeep(e.target); } }),
       h("div", { class: "tw", style: "max-height:520px" }, h("table", {}, h("thead", {}, h("tr", {}, ...["Head", "Relation", "Tail", ""].map(c => h("th", {}, c)))),
@@ -842,7 +1040,7 @@ function edResult(R) {
     h("div", { class: "hd" }, h("h2", {}, R.saved ? `Saved ${R.file}` : "Check"), h("span", { class: `pill ${(R.problems || []).length ? "warn" : "ok"}` }, h("span", { class: "dot" }), (R.problems || []).length ? `${R.problems.length} problem(s)` : "lint clean")),
     h("div", { class: "bd stack", style: "gap:12px" },
       R.saved ? h("p", { class: "small" }, `Written beside ${R.from}; the journey now uses it. The original is unchanged; switch back from the versions row.`) : null,
-      h("div", {}, h("h3", {}, `What Changed (${(R.changes || []).length})`), (R.changes || []).length ? table(["Change", "Entry", "Before", "After"], R.changes.map(c => [h("span", { class: `pill ${c.change === "added" ? "ok" : c.change === "removed" ? "bad" : "warn"}` }, c.change), c.path, c.before || "", c.after || ""]), { mono: [1, 2, 3], max: 300 }) : h("p", { class: "small muted" }, "Nothing changed yet.")),
+      h("div", {}, h("h3", {}, `What changed (${(R.changes || []).length})`), (R.changes || []).length ? table(["Change", "Entry", "Before", "After"], R.changes.map(c => [h("span", { class: `pill ${c.change === "added" ? "ok" : c.change === "removed" ? "bad" : "warn"}` }, c.change), c.path, c.before || "", c.after || ""]), { mono: [1, 2, 3], max: 300 }) : h("p", { class: "small muted" }, "Nothing changed yet.")),
       (R.problems || []).length ? h("div", { class: "notice warn" }, "The lint found: ", h("ul", {}, ...R.problems.slice(0, 12).map(p => h("li", {}, p)))) : null,
       miss.filter(s => !s.advisory).length ? h("div", { class: "notice warn" }, `Core segments still missing: ${miss.filter(s => !s.advisory).map(s => s.name).join(", ")}.`) : (R.segments || []).length ? h("div", { class: "notice ok" }, "Every core segment is present.") : null));
 }
@@ -855,14 +1053,14 @@ function editView() {
   const segs = (S.sec && S.sec.pack === S.pack && S.sec.segments) || [];
   const counts = {}; for (const it of E.work) counts[it.section] = (counts[it.section] || 0) + 1;
   return [
-    head("Edit the Graph", `${E.path} · ${E.format === "compact" ? "compact graph: one entry per value set, act, tool, state, rule and limit" : "triples graph: one row per triple"}. Saving writes a new version beside the original and switches the journey to it; the original file is never changed.`,
+    head("Edit the graph", `${E.path} · ${E.format === "compact" ? "compact graph: one entry per value set, act, tool, state, rule and limit" : "triples graph: one row per triple"}. Saving writes a new version beside the original and switches the journey to it; the original file is never changed.`,
       h("button", { class: "btn", type: "button", disabled: E.busy || !E.dirty, onclick: () => edCheck(false) }, E.busy ? h("span", { class: "spin" }) : null, "Check"),
-      h("button", { class: "btn primary", type: "button", disabled: E.busy || !E.dirty, onclick: () => edCheck(true) }, "Save as New Version")),
+      h("button", { class: "btn primary", type: "button", disabled: E.busy || !E.dirty, onclick: () => edCheck(true) }, "Save as new version")),
     versionsRow(E.versions),
     h("nav", { class: "tabs", "aria-label": "Sections", style: "margin-top:10px" }, ...(E.sections || []).map(s => h("a", { href: "#/edit", "aria-current": s.key === E.sel ? "page" : null, onclick: e => { e.preventDefault(); E.sel = s.key; E.q = ""; render(); } }, secDot(s.key), " ", s.title, h("span", { class: "small muted num" }, ` ${counts[s.key] || 0}`)))),
     E.dirty ? h("div", { class: "notice info", style: "margin-bottom:12px" }, "Unsaved edits. Check runs the lint and the core-segment checks on the edited graph without saving it.") : null,
     E.format === "compact" ? compactEditor(E) : triplesEditor(E),
-    segs.length ? h("div", { class: "card", style: "margin-top:16px" }, h("div", { class: "hd" }, h("h2", {}, "Core Segments"), h("span", { class: "small muted" }, "add what the validations need")),
+    segs.length ? h("div", { class: "card", style: "margin-top:16px" }, h("div", { class: "hd" }, h("h2", {}, "Core segments"), h("span", { class: "small muted" }, "add what the validations need")),
       h("div", { class: "bd chips" }, ...segs.map(s => h("button", { class: `chip ${s.ok ? "ok" : s.advisory ? "" : "bad"}`, type: "button", title: `${s.detail}. Needed for ${s.needed_for}.`, disabled: s.ok || E.format !== "compact" || !Object.keys(s.add || {}).length ? true : null,
         onclick: () => { applySuggestion(s); render(); } }, s.ok ? "✓ " : "+ ", s.name)))) : null,
     edResult(E.result),
@@ -888,8 +1086,8 @@ function sphereView() {
   const side = h("div", { class: "card sphside" });
   setTimeout(() => sphereMount(cv, tip, side), 0);
   return [
-    head("GMS Sphere", `Every entity of the graph as a point on the unit sphere, every relation as an arc. ${G.placement === "store" ? "Placed from the knowledge store's learned geometry." : "Placed from the graph's relationships."}`,
-      h("a", { class: "btn", href: "#/sections" }, "Graph Sections")),
+    head("GMS sphere", `Every entity of the graph as a point on the unit sphere, every relation as an arc. ${G.placement === "store" ? "Placed from the knowledge store's learned geometry." : "Placed from the graph's relationships."}`,
+      h("a", { class: "btn", href: "#/sections" }, "Graph sections")),
     h("div", { class: `notice ${G.placement === "store" ? "ok" : "info"}`, style: "margin-bottom:12px" }, G.note,
       G.fit ? h("span", { class: "small" }, ` · linked entities sit ${G.fit.edge_arc} rad apart on average, against ${G.fit.random_arc} rad for a random pair`) : null),
     h("div", { class: "row sphctl", style: "flex-wrap:wrap;gap:6px;margin-bottom:10px" },
@@ -1004,7 +1202,7 @@ function graph(r) {
   const d = D();
   gMark("graph");
   const dialog = new Set(d.states.map(x => x.name));
-  const tabs = h("div", { class: "tabs", role: "navigation", "aria-label": "Graph views" }, ...[["states", "State Machine"], ["tools", "Tools"], ["vocab", "Vocabulary"], ["rules", "Rules & Triggers"], ["limits", "Limits & Figures"]]
+  const tabs = h("div", { class: "tabs", role: "navigation", "aria-label": "Graph views" }, ...[["states", "State machine"], ["tools", "Tools"], ["vocab", "Vocabulary"], ["rules", "Rules and triggers"], ["limits", "Limits and figures"]]
     .map(([id, l]) => h("a", { href: `#/graph?tab=${id}`, "aria-current": tab === id ? "page" : null }, l)));
   let body;
   if (tab === "states") {
@@ -1045,7 +1243,7 @@ function graph(r) {
         : Object.keys(d.fees || {}).length ? table(["Option", "Fee"], Object.entries(d.fees).map(([k, v]) => [k, `$${v.fee}`])) : h("p", { class: "muted" }, "No figures."))),
       d.loop ? loopCard(d.loop) : null);
   }
-  return [head("Flow", "The policy graph's states, tools, vocabulary, rules and limits. The project only refers to these names; to change them, use Edit Graph (it saves a new version of the graph).", h("span", { class: "src graph" }, "from the graph")),
+  return [head("Flow", "The policy graph's states, tools, vocabulary, rules and limits. The project only refers to these names; to change them, use Edit graph (it saves a new version of the graph).", h("span", { class: "src graph" }, "from the graph")),
     hint("graph", "Click a state to see what it accepts, the rules it applies and where it can go next, and when. Rounded with a solid outline: the bot asks the customer something; square with a dashed outline: it only speaks. Journey factors attach to these states and to the tools."),
     tabs, body];
 }
@@ -1070,14 +1268,14 @@ function savebar() {
   if (bar) return;
   bar = h("div", { class: "savebar", id: "savebar", role: "region", "aria-label": "Unsaved changes" },
     h("span", { class: "pill warn" }, h("span", { class: "dot" }), "Unsaved changes"), h("span", { class: "small muted" }, "Checked against the graph as you edit."), h("div", { style: "flex:1" }),
-    h("button", { class: "btn", onclick: async () => { if (await confirmBox("Discard Changes?", "Your edits since the last save will be lost.", "Discard")) { S.P = clone(S.J.project); S.dirty = false; S.issues = S.J.issues; validityPill(); render(); } } }, "Discard"),
-    h("button", { class: "btn primary", id: "savebtn", onclick: save }, "Save Project"));
+    h("button", { class: "btn", onclick: async () => { if (await confirmBox("Discard changes?", "Your edits since the last save will be lost.", "Discard")) { S.P = clone(S.J.project); S.dirty = false; S.issues = S.J.issues; validityPill(); render(); } } }, "Discard"),
+    h("button", { class: "btn primary", id: "savebtn", onclick: save }, "Save project"));
   $("main").append(bar);
 }
 async function save() {
   const b = $("#savebtn"); b.disabled = true; b.replaceChildren(h("span", { class: "spin" }), "Saving…");
   try { const r = await api(`api/journey/${S.pack}/save`, { project: S.P }); S.J.project = clone(S.P); S.dirty = false; S.issues = r.issues || []; gMark("saved"); validityPill(); toast(`Saved ${r.saved.split("/").slice(-2).join("/")}${S.issues.length ? ` with ${S.issues.length} problem(s)` : ""}`); savebar(); render(); }
-  catch (e) { toast(`Not saved: ${e.message}`); b.disabled = false; b.replaceChildren("Save Project"); }
+  catch (e) { toast(`Not saved: ${e.message}`); b.disabled = false; b.replaceChildren("Save project"); }
 }
 function factors(r) {
   const P = S.P; P.factors = P.factors || [];
@@ -1092,8 +1290,8 @@ function factors(r) {
       return h("a", { href: `#/factors?f=${encodeURIComponent(f.name)}`, "data-f": f.name, "aria-current": f === sel ? "true" : "false" },
         h("span", { class: "fn" }, f.name), h("span", { class: "err", hidden: !has, "aria-label": "has problems" }),
         h("span", { class: "fm num" }, `${Object.keys(f.levels || {}).length} levels · ${a.tool ? "tool " + a.tool : a.state ? "at " + a.state : f.role || "anywhere"}`)); }),
-    h("div", { style: "padding:10px" }, h("button", { class: "btn s", onclick: addFactor }, "Add Factor…")));
-  const editor = sel ? factorEditor(sel) : h("div", { class: "card empty" }, h("p", {}, "No factors yet."), h("div", { class: "row", style: "justify-content:center;margin-top:10px" }, h("button", { class: "btn primary", onclick: addFactor }, "Add Factor…")));
+    h("div", { style: "padding:10px" }, h("button", { class: "btn s", onclick: addFactor }, "Add factor…")));
+  const editor = sel ? factorEditor(sel) : h("div", { class: "card empty" }, h("p", {}, "No factors yet."), h("div", { class: "row", style: "justify-content:center;margin-top:10px" }, h("button", { class: "btn primary", onclick: addFactor }, "Add factor…")));
   gMark("factors");
   const gap = r.q.get("gap");
   let gapNote = null;
@@ -1101,13 +1299,13 @@ function factors(r) {
     const [kind, where, what] = gap.split("|");
     const scripts = Object.entries(((S.P.customer || {}).answers) || {}).filter(([st]) => st === where).map(([, sc]) => sc);
     gapNote = h("div", { class: "notice warn", style: "margin-bottom:16px" }, h("strong", {}, "To close this gap: "),
-      kind === "tool" ? [`add a level${sel && sel.anchor && sel.anchor.tool === where ? " here" : " to a factor at tool " + where}, choose `, h("b", {}, "+ Bank Setting… → tool:" + where), ", and set it to return ", h("b", {}, what), ". Then Preview it to see how the bot must handle it."]
-        : [`add a level${sel && sel.anchor && sel.anchor.state === where ? " here" : " to a factor at " + where}, choose `, h("b", {}, "+ Customer Says…"), `, pick the script that answers ${where}${scripts.length ? " (" + scripts.join(", ") + ")" : ""}, and type the frame `, h("code", {}, `${what}(…)`), ". Suggestions appear as you type."],
+      kind === "tool" ? [`add a level${sel && sel.anchor && sel.anchor.tool === where ? " here" : " to a factor at tool " + where}, choose `, h("b", {}, "+ Bank setting… → tool:" + where), ", and set it to return ", h("b", {}, what), ". Then Preview it to see how the bot must handle it."]
+        : [`add a level${sel && sel.anchor && sel.anchor.state === where ? " here" : " to a factor at " + where}, choose `, h("b", {}, "+ Customer says…"), `, pick the script that answers ${where}${scripts.length ? " (" + scripts.join(", ") + ")" : ""}, and type the frame `, h("code", {}, `${what}(…)`), ". Suggestions appear as you type."],
       " ", gapAction(kind, where, what), " ", h("a", { href: `#/factors${sel ? "?f=" + encodeURIComponent(sel.name) : ""}` }, "Dismiss"));
   }
-  const out = [head("Journey Factors", "Each factor is one thing a case can differ in; each level is one value of it. A level patches the mock bank or the simulated customer, and the graph decides what should happen. The case generator covers every feasible pair of levels.",
+  const out = [head("Journey factors", "Each factor is one thing a case can differ in; each level is one value of it. A level patches the mock bank or the simulated customer, and the graph decides what should happen. The case generator covers every feasible pair of levels.",
     h("span", { class: "src proj" }, "project.yaml")),
-    hint("factors", "Pick a factor on the left. Read each level's summary, press ", h("b", {}, "Preview"), " to see the conversation the graph expects for it, and add or change levels with ", h("b", {}, "+ Bank Setting"), " (what a tool returns) or ", h("b", {}, "+ Customer Says"), " (what the customer answers). Every change is checked against the graph as you type; ", h("b", {}, "Save Project"), " (", h("kbd", {}, "Ctrl/⌘"), " ", h("kbd", {}, "S"), ") when you are done."),
+    hint("factors", "Pick a factor on the left. Read each level's summary, press ", h("b", {}, "Preview"), " to see the conversation the graph expects for it, and add or change levels with ", h("b", {}, "+ Bank setting"), " (what a tool returns) or ", h("b", {}, "+ Customer says"), " (what the customer answers). Every change is checked against the graph as you type; ", h("b", {}, "Save project"), " (", h("kbd", {}, "Ctrl/⌘"), " ", h("kbd", {}, "S"), ") when you are done."),
     gapNote, h("div", { class: "fx" }, list, editor)];
   setTimeout(savebar, 0);
   return out;
@@ -1133,16 +1331,16 @@ function gapAction(kind, where, what) {
     changed(); toast(`Added level ${lvName} to ${target.name}. Preview it, adjust it, then save.`);
     go(`#/factors?f=${encodeURIComponent(target.name)}`);
     setTimeout(() => { const card = [...document.querySelectorAll(".level")].find(x => x.querySelector("input")?.value === lvName); card?.scrollIntoView({ block: "center" }); card?.querySelector(".btn.s")?.focus(); }, 60);
-  } }, f ? `Add Level ${lvName} to ${f.name}` : `Create Factor at ${where}`);
+  } }, f ? `Add level ${lvName} to ${f.name}` : `Create factor at ${where}`);
 }
 function addFactor() {
   const d = $("#dlg"); const inp = h("input", { class: "input mono", id: "nf", placeholder: "e.g. delivery_choice…", autocomplete: "off", spellcheck: "false" });
-  d.replaceChildren(h("h2", {}, "Add Factor"), h("p", { class: "muted small", style: "margin:6px 0 12px" }, "Name it after what varies. Its first level is the default; add levels after."),
+  d.replaceChildren(h("h2", {}, "Add factor"), h("p", { class: "muted small", style: "margin:6px 0 12px" }, "Name it after what varies. Its first level is the default; add levels after."),
     h("label", { for: "nf" }, "Factor name"), inp,
     h("div", { class: "row", style: "justify-content:flex-end;margin-top:14px" }, h("button", { class: "btn", onclick: () => d.close() }, "Cancel"),
       h("button", { class: "btn primary", onclick: () => { const n = inp.value.trim().replace(/[^a-z0-9_]+/gi, "_").toLowerCase(); if (!n) { inp.focus(); return; }
         if (S.P.factors.some(f => f.name === n)) { toast(`${n} already exists`); return; }
-        S.P.factors.push({ name: n, about: "", default: "none", relevant_when: "reached", levels: { none: {} } }); d.close(); changed(); go(`#/factors?f=${n}`); } }, "Add Factor")));
+        S.P.factors.push({ name: n, about: "", default: "none", relevant_when: "reached", levels: { none: {} } }); d.close(); changed(); go(`#/factors?f=${n}`); } }, "Add factor")));
   d.showModal(); inp.focus();
   inp.addEventListener("keydown", e => { if (e.key === "Enter") d.querySelector(".btn.primary").click(); });
 }
@@ -1154,7 +1352,7 @@ function factorEditor(f) {
   const id = s => `f-${f.name}-${s}`;
   return h("div", { class: "stack" },
     h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", { class: "mono" }, f.name), h("div", { class: "row" }, f.role ? h("span", { class: "pill" }, `role: ${f.role}`) : null,
-        h("button", { class: "btn s danger", onclick: async () => { if (await confirmBox(`Remove ${f.name}?`, "Its levels go too. You can discard the change before saving.", "Remove")) { S.P.factors = S.P.factors.filter(x => x !== f); changed(); go("#/factors"); } } }, "Remove Factor"))),
+        h("button", { class: "btn s danger", onclick: async () => { if (await confirmBox(`Remove ${f.name}?`, "Its levels go too. You can discard the change before saving.", "Remove")) { S.P.factors = S.P.factors.filter(x => x !== f); changed(); go("#/factors"); } } }, "Remove factor"))),
       h("div", { class: "bd stack" },
         h("div", { "data-issues-for": `factors.${f.name}` }),
         h("div", { class: "form" },
@@ -1171,7 +1369,7 @@ function factorEditor(f) {
           h("span", { class: "fhelp" }, "What every case uses for this factor unless covering a pair needs another level.")))),
     h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, `Levels (${levelNames.length})`), h("div", { class: "row" },
         h("input", { class: "input mono", id: id("newlv"), style: "width:200px", placeholder: "new level name…", autocomplete: "off", spellcheck: "false", "aria-label": "New level name",
-          onkeydown: e => { if (e.key === "Enter") addLevel(); } }), h("button", { class: "btn s", onclick: addLevel }, "Add Level"))),
+          onkeydown: e => { if (e.key === "Enter") addLevel(); } }), h("button", { class: "btn s", onclick: addLevel }, "Add level"))),
       h("div", { class: "bd" }, ...levelNames.map(n => levelCard(f, n)))),
     previewPanel(f));
   function addLevel() { const inp = document.getElementById(id("newlv")); const n = inp.value.trim().replace(/\s+/g, "_"); if (!n) { inp.focus(); return; } if (f.levels[n]) { toast(`${n} already exists`); return; } f.levels[n] = {}; changed(); render(); }
@@ -1196,7 +1394,7 @@ function levelCard(f, name) {
       ...other.map(k => h("div", { class: "patch" }, h("span", { class: "kind other" }, "Case"), h("div", { class: "row" }, h("code", {}, k), h("input", { class: "input mono", style: "flex:1;height:28px", value: typeof L[k] === "string" ? L[k] : JSON.stringify(L[k]), "aria-label": `${name} ${k}`,
         onchange: e => { const t = e.target.value; try { L[k] = JSON.parse(t); } catch { L[k] = t; } changed(); } })), h("button", { class: "btn s ghost", "aria-label": `remove ${k}`, onclick: () => { delete L[k]; changed(); render(); } }, "×"))),
       h("p", { class: "lsum" }, ...describeLevel(L, isDef)),
-      h("div", { class: "row" }, addBankSelect(L), h("button", { class: "btn s", onclick: () => { (L.customer = L.customer || []).push({ script: Object.keys((S.P.customer || {}).scripts || {})[0], say: [""], position: "start" }); changed(); render(); } }, "+ Customer Says…"))));
+      h("div", { class: "row" }, addBankSelect(L), h("button", { class: "btn s", onclick: () => { (L.customer = L.customer || []).push({ script: Object.keys((S.P.customer || {}).scripts || {})[0], say: [""], position: "start" }); changed(); render(); } }, "+ Customer says…"))));
 }
 function describeLevel(L, isDef) {
   // the level in one plain sentence: what the bank answers and what the customer says, the rest stays default
@@ -1224,7 +1422,7 @@ function addBankSelect(L) {
   const keys = S.J.fixture_keys || {};
   return h("select", { class: "select", style: "height:26px;font-size:12.5px", "aria-label": "Add a bank setting", onchange: e => { const k = e.target.value; if (!k) return;
     L.fixture = L.fixture || {}; const t = k.startsWith("tool:") ? D().tools.find(x => x.name === k.slice(5)) : null; L.fixture[k] = t ? [t.success] : 1; changed(); render(); } },
-    h("option", { value: "" }, "+ Bank Setting…"), ...Object.entries(keys).filter(([k]) => !(L.fixture || {})[k]).map(([k, v]) => h("option", { value: k, title: v }, k)));
+    h("option", { value: "" }, "+ Bank setting…"), ...Object.entries(keys).filter(([k]) => !(L.fixture || {})[k]).map(([k, v]) => h("option", { value: k, title: v }, k)));
 }
 function bankPatch(L, k, v) {
   const tool = k.startsWith("tool:") ? D().tools.find(x => x.name === k.slice(5)) : null;
@@ -1302,7 +1500,7 @@ function ruleExample() {
 }
 function previewBody() {
   const p = S.preview && S.preview.factor === S.previewFor ? S.preview : null;     // a preview belongs to its factor
-  if (!p) return [h("div", { class: "hd" }, h("h2", {}, "Expected Conversation")), h("div", { class: "bd" }, h("p", { class: "muted" }, "Choose Preview on a level to walk the graph with that level and every other factor at its default."))];
+  if (!p) return [h("div", { class: "hd" }, h("h2", {}, "Expected conversation")), h("div", { class: "bd" }, h("p", { class: "muted" }, "Choose Preview on a level to walk the graph with that level and every other factor at its default."))];
   if (p.loading) return [h("div", { class: "hd" }, h("h2", {}, `Walking the graph: ${p.factor} = ${p.level}`)), h("div", { class: "bd row muted" }, h("span", { class: "spin" }), "Walking the graph…")];
   if (p.error) return [h("div", { class: "hd" }, h("h2", {}, `${p.factor} = ${p.level}`)), h("div", { class: "bd" }, h("div", { class: "notice bad" }, p.error))];
   const r = p.r, sig = r.signature || {};
@@ -1320,7 +1518,7 @@ function previewBody() {
         : h("div", { class: "turn tool" }, h("span", { class: "who" }, "Tool"), h("div", { class: "what" }, `${t.tool}(${Object.entries(t.args || {}).map(([k, v]) => `${k}=${v}`).join(", ")}) → ${t.ok ? ((t.result || {}).status ?? "") : "error"}`)))),
       h("dl", { class: "kv" }, h("dt", {}, "Writes"), h("dd", { class: "mono small" }, (sig.writes || []).map(([t, a]) => `${t}(${Object.entries(a || {}).map(([k, v]) => `${k}=${v}`).join(", ")})`).join("; ") || "none"),
         h("dt", {}, "Category"), h("dd", {}, r.category), h("dt", {}, "Rules exercised"), h("dd", {}, h("div", { class: "chips" }, ...r.rules.map(x => h("span", { class: "chip graph" }, x))))),
-      h("p", { class: "small muted" }, `This is what the graph says the bot must do with this level and every other factor at its default${r.with ? ` (except ${r.with})` : ""}. If the policy should behave differently, the graph is wrong, not the level. The campaign pairs this level with the other factors' levels.`))];
+      h("p", { class: "small muted" }, `This is what the graph says the bot must do with this level and every other factor at its default${r.with ? ` (except ${r.with})` : ""}. If the policy should behave differently, the graph is wrong, not the level. A test run pairs this level with the other factors' levels.`))];
 }
 
 // ---------------------------------------------------------------- bank & customer
@@ -1329,15 +1527,15 @@ function bank() {
   const fx = P.fixture, cust = P.customer; fx.defaults = fx.defaults || {}; cust.answers = cust.answers || {}; cust.scripts = cust.scripts || {};
   const scripts = Object.keys(cust.scripts);
   const defaultsLevel = { fixture: fx.defaults };
-  return [head("Bank & Customer", "The mock bank every case runs against, and the simulated customer's answer at each prompt. Levels of the journey factors patch both.", h("span", { class: "src proj" }, "project.yaml")),
+  return [head("Bank and customer", "The mock bank every case runs against, and the simulated customer's answer at each prompt. Levels of the journey factors patch both.", h("span", { class: "src proj" }, "project.yaml")),
     hint("bank", "Change a default here when it should hold for every case. When it is one of the things cases should vary in, add it as a level of a journey factor instead, so the generator pairs it with everything else."),
     h("div", { class: "grid2" },
-      h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "The Mock Bank")), h("div", { class: "bd stack" },
+      h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "The mock bank")), h("div", { class: "bd stack" },
         h("div", { class: "form" }, h("label", { for: "cred" }, "Credential that authenticates"), h("input", { class: "input mono", id: "cred", value: fx.credential || "", autocomplete: "off", spellcheck: "false", oninput: e => { fx.credential = e.target.value; changed(); } })),
         h("h3", {}, "Bank defaults"), h("p", { class: "small muted" }, "Every tool succeeds unless a default here or a level says otherwise."),
         ...Object.entries(fx.defaults).map(([k, v]) => bankPatch(defaultsLevel, k, v)), h("div", {}, addBankSelect(defaultsLevel)),
         D().loop ? loopCard(D().loop) : null)),
-      h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Who Answers Each Prompt")), h("div", { class: "bd" },
+      h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Who answers each prompt")), h("div", { class: "bd" },
         table(["Prompt (graph)", "Script", "Says by default"], D().states.filter(s => s.prompts).map(s => [h("span", { class: "mono" }, s.name),
           h("select", { class: "select", style: "height:28px", "aria-label": `script for ${s.name}`, onchange: e => { cust.answers[s.name] = e.target.value; changed(); } }, h("option", { value: "" }, "—"), ...scripts.map(x => h("option", { selected: cust.answers[s.name] === x }, x))),
           h("span", { class: "mono small" }, (() => { const sc = cust.scripts[cust.answers[s.name]] || {}; return sc.per_item ? `per item: ${(sc.item_script || []).join(" · ")}` : (sc.default || "–"); })())]))))),
@@ -1354,22 +1552,22 @@ function scoring() {
       h("button", { class: "btn s ghost", "aria-label": `remove ${label} ${i + 1}`, onclick: () => { arr.splice(i, 1); changed(); render(); } }, "×"))),
     h("div", {}, h("button", { class: "btn s", onclick: () => { arr.push(placeholder); changed(); render(); } }, `+ ${label}`)));
   P.constraints = P.constraints || [];
-  return [head("Rules & Scoring", "Which combinations of levels are valid, how cases are grouped, how failures are graded, and what the release gate requires.", h("span", { class: "src proj" }, "project.yaml")),
+  return [head("Rules and scoring", "Which combinations of levels are valid, how cases are grouped, how failures are graded, and what the release gate requires.", h("span", { class: "src proj" }, "project.yaml")),
     hint("scoring", "Case rules remove combinations of levels that cannot happen. Categories group cases in the report. Severities say what each kind of failure costs, and the release gate turns that into pass or fail. The defaults suit most journeys; change them when your risk appetite differs."),
     h("div", { class: "grid2" },
-      h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Case Rules")), h("div", { class: "bd stack" },
+      h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Case rules")), h("div", { class: "bd stack" },
         h("p", { class: "small muted" }, "Every case must satisfy each rule, e.g. ", h("code", {}, ruleExample()), "."), listEditor(P.constraints, "Rule", "True"),
         h("h3", {}, "Categories (the first that applies)"), ...(P.categories || []).map(c => h("div", { class: "row" }, h("code", { style: "width:150px" }, c.name), h("input", { class: "input mono", style: "flex:1", value: c.when, "aria-label": `category ${c.name}`, spellcheck: "false", oninput: e => { c.when = e.target.value; changed(); } }))))),
-      h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Release Gate")), h("div", { class: "bd stack" },
+      h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Release gate")), h("div", { class: "bd stack" },
         ...Object.entries(ev.release_gate).map(([tier, g]) => h("div", {}, h("h3", { style: "margin-bottom:6px" }, tier.replace(/_/g, " ")),
           h("div", { class: "form" }, ...["accuracy_threshold", "max_critical", "max_high_rate", "min_within_budget"].flatMap(k => [h("label", { for: `g-${tier}-${k}` }, k.replace(/_/g, " ")),
             h("input", { class: "input num", id: `g-${tier}-${k}`, type: "number", step: "any", value: g[k] ?? "", placeholder: "none…", oninput: e => { g[k] = e.target.value === "" ? null : Number(e.target.value); changed(); } })])))))),
       policyCard(),
-      h("section", { class: "card", style: "grid-column:1/-1" }, h("div", { class: "hd" }, h("h2", {}, "Severity of Each Failure Code")), h("div", { class: "bd" },
+      h("section", { class: "card", style: "grid-column:1/-1" }, h("div", { class: "hd" }, h("h2", {}, "Severity of each failure code")), h("div", { class: "bd" },
         table(["Failure code", "Severity"], Object.entries(ev.severity).map(([k, v]) => [h("span", { class: "mono" }, k),
           h("select", { class: "select", style: "height:28px", "aria-label": `severity of ${k}`, onchange: e => { ev.severity[k] = e.target.value; changed(); } }, ...sev.map(s => h("option", { selected: s === v }, s)))]), { max: 420 })))),
     h("details", { class: "card", style: "margin-top:16px", ontoggle: async e => { if (!e.target.open) return; const pre = e.target.querySelector("pre"); pre.textContent = "Rendering…"; try { pre.textContent = (await api(`api/journey/${S.pack}/yaml`, { project: S.P })).yaml; } catch (x) { pre.textContent = x.message; } } },
-      h("summary", {}, "What Save Writes (YAML)"), h("pre", { class: "log", style: "max-height:520px;margin:0 14px 14px" }, ""))];
+      h("summary", {}, "What save writes (YAML)"), h("pre", { class: "log", style: "max-height:520px;margin:0 14px 14px" }, ""))];
 }
 
 function policyCard() {
@@ -1381,7 +1579,7 @@ function policyCard() {
   const adv = (k, label, hint) => h("label", { class: "row", style: "gap:8px;align-items:flex-start" },
     h("input", { type: "checkbox", checked: !sp.advisory.includes(k), onchange: e => { sp.advisory = e.target.checked ? sp.advisory.filter(x => x !== k) : [...sp.advisory, k]; changed(); } }),
     h("span", {}, label, h("span", { class: "small muted", style: "display:block" }, hint)));
-  return h("section", { class: "card", style: "grid-column:1/-1" }, h("div", { class: "hd" }, h("h2", {}, "Policy in What the Bot Says"), h("span", { class: "src proj" }, "speech.policy")),
+  return h("section", { class: "card", style: "grid-column:1/-1" }, h("div", { class: "hd" }, h("h2", {}, "Policy in what the bot says"), h("span", { class: "src proj" }, "speech.policy")),
     h("div", { class: "bd grid2" },
       h("div", { class: "stack", style: "gap:8px" },
         h("p", { class: "small muted" }, "Every clause the readers do not read is checked against the graph: figures against its limits and attributes, promises against its tools, policy-sounding statements against its rules, limits and knowledge lines. Invented policy, wrong figures and promises of actions the graph has no tool for always fail."),
@@ -1433,14 +1631,14 @@ function runView(r) {
   if (!devs.some(o => o.id === F.device && o.available)) F.device = "auto";
   const set = (k, v) => { F[k] = v; try { localStorage.setItem("jc.runform", JSON.stringify(F)); } catch {} };
   const chk = (k, label, hint) => h("label", { class: "row", style: "gap:8px;align-items:flex-start;min-height:28px" }, h("input", { type: "checkbox", checked: !!F[k], onchange: e => set(k, e.target.checked) }), h("span", {}, label, hint ? h("span", { class: "small muted", style: "display:block" }, hint) : null));
-  const startBtn = h("button", { class: "btn primary", type: "submit", disabled: !!active }, "Start Run");
+  const startBtn = h("button", { class: "btn primary", type: "submit", disabled: !!active }, "Start the test");
   const form = h("form", { class: "card", onsubmit: async e => { e.preventDefault(); startBtn.disabled = true; startBtn.replaceChildren(h("span", { class: "spin" }), "Starting…");
-      if (S.dirty && !(await confirmBox("Save Before Running?", "The run reads the saved project. Your unsaved edits would not be used.", "Run Without Them"))) { startBtn.disabled = false; startBtn.replaceChildren("Start Run"); return; }
+      if (S.dirty && !(await confirmBox("Save before running?", "The run reads the saved project. Your unsaved edits would not be used.", "Run without them"))) { startBtn.disabled = false; startBtn.replaceChildren("Start the test"); return; }
       try { const body = { ...F, max_cases: F.max_cases === "" ? null : Number(F.max_cases), runs_per_base: Number(F.runs_per_base) || 1, seed: Number(F.seed) || 42, sut: sutBody() };
-        if (body.sut.kind === "llm" && !(await confirmBox("Run the LLM Bot?", `Every customer turn of every case costs one to ${body.sut.max_steps + 1} gateway calls${body.sut.critique ? ", twice that with the critique layer" : ""} (${body.sut.mode === "replay" ? "replay: cached replies only, a reply that is not cached stops the run" : "live, cached for re-runs"}). Start with a few cases.`, "Start Run"))) { startBtn.disabled = false; startBtn.replaceChildren("Start Run"); return; }
+        if (body.sut.kind === "llm" && !(await confirmBox("Run the LLM bot?", `Every customer turn of every case costs one to ${body.sut.max_steps + 1} gateway calls${body.sut.critique ? ", twice that with the critique layer" : ""} (${body.sut.mode === "replay" ? "replay: cached replies only, a reply that is not cached stops the run" : "live, cached for re-runs"}). Start with a few cases.`, "Start the test"))) { startBtn.disabled = false; startBtn.replaceChildren("Start the test"); return; }
         const { id } = await api("api/runs", body); S.meta.active_run = id; gMark("ran"); toast(`Run ${id} started. You can leave this page; it keeps running.`); go(`#/run/${id}`); }
-      catch (x) { toast(x.message); startBtn.disabled = false; startBtn.replaceChildren("Start Run"); } } },
-    h("div", { class: "hd" }, h("h2", {}, "Run Settings"), h("span", { class: "small muted" }, "The run uses the saved project of the journey.")),
+      catch (x) { toast(x.message); startBtn.disabled = false; startBtn.replaceChildren("Start the test"); } } },
+    h("div", { class: "hd" }, h("h2", {}, "Run settings"), h("span", { class: "small muted" }, "The run uses the saved project of the journey.")),
     h("div", { class: "bd stack" },
       h("div", { class: "form" },
         h("label", { for: "rf-pack" }, "Journey"), h("select", { class: "input", id: "rf-pack", disabled: true }, h("option", {}, S.pack)),
@@ -1463,10 +1661,10 @@ function runView(r) {
   const pastNote = past.length ? h("p", { class: "small muted" }, "Earlier runs of this journey here: ",
       past.map(x => `${x.headline && x.headline.tested ? x.headline.tested : (x.job.max_cases || "all")} cases took ${Math.max(1, Math.round(x.elapsed / 60))} min (${x.job.device || "auto"})`).join("; "), ".")
     : h("p", { class: "small muted" }, "No earlier runs of this journey here. A first run of about 10 cases takes a few minutes on a CPU when the knowledge store is cached; building the store takes longer.");
-  const sutCard = h("section", { class: "card", style: "margin-bottom:16px", "aria-labelledby": "sut-h" }, h("div", { class: "hd" }, h("div", {}, h("h2", { id: "sut-h" }, "Bot Under Test"),
-      h("p", { class: "small muted" }, "Which bot the cases are run against. The same choice is used in the Playground.")), h("a", { class: "btn s", href: "#/play" }, "Try It in the Playground")),
+  const sutCard = h("section", { class: "card", style: "margin-bottom:16px", "aria-labelledby": "sut-h" }, h("div", { class: "hd" }, h("div", {}, h("h2", { id: "sut-h" }, "Bot under test"),
+      h("p", { class: "small muted" }, "Which bot the cases are run against. The same choice is used in the Playground.")), h("a", { class: "btn s", href: "#/play" }, "Try it in the playground")),
     h("div", { class: "bd" }, sutEditor({ id: "run", campaign: true })));
-  return [head("Run Campaign", "Build or reload the knowledge store, generate the cases from your journey factors, prove the rewording, run the bot and check everything it says. Each step shows what it produced as it finishes."),
+  return [head("Put the bot to test", "Build or reload the knowledge store, generate the cases from your journey factors, prove the rewording, run the bot and check everything it says. Each step shows what it produced as it finishes."),
     hint("run", "Start with 10 to 40 cases to see the whole pipeline, then run everything. The run is its own process: it carries on if you leave this page or close the tab, and the header shows its progress. To run another journey, open its graph in the top bar."),
     sutCard, (form.querySelector("#pastnote").append(pastNote), form)];
 }
@@ -1500,10 +1698,10 @@ function runDetailBody() {
   else detail = h("p", { class: "muted" }, st.status === "skipped" || (R.status === "finished" && !st.status) ? "This step was turned off for this run." : "This step has not started yet.");
   if (sel === "13" && R.status === "finished") detail = h("div", { class: "stack" }, h("div", { class: "notice info row", style: "justify-content:space-between" },
       h("span", {}, "The one page to judge the bot by, then every case with the policy's expected run on the left and the bot's on the right."),
-      h("span", { class: "row" }, h("a", { class: "btn s primary", href: `#/verdict/${R.id}` }, "Open the Verdict"), st.details ? h("a", { class: "btn s", href: `runs/${R.id}/verdict.html`, target: "_blank", rel: "noopener" }, "verdict.html") : null)),
+      h("span", { class: "row" }, h("a", { class: "btn s primary", href: `#/verdict/${R.id}` }, "Open the verdict"), st.details ? h("a", { class: "btn s", href: `runs/${R.id}/verdict.html`, target: "_blank", rel: "noopener" }, "verdict.html") : null)),
     st.details ? detail : h("p", { class: "muted" }, "This run finished before step 13 existed; the verdict is built from its files when you open it."));
   if (sel === "11" && R.status === "finished") detail = h("div", { class: "stack" }, h("div", { class: "notice info row", style: "justify-content:space-between" },
-      h("span", {}, "See every generated case next to its reworded versions, the bot's result on each and the coverage, as pictures."), h("a", { class: "btn s primary", href: `#/cases/${R.id}` }, "Explore Cases")), detail);
+      h("span", {}, "See every generated case next to its reworded versions, the bot's result on each and the coverage, as pictures."), h("a", { class: "btn s primary", href: `#/cases/${R.id}` }, "Explore cases")), detail);
   if (R.status === "finished") gMark("read");
   const fromList = (S.runsList || []).find(x => x.id === R.id);
   if (R.headline && fromList && fromList.headline) R.headline = Object.assign({}, fromList.headline, R.headline,
@@ -1513,11 +1711,11 @@ function runDetailBody() {
         tile(pct(R.headline.proved), "reworded cases proved"), tile(pct(R.headline.defects_caught), "planted defects caught"),
         tile(R.headline.gate ? "Passed" : "Not passed", "release gate, original"), R.headline.gate_reworded != null ? tile(R.headline.gate_reworded ? "Passed" : "Not passed", "release gate, reworded") : null) : null,
       R.headline ? meaning(R.headline) : null,
-      h("div", { class: "row" }, h("a", { class: "btn primary", href: `#/verdict/${R.id}` }, "Open the Verdict"), h("a", { class: "btn", href: `#/cases/${R.id}` }, "Explore Cases"), ...["report.html", "bot_validation.html", "case_comparison.html"].map(f => h("a", { class: "btn", href: `runs/${R.id}/${f}`, target: "_blank", rel: "noopener" }, { "report.html": "Open Report", "bot_validation.html": "Open Bot Validation", "case_comparison.html": "Open Case Comparison" }[f]))))) : null;
+      h("div", { class: "row" }, h("a", { class: "btn primary", href: `#/verdict/${R.id}` }, "Open the verdict"), h("a", { class: "btn", href: `#/cases/${R.id}` }, "Explore cases"), ...["report.html", "bot_validation.html", "case_comparison.html"].map(f => h("a", { class: "btn", href: `runs/${R.id}/${f}`, target: "_blank", rel: "noopener" }, { "report.html": "Open report", "bot_validation.html": "Open bot validation", "case_comparison.html": "Open case comparison" }[f]))))) : null;
   const err = R.error ? h("div", { class: "notice bad" }, h("strong", {}, "The run stopped with an error."), h("pre", { class: "log", style: "margin-top:8px;background:transparent" }, R.error)) : null;
   return [head(`Run ${R.id}`, `${job.pack || ""} · ${(R.headline && R.headline.bot) || botLabel(job)} · device ${job.device || "auto"} · ${job.max_cases ? job.max_cases + " cases" : "all cases"} · ${elapsed}s`,
       h("span", { class: `pill ${statusPill[0]}`, "aria-live": "polite" }, h("span", { class: "dot" }), statusPill[1]),
-      R.status === "running" || R.status === "starting" ? h("button", { class: "btn danger", onclick: async () => { if (await confirmBox("Cancel This Run?", "The campaign stops now; what it wrote so far stays in the run folder.", "Cancel Run")) { try { await api(`api/runs/${R.id}/cancel`, {}); toast("Run cancelled"); } catch (e) { toast(e.message); } } } }, "Cancel Run") : h("a", { class: "btn", href: "#/run" }, "New Run")),
+      R.status === "running" || R.status === "starting" ? h("button", { class: "btn danger", onclick: async () => { if (await confirmBox("Cancel this run?", "The test stops now; what it wrote so far stays in the run folder.", "Cancel run")) { try { await api(`api/runs/${R.id}/cancel`, {}); toast("Run cancelled"); } catch (e) { toast(e.message); } } } }, "Cancel run") : h("a", { class: "btn", href: "#/run" }, "New test run")),
     err, outputs,
     h("div", { class: "runlayout" }, steps, h("section", { class: "card", "aria-live": "polite" }, h("div", { class: "hd" }, h("div", {}, h("h2", {}, `${info[0]} · ${info[1]}`), h("p", { class: "small muted" }, info[2])),
         st.status ? h("span", { class: `pill ${st.status === "done" ? "ok" : st.status === "running" ? "run" : ""}` }, st.status) : null),
@@ -1529,9 +1727,9 @@ function meaning(H) {
   const out = [];
   const link = (href, text) => h("a", { href, target: "_blank", rel: "noopener" }, text);
   const id = S.run && S.run.id;
-  if (H.accuracy_original != null && H.accuracy_original < 1) out.push([`${pct(1 - H.accuracy_original)} of the cases failed even as scripted. `, link(`runs/${id}/bot_validation.html`, "Bot Validation"), " shows each failure turn by turn; step 8 says which stage they are charged to."]);
+  if (H.accuracy_original != null && H.accuracy_original < 1) out.push([`${pct(1 - H.accuracy_original)} of the cases failed even as scripted. `, link(`runs/${id}/bot_validation.html`, "Bot validation"), " shows each failure turn by turn; step 8 says which stage they are charged to."]);
   if (H.accuracy_original != null && H.accuracy_reworded != null && H.accuracy_original - H.accuracy_reworded > 0.2)
-    out.push([`The bot gets ${pct(H.accuracy_original)} right as scripted but ${pct(H.accuracy_reworded)} when the customer's words are reworded (with the same meaning, proved). It depends on exact wording. `, link(`runs/${id}/case_comparison.html`, "Case Comparison"), " shows the turns that changed."]);
+    out.push([`The bot gets ${pct(H.accuracy_original)} right as scripted but ${pct(H.accuracy_reworded)} when the customer's words are reworded (with the same meaning, proved). It depends on exact wording. `, link(`runs/${id}/case_comparison.html`, "Case comparison"), " shows the turns that changed."]);
   if (H.gate && H.gate_reworded === false) out.push(["The release gate passes on the scripted wording only. Judge the bot on the reworded gate if real customers will not follow the script."]);
   if (H.proved != null && H.proved < 1) out.push([`${pct(1 - H.proved)} of the reworded cases changed meaning and were left out (step 5).`]);
   if (H.defects_caught != null && H.defects_caught < 1) out.push([`${pct(1 - H.defects_caught)} of the planted defects were not caught. Step 10 lists them: some are equivalent to the correct bot, others need cases the design does not have.`]);
@@ -1585,12 +1783,12 @@ async function pollActive() {   // the header pill follows an active run from an
 
 // ---------------------------------------------------------------- runs
 function runsView() {
-  const el = h("div", {}, head("Runs", "Every campaign run on this machine, newest first."), h("div", { class: "card empty" }, "Loading runs…"));
+  const el = h("div", {}, head("Test runs", "Every test run on this machine, newest first."), h("div", { class: "card empty" }, "Loading runs…"));
   api("api/runs").then(r => {
     S.runsList = r.runs;
     const rows = r.runs.map(x => [x.id, x.job.pack, botLabel(x.job), x.job.device || "auto", x.status + (x.elapsed ? ` · ${Math.max(1, Math.round(x.elapsed / 60))} min` : ""), pct(x.headline?.accuracy_original), pct(x.headline?.accuracy_reworded), pct(x.headline?.proved), pct(x.headline?.defects_caught),
       x.headline ? `${x.headline.gate ? "passed" : "not passed"}${x.headline.gate_reworded == null ? "" : x.headline.gate_reworded ? " · reworded passed" : " · reworded not passed"}` : "–", x.files.includes("report.html") ? h("span", { class: "row", style: "flex-wrap:nowrap" }, h("a", { href: `#/verdict/${x.id}`, onclick: e => e.stopPropagation() }, "Verdict"), h("a", { href: `runs/${x.id}/report.html`, target: "_blank", rel: "noopener", onclick: e => e.stopPropagation() }, "Report")) : "–"]);
-    el.replaceChildren(head("Runs", "Every campaign run on this machine, newest first.", h("a", { class: "btn primary", href: "#/run" }, "New Run")),
+    el.replaceChildren(head("Test runs", "Every test run on this machine, newest first.", h("a", { class: "btn primary", href: "#/run" }, "New test run")),
       rows.length ? table(["Run", "Journey", "Bot", "Device", "Status", "Correct, original", "Correct, reworded", "Proved", "Defects caught", "Release gate", ""], rows, { mono: [0, 3], onclick: row => go(`#/run/${row[0]}`) })
         : h("div", { class: "card empty" }, "No runs yet. ", h("a", { href: "#/run" }, "Start one"), "."));
   }).catch(e => el.replaceChildren(h("div", { class: "notice bad" }, e.message)));
@@ -1653,21 +1851,21 @@ function sutEditor(opts = {}) {
       h("div", { class: "stack", style: "gap:4px" }, h("div", { class: "devs", role: "radiogroup", "aria-labelledby": `${opts.id}-prov-l` },
         h("label", {}, h("input", { type: "radio", name: `${opts.id}-prov`, checked: t.provider !== "local", onchange: () => { t.provider = "gateway"; t.check = null; sutSave(); paint(); } }),
           h("span", { class: "dn" }, "Model gateway"), h("span", { class: "dd" }, "Microsoft, through the network")),
-        h("label", { title: localHere ? loc.detail : "campaign runs only" }, h("input", { type: "radio", name: `${opts.id}-prov`, checked: t.provider === "local", disabled: !localHere || !loc.usable,
+        h("label", { title: localHere ? loc.detail : "test runs only" }, h("input", { type: "radio", name: `${opts.id}-prov`, checked: t.provider === "local", disabled: !localHere || !loc.usable,
             onchange: () => { t.provider = "local"; t.check = null; sutSave(); paint(); } }),
           h("span", { class: "dn" }, "Local model (vLLM)"), h("span", { class: "dd" }, loc.name ? loc.name : "not set up"))),
-        h("span", { class: "small muted" }, !localHere ? "The local model runs in campaigns only; chats here use the gateway." : loc.usable ? `Local: ${loc.path} (${loc.detail}).` : `Local model: ${loc.detail || "not set up"}.`)));
+        h("span", { class: "small muted" }, !localHere ? "The local model is for test runs only; chats here use the gateway." : loc.usable ? `Local: ${loc.path} (${loc.detail}).` : `Local model: ${loc.detail || "not set up"}.`)));
     const model = t.provider === "local" ? h("div", { class: "form" },
       h("label", {}, "Model"), h("div", { class: "row" }, h("span", { class: "chip" }, loc.path || "–"),
         h("label", { class: "small muted", for: `${opts.id}-mode` }, "Replies"), h("select", { class: "select", id: `${opts.id}-mode`, onchange: e => { t.mode = e.target.value; sutSave(); } },
           h("option", { value: "live", selected: t.mode === "live" }, "live (cached for re-runs)"), h("option", { value: "replay", selected: t.mode === "replay" }, "replay (cache only)"))),
-      h("span", {}), h("span", { class: "small muted" }, "Loaded with vLLM in the campaign's own process when the run starts (set GMSJOURNEY_VLLM_GPU_UTIL lower if the knowledge store shares the GPU). Temperature 0, so a run can be repeated exactly.")) : h("div", { class: "form" },
+      h("span", {}), h("span", { class: "small muted" }, "Loaded with vLLM in the test run's own process when the run starts (set GMSJOURNEY_VLLM_GPU_UTIL lower if the knowledge store shares the GPU). Temperature 0, so a run can be repeated exactly.")) : h("div", { class: "form" },
       h("label", { for: `${opts.id}-model` }, "Model"), h("div", { class: "row" },
         h("input", { class: "input mono", id: `${opts.id}-model`, style: "width:150px", value: t.model, placeholder: "gpt-41", autocomplete: "off", spellcheck: "false", oninput: e => { t.model = e.target.value.trim(); t.check = null; sutSave(); } }),
         h("label", { class: "small muted", for: `${opts.id}-mode` }, "Replies"), h("select", { class: "select", id: `${opts.id}-mode`, onchange: e => { t.mode = e.target.value; sutSave(); } },
           h("option", { value: "live", selected: t.mode === "live" }, "live (cached for re-runs)"), h("option", { value: "replay", selected: t.mode === "replay" }, "replay (cache only, no calls)")),
         h("button", { class: "btn s", type: "button", onclick: async e => { const b = e.currentTarget; b.disabled = true; b.replaceChildren(h("span", { class: "spin" }), "Checking…");
-          try { t.check = await api("api/llm/check", { model: t.model }); } catch (x) { t.check = { ok: false, detail: x.message }; } paint(); } }, "Check Gateway")),
+          try { t.check = await api("api/llm/check", { model: t.model }); } catch (x) { t.check = { ok: false, detail: x.message }; } paint(); } }, "Check gateway")),
       ck ? h("span", {}) : null, ck ? h("div", { class: `notice ${ck.ok ? "ok" : "bad"}`, role: "status" }, ck.ok ? `Gateway answered${ck.seconds != null ? ` in ${ck.seconds}s` : ""}: ${ck.detail}` : `Gateway not usable: ${ck.detail}`) : null,
       h("label", { for: `${opts.id}-temp` }, "Temperature"), h("div", { class: "row" },
         h("input", { class: "input num", id: `${opts.id}-temp`, type: "number", min: 0, max: 2, step: 0.1, style: "width:90px", value: t.temperature, oninput: e => { t.temperature = e.target.value; sutSave(); } }),
@@ -1689,13 +1887,13 @@ function sutEditor(opts = {}) {
     count.textContent = `${ta.value.length.toLocaleString()} characters`;
     const prompt = h("div", { class: "stack", style: "gap:6px" },
       h("div", { class: "row", style: "justify-content:space-between" }, h("div", { class: "row" }, h("label", { for: `${opts.id}-prompt`, style: "font-weight:600" }, "Prompt"), status, count),
-        h("div", { class: "row" }, edited ? h("button", { class: "btn s", type: "button", onclick: () => { t.instructions = null; sutSave(); paint(); } }, "Reset to Suggested") : null)),
+        h("div", { class: "row" }, edited ? h("button", { class: "btn s", type: "button", onclick: () => { t.instructions = null; sutSave(); paint(); } }, "Reset to suggested") : null)),
       h("p", { class: "small muted", id: `${opts.id}-prompt-help` }, "Who the bot is, how it must behave, and its operating procedure. The suggestion uses ", sg ? sg.policy_source : "the journey's policy",
         ". Edit it freely: the tools, dialog acts and reply format below are always added, because the harness needs them to run the bot and read what it says."),
       ta);
     const drop = h("div", { class: "drop", ondragover: e => { e.preventDefault(); drop.classList.add("over"); }, ondragleave: () => drop.classList.remove("over"),
         ondrop: e => { e.preventDefault(); drop.classList.remove("over"); attach([...e.dataTransfer.files]); } },
-      h("label", { class: "btn s", for: `${opts.id}-file` }, "Attach Files…"),
+      h("label", { class: "btn s", for: `${opts.id}-file` }, "Attach files…"),
       h("input", { type: "file", id: `${opts.id}-file`, multiple: true, class: "sr-only", accept: ".txt,.md,.json,.yaml,.yml,.csv,.tsv,.html,.htm,.xml,.pdf,.docx,.xlsx", onchange: e => attach([...e.target.files]) }),
       h("span", { class: "small muted" }, "or drop them here: text, Markdown, JSON, YAML, CSV, PDF, Word or Excel. Each is added after the prompt as reference material; the procedure wins where they disagree."));
     const refs = t.references.length ? h("div", { class: "chips" }, ...t.references.map(r => h("span", { class: "chip proj", title: r.note || "" }, `${r.name} · ${Number(r.chars).toLocaleString()} chars${r.truncated ? " (cut)" : ""}`,
@@ -1703,7 +1901,7 @@ function sutEditor(opts = {}) {
     const fixed = h("details", { class: "card" }, h("summary", {}, "Added by the harness (not editable)"),
       h("p", { class: "small muted", style: "margin:0 14px 8px" }, "The journey's tools with their arguments and allowed values, the transfer reasons, the dialog acts the bot labels its turns with, and the JSON reply format."),
       h("pre", { class: "fixed" }, sg ? sg.protocol : "Loading…"));
-    return [choice, provider, model, prompt, h("div", { class: "stack", style: "gap:6px" }, h("span", { style: "font-weight:600" }, "Reference Files"), drop, refs), fixed,
+    return [choice, provider, model, prompt, h("div", { class: "stack", style: "gap:6px" }, h("span", { style: "font-weight:600" }, "Reference files"), drop, refs), fixed,
       opts.campaign ? h("div", { class: "notice warn" }, "With the LLM bot, step 10 (planted defects) is skipped: it plants errors in copies of the reference bot. Everything else runs the same way.") : null];
   }
   paint();
@@ -1718,17 +1916,17 @@ function casesView(r) {
     api(`api/runs/${id}/cases`).then(I => { if (S.cx.id === id) { S.cx.I = I; render(); } }).catch(e => { if (S.cx.id === id) { S.cx.err = e.message; render(); } });
   }
   const X = S.cx;
-  const back = h("a", { class: "btn", href: `#/run/${id}?step=11` }, "Back to the Run");
+  const back = h("a", { class: "btn", href: `#/run/${id}?step=11` }, "Back to the test run");
   if (X.err) return [head("Cases", `Run ${id}`, back), h("div", { class: "notice bad" }, X.err)];
   if (!X.I) return [head("Cases", `Run ${id}`, back), h("div", { class: "card empty row", style: "justify-content:center" }, h("span", { class: "spin" }), "Reading the run's cases…")];
   const I = X.I, T = I.totals;
   const tiles = h("div", { class: "tiles", style: "margin-bottom:16px" }, tile(T.cases, "cases generated"), tile(T.reworded, "reworded versions"), tile(T.reworded ? pct(T.proved / T.reworded) : "–", "reworded proved to mean the same"),
     tile(T.tested, "cases run on the bot"), tile(pct(T.accuracy_original), "correct, original wording"), tile(pct(T.accuracy_reworded), "correct, reworded"));
-  const tabs = h("nav", { class: "tabs", "aria-label": "Case views" }, ...[["cases", "Cases and Rewording"], ["results", "Bot Results"], ["coverage", "Coverage"]]
+  const tabs = h("nav", { class: "tabs", "aria-label": "Case views" }, ...[["cases", "Cases and rewording"], ["results", "Bot results"], ["coverage", "Coverage"]]
     .map(([k, l]) => h("a", { href: `#/cases/${id}?tab=${k}`, "aria-current": tab === k ? "page" : null }, l)));
   const body = tab === "coverage" ? coverageTab(I) : tab === "results" ? resultsTab(I) : casesTab(I, r.q.get("case"));
   return [head(`Cases · Run ${id}`, `What step 3 generated and step 4 reworded, what the meaning proof kept, and how the bot (${I.run_bot || "–"}) did on each.`, back),
-    hint("cases", "Pick a case on the left: its customer turns are shown in the original words next to every reworded version, with the meaning card each was read back as. Bot Results lists every case the bot ran; Coverage shows which factor-level pairs and rules the cases reach."),
+    hint("cases", "Pick a case on the left: its customer turns are shown in the original words next to every reworded version, with the meaning card each was read back as. Bot results lists every case the bot ran; Coverage shows which factor-level pairs and rules the cases reach."),
     tiles, tabs, body];
 }
 function resDot(res, label) {
@@ -1829,8 +2027,8 @@ function resultsTab(I) {
   const rows = t.map(c => [c.id, c.category, String(c.turns), c.base_result ? (c.base_result.correct ? "correct" : "failed") : "–",
     c.reworded_results.length ? `${c.reworded_results.filter(x => x.correct).length} of ${c.reworded_results.length} correct` : "–",
     [...new Set([...(c.base_result ? c.base_result.codes : []), ...c.reworded_results.flatMap(x => x.codes)])].join(", ") || "–", `${c.end || ""}${c.transfer ? " · " + c.transfer : ""}`]);
-  return h("div", { class: "stack" }, h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Correct by Category"), h("span", { class: "small muted" }, "share of runs correct, original vs reworded wording")), h("div", { class: "bd" }, bars)),
-    h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, `Every Case Run (${t.length})`), h("span", { class: "small muted" }, "Click a row to see its turns and where the bot went wrong")),
+  return h("div", { class: "stack" }, h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Correct by category"), h("span", { class: "small muted" }, "share of runs correct, original vs reworded wording")), h("div", { class: "bd" }, bars)),
+    h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, `Every case run (${t.length})`), h("span", { class: "small muted" }, "Click a row to see its turns and where the bot went wrong")),
       h("div", { class: "bd" }, table(["Case", "Category", "Turns", "Original", "Reworded", "Failure codes", "Expected end"], rows, { mono: [0], max: 560, onclick: row => go(`#/cases/${S.cx.id}?tab=cases&case=${encodeURIComponent(row[0])}`) }))));
 }
 function coverageTab(I) {
@@ -1857,19 +2055,23 @@ function coverageTab(I) {
     h("div", { class: "tiles" }, tile(`${cov.pairs_covered ?? "–"} / ${cov.pairs_required ?? "–"}`, "factor-level pairs covered"), tile(cov.pairs_infeasible ?? "–", "pairs the graph makes impossible"),
       tile(`${(cov.rules_covered || []).length} / ${rules.length}`, "rules reached"), tile(`${(cov.triggers_covered || []).length} / ${(cov.triggers_covered || []).length + (cov.triggers_missing || []).length}`, "transfer triggers reached"),
       tile((cov.boundaries_covered || []).length, "boundary levels")),
-    h("section", { class: "card" }, h("div", { class: "hd" }, h("div", {}, h("h2", {}, "Factor-Level Pairs"), h("p", { class: "small muted" }, "How many cases combine each level of one factor with each level of another. Empty cells are pairs the graph makes impossible (or that no case needs); n/a means the factor has no effect in those cases (its decision point is never reached). Click a cell to list its cases.")),
+    h("section", { class: "card" }, h("div", { class: "hd" }, h("div", {}, h("h2", {}, "Factor-level pairs"), h("p", { class: "small muted" }, "How many cases combine each level of one factor with each level of another. Empty cells are pairs the graph makes impossible (or that no case needs); n/a means the factor has no effect in those cases (its decision point is never reached). Click a cell to list its cases.")),
         h("div", { class: "row" }, h("span", { class: "small muted" }, "Rows"), sel("A"), h("span", { class: "small muted" }, "Columns"), sel("B"))), h("div", { class: "bd" }, grid)),
     h("div", { class: "grid2" },
-      h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Rules Reached"), h("span", { class: "small muted" }, "cases per rule")), h("div", { class: "bd stack", style: "gap:8px" },
+      h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Rules reached"), h("span", { class: "small muted" }, "cases per rule")), h("div", { class: "bd stack", style: "gap:8px" },
         h("div", { class: "chips" }, ...rules.map(r => h("span", { class: `chip ${ruleCount[r] ? "graph" : "bad"}`, title: ruleCount[r] ? `${ruleCount[r]} cases reach ${r}` : `no case reaches ${r}: untested policy` }, `${r} · ${ruleCount[r] || 0}`))),
         (cov.rules_missing || []).length ? h("p", { class: "small", style: "color:var(--bad)" }, `Never reached: ${cov.rules_missing.join(", ")}. That part of the policy is untested by these cases.`) : h("p", { class: "small muted" }, "Every rule is reached by at least one case."),
-        h("h3", {}, "Transfer Triggers"), h("div", { class: "chips" }, ...(cov.triggers_covered || []).map(t => h("span", { class: "chip graph" }, t)), ...(cov.triggers_missing || []).map(t => h("span", { class: "chip bad" }, `${t} (missing)`))))),
-      h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Rewording Design"), h("span", { class: "small muted" }, "reworded versions per wording level")), h("div", { class: "bd stack", style: "gap:10px;max-height:520px;overflow:auto" },
+        h("h3", {}, "Transfer triggers"), h("div", { class: "chips" }, ...(cov.triggers_covered || []).map(t => h("span", { class: "chip graph" }, t)), ...(cov.triggers_missing || []).map(t => h("span", { class: "chip bad" }, `${t} (missing)`))))),
+      h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Rewording design"), h("span", { class: "small muted" }, "reworded versions per wording level")), h("div", { class: "bd stack", style: "gap:10px;max-height:520px;overflow:auto" },
         ...words.map(([f, v]) => h("div", { class: "stack", style: "gap:3px" }, h("span", { class: "mono", style: "font-size:12px;font-weight:600" }, f),
           ...Object.entries(v).sort((a, b) => b[1] - a[1]).map(([lvl, n]) => h("div", { class: "hbar" }, h("span", { class: "small" }, lvl), h("span", { class: "track" }, h("i", { style: `width:${100 * n / wmax}%` })), h("span", { class: "num small" }, String(n))))))))));
 }
 
 // ---------------------------------------------------------------- playground: talk to the bot under test, every turn checked
+// Pick any journey and one of its cases, then answer the bot turn by turn: stick to the journey (the case's own
+// customer answers whatever the bot asked) or talk freely. Every bot turn is validated against the graph either way,
+// and each turn shows the answer sheet for both sides: the customer's meaning in its dialog state, and the graph's hops,
+// tools and acts beside what the bot did and said. A turn that does not match is flagged as a deviation.
 function pgState() {
   if (!S.pg || S.pg.pack !== S.pack) S.pg = { pack: S.pack, source: "latest", list: null, loading: false, caseId: null, q: "", sess: null, busy: false, draft: "", err: null };
   return S.pg;
@@ -1879,17 +2081,22 @@ function playView() {
   const wrap = h("div", { id: "pg" });
   wrap.append(...playBody());
   if (!P.list && !P.loading) loadPgCases();
-  return [head("Playground", "Talk to the bot under test yourself on one case. Click the case's lines or type your own; every bot turn is checked against the graph as you go."),
-    hint("play", "Pick a case (it sets up the mock bank: what each tool returns, which ones fail) and a bot, then start. Under every bot turn: the tools it called, whether that is what the graph expects at this point, and the speech check of what it said. Checks run on the store compiled from the graph, so this needs no training and no licence."),
+  return [head("Playground", "Talk to the bot under test yourself. At every turn, stick to the journey or say anything you like; each bot turn is validated against the graph and flagged where the bot deviates."),
+    hint("play", "Choose a journey and a case (it sets up the mock bank and the customer), and a bot. Then, turn by turn, send the journey's next line or type your own. Under every turn: what the customer meant in that dialog state, what the graph does next, and what the bot did and said, with the reason when they differ. Checks run on the store compiled from the graph, so this needs no training and no licence."),
     wrap];
 }
-function paintPlay() { const el = $("#pg"); if (!el) return; const keep = document.activeElement && document.activeElement.id; el.replaceChildren(...playBody()); if (keep && document.getElementById(keep)) document.getElementById(keep).focus(); const chat = $("#chat-end"); if (chat) chat.scrollIntoView({ block: "nearest" }); }
+function paintPlay() { const el = $("#pg"); if (!el) return; const keep = document.activeElement && document.activeElement.id; el.replaceChildren(...playBody()); if (keep && document.getElementById(keep)) document.getElementById(keep).focus(); const end = $("#chat-end"); if (end && pgState().scroll) { end.scrollIntoView({ block: "nearest" }); pgState().scroll = false; } }
 async function loadPgCases() {
   const P = pgState(); P.loading = true; P.err = null; paintPlay();
   try { const r = await api(`api/play/${S.pack}/cases?source=${encodeURIComponent(P.source)}`); if (P !== pgState()) return; P.list = r; P.loading = false;
     if (!P.caseId || !r.cases.some(c => c.id === P.caseId)) P.caseId = (r.cases[0] || {}).id; }
   catch (e) { P.err = e.message; P.loading = false; }
   paintPlay();
+}
+async function pgJourney(name) {      // switch the console to another journey, staying in the playground
+  const m = S.meta.packs.find(p => p.name === name); if (!m || name === S.pack) return;
+  const ok = await openGraph(m.path, true); if (!ok) return;
+  await loadJourney(); render();
 }
 function playBody() {
   const P = pgState();
@@ -1900,103 +2107,147 @@ function playBody() {
 function playSetup() {
   const P = pgState(), L = P.list;
   const finished = (S.runsList || []).filter(x => x.job.pack === S.pack && x.status === "finished");
+  const jSel = h("select", { class: "select", id: "pg-journey", "aria-label": "Journey", onchange: e => pgJourney(e.target.value) },
+    ...S.meta.packs.map(m => h("option", { value: m.name, selected: m.name === S.pack }, `${m.title} (${m.name})`)));
   const srcSel = h("select", { class: "select", id: "pg-src", "aria-label": "Cases from", onchange: e => { P.source = e.target.value; P.list = null; P.caseId = null; loadPgCases(); } },
-    h("option", { value: "latest", selected: P.source === "latest" }, "The latest finished run"), ...finished.map(x => h("option", { value: x.id, selected: P.source === x.id }, `Run ${x.id}`)),
+    h("option", { value: "latest", selected: P.source === "latest" }, "The latest finished test run"), ...finished.map(x => h("option", { value: x.id, selected: P.source === x.id }, `Test run ${x.id}`)),
     h("option", { value: "project", selected: P.source === "project" }, "The project: default and one per factor level"));
   const q = P.q.trim().toLowerCase();
   const shown = L.cases.filter(c => !q || `${c.id} ${c.label} ${c.category}`.toLowerCase().includes(q));
   const cur = L.cases.find(c => c.id === P.caseId);
-  const list = h("div", { class: "items", style: "max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:8px" }, ...shown.slice(0, 400).map(c => h("button", { class: "ci", type: "button", "aria-current": c.id === P.caseId ? "true" : "false", onclick: () => { P.caseId = c.id; paintPlay(); } },
+  const list = h("div", { class: "items", style: "max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:9px" }, ...shown.slice(0, 400).map(c => h("button", { class: "ci", type: "button", "aria-current": c.id === P.caseId ? "true" : "false", onclick: () => { P.caseId = c.id; paintPlay(); } },
     h("span", { class: "id" }, c.id, h("span", { class: "muted", style: "font-weight:400" }, ` · ${c.category}`)), h("span", { class: "small muted num" }, `${c.turns} turn${c.turns === 1 ? "" : "s"}`),
     h("span", { class: "sub" }, c.label), h("span", { class: "sub" }, `ends ${c.expected.end}${c.expected.transfer_reason ? " (" + c.expected.transfer_reason + ")" : ""}`))));
   const nonDefault = cur ? Object.entries(cur.levels || {}).filter(([k, v]) => {
     const f = (S.P.factors || []).find(x => x.name === k); return f && String(f.default) !== String(v); }) : [];
-  const summary = cur ? h("div", { class: "stack", style: "gap:6px" }, h("h3", {}, `${cur.id}: what the graph expects`),
+  const summary = cur ? h("div", { class: "stack", style: "gap:6px" }, h("h3", {}, `The journey of ${cur.id}`),
     h("p", { class: "small" }, `${cur.turns} customer turns; ends ${cur.expected.end}${cur.expected.transfer_reason ? ", transfer for " + cur.expected.transfer_reason : ""}; ${(cur.expected.writes || []).length} write${(cur.expected.writes || []).length === 1 ? "" : "s"}; ${cur.rules.length} rules.`),
     nonDefault.length ? h("div", { class: "chips" }, ...nonDefault.map(([k, v]) => h("span", { class: "chip proj" }, `${k}=${v}`))) : h("p", { class: "small muted" }, "Every factor at its default level."),
-    h("p", { class: "small muted" }, `Lines offered: the scripted words of each turn${cur.lines.some(l => l.reworded.length) ? " and the reworded versions the run proved" : ""}.`)) : null;
-  const startBtn = h("button", { class: "btn primary", disabled: !cur || P.busy, onclick: () => startPlay() }, P.busy ? [h("span", { class: "spin" }), "Starting…"] : "Start Conversation");
+    h("ol", { class: "small jlines" }, ...cur.lines.map(l => h("li", {}, h("span", { class: "mono muted" }, l.state), " ", l.text)))) : null;
+  const startBtn = h("button", { class: "btn primary", disabled: !cur || P.busy, onclick: () => startPlay() }, P.busy ? [h("span", { class: "spin" }), "Starting…"] : "Start the conversation");
   return [h("div", { class: "pg-set" },
-    h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "1. Case"), h("span", { class: "small muted num" }, `${L.cases.length} cases`)),
-      h("div", { class: "bd stack", style: "gap:10px" }, h("div", { class: "form" }, h("label", { for: "pg-src" }, "Cases from"), srcSel),
-        L.source !== "project" ? h("p", { class: "small muted" }, `From run ${L.source}: each case rebuilt exactly as that run generated it${L.dropped ? `; ${L.dropped} could not be rebuilt with the current project and are left out` : ""}.`) : h("p", { class: "small muted" }, "No finished run of this journey (or you chose the project): the default case and one case per factor level."),
-        h("input", { type: "search", class: "input", placeholder: "Filter cases…", value: P.q, "aria-label": "Filter playground cases", oninput: e => { P.q = e.target.value; const pos = e.target.selectionStart; paintPlay(); const el = document.querySelector('input[aria-label="Filter playground cases"]'); if (el) { el.focus(); el.setSelectionRange(pos, pos); } } }),
-        list, summary)),
-    h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "2. Bot")), h("div", { class: "bd stack", style: "gap:12px" }, sutEditor({ id: "pg" }),
+    h("div", { class: "stack" },
+      h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Journey")),
+        h("div", { class: "bd stack", style: "gap:8px" }, jSel, h("p", { class: "small muted" }, "Any journey of the console. Switching here also switches the journey in the top bar."))),
+      h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Case"), h("span", { class: "small muted num" }, `${L.cases.length} cases`)),
+        h("div", { class: "bd stack", style: "gap:10px" }, h("div", { class: "form" }, h("label", { for: "pg-src" }, "Cases from"), srcSel),
+          L.source !== "project" ? h("p", { class: "small muted" }, `From test run ${L.source}: each case rebuilt exactly as that run generated it${L.dropped ? `; ${L.dropped} could not be rebuilt with the current project and are left out` : ""}.`) : h("p", { class: "small muted" }, "No finished test run of this journey (or you chose the project): the default case and one case per factor level."),
+          h("input", { type: "search", class: "input", placeholder: "Filter cases", value: P.q, "aria-label": "Filter playground cases", oninput: e => { P.q = e.target.value; const pos = e.target.selectionStart; paintPlay(); const el = document.querySelector('input[aria-label="Filter playground cases"]'); if (el) { el.focus(); el.setSelectionRange(pos, pos); } } }),
+          list, summary))),
+    h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Bot")), h("div", { class: "bd stack", style: "gap:12px" }, sutEditor({ id: "pg" }),
       h("div", { class: "row", style: "justify-content:flex-end" }, startBtn))))];
 }
 async function startPlay() {
   const P = pgState(); P.busy = true; paintPlay();
-  try { P.sess = await api(`api/play/${S.pack}/start`, { source: P.list.source, case: P.caseId, sut: sutBody() }); P.draft = ""; }
+  try { P.sess = await api(`api/play/${S.pack}/start`, { source: P.list.source, case: P.caseId, sut: sutBody() }); P.draft = ""; P.open = {}; gMark("played"); }
   catch (e) { toast(e.message); }
   P.busy = false; paintPlay();
 }
-async function sayPlay(text) {
+async function sayPlay(mode, text) {
   const P = pgState(); if (!P.sess || P.busy) return;
-  text = String(text || "").trim(); if (!text) { toast("Type what the customer says, or use a line."); return; }
-  P.busy = true; P.pending = text; P.draft = ""; paintPlay();
-  try { const r = await api(`api/play/s/${P.sess.id}/say`, { text }); P.sess = r; }
-  catch (e) { toast(e.message); P.draft = text; }
-  P.busy = false; P.pending = null; paintPlay();
-  const ta = $("#pg-say"); if (ta) ta.focus();
+  text = String(text || "").trim();
+  if (mode === "free" && !text) { toast("Type what the customer says, or stick to the journey."); return; }
+  P.busy = true; P.pending = mode === "journey" ? (P.sess.journey_line || {}).text : text; P.pendingMode = mode; if (mode === "free") P.draft = ""; P.scroll = true; paintPlay();
+  try { const r = await api(`api/play/s/${P.sess.id}/say`, { mode, text }); P.sess = r; }
+  catch (e) { toast(e.message); if (mode === "free") P.draft = text; }
+  P.busy = false; P.pending = null; P.scroll = true; paintPlay();
+  const ta = $("#pg-say"); if (ta && mode === "free") ta.focus();
 }
-function verdictBox(t) {
-  const sp = t.speech;
-  const matchRow = t.customer === null && !t.expected.acts.length ? null : h("div", { class: "r" }, h("span", { class: "lbl" }, "The graph"),
-    t.match ? h("span", {}, h("span", { class: "mark ok" }, "✓ Matches. "), "Same tools and the same decisions the graph makes here.")
-      : h("div", { class: "stack", style: "gap:4px" }, h("span", {}, h("span", { class: t.after_divergence ? "mark warn" : "mark bad" }, t.after_divergence ? "After the first difference. " : "✗ Differs. "),
-          t.after_divergence ? "The conversations may differ from here on; shown for reference." : (t.tools_match ? "The tools are right; the decisions differ." : "The tool calls differ.")),
-        h("span", { class: "small" }, h("b", {}, "Expected: "), [...t.expected.tools, ...t.expected.acts].join(" ; ") || "nothing (the graph's conversation has ended)")));
-  const tools = h("div", { class: "r" }, h("span", { class: "lbl" }, "Tools called"), t.tools.length ? h("div", { class: "chips" }, ...t.tools.map(x => h("span", { class: `chip ${x.ok === false || /UNAVAILABLE|FAILED|unavailable|error/i.test(String(x.status)) ? "bad" : "graph"}` }, x.text))) : h("span", { class: "muted" }, "none"));
-  const acts = h("div", { class: "r" }, h("span", { class: "lbl" }, "Acts labelled"), h("div", { class: "chips" }, ...t.bot.acts.map(a => h("span", { class: "chip" }, a))));
-  let speech = null;
-  if (sp) {
-    const bad = sp.claims.filter(c => c.status === "contradicted" || c.status === "unsupported");
-    const finds = sp.findings.filter(f => !f.advisory && !f.flow);
-    const adv = sp.findings.filter(f => f.advisory);
-    speech = h("div", { class: "r" }, h("span", { class: "lbl" }, "What it said"), h("div", { class: "stack", style: "gap:4px" },
-      h("span", {}, h("span", { class: `mark ${sp.ok ? "ok" : "bad"}` }, sp.ok ? "✓ Checks out. " : "✗ Problems. "), `${sp.claims.length} claim${sp.claims.length === 1 ? "" : "s"} checked${sp.flow_ok ? "" : "; an act the dialog graph does not allow here"}.`),
-      bad.length || finds.length ? h("ul", {}, ...bad.map(c => h("li", {}, h("b", {}, c.status), ` ${c.field}: “${c.words}”`, c.truth != null ? ` (the truth: ${Array.isArray(c.truth) ? c.truth.join(", ") : c.truth})` : "", c.why ? ` · ${c.why}` : "")),
-        ...finds.map(f => h("li", {}, h("b", {}, f.kind), ` ${f.act}: ${f.detail}`))) : null,
-      adv.length ? h("details", {}, h("summary", { style: "padding:0;font-weight:500;font-size:12px" }, `${adv.length} advisory note${adv.length > 1 ? "s" : ""} (not failures)`), h("ul", { class: "small muted" }, ...adv.map(f => h("li", {}, `${f.kind} ${f.act}: ${f.detail}`)))) : null));
-  }
-  const crit = (t.critique || []).length ? h("details", { class: "small crit" }, h("summary", {}, `The critique layer corrected ${t.critique.length} step${t.critique.length === 1 ? "" : "s"} in this turn`),
-    ...t.critique.map(c => h("div", { class: "crit-row" }, h("div", {}, c.reason || "corrected"), h("div", { class: "mono" }, "proposed: ", JSON.stringify(c.before)), h("div", { class: "mono" }, "carried out: ", JSON.stringify(c.after))))) : null;
-  return h("div", { class: "verdict", role: "group", "aria-label": `Checks of bot turn ${t.n}` }, tools, acts, matchRow, speech, crit);
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+function sheetState(st) {     // the dialog state the customer answered, as the answer sheet shows it
+  if (!st) return null;
+  return h("dl", { class: "kv sheet-kv" },
+    h("dt", {}, "Dialog state"), h("dd", {}, h("span", { class: "chip graph" }, st.state), st.stage ? h("span", { class: "small muted" }, ` stage ${st.stage}`) : null),
+    st.accepts.length ? [h("dt", {}, "Accepts"), h("dd", {}, h("div", { class: "chips" }, ...st.accepts.map(a => h("span", { class: "chip" }, a))))] : null,
+    st.yes_means || st.no_means ? [h("dt", {}, "Bare yes / no"), h("dd", { class: "small" }, `yes means ${st.yes_means || "–"}, no means ${st.no_means || "–"}`)] : null,
+    st.rules.length ? [h("dt", {}, "Rules"), h("dd", {}, h("ul", { class: "small rl" }, ...st.rules.map(r => h("li", {}, h("b", { class: "mono" }, r.id), " ", r.text))))] : null,
+    st.limits.length ? [h("dt", {}, "Limits"), h("dd", { class: "small mono" }, st.limits.map(l => `${l.key} = ${l.value}`).join("; "))] : null);
+}
+function sheetHops(hops, tools) {      // the graph's transitions in this turn, as the answer sheet shows them
+  if (!hops || !hops.length) return h("p", { class: "small muted" }, "The graph takes no transition here (its conversation has ended).");
+  return h("div", { class: "stack", style: "gap:6px" },
+    tools && tools.length ? h("div", { class: "small" }, h("span", { class: "muted" }, "Tool calls the graph makes, with the mock bank's results: "), h("span", { class: "mono" }, tools.join("; "))) : null,
+    h("div", { class: "tw", style: "max-height:none" }, h("table", { class: "hops" },
+      h("thead", {}, h("tr", {}, ...["State before", "Trigger", "Condition", "State after", "Rules", "Graph triple"].map(c => h("th", { scope: "col" }, c)))),
+      h("tbody", {}, ...hops.map(x => h("tr", {},
+        h("td", { class: "mono" }, x.from), h("td", { class: "mono" }, x.trigger || ""), h("td", { class: "small" }, x.condition || "–"), h("td", { class: "mono" }, x.to),
+        h("td", { class: "small" }, ...(x.rules.length ? x.rules.map(r => h("div", {}, h("b", { class: "mono" }, r.id), " ", r.text)) : ["–"])),
+        h("td", { class: "small mono", title: x.evidence || "" }, x.triple || "–", x.source ? h("div", { class: "muted" }, x.source) : null)))))));
+}
+function speechBlock(sp) {
+  if (!sp) return null;
+  const bad = sp.claims.filter(c => c.status === "contradicted" || c.status === "unsupported");
+  const finds = sp.findings.filter(f => !f.advisory && !f.flow);
+  const adv = sp.findings.filter(f => f.advisory);
+  return h("div", { class: "stack", style: "gap:4px" },
+    h("span", { class: "small" }, h("span", { class: `mark ${sp.ok ? "ok" : "bad"}` }, sp.ok ? "Words check out. " : "Problems in the words. "), `${plural(sp.claims.length, "claim")} checked${sp.flow_ok ? "" : "; an act the dialog graph does not allow here"}.`),
+    sp.claims.length ? h("ul", { class: "small rl" }, ...sp.claims.map(c => h("li", {}, h("span", { class: `mark ${c.status === "supported" ? "ok" : c.status === "unverifiable" ? "" : "bad"}` }, c.status), ` ${c.field}: “${c.words}”`, c.truth != null ? ` (truth: ${Array.isArray(c.truth) ? c.truth.join(", ") : c.truth})` : "", c.basis ? h("span", { class: "muted" }, ` · from ${c.basis}`) : ""))) : null,
+    finds.length ? h("ul", { class: "small rl" }, ...finds.map(f => h("li", {}, h("b", {}, f.kind), ` ${f.act}: ${f.detail}`))) : null,
+    adv.length ? h("details", {}, h("summary", { style: "padding:0;font-weight:500;font-size:12px" }, `${plural(adv.length, "advisory note")} (not failures)`), h("ul", { class: "small muted" }, ...adv.map(f => h("li", {}, `${f.kind} ${f.act}: ${f.detail}`)))) : null);
+}
+function exchange(t, Ses) {
+  const P = pgState(), c = t.customer, key = String(t.n), open = !!(P.open || {})[key];
+  const status = t.deviated ? (t.first_deviation ? "first" : "dev") : "ok";
+  const badge = h("span", { class: `xbadge ${status}` }, status === "ok" ? "On the journey" : status === "first" ? "Bot deviated here" : "Still off the journey");
+  const custSide = c ? h("div", { class: "xside cust" },
+      h("div", { class: "xlbl" }, "Customer", h("span", { class: `mode ${c.mode}` }, c.mode === "journey" ? "stuck to the journey" : "talked freely")),
+      h("div", { class: "said" }, `“${c.text}”`),
+      h("div", { class: "small" }, "Means ", h("span", { class: "chip proj" }, cardText(c.card)), c.state ? h("span", { class: "muted" }, ` at ${c.state}`) : null),
+      c.admissible === false ? h("div", { class: "small mark warn" }, `The state does not accept this meaning${c.why_not ? ": " + c.why_not : ""}. The graph handles it as it would any unexpected answer.`) : null,
+      c.journey_would_say ? h("div", { class: "small muted" }, c.journey_would_say.same_meaning ? "Same meaning as the journey's line: " : "The journey's customer would have said: ", `“${c.journey_would_say.text}”`, c.journey_would_say.same_meaning ? "" : ` (${c.journey_would_say.read})`) : null)
+    : h("div", { class: "xside cust" }, h("div", { class: "xlbl" }, "Customer"), h("div", { class: "small muted" }, "The bot opens the call."));
+  const botSide = h("div", { class: "xside bot" },
+    h("div", { class: "xlbl" }, Ses.bot === "llm" ? "Agent (LLM bot)" : "Agent (reference bot)"),
+    h("div", { class: "said" }, t.bot.text ? `“${t.bot.text}”` : h("i", { class: "muted" }, "(said nothing)")),
+    h("div", { class: "cmp2" },
+      h("div", {}, h("div", { class: "k" }, "The graph expects"), h("div", { class: "chips" }, ...[...t.expected.tools.map(x => h("span", { class: "chip graph" }, x)), ...t.expected.acts.map(a => h("span", { class: "chip graph" }, a))]),
+        !t.expected.tools.length && !t.expected.acts.length ? h("span", { class: "small muted" }, "nothing (its conversation has ended)") : null),
+      h("div", {}, h("div", { class: "k" }, "The bot did"), h("div", { class: "chips" }, ...[...t.tools.map(x => h("span", { class: `chip ${x.ok === false || /UNAVAILABLE|FAILED|unavailable|error/i.test(String(x.status)) ? "bad" : ""}` }, x.text)), ...t.bot.acts.map(a => h("span", { class: "chip" }, a))]))));
+  const why = t.why && t.why.length ? h("ul", { class: "xwhy" }, ...t.why.map(w => h("li", {}, w))) : null;
+  const crit = (t.critique || []).length ? h("details", { class: "small crit" }, h("summary", {}, `The critique layer corrected ${plural(t.critique.length, "step")} in this turn`),
+    ...t.critique.map(x => h("div", { class: "crit-row" }, h("div", {}, x.reason || "corrected"), h("div", { class: "mono" }, "proposed: ", JSON.stringify(x.before)), h("div", { class: "mono" }, "carried out: ", JSON.stringify(x.after))))) : null;
+  const sheet = h("details", { class: "xsheet", open: open, ontoggle: e => { (P.open = P.open || {})[key] = e.target.open; } },
+    h("summary", {}, "Answer sheet for this turn"),
+    h("div", { class: "xgrid" },
+      h("div", { class: "stack", style: "gap:10px" }, h("h3", {}, "Customer side"),
+        c ? [sheetState(t.sheet && t.sheet.state), h("dl", { class: "kv sheet-kv" }, h("dt", {}, "Read as"), h("dd", { class: "mono small" }, c.read),
+          h("dt", {}, "As triples"), h("dd", {}, h("div", { class: "mono small" }, ...(c.triples || []).map(x => h("div", {}, `(${x.join(", ")})`)))))] : h("p", { class: "small muted" }, "No customer turn: the call opens.")),
+      h("div", { class: "stack", style: "gap:10px" }, h("h3", {}, "Agent side"), sheetHops(t.sheet && t.sheet.hops, t.expected.tools), speechBlock(t.speech))));
+  return h("article", { class: `xturn ${status}`, id: `turn-${t.n}`, "aria-label": `Turn ${t.n}` },
+    h("div", { class: "xhd" }, h("span", { class: "n" }, t.n === 0 ? "Opening" : `Turn ${t.n}`), c && c.state ? h("span", { class: "mono small muted" }, c.state) : null, badge),
+    h("div", { class: "xgrid" }, custSide, botSide), why, crit, sheet);
 }
 function playChat() {
   const P = pgState(), Ses = P.sess;
-  const caseL = (P.list.cases || []).find(c => c.id === Ses.case) || { lines: [] };
-  const msgs = [];
-  for (const t of Ses.turns) {
-    if (t.customer) msgs.push(h("div", { class: "msg cust" }, h("div", { class: "who" }, "You (customer)"), t.customer.text, h("div", { class: "read" }, `read as ${cardText(t.customer.card)}${t.customer.state ? " at " + t.customer.state : ""}`)));
-    msgs.push(h("div", { class: "msg bot" }, h("div", { class: "who" }, Ses.bot === "llm" ? "LLM bot" : "Reference bot"), t.bot.text || h("i", { class: "muted" }, "(said nothing)")));
-    msgs.push(verdictBox(t));
-  }
-  if (P.pending) { msgs.push(h("div", { class: "msg cust" }, h("div", { class: "who" }, "You (customer)"), P.pending)); msgs.push(h("div", { class: "typing" }, h("span", { class: "spin" }), Ses.bot === "llm" ? "The LLM bot is working (each tool call is a gateway call)…" : "The bot is replying…")); }
-  if (Ses.ended) msgs.push(h("div", { class: "notice info", style: "justify-self:stretch" }, h("b", {}, "The bot ended the call. "), Ses.diverged_at == null ? "Every turn matched what the graph expects." : `The first turn that differed from the graph: bot turn ${Ses.diverged_at}.`));
-  msgs.push(h("span", { id: "chat-end" }));
-  const used = Ses.turns.filter(t => t.customer).length;
-  const next = Ses.next_line != null ? caseL.lines[Ses.next_line] : null;
-  const ta = h("textarea", { class: "input", id: "pg-say", rows: 2, placeholder: Ses.ended ? "The call has ended. Start a new conversation." : "Type what the customer says… (Enter sends, Shift+Enter for a new line)", disabled: Ses.ended || P.busy, "aria-label": "What the customer says",
-    oninput: e => { P.draft = e.target.value; }, onkeydown: e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sayPlay(e.target.value); } } });
+  const items = Ses.turns.map(t => exchange(t, Ses));
+  if (P.pending != null) items.push(h("div", { class: "typing" }, h("span", { class: "spin" }), P.pendingMode === "journey" ? `Sending the journey's line${P.pending ? `: “${P.pending}”` : ""}…` : `Sending “${P.pending}”…`, Ses.bot === "llm" ? " The LLM bot is working (each tool call is a gateway call)." : ""));
+  if (Ses.ended) items.push(h("div", { class: `notice ${Ses.deviations.length ? "bad" : "ok"}` }, h("b", {}, "The call has ended. "), Ses.deviations.length ? `The bot deviated from the graph at ${plural(Ses.deviations.length, "turn")}: ${Ses.deviations.map(n => n === 0 ? "the opening" : n).join(", ")}.` : "Every turn matched what the graph expects."));
+  items.push(h("span", { id: "chat-end" }));
+  const jl = Ses.journey_line;
+  const ta = h("textarea", { class: "input", id: "pg-say", rows: 2, placeholder: "Type anything the customer might say (Enter sends, Shift+Enter for a new line)", disabled: Ses.ended || P.busy, "aria-label": "What the customer says",
+    oninput: e => { P.draft = e.target.value; }, onkeydown: e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sayPlay("free", e.target.value); } } });
   ta.value = P.draft || "";
-  const composer = h("div", { class: "composer" },
-    next && !Ses.ended ? h("div", { class: "row small" }, h("span", { class: "muted" }, `Next scripted line (turn ${next.turn}, ${next.state}):`), h("span", {}, `“${next.text}”`), h("button", { class: "btn s", disabled: P.busy, onclick: () => sayPlay(next.text) }, "Send It")) : null,
-    h("div", { class: "row", style: "align-items:flex-end;flex-wrap:nowrap" }, ta, h("button", { class: "btn primary", disabled: Ses.ended || P.busy, onclick: () => sayPlay(ta.value) }, "Send")));
-  const chat = h("section", { class: "card", "aria-label": "Conversation" }, h("div", { class: "hd" }, h("div", {}, h("h2", {}, `${Ses.case}: ${Ses.case_label}`), h("p", { class: "small muted" }, `${Ses.bot_name} · ${Ses.turns.length} bot turns`)),
-      h("div", { class: "row" }, h("button", { class: "btn s", onclick: () => { const blob = new Blob([JSON.stringify(Ses, null, 1)], { type: "application/json" }); const a = h("a", { href: URL.createObjectURL(blob), download: `playground-${Ses.case}-${Ses.id}.json` }); document.body.append(a); a.click(); a.remove(); } }, "Download Transcript"),
-        h("button", { class: "btn s", onclick: () => startPlay() }, "Restart"), h("button", { class: "btn s primary", onclick: () => { P.sess = null; paintPlay(); } }, "New Conversation"))),
-    h("div", { class: "chat", "aria-live": "polite" }, ...msgs), composer);
-  const lines = h("aside", { class: "card", "aria-label": "The case's customer lines" }, h("div", { class: "hd" }, h("h2", {}, "Case Lines"), h("span", { class: "small muted" }, "click to send")),
-    h("div", { class: "lines" }, ...caseL.lines.map((l, i) => h("div", { class: `line ${next && i === next.turn ? "next" : ""} ${i < used ? "used" : ""}` },
-      h("span", { class: "st" }, `turn ${l.turn} · ${l.state} · ${cardText(l.card)}`), h("span", {}, l.text),
-      h("button", { class: "btn s use", disabled: Ses.ended || P.busy, onclick: () => sayPlay(l.text) }, "Send"),
-      ...l.reworded.slice(0, 3).map(rw => h("div", { class: "stack", style: "gap:2px;border-top:1px dashed var(--line);padding-top:6px" }, h("span", { class: "st" }, `reworded (${rw.case}, proved)`), h("span", {}, rw.text),
-        h("button", { class: "btn s use", disabled: Ses.ended || P.busy, onclick: () => sayPlay(rw.text) }, "Send Reworded")))))));
-  return [h("div", { class: "pg" }, chat, lines)];
+  const composer = Ses.ended ? h("div", { class: "compose2 ended" }, h("p", { class: "muted" }, "The call has ended."), h("button", { class: "btn", onclick: () => startPlay() }, "Restart this case"), h("button", { class: "btn primary", onclick: () => { P.sess = null; paintPlay(); } }, "New conversation"))
+    : h("div", { class: "compose2", role: "group", "aria-label": "How the customer answers" },
+      h("div", { class: "opt journey" }, h("div", { class: "ot" }, "Stick to the journey"),
+        jl ? [h("div", { class: "line-q" }, `“${jl.text}”`), h("div", { class: "small muted mono" }, jl.read),
+          h("button", { class: "btn primary", disabled: P.busy, onclick: () => sayPlay("journey") }, "Send the journey's line")]
+          : h("p", { class: "small muted" }, "The journey's customer has nothing to say here; the call should be ending. Talk freely to keep going.")),
+      h("div", { class: "opt free" }, h("div", { class: "ot" }, "Talk freely"), ta,
+        h("button", { class: "btn", disabled: P.busy, onclick: () => sayPlay("free", ta.value) }, "Send what I typed")));
+  const devs = Ses.deviations || [];
+  const side = h("aside", { class: "card pgside", "aria-label": "This conversation" },
+    h("div", { class: "hd" }, h("h2", {}, Ses.case), h("span", { class: "small muted" }, Ses.pack)),
+    h("div", { class: "bd stack", style: "gap:12px" },
+      h("p", { class: "small" }, Ses.case_label),
+      h("p", { class: "small muted" }, `${Ses.bot_name}. ${plural(Ses.turns.length, "bot turn")} so far.`),
+      h("div", {}, h("div", { class: "k small muted" }, "Validation"), devs.length
+        ? h("ul", { class: "devlist" }, ...devs.map(n => h("li", {}, h("a", { href: `#/play`, onclick: e => { e.preventDefault(); const el = document.getElementById(`turn-${n}`); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); } }, n === 0 ? "Opening" : `Turn ${n}`), n === Ses.diverged_at ? " (first deviation)" : "")))
+        : h("p", { class: "small mark ok" }, "No deviation so far")),
+      h("div", { class: "row" }, h("button", { class: "btn s", onclick: () => { const blob = new Blob([JSON.stringify(Ses, null, 1)], { type: "application/json" }); const a = h("a", { href: URL.createObjectURL(blob), download: `playground-${Ses.case}-${Ses.id}.json` }); document.body.append(a); a.click(); a.remove(); } }, "Download transcript"),
+        h("button", { class: "btn s", onclick: () => startPlay() }, "Restart"), h("button", { class: "btn s", onclick: () => { P.sess = null; paintPlay(); } }, "New conversation"))));
+  return [h("div", { class: "pg" }, h("div", { class: "stack", style: "gap:12px" }, h("div", { class: "xlist", "aria-live": "polite" }, ...items), composer), side)];
 }
-
 // ---------------------------------------------------------------- the one-page verdict: is the bot ready, the risks, the fingerprint, case by case
 function verdictView(r) {
   const id = r.arg;
@@ -2006,8 +2257,8 @@ function verdictView(r) {
       .catch(e => { if (S.vd.id === id) { S.vd.err = e.message; render(); } });
   }
   const X = S.vd;
-  const acts = h("div", { class: "row no-print" }, h("button", { class: "btn primary", onclick: () => window.print() }, "Print or Save as PDF"),
-    h("a", { class: "btn", href: `#/cases/${id}` }, "Explore Cases"), h("a", { class: "btn", href: `#/run/${id}` }, "Back to the Run"));
+  const acts = h("div", { class: "row no-print" }, h("button", { class: "btn primary", onclick: () => window.print() }, "Print or save as PDF"),
+    h("a", { class: "btn", href: `#/cases/${id}` }, "Explore cases"), h("a", { class: "btn", href: `#/run/${id}` }, "Back to the test run"));
   if (X.err) return [head("Verdict", `Run ${id}`, acts), h("div", { class: "notice bad" }, X.err)];
   if (!X.V) return [head("Verdict", `Run ${id}`, acts), h("div", { class: "card empty row", style: "justify-content:center" }, h("span", { class: "spin" }), "Reading the run…")];
   const V = X.V, N = V.numbers, F = V.fingerprint;
@@ -2032,8 +2283,8 @@ function verdictView(r) {
   const page1 = h("section", { class: "card vpage" }, h("div", { class: "bd stack" },
     h("div", { class: "row", style: "justify-content:space-between" }, h("div", {}, h("div", { class: "small muted" }, "Verdict"), h("h2", { style: "font-size:20px" }, `${F.journey} · ${F.bot || ""}`)), h("span", { class: "small muted mono" }, F.run)),
     banner, nums,
-    h("div", { class: "stack", style: "gap:6px" }, h("h3", {}, "Top Risks"), h("p", { class: "small muted" }, "What went wrong most seriously and most often, each with a case to look at."), risks),
-    h("div", { class: "stack", style: "gap:6px" }, h("h3", {}, "How to Reproduce It"), h("p", { class: "small muted" }, "The same journey, graph, code, bot and settings give the same cases and the same verdict."), fp)));
+    h("div", { class: "stack", style: "gap:6px" }, h("h3", {}, "Top risks"), h("p", { class: "small muted" }, "What went wrong most seriously and most often, each with a case to look at."), risks),
+    h("div", { class: "stack", style: "gap:6px" }, h("h3", {}, "How to reproduce it"), h("p", { class: "small muted" }, "The same journey, graph, code, bot and settings give the same cases and the same verdict."), fp)));
   const shown = V.cases.filter(c => X.show === "all" || (X.show === "failed" ? !c.correct : c.correct));
   const filt = h("div", { class: "row no-print" }, ...[["failed", `Failed (${V.cases.filter(c => !c.correct).length})`], ["passed", `Passed (${V.cases.filter(c => c.correct).length})`], ["all", `All (${V.cases.length})`]]
     .map(([k, l]) => h("button", { class: "chip", type: "button", "aria-pressed": X.show === k ? "true" : "false", onclick: () => { X.show = k; paintVerdict(); } }, l)));

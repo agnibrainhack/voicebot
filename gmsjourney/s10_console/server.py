@@ -17,7 +17,7 @@
     GET  /api/play/<pack>/cases?source=S    the playground's cases: "latest" run, a run id, or "project"
     POST /api/play/<pack>/start             a conversation (body: {source, case, sut})
     GET  /api/play/s/<sid>                  a conversation so far
-    POST /api/play/s/<sid>/say              the customer's next turn (body: {text})
+    POST /api/play/s/<sid>/say              the customer's next turn (body: {mode: "journey" or "free", text})
     POST /api/graph/open                    open a graph by path: its journey, or a new journey made from it (body: {path})
     GET  /api/graph/<pack>/sections         the graph section by section, and its core segments (graphs.py)
     GET  /api/graph/<pack>/edit             the graph's own entries, for the editor
@@ -258,7 +258,7 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                     from . import bots as PG
                     sess = PG.get(parts[3])
                     with _on(sess.pack):
-                        turn = sess.say(str(body.get("text") or ""))
+                        turn = sess.say(str(body.get("text") or ""), str(body.get("mode") or "free"))
                         return self._json({"turn": turn, **sess.view()})
                 if parts == ["api", "runs"]:
                     if not body.get("pack"):
