@@ -53,7 +53,7 @@ customer:
   questions: {script: present_txn, position: start}
 factors:
 - name: authenticate_customer
-  about: authenticate_customer | Before account-specific servicing | AUTHENTICATED / FAILED | Continue only on AUTHENTICATED.
+  about: "what authenticate_customer returns (before account-specific servicing: AUTHENTICATED / FAILED)"
   default: ok
   anchor: {tool: authenticate_customer}
   relevant_when: reached
@@ -70,8 +70,7 @@ factors:
       fixture:
         tool:authenticate_customer: [UNAVAILABLE]
 - name: get_review_transactions
-  about: get_review_transactions | After authentication | transaction_id, merchant, amount, date | Read only returned data;
-    review one at a time.
+  about: "what get_review_transactions returns (after authentication: transaction_id, merchant, amount, date)"
   default: ok
   anchor: {tool: get_review_transactions}
   relevant_when: reached
@@ -84,8 +83,7 @@ factors:
       fixture:
         tool:get_review_transactions: [UNAVAILABLE]
 - name: record_charge_response
-  about: record_charge_response | After customer gives a clear disposition | SUCCESS / FAILED | Advance only after SUCCESS;
-    otherwise transfer.
+  about: "what record_charge_response returns (after customer gives a clear disposition: SUCCESS / FAILED)"
   default: ok
   anchor: {tool: record_charge_response}
   relevant_when: reached
@@ -102,8 +100,7 @@ factors:
         tool:record_charge_response:
         - {status: SUCCESS, transaction_id: '@other'}
 - name: get_card_action_options
-  about: get_card_action_options | If customer also asks to secure/replace card | Eligible actions or NONE | Offer only returned
-    options.
+  about: "what get_card_action_options returns (if customer also asks to secure/replace card: Eligible actions or NONE)"
   default: ok
   anchor: {tool: get_card_action_options}
   relevant_when: reached
@@ -126,8 +123,7 @@ factors:
         - status: OPTIONS
           options: [REPLACE_CARD]
 - name: submit_card_action
-  about: submit_card_action | After customer confirms an eligible action | SUCCESS / FAILED | Claim completion only after
-    SUCCESS.
+  about: "what submit_card_action returns (after customer confirms an eligible action: SUCCESS / FAILED)"
   default: ok
   anchor: {tool: submit_card_action}
   relevant_when: reached

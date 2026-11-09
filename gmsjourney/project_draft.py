@@ -47,6 +47,25 @@ def _frame(act: str, **slots) -> str:
     return f"{act}({inner})"
 
 
+def _lc(text: str) -> str:
+    """A sentence as a clause: 'Verifies the caller' -> 'verifies the caller' (an acronym keeps its case)."""
+    return text[:1].lower() + text[1:] if text[1:2].islower() else text
+
+
+def tool_about(tool: str, text: str | None) -> str:
+    """A tool factor's description: what varies (the tool's answer), with the graph's own text about the tool. A
+    text copied from a procedure table ('tool | when used | returns | rule') is read as its columns."""
+    if not text:
+        return f"what {tool} returns"
+    cols = [c.strip().rstrip(".;") for c in text.split("|")]
+    if len(cols) >= 3:
+        if cols[0] == tool:
+            cols = cols[1:]
+        when, returns = cols[0], cols[1] if len(cols) > 1 else ""
+        return f"what {tool} returns ({_lc(when)}: {returns})" if returns else f"what {tool} returns ({_lc(when)})"
+    return f"what {tool} returns ({_lc(text.rstrip('.'))})"
+
+
 def draft(dom=None) -> dict[str, Any]:
     from .domain import current
     from .names import GraphNames
@@ -123,7 +142,7 @@ def draft(dom=None) -> dict[str, Any]:
                     levels[_slug(f"only_{m}")] = {"fixture": {key: [{"status": sp["ok"], f: [m]}]}}
         if sp.get("echo"):
             levels["echo_mismatch"] = {"fixture": {key: [{"status": sp["ok"], sp["echo"]: "@other"}]}}
-        factors.append({"name": _slug(tool), "about": sp.get("text") or f"what {tool} returns",
+        factors.append({"name": _slug(tool), "about": tool_about(tool, sp.get("text")),
                         "default": "ok", "anchor": {"tool": tool}, "relevant_when": "reached", "levels": levels})
     for st in prompts:
         acts = [a for a in g.states[st]["on"] if a not in glob_acts]

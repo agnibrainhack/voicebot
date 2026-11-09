@@ -131,22 +131,43 @@ def _case(B: Bench, qid: str, label: str, spec, category: str | None = None, sou
 
 def factor_cases(B: Bench) -> list[dict]:
     """Without a run: the default case, then one case per non-default factor level (as Preview shows them)."""
-    from ..journey import JourneySpec, is_valid
+    from ..bases.journey import JourneyBaseGenerator
+    from ..journey import JourneySpec, build_fixture, is_valid
     from ..project import Project
+    from ..studio import reach
     proj = Project.load(B.dom.project_path)
     out = [_case(B, "default", "Every factor at its default level", JourneySpec(), source="project")]
+    play = lambda sp: B.oracle.run(sp, build_fixture(sp))          # noqa: E731
+    gen = JourneyBaseGenerator(B.oracle, kb_pool=proj.padding_questions())   # questions and turn padding, as a run adds them
     for name, f in proj.factors.items():
         for lv in f.levels:
             if lv == f.default:
                 continue
             try:
-                sp = JourneySpec(**{name: lv})
+                if B.dom.graph is not None and not f.role:  # a level the default call never reaches gets a partner
+                    levels, partner = reach(proj, play, name, lv)
+                else:                                       # triples graphs: relevance rules say where a level matters
+                    levels, partner = {name: lv}, None
+                sp = JourneySpec(**levels)
             except TypeError:
                 continue
             if not is_valid(sp):
                 continue
+            label = f"{name} = {lv}" + (f", with {partner} so the call gets there" if partner else
+                                         " (the call does not get there from the defaults; generated cases combine it "
+                                         "with levels that do)" if partner == "" else "")
+            done = sp
+            if f.role in ("questions", "turn_target"):  # a policy-question level asks one; a turn level pads the call
+                try:
+                    done = gen.finalize(sp)
+                except Exception:                       # noqa: BLE001
+                    done = sp
+            if done is None:
+                label += " (its turn target cannot be met from here)"
+            else:
+                sp = done
             try:
-                out.append(_case(B, f"{name}={lv}", f"{name} = {lv}", sp, source="project"))
+                out.append(_case(B, f"{name}={lv}", label, sp, source="project"))
             except Exception:                           # noqa: BLE001 - a level the oracle cannot play alone
                 continue
     return out

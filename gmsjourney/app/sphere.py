@@ -186,6 +186,7 @@ def build(dom, runs_root: Path | None = None, store_dir: str | None = None) -> d
     I = np.array([idx[e["s"]] for e in edges]); J = np.array([idx[e["t"]] for e in edges])
     rng = np.random.default_rng(3)
     R1, R2 = rng.integers(0, len(names), 2000), rng.integers(0, len(names), 2000)
+    note = note[:1].upper() + note[1:]
     return {"pack": dom.dir.name, "placement": placement, "note": note, "nodes": nodes, "edges": edges,
             "relations": dict(Counter(e["relation"] for e in edges).most_common()),
             "sections": [{"key": k, "title": t} for k, t, _ in SECTIONS],

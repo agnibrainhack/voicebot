@@ -248,29 +248,62 @@ def _types(kg) -> dict[str, str]:
     return ty
 
 
-def shared_slots(kg) -> set[str]:
-    """Slot names a customer act fills and a tool takes as an argument."""
-    slots = {t["tail"] for t in kg.where("has_slot")} - _ASK_FIELDS
+def set_roles(kg) -> dict[str, str]:
+    """Who uses each value set: "customer" (a customer act carries it), "bot" (only tools return or take it), or
+    "both" (a customer act carries it and a tool takes it as an argument, by the argument's name: card_action is
+    passed as action)."""
+    from ..names import GraphNames
+    D = GraphNames.from_kg(kg)
+    said, asked = set(), set()
+    for act, slots in D.slots.items():
+        for q in slots.values():
+            vs = q.get("values_from")
+            if vs and vs not in ("credential_code", "number", "text"):
+                (asked if act == "ASK_KB" else said).add(vs)
     args = {t["tail"] for t in kg.where("has_arg")}
-    return slots & args
+    sets = {t["tail"] for t in kg.where("member_of")} | said | asked
+    roles = {}
+    for vs in sets:
+        takes = vs in args or any(a and (vs.endswith("_" + a) or vs.startswith(a + "_")) for a in args)
+        roles[vs] = "both" if vs in said and takes else "customer" if vs in said | asked else "bot"
+    if any(sp.get("values_from") == "credential_code" for sl in D.slots.values() for sp in sl.values()):
+        roles["credential"] = "both" if "credential" in args else "customer"
+    return roles
+
+
+def shared_slots(kg) -> set[str]:
+    """Value sets (and the credential) a customer act carries and a tool takes as an argument."""
+    return {vs for vs, r in set_roles(kg).items() if r == "both"}
 
 
 def classify(kg) -> dict[str, list[dict]]:
+    from ..names import GraphNames
     ty = _types(kg)
-    shared = shared_slots(kg)
+    roles = set_roles(kg)
+    D = GraphNames.from_kg(kg)
+    slot_set = {(a, sl): (q.get("values_from") if q.get("values_from") != "credential_code" else "credential")
+                for a, sls in D.slots.items() for sl, q in sls.items()}
     member_set = {t["head"]: t["tail"] for t in kg.where("member_of")}
+    arg_set = {}
+    for t in kg.where("has_arg"):
+        a = t["tail"]
+        arg_set[(t["head"], a)] = a if a in roles else next((vs for vs in roles if vs.endswith("_" + a)), a)
     out: dict[str, list[dict]] = {k: [] for k, _, _ in SECTIONS}
     for t in kg.triples:
         r, h = t["relation"], t["head"]
         s = _BY_REL.get(r)
-        if r in ("member_of", "has_alias", "spoken_as") and (member_set.get(h) in shared or t["tail"] in shared):
-            s = "both"
-        elif r in ("has_slot", "has_arg") and t["tail"] in shared:
-            s = "both"
+        if r in ("member_of", "has_alias", "spoken_as") and (member_set.get(h) in roles or t["tail"] in roles):
+            s = roles.get(member_set.get(h)) or roles.get(t["tail"])
+        elif r == "has_slot":
+            s = "both" if roles.get(slot_set.get((h, t["tail"]))) == "both" else "customer"
+        elif r == "has_arg":
+            s = "both" if roles.get(arg_set.get((h, t["tail"]))) == "both" else "bot"
+        elif r == "is_a" and t["tail"] == "value_set":
+            s = roles.get(h, "customer")
         elif r == "is_a":
             s = {"dialog_act": "customer", "dialog_state": "flow", "tool": "bot", "tool_step": "bot",
                  "rule": "rules", "limit": "knowledge", "escalation_trigger": "flow",
-                 "delivery_option": "knowledge", "value_set": "customer"}.get(t["tail"], "other")
+                 "delivery_option": "knowledge"}.get(t["tail"], "other")
         elif s is None:
             hty = ty.get(h)
             if r == "has_text":

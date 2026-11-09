@@ -52,7 +52,7 @@ customer:
   questions: {script: ask_relationship, position: start}
 factors:
 - name: authenticate_customer
-  about: Verifies the caller from the last four digits of the primary card.
+  about: "what authenticate_customer returns (verifies the caller from the last four digits of the primary card)"
   default: ok
   anchor: {tool: authenticate_customer}
   relevant_when: reached
@@ -69,7 +69,7 @@ factors:
       fixture:
         tool:authenticate_customer: [UNAVAILABLE]
 - name: check_supplementary_eligibility
-  about: Says whether the account can take another supplementary card, and why not.
+  about: "what check_supplementary_eligibility returns (says whether the account can take another supplementary card, and why not)"
   default: ok
   anchor: {tool: check_supplementary_eligibility}
   relevant_when: reached
@@ -94,7 +94,7 @@ factors:
       fixture:
         tool:check_supplementary_eligibility: [UNAVAILABLE]
 - name: submit_supplementary_application
-  about: Submits the application; echoes the card product and returns a reference.
+  about: "what submit_supplementary_application returns (submits the application; echoes the card product and returns a reference)"
   default: ok
   anchor: {tool: submit_supplementary_application}
   relevant_when: reached

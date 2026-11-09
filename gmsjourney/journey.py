@@ -415,7 +415,8 @@ class UserSimulator:
         if sc.get("per_item"):
             tid = bot_act.get("txn") or bot_act.get("current_txn") or \
                 next((v for v in bot_act.values() if isinstance(v, str) and v in self.ids), None) or \
-                (self._item if self._compiled and bot_act.get("act") != act else None)   # a re-ask, same item
+                (self._item if self._compiled else None)   # a re-ask, or a prompt about the item in hand (a
+            #                                           confirmation that names no item): the item last asked about
             self._item = tid
             key = (script, tid)
             if key not in self.queues:               # a transaction the case never scripted

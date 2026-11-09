@@ -273,9 +273,13 @@ class Studio:
         journey.activate(proj)
         levels = {k: _coerce(v, proj.factors[k].levels) for k, v in levels.items() if k in proj.factors}
         qs = tuple(proj.frame(q) for q in questions if q.strip())
+        oracle = GraphOracle(self.store, spec=self.flow)
+        partner = None
+        if len(levels) == 1 and not qs and self.pack.graph is not None:   # one level: make sure the call gets there
+            (name, lv), = levels.items()
+            levels, partner = reach(proj, lambda sp: oracle.run(sp, journey.build_fixture(sp)), name, lv)
         spec = journey.JourneySpec(kb_frames=qs, **levels)
         fx = journey.build_fixture(spec)
-        oracle = GraphOracle(self.store, spec=self.flow)
         tr = oracle.run(spec, fx)
         conv = []
         for e in tr.events:
@@ -291,7 +295,7 @@ class Studio:
                 "category": journey.primary_category(spec), "tags": journey.tags_for(spec), "fixture": fx,
                 "conversation": conv, "signature": json.loads(tr.signature()), "rules": sorted(tr.rules_fired),
                 "turns": tr.turns, "path": [list(p) for p in tr.flow_path], "notes": tr.notes,
-                "components": tr.components()}
+                "components": tr.components(), "with": partner}
 
     def save(self, raw: dict[str, Any]) -> dict[str, Any]:
         proj = self._project(raw)                       # normalizes raw in place
@@ -318,6 +322,83 @@ FIXTURE_KEYS = {
     "submit_result": "submit_card_action status",
     "submit_status": "submit_card_action availability (UNAVAILABLE: the call fails)",
 }
+
+
+def level_site(proj: Project, name: str, lv: Any) -> tuple[set[str], set[str]]:
+    """Where a level acts: the prompts whose customer answer it changes, the tools whose answer it sets (else the
+    factor's decision point). Empty when the project does not say (factors written with relevance expressions)."""
+    f = proj.factors[name]
+    L = f.levels.get(lv)
+    states: set[str] = set()
+    tools: set[str] = set()
+    answers = proj.customer.get("answers") or {}
+    for op in (L.customer if L is not None else []):
+        states |= {st for st, sc in answers.items() if sc == op.get("script")}
+    for k in (L.fixture if L is not None else {}):
+        if str(k).startswith("tool:"):
+            tools.add(str(k)[5:])
+    if not states and not tools:
+        a = f.anchor or {}
+        if a.get("state"):
+            states.add(a["state"])
+        if a.get("tool"):
+            tools.add(a["tool"])
+    return states, tools
+
+
+def _visits(tr) -> tuple[set[str], set[str]]:
+    """The prompts the customer answered and the tools called in a trace."""
+    states = {e.get("state") for e in tr.events if e.get("role") == "user"}
+    tools = {e.get("tool") for e in tr.events if e.get("role") == "tool"}
+    return states, tools
+
+
+def reach(proj: Project, run, name: str, lv: Any, base: dict[str, Any] | None = None,
+          budget: int = 1500) -> tuple[dict[str, Any], str | None]:
+    """The levels to play so that the call gets to where ``name = lv`` acts. With every other factor at its default
+    the call can miss it (a person asked for at the retry prompt, which the default call never reaches); then the
+    first other level, or pair of levels, that takes the call there is added. Returns (levels, "other = level" or
+    None when nothing needed adding); "" when no combination within the budget gets there. ``run(spec)`` plays a
+    JourneySpec and returns its trace."""
+    base = dict(base or {})
+    want_s, want_t = level_site(proj, name, lv)
+    if not want_s and not want_t:
+        return {**base, name: lv}, None
+    runs = [0]
+
+    def gets_there(d) -> bool:
+        sp = journey.JourneySpec(**d)
+        if not journey.is_valid(sp):
+            return False
+        runs[0] += 1
+        st, tl = _visits(run(sp))
+        return bool(want_s & st or want_t & tl)
+
+    others = [(g, lv2) for g, f in proj.factors.items() if g != name and g not in base and not f.role
+              for lv2 in f.levels if lv2 != f.default]
+    try:
+        d_st, d_tl = _visits(run(journey.JourneySpec(**base)))     # levels that act where the default call goes first
+        here = lambda o: bool(level_site(proj, *o)[0] & d_st or level_site(proj, *o)[1] & d_tl)   # noqa: E731
+        others.sort(key=lambda o: not here(o))
+    except Exception:                                    # noqa: BLE001
+        pass
+    try:
+        if gets_there({**base, name: lv}):
+            return {**base, name: lv}, None
+        for g, lv2 in others:
+            if gets_there({**base, g: lv2, name: lv}):
+                return {**base, g: lv2, name: lv}, f"{g} = {lv2}"
+        for i, (g1, v1) in enumerate(others):
+            for g2, v2 in others[i + 1:]:
+                if g2 == g1:
+                    continue
+                if runs[0] >= budget:
+                    raise StopIteration
+                if gets_there({**base, g1: v1, g2: v2, name: lv}):
+                    return {**base, g1: v1, g2: v2, name: lv}, f"{g1} = {v1} and {g2} = {v2}"
+    except Exception:                                    # noqa: BLE001 - out of budget, or a combination the oracle cannot play
+        pass
+    return {**base, name: lv}, ""
 
 
 def _num(v: Any) -> Any:

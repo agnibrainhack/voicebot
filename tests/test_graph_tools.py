@@ -195,7 +195,7 @@ def test_the_sphere_puts_every_entity_on_the_unit_sphere_and_keeps_linked_ones_c
     from gmsjourney.app import sphere
     d = domain.set_current("supplementary_card")
     B = sphere.build(d, runs_root=Path(tempfile.mkdtemp()))
-    assert B["placement"] == "graph" and "no built knowledge store" in B["note"]
+    assert B["placement"] == "graph" and B["note"].startswith("No built knowledge store")
     assert all(abs(math.sqrt(n["x"] ** 2 + n["y"] ** 2 + n["z"] ** 2) - 1) < 1e-3 for n in B["nodes"])
     ids = {n["id"] for n in B["nodes"]}
     assert all(e["s"] in ids and e["t"] in ids for e in B["edges"])
@@ -205,6 +205,46 @@ def test_the_sphere_puts_every_entity_on_the_unit_sphere_and_keeps_linked_ones_c
     X = sphere.pca_sphere(np.random.default_rng(0).normal(size=(30, 64)))
     assert X.shape == (30, 3) and np.allclose(np.linalg.norm(X, axis=1), 1)
     domain.set_current("charge_review")
+
+
+# ----------------------------------------------------------------------------- texts that match what they label
+def test_every_playground_case_plays_the_level_its_label_names():
+    from gmsjourney.app import playground as PG
+    from gmsjourney.studio import Studio
+    for pack in ("supplementary_card", "charge_review_graph", "charge_review"):
+        domain.set_current(pack)
+        PG.reset()
+        for c in PG.cases("project", None)["cases"][1:]:
+            name, lv = c["id"].split("=", 1)
+            assert str(c["levels"][name]) == lv, (pack, c["id"], c["levels"][name])
+    domain.set_current("charge_review_graph")
+    PG.reset()
+    cases = {c["id"]: c for c in PG.cases("project", None)["cases"]}
+    said = lambda cid, st: [ln["frame"] for ln in cases[cid]["lines"] if ln["state"] == st]   # noqa: E731
+    assert said("confirm_action=deny", "CONFIRM_ACTION") == ["DENY()"]          # a confirmation answers for the item in hand
+    assert said("human_request=at_confirm_action", "CONFIRM_ACTION") == ["REQUEST_HUMAN()"]
+    assert cases["human_request=at_confirm_action"]["expected"]["transfer_reason"] == "customer_request"
+    assert "so the call gets there" in cases["human_request=at_ask_auth_retry"]["label"]
+    assert cases["policy_question=ask"]["turns"] > cases["default"]["turns"]     # the case asks its question
+    st = Studio(pack="supplementary_card")
+    domain.set_current("supplementary_card")
+    r = st.preview(st.project.raw, {"human_request": "at_ask_auth_retry"}, [])
+    assert r["with"] == "authenticate_customer = retry_authenticated" and r["signature"]["transfer_reason"] == "customer_requested_human"
+    assert st.preview(st.project.raw, {"authenticate_customer": "unavailable"}, [])["with"] is None
+    domain.set_current("charge_review")
+
+
+def test_tool_factors_say_what_varies():
+    from gmsjourney.project_draft import tool_about
+    assert tool_about("authenticate_customer", "Verifies the caller.") == "what authenticate_customer returns (verifies the caller)"
+    assert tool_about("submit_card_action", "submit_card_action | After customer confirms | SUCCESS / FAILED | Claim only after SUCCESS.") \
+        == "what submit_card_action returns (after customer confirms: SUCCESS / FAILED)"
+    import yaml
+    for pack in ("supplementary_card", "charge_review_graph"):
+        P = yaml.safe_load((POLICY / pack / "project.yaml").read_text())
+        for f in P["factors"]:
+            if (f.get("anchor") or {}).get("tool") == f["name"]:
+                assert f["about"].startswith(f"what {f['name']} returns"), (pack, f["about"])
 
 
 # ----------------------------------------------------------------------------- the critique layer

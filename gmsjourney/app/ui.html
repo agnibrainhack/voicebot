@@ -57,7 +57,7 @@ p { margin: 0; max-width: 72ch; }
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 650; letter-spacing: -.01em; margin-right: 6px; }
 .brand svg { color: var(--graph); }
 .field-inline { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
-#gpath { width: min(460px, 38vw); text-overflow: ellipsis; font-size: 12.5px; }
+#gpath { width: min(400px, 30vw); text-overflow: ellipsis; font-size: 12.5px; }
 .gopen #gpack:empty { display: none; }
 .top .field-inline { flex: 0 1 auto; }
 .field-inline label { font-size: 12px; color: var(--ink-3); }
@@ -540,7 +540,7 @@ function validityPill() {
 // ---------------------------------------------------------------- guidance: the getting-started path, page hints, help
 const GUIDE = [
   ["valid", "Check the journey is valid", "The project may only use names the policy graph defines. Problems show at the top of Overview.", "#/overview"],
-  ["graph", "Look at what the graph decides", "States, tools, rules and limits come from the policy. You read them here; you do not edit them.", "#/graph"],
+  ["graph", "Look at what the graph decides", "States, tools, rules and limits come from the policy graph (Graph Sections, Flow). The project only refers to them; to change them, Edit Graph saves a new version of the graph.", "#/sections"],
   ["factors", "Review the journey factors", "Each factor is one thing a test case can vary in; each level is one value of it.", "#/factors"],
   ["preview", "Preview a level", "Press Preview on a level to see the conversation the graph expects for it.", "#/factors"],
   ["saved", "Save your changes", "Runs read the saved project. Save Project, or Ctrl/⌘ S.", null],
@@ -592,14 +592,20 @@ const GLOSSARY = [
   ["Original / reworded", "Each case is run as scripted and again with the customer's words reworded. Reworded cases are proved to mean the same before they count."],
   ["Planted defects", "Copies of the reference bot with one deliberate error each. A suite that cannot catch them cannot be trusted."],
   ["Release gate", "Pass or fail per risk tier: accuracy, critical failures, high-severity rate. Shown for the original and the reworded wording."],
-  ["Bot under test", "The bot a campaign or the Playground talks to: the journey's reference bot, or an LLM bot on the model gateway with your prompt and files (Run Campaign › Bot Under Test)."],
+  ["Bot under test", "The bot a campaign or the Playground talks to: the journey's reference bot, or an LLM bot with your prompt and files, on the model gateway or (campaigns only) a local model with vLLM (Run Campaign › Bot Under Test)."],
+  ["Critique layer", "For the LLM bot: a second call reviews every step it proposes (each tool call and each reply) against the procedure and approves it or replaces it with a corrected step. On by default; the Playground shows what it changed."],
+  ["Graph path", "The top bar opens a journey by the path of its policy graph. A compact graph from outside the journey folders becomes a new journey, with its customer wording, the bot's lines and the project drafted and checked."],
+  ["Graph sections", "The graph split by who uses each part: the customer, the bot, both, the flow, the rules, knowledge and figures, and the rest (Graph Sections)."],
+  ["Core segments", "What every graph needs for the validations a campaign runs (verification, tool results, handoffs, limits, rules, wording...). A missing one means those checks have nothing to test."],
+  ["Graph version", "Edit Graph saves your changes as <name>.v2.json (then .v3 ...) beside the original and switches the journey to it. The original file is never changed; switch back from the versions row."],
+  ["GMS sphere", "Every entity of the graph as a point on the unit sphere and every relation as an arc: from the knowledge store's learned vectors when a campaign has built it, else from the graph's relationships."],
   ["Playground", "Talk to the bot yourself on one case: pick the case's scripted lines or type your own. Every bot turn is checked against the graph as you go."],
   ["Volunteered / unread", "Advisory speech findings: a figure about something not asked; a clause no check could read. Counted, not failed, unless you say so (Rules & Scoring)."],
 ];
 function openHelp() {
   const d = $("#dlg"); d.className = "help";
   d.replaceChildren(h("div", { class: "row", style: "justify-content:space-between" }, h("h2", {}, "How to Use the Console"), h("button", { class: "btn s ghost", onclick: () => d.close(), "aria-label": "Close help" }, "Close")),
-    h("p", { class: "muted", style: "margin:6px 0 12px" }, "Everything green comes from the policy graph and is read-only; everything amber is your project, which you edit and save. The campaign tests a bot against cases built from your journey factors."),
+    h("p", { class: "muted", style: "margin:6px 0 12px" }, "Everything green comes from the policy graph (change it in Edit Graph, which saves a new version); everything amber is your project, which you edit and save. The campaign tests a bot against cases built from your journey factors."),
     h("h3", {}, "The usual path"), h("ol", { style: "margin:6px 0 14px;padding-left:20px;display:grid;gap:4px" }, ...GUIDE.map(([, t, p]) => h("li", {}, h("b", {}, t), ": ", p))),
     h("h3", {}, "Words used here"), h("dl", {}, ...GLOSSARY.flatMap(([t, x]) => [h("dt", {}, t), h("dd", {}, x)])),
     h("h3", { style: "margin-top:14px" }, "Keys"), h("p", { class: "small" }, h("kbd", {}, "?"), " this help · ", h("kbd", {}, "Ctrl/⌘"), " ", h("kbd", {}, "S"), " save the project · ", h("kbd", {}, "Esc"), " close a dialog"),
@@ -667,7 +673,7 @@ function overview() {
           tile(d.states.filter(x => x.prompts).length, "ask the customer", "graph"), tile(d.acts.length, "customer acts", "graph"),
           tile(d.tools.length, "tools", "graph"), tile(Object.keys(d.value_sets).length, "value sets", "graph"),
           tile(Object.keys(d.limits).length, "limits", "graph"), tile(d.rules.length, "rules", "graph"), tile(d.triggers.length, "escalation triggers", "graph"),
-          tile(d.states.reduce((a, x) => a + x.out.length, 0), "transitions", "graph")))),
+          tile((S.coverage && S.coverage.transitions_total) || d.states.reduce((a, x) => a + x.out.length, 0), "transitions", "graph")))),
       h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "You configure"), h("span", { class: "src proj" }, "project.yaml")),
         h("div", { class: "bd" }, h("div", { class: "tiles" }, tile((P.factors || []).length, "journey factors", "proj"), tile(levels, "levels", "proj"),
           tile(Object.keys((P.customer || {}).scripts || {}).length, "customer scripts", "proj"), tile((P.constraints || []).length, "case rules", "proj"),
@@ -700,6 +706,7 @@ function versionsRow(vs) {
       v.file + (v.original ? " (original)" : ""))));
 }
 function sectionsView() {
+  if (S.J) gMark("graph");                     // the guide's "look at what the graph decides" step
   const X = S.sec;
   if (!X || X.pack !== S.pack) { loadSections(); return h("div", { class: "empty" }, "Reading the graph…"); }
   if (X.loading) return h("div", { class: "empty" }, "Reading the graph…");
@@ -1006,7 +1013,7 @@ function graph(r) {
     const stages = [];
     for (const x of d.states) { let g = stages.find(s => s.n === (x.stage || "—")); if (!g) stages.push(g = { n: x.stage || "—", xs: [] }); g.xs.push(x); }
     body = h("div", { class: "grid2", style: "grid-template-columns:minmax(0,1.2fr) minmax(0,1fr)" },
-      h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "States by stage"), h("span", { class: "small muted" }, "rounded: asks the customer · dashed: speaks")),
+      h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "States by stage"), h("span", { class: "small muted" }, "rounded, solid: asks the customer · square, dashed: only speaks")),
         h("div", { class: "bd lanes" }, ...stages.map(g => h("div", { class: "lane" }, h("div", { class: "ln" }, g.n),
           h("div", { class: "chips" }, ...g.xs.map(x => h("button", { class: `node ${x.prompts ? "" : "says"}`, "aria-pressed": x.name === st.name ? "true" : "false",
             onclick: () => go(`#/graph?tab=states&s=${encodeURIComponent(x.name)}`) }, x.name))))))),
@@ -1038,8 +1045,8 @@ function graph(r) {
         : Object.keys(d.fees || {}).length ? table(["Option", "Fee"], Object.entries(d.fees).map(([k, v]) => [k, `$${v.fee}`])) : h("p", { class: "muted" }, "No figures."))),
       d.loop ? loopCard(d.loop) : null);
   }
-  return [head("Graph", "Everything here is read from the policy graph. Change it by changing the graph; the project only refers to these names.", h("span", { class: "src graph" }, "read-only")),
-    hint("graph", "Click a state to see what it accepts, the rules it applies and where it can go next, and when. Solid outline: the bot asks the customer something; dashed: it only speaks. Journey factors attach to these states and to the tools."),
+  return [head("Flow", "The policy graph's states, tools, vocabulary, rules and limits. The project only refers to these names; to change them, use Edit Graph (it saves a new version of the graph).", h("span", { class: "src graph" }, "from the graph")),
+    hint("graph", "Click a state to see what it accepts, the rules it applies and where it can go next, and when. Rounded with a solid outline: the bot asks the customer something; square with a dashed outline: it only speaks. Journey factors attach to these states and to the tools."),
     tabs, body];
 }
 function loopCard(lp) {
@@ -1158,7 +1165,7 @@ function factorEditor(f) {
           h("span", { class: "fhelp" }, "Where in the graph the factor matters: a tool call (its answer varies) or a prompt (the customer's answer varies)."),
           h("label", { for: id("rel") }, "Relevant when"), h("div", { class: "row" }, h("input", { class: "input mono", id: id("rel"), style: "flex:1", value: f.relevant_when || "", placeholder: "reached, or an expression like level('x') == 'ok'…", spellcheck: "false", autocomplete: "off",
             oninput: e => { f.relevant_when = e.target.value; changed(); } })),
-          h("span", { class: "fhelp" }, h("code", {}, "reached"), ": whenever a case gets to the decision point. An expression narrows it, e.g. ", h("code", {}, "level('get_card_action_options') == 'ok'"), "."),
+          h("span", { class: "fhelp" }, h("code", {}, "reached"), ": whenever a case gets to the decision point. An expression narrows it, e.g. ", h("code", {}, relevantExample(f)), "."),
           h("label", { for: id("default") }, "Default level"), h("select", { class: "input", id: id("default"), onchange: e => { f.default = e.target.value; changed(); render(); } },
             ...levelNames.map(n => h("option", { value: n, selected: String(f.default) === n }, n))),
           h("span", { class: "fhelp" }, "What every case uses for this factor unless covering a pair needs another level.")))),
@@ -1279,6 +1286,20 @@ async function preview(f, lv) {
 }
 function previewPanel(f) { S.previewFor = f.name; return h("section", { class: "card", id: "preview", "aria-live": "polite" }, ...previewBody(f)); }
 function renderPreview() { const el = $("#preview"); if (el) el.replaceChildren(...previewBody()); }
+// an example relevance expression from this journey's own factors (another factor's non-default level)
+function relevantExample(f) {
+  const o = (S.P.factors || []).find(x => x.name !== f.name && Object.keys(x.levels || {}).some(l => l !== String(x.default)));
+  if (!o) return "level('<factor>') == '<level>'";
+  const lv = Object.keys(o.levels).find(l => l !== String(o.default));
+  return `level('${o.name}') == '${lv}'`;
+}
+// an example case rule from this journey's own factors: two factors, one of them at its default
+function ruleExample() {
+  const fs = (S.P.factors || []).filter(x => Object.keys(x.levels || {}).length > 1);
+  if (fs.length < 2) return "level('<factor>') == '<level>' or level('<other factor>') == '<level>'";
+  const other = l => Object.keys(fs[0].levels).find(k => k !== String(fs[0].default));
+  return `level('${fs[0].name}') != '${other()}' or level('${fs[1].name}') == '${fs[1].default}'`;
+}
 function previewBody() {
   const p = S.preview && S.preview.factor === S.previewFor ? S.preview : null;     // a preview belongs to its factor
   if (!p) return [h("div", { class: "hd" }, h("h2", {}, "Expected Conversation")), h("div", { class: "bd" }, h("p", { class: "muted" }, "Choose Preview on a level to walk the graph with that level and every other factor at its default."))];
@@ -1288,16 +1309,18 @@ function previewBody() {
   const rel = r.relevant[p.factor];
   return [h("div", { class: "hd" }, h("h2", {}, h("span", { class: "mono" }, `${p.factor} = ${p.level}`)), h("div", { class: "row" },
       h("span", { class: `pill ${sig.transfer_reason ? "warn" : "ok"}` }, sig.end === "TRANSFERRED" ? `Transferred · ${sig.transfer_reason}` : sig.end || "–"),
-      h("span", { class: "pill num" }, `${r.turns} customer turns`), r.valid ? null : h("span", { class: "pill bad" }, "breaks a case rule"))),
+      h("span", { class: "pill num" }, `${r.turns} customer turn${r.turns === 1 ? "" : "s"}`), r.valid ? null : h("span", { class: "pill bad" }, "breaks a case rule"))),
     h("div", { class: "bd stack" },
       rel === false ? h("div", { class: "notice warn" }, "With the other factors at their default this level changes nothing (N/A); the generator pairs it with levels that let it matter.") : null,
+      r.with ? h("div", { class: "notice info" }, `With every other factor at its default the call never gets to where this level matters, so this preview also sets ${r.with}.`) : null,
+      r.with === "" ? h("div", { class: "notice warn" }, "This level changes nothing with every other factor at its default, and no single other level makes it matter.") : null,
       h("div", { class: "conv" }, ...r.conversation.map(t => t.role === "bot" ? h("div", { class: "turn bot" }, h("span", { class: "who" }, "Bot"), h("div", { class: "what" },
           ...t.acts.map(a => h("div", {}, h("span", { class: "act" }, a.act), " ", h("span", { class: "small muted" }, Object.entries(a).filter(([k]) => !["act", "text", "state"].includes(k)).map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`).join(" · ")), a.text ? h("div", { class: "small" }, a.text) : null))))
         : t.role === "customer" ? h("div", { class: "turn customer" }, h("span", { class: "who" }, "Customer"), h("div", { class: "what" }, t.frame))
         : h("div", { class: "turn tool" }, h("span", { class: "who" }, "Tool"), h("div", { class: "what" }, `${t.tool}(${Object.entries(t.args || {}).map(([k, v]) => `${k}=${v}`).join(", ")}) → ${t.ok ? ((t.result || {}).status ?? "") : "error"}`)))),
       h("dl", { class: "kv" }, h("dt", {}, "Writes"), h("dd", { class: "mono small" }, (sig.writes || []).map(([t, a]) => `${t}(${Object.entries(a || {}).map(([k, v]) => `${k}=${v}`).join(", ")})`).join("; ") || "none"),
         h("dt", {}, "Category"), h("dd", {}, r.category), h("dt", {}, "Rules exercised"), h("dd", {}, h("div", { class: "chips" }, ...r.rules.map(x => h("span", { class: "chip graph" }, x))))),
-      h("p", { class: "small muted" }, "This is what the graph says the bot must do with this level and every other factor at its default. If the policy should behave differently, the graph is wrong, not the level. The campaign pairs this level with the other factors' levels."))];
+      h("p", { class: "small muted" }, `This is what the graph says the bot must do with this level and every other factor at its default${r.with ? ` (except ${r.with})` : ""}. If the policy should behave differently, the graph is wrong, not the level. The campaign pairs this level with the other factors' levels.`))];
 }
 
 // ---------------------------------------------------------------- bank & customer
@@ -1335,7 +1358,7 @@ function scoring() {
     hint("scoring", "Case rules remove combinations of levels that cannot happen. Categories group cases in the report. Severities say what each kind of failure costs, and the release gate turns that into pass or fail. The defaults suit most journeys; change them when your risk appetite differs."),
     h("div", { class: "grid2" },
       h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Case Rules")), h("div", { class: "bd stack" },
-        h("p", { class: "small muted" }, "Every case must satisfy each rule, e.g. level('x') == 'ok' or level('y') == 'none'."), listEditor(P.constraints, "Rule", "True"),
+        h("p", { class: "small muted" }, "Every case must satisfy each rule, e.g. ", h("code", {}, ruleExample()), "."), listEditor(P.constraints, "Rule", "True"),
         h("h3", {}, "Categories (the first that applies)"), ...(P.categories || []).map(c => h("div", { class: "row" }, h("code", { style: "width:150px" }, c.name), h("input", { class: "input mono", style: "flex:1", value: c.when, "aria-label": `category ${c.name}`, spellcheck: "false", oninput: e => { c.when = e.target.value; changed(); } }))))),
       h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Release Gate")), h("div", { class: "bd stack" },
         ...Object.entries(ev.release_gate).map(([tier, g]) => h("div", {}, h("h3", { style: "margin-bottom:6px" }, tier.replace(/_/g, " ")),
@@ -1363,7 +1386,7 @@ function policyCard() {
       h("div", { class: "stack", style: "gap:8px" },
         h("p", { class: "small muted" }, "Every clause the readers do not read is checked against the graph: figures against its limits and attributes, promises against its tools, policy-sounding statements against its rules, limits and knowledge lines. Invented policy, wrong figures and promises of actions the graph has no tool for always fail."),
         h("h3", {}, "Also fail a case when the bot…"),
-        adv("volunteered", "Volunteers information", "In a policy answer, tells a figure about something of the same kind that was not asked (asked the standard fee, also told the expedited fee)."),
+        adv("volunteered", "Volunteers information", "In a policy answer, tells a figure about something of the same kind that was not asked (asked about one option, also told the figure for another)."),
         adv("unread", "Says something no check can read", "A clause with no figure, promise or policy statement the checks recognise. Usually small talk; strict."),
         h("div", { class: "form", style: "margin-top:6px" }, h("label", { for: "pj" }, "Policy judge"),
           h("select", { class: "input", id: "pj", onchange: e => { sp.judge = e.target.value; changed(); } },
@@ -1444,7 +1467,7 @@ function runView(r) {
       h("p", { class: "small muted" }, "Which bot the cases are run against. The same choice is used in the Playground.")), h("a", { class: "btn s", href: "#/play" }, "Try It in the Playground")),
     h("div", { class: "bd" }, sutEditor({ id: "run", campaign: true })));
   return [head("Run Campaign", "Build or reload the knowledge store, generate the cases from your journey factors, prove the rewording, run the bot and check everything it says. Each step shows what it produced as it finishes."),
-    hint("run", "Start with 10 to 40 cases to see the whole pipeline, then run everything. The run is its own process: it carries on if you leave this page or close the tab, and the header shows its progress. Change the journey in the top bar."),
+    hint("run", "Start with 10 to 40 cases to see the whole pipeline, then run everything. The run is its own process: it carries on if you leave this page or close the tab, and the header shows its progress. To run another journey, open its graph in the top bar."),
     sutCard, (form.querySelector("#pastnote").append(pastNote), form)];
 }
 function runDetail(id, stepSel) {
@@ -1729,7 +1752,7 @@ function casesTab(I, selId) {
     h("span", { class: "id" }, c.id, h("span", { class: "muted", style: "font-weight:400" }, ` · ${c.category}`)),
     h("span", { class: "dots", "aria-label": "bot results" }, resDot(c.base_result, "original"), ...c.reworded_results.map(x => resDot(x, "reworded"))),
     h("span", { class: "sub" }, c.question ? `asks: ${c.question}` : c.first),
-    h("span", { class: "sub" }, `${c.turns} turns · ${c.reworded} reworded, ${c.proved} proved · ends ${c.end || "?"}${c.transfer ? " (" + c.transfer + ")" : ""}`))));
+    h("span", { class: "sub" }, `${c.turns} turn${c.turns === 1 ? "" : "s"} · ${c.reworded} reworded, ${c.proved} proved · ends ${c.end || "?"}${c.transfer ? " (" + c.transfer + ")" : ""}`))));
   const filters = h("div", { class: "search" },
     h("input", { type: "search", class: "input", placeholder: "Filter: id, category, tag, words…", value: X.q, "aria-label": "Filter cases", oninput: e => { X.q = e.target.value; renderKeep(e.target); } }),
     h("div", { class: "row" }, ...[["all", "All"], ["tested", "Run on the bot"], ["failed", "Failed"]].map(([k, l]) => h("button", { class: "chip", type: "button", "aria-pressed": X.show === k ? "true" : "false", onclick: () => { X.show = k; render(); } }, l)),
@@ -1857,7 +1880,7 @@ function playView() {
   wrap.append(...playBody());
   if (!P.list && !P.loading) loadPgCases();
   return [head("Playground", "Talk to the bot under test yourself on one case. Click the case's lines or type your own; every bot turn is checked against the graph as you go."),
-    hint("play", "Pick a case (it sets up the mock bank: the charges, which tools fail) and a bot, then start. Under every bot turn: the tools it called, whether that is what the graph expects at this point, and the speech check of what it said. Checks run on the store compiled from the graph, so this needs no training and no licence."),
+    hint("play", "Pick a case (it sets up the mock bank: what each tool returns, which ones fail) and a bot, then start. Under every bot turn: the tools it called, whether that is what the graph expects at this point, and the speech check of what it said. Checks run on the store compiled from the graph, so this needs no training and no licence."),
     wrap];
 }
 function paintPlay() { const el = $("#pg"); if (!el) return; const keep = document.activeElement && document.activeElement.id; el.replaceChildren(...playBody()); if (keep && document.getElementById(keep)) document.getElementById(keep).focus(); const chat = $("#chat-end"); if (chat) chat.scrollIntoView({ block: "nearest" }); }
@@ -1884,7 +1907,7 @@ function playSetup() {
   const shown = L.cases.filter(c => !q || `${c.id} ${c.label} ${c.category}`.toLowerCase().includes(q));
   const cur = L.cases.find(c => c.id === P.caseId);
   const list = h("div", { class: "items", style: "max-height:360px;overflow:auto;border:1px solid var(--line);border-radius:8px" }, ...shown.slice(0, 400).map(c => h("button", { class: "ci", type: "button", "aria-current": c.id === P.caseId ? "true" : "false", onclick: () => { P.caseId = c.id; paintPlay(); } },
-    h("span", { class: "id" }, c.id, h("span", { class: "muted", style: "font-weight:400" }, ` · ${c.category}`)), h("span", { class: "small muted num" }, `${c.turns} turns`),
+    h("span", { class: "id" }, c.id, h("span", { class: "muted", style: "font-weight:400" }, ` · ${c.category}`)), h("span", { class: "small muted num" }, `${c.turns} turn${c.turns === 1 ? "" : "s"}`),
     h("span", { class: "sub" }, c.label), h("span", { class: "sub" }, `ends ${c.expected.end}${c.expected.transfer_reason ? " (" + c.expected.transfer_reason + ")" : ""}`))));
   const nonDefault = cur ? Object.entries(cur.levels || {}).filter(([k, v]) => {
     const f = (S.P.factors || []).find(x => x.name === k); return f && String(f.default) !== String(v); }) : [];
