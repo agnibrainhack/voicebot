@@ -469,7 +469,7 @@ tr.edited td { background: var(--warn-bg); }
 .sphwrap { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; align-items: start; }
 .sphbox { position: relative; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
   background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px); background-size: 24px 24px; }
-canvas.sph { display: block; width: 100%; height: min(72vh, 680px); cursor: grab; touch-action: none; border-radius: var(--radius); }
+canvas.sph { display: block; width: 100%; height: min(80vh, 860px); cursor: grab; touch-action: none; border-radius: var(--radius); }
 canvas.sph:active { cursor: grabbing; }
 .sphtip { position: absolute; display: none; pointer-events: none; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 7px; padding: 6px 9px; box-shadow: var(--float); font-size: 12px; max-width: 280px; overflow-wrap: anywhere; }
 
@@ -542,6 +542,30 @@ table.hops td { font-size: 12px; white-space: pre-line; } table.hops td.mono { f
 .relline { padding-left: 4px; overflow-wrap: anywhere; }
 .sphside { max-height: min(78vh, 760px); overflow: auto; }
 
+/* sphere full view: the sphere takes the window, the panel floats beside it */
+body.sph-focus nav.rail, body.sph-focus main .page-head, body.sph-focus main .notice, body.sph-focus main .pagefoot { display: none; }
+body.sph-focus .shell { grid-template-columns: minmax(0, 1fr); }
+body.sph-focus main { padding: 12px 16px 16px; } body.sph-focus main > * { max-width: none; }
+body.sph-focus .sphwrap { grid-template-columns: minmax(0, 1fr) 340px; }
+body.sph-focus canvas.sph { height: calc(100vh - 140px); }
+body.sph-focus .sphside { max-height: calc(100vh - 140px); }
+.sphctl .spread input { width: 110px; accent-color: var(--accent); }
+
+/* go to palette */
+dialog.palette { width: min(640px, calc(100vw - 32px)); max-width: none; padding: 10px; margin-top: 12vh; }
+.pal-in { height: 42px; font-size: 15px; }
+.pal-list { display: grid; gap: 1px; margin-top: 8px; max-height: 50vh; overflow: auto; }
+.pal-it { display: grid; grid-template-columns: 74px minmax(0, 1fr) minmax(0, .8fr); gap: 10px; align-items: center; text-align: left; border: 0; background: transparent; color: inherit;
+  padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.pal-it[aria-selected="true"] { background: var(--accent-bg); }
+.pal-it .k { font-size: 11.5px; color: var(--ink-3); } .pal-it .l { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-it .h { font-size: 12px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+.pal-foot { margin: 8px 4px 0; }
+#go-btn .kb { margin-left: 2px; color: var(--ink-3); }
+.stn .unsaved { display: inline-block; margin-left: 6px; font-size: 11px; color: var(--warn); background: var(--warn-bg); border-radius: 999px; padding: 0 7px; }
+@media (max-width: 1600px) { #go-btn .lbl, #go-btn .kb, #help-btn .lbl, .top .vx { display: none; } }
+@media (max-width: 1360px) { .gopen label { display: none; } }
+
 /* responsive */
 @media (max-width: 1000px) { .sphwrap { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 760px) { .vgrid { grid-template-columns: minmax(0, 1fr); } }
@@ -572,6 +596,7 @@ table.hops td { font-size: 12px; white-space: pre-line; } table.hops td.mono { f
   <span id="device-pill"></span>
   <span id="run-pill"></span>
   <span id="bot-pill"></span>
+  <button class="btn ghost" id="go-btn" type="button" aria-haspopup="dialog" title="Go to anything (Ctrl/⌘ K)"><svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="m11 11 3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span class="lbl">Go to</span><kbd class="kb">⌘K</kbd></button>
   <div class="theme" role="group" aria-label="Colour theme" id="theme"></div>
   <button class="btn ghost" id="help-btn" type="button" aria-haspopup="dialog" aria-label="Help" title="Help (press ?)"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M6.2 6.1a1.9 1.9 0 1 1 2.6 1.8c-.5.2-.8.6-.8 1.1v.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="8" cy="11.6" r=".8" fill="currentColor"/></svg><span class="lbl">Help</span></button>
   <a class="btn primary" id="go-run" href="#/run">Put the bot to test</a>
@@ -676,6 +701,8 @@ async function boot() {
   devicePill(); themeSwitch();
   try { matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { if (themeMode() === "auto" && S.sph && document.querySelector("canvas.sph")) sphereDraw(); }); } catch {}
   $("#help-btn").addEventListener("click", openHelp);
+  $("#go-btn").addEventListener("click", openPalette);
+  if (!/Mac|iPhone|iPad/.test(navigator.platform || "")) document.querySelectorAll(".kb").forEach(k => { k.textContent = "Ctrl K"; });
   document.addEventListener("keydown", e => { if (e.key === "?" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "") && !$("#dlg").open) { e.preventDefault(); openHelp(); } });
   try { S.runsList = (await api("api/runs")).runs; } catch { S.runsList = []; }
   await loadJourney();
@@ -734,7 +761,7 @@ function validityPill() {
   if (!S.J) { el.replaceChildren(h("span", { class: "pill bad" }, "Journey unreadable")); return; }
   const n = S.issues.length;
   el.replaceChildren(h("a", { class: `pill ${n ? "bad" : "ok"}`, href: "#/overview" }, h("span", { class: "dot" }),
-    n ? `${n} problem${n > 1 ? "s" : ""}` : "Valid against the graph"));
+    ...(n ? [`${n} problem${n > 1 ? "s" : ""}`] : ["Valid", h("span", { class: "vx" }, " against the graph")])));
 }
 
 // ---------------------------------------------------------------- guidance: the getting-started path, page hints, help
@@ -813,7 +840,7 @@ function openHelp() {
     h("h3", {}, "The usual path"), h("ol", { style: "margin:6px 0 14px;padding-left:20px;display:grid;gap:4px" }, ...GUIDE.map(([k, t, p]) => h("li", { class: S.J && guideState()[k] ? "done" : null }, h("b", {}, t), S.J && guideState()[k] ? " (done)" : "", ": ", p))),
     h("h3", {}, "Colour theme"), h("p", { class: "small", style: "margin:4px 0 14px" }, "Day is blue on white, night is blue on black; Auto follows your system. The switch is in the top bar."),
     h("h3", {}, "Words used here"), h("dl", {}, ...GLOSSARY.flatMap(([t, x]) => [h("dt", {}, t), h("dd", {}, x)])),
-    h("h3", { style: "margin-top:14px" }, "Keys"), h("p", { class: "small" }, h("kbd", {}, "?"), " this help · ", h("kbd", {}, "Ctrl/⌘"), " ", h("kbd", {}, "S"), " save the project · ", h("kbd", {}, "Esc"), " close a dialog"),
+    h("h3", { style: "margin-top:14px" }, "Keys"), h("p", { class: "small" }, h("kbd", {}, "?"), " this help · ", h("kbd", {}, "Ctrl/⌘"), " ", h("kbd", {}, "K"), " go to anything · ", h("kbd", {}, "Ctrl/⌘"), " ", h("kbd", {}, "S"), " save the project · ", h("kbd", {}, "Esc"), " close a dialog"),
     h("div", { class: "row", style: "justify-content:flex-end;margin-top:14px" },
       guideHidden() ? h("button", { class: "btn", onclick: () => { try { localStorage.removeItem("jc.guide.hidden"); } catch {} d.close(); go("#/overview"); } }, "Show the getting-started steps") : null,
       h("button", { class: "btn", onclick: () => { try { Object.keys(localStorage).filter(k => k.startsWith("jc.hint.")).forEach(k => localStorage.removeItem(k)); } catch {} d.close(); render(); toast("Page hints are back."); } }, "Show page hints again"),
@@ -825,6 +852,7 @@ function openHelp() {
 // ---------------------------------------------------------------- render
 function render() {
   const r = route();
+  if (r.view !== "sphere") document.body.classList.remove("sph-focus");
   nav(r.view);
   const main = $("#main");
   if (!S.J && !["run", "runs", "cases", "verdict", "sections", "edit", "sphere"].includes(r.view)) { main.replaceChildren(h("div", { class: "notice bad" }, `This journey could not be read: ${S.err || "unknown error"}`)); return; }
@@ -832,7 +860,7 @@ function render() {
   const out = fn(r);
   if (out) main.replaceChildren(...[out, pageFoot(r.view)].flat().filter(x => x != null && x !== false));
   if (S.dirty && !["run", "runs", "cases", "play", "verdict", "sections", "edit", "sphere"].includes(r.view)) savebar();      // a re-render keeps the unsaved-changes bar
-  document.title = `${({ cases: "Cases", verdict: "Verdict" })[r.view] || (PAGES.find(p => p.id === r.view) || {}).label || "Journey Console"} · Journey Console`;
+  document.title = `${S.runTitle || ""}${({ cases: "Cases", verdict: "Verdict" })[r.view] || (PAGES.find(p => p.id === r.view) || {}).label || "Journey Console"} · Journey Console`;
 }
 function nav(view) {
   const here = pageInfo(view);
@@ -843,7 +871,7 @@ function nav(view) {
       return h("li", { class: `stn ${done ? "done" : ""} ${cur ? "here" : ""}` },
         h("span", { class: "dot", "aria-hidden": "true" }, done ? "✓" : String(si + 1)),
         h("span", { class: "sh" }, label, h("span", { class: "sr-only" }, done ? " (done)" : cur ? " (you are here)" : "")),
-        h("span", { class: "sp" }, sub),
+        h("span", { class: "sp" }, sub, sid === "setup" && S.dirty ? h("span", { class: "unsaved", title: "Your project has edits that are not saved" }, "unsaved edits") : null),
         h("ul", {}, ...items.map(([id, l]) => h("li", {}, h("a", { href: `#/${id}`, class: id === "factors" ? "key" : null, "aria-current": here.id === id ? "page" : null },
           h("span", { class: "lbl" }, l),
           id === "factors" ? h("span", { class: "count" }, facN) : id === "graph" && S.J ? h("span", { class: "count" }, D().states.length) : null)))));
@@ -1111,8 +1139,42 @@ async function loadSphere(force) {
   render();
   try { Object.assign(S.sph, await api(`api/graph/${S.pack}/sphere`), { loading: false }); }
   catch (e) { S.sph.loading = false; S.sph.err = e.message; }
-  if (S.sph.nodes) { S.sph.byId = {}; for (const n of S.sph.nodes) S.sph.byId[n.id] = n; }
+  if (S.sph.nodes) { S.sph.byId = {}; for (const n of S.sph.nodes) S.sph.byId[n.id] = n; sphereRelax(S.sph); S.sph.spread = S.sph.placement === "store" ? 0 : 0.85; sphereApplySpread(S.sph); }
   if (route().view === "sphere") render();
+}
+// Spreading the points for reading. The served layout keeps linked entities close but bunches them on one side of
+// the sphere. A relaxation (every pair repels with 1/d², every relation pulls its ends together, a few hundred small
+// steps on the sphere) gives a second layout; the Spread control blends between the two, so the store's own geometry
+// is always one click away (a stored layout starts unspread).
+function sphereRelax(G) {
+  const N = G.nodes.length, P = G.nodes.map(n => [n.x, n.y, n.z]), idx = {}; G.nodes.forEach((n, i) => { idx[n.id] = i; n.x0 = n.x; n.y0 = n.y; n.z0 = n.z; });
+  const E = G.edges.map(e => [idx[e.s], idx[e.t]]).filter(([a, b]) => a != null && b != null && a !== b);
+  for (let it = 0; it < 260; it++) {
+    const F = P.map(() => [0, 0, 0]), step = 0.012 * (1 - it / 300);
+    for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
+      const dx = P[i][0] - P[j][0], dy = P[i][1] - P[j][1], dz = P[i][2] - P[j][2], d2 = dx * dx + dy * dy + dz * dz + 1e-4, f = 1 / (d2 * Math.sqrt(d2)) / N;
+      F[i][0] += dx * f; F[i][1] += dy * f; F[i][2] += dz * f; F[j][0] -= dx * f; F[j][1] -= dy * f; F[j][2] -= dz * f; }
+    for (const [a, b] of E) { const dx = P[b][0] - P[a][0], dy = P[b][1] - P[a][1], dz = P[b][2] - P[a][2], k = 0.35;
+      F[a][0] += dx * k; F[a][1] += dy * k; F[a][2] += dz * k; F[b][0] -= dx * k; F[b][1] -= dy * k; F[b][2] -= dz * k; }
+    for (let i = 0; i < N; i++) { const p = P[i], f = F[i], r = f[0] * p[0] + f[1] * p[1] + f[2] * p[2];      // tangential part only
+      let x = p[0] + step * (f[0] - r * p[0]), y = p[1] + step * (f[1] - r * p[1]), z = p[2] + step * (f[2] - r * p[2]); const n = Math.hypot(x, y, z) || 1; P[i] = [x / n, y / n, z / n]; }
+  }
+  G.nodes.forEach((n, i) => { n.x1 = P[i][0]; n.y1 = P[i][1]; n.z1 = P[i][2]; });
+}
+function sphereApplySpread(G) {
+  const s = G.spread || 0;
+  for (const n of G.nodes) { const x = (1 - s) * n.x0 + s * n.x1, y = (1 - s) * n.y0 + s * n.y1, z = (1 - s) * n.z0 + s * n.z1, r = Math.hypot(x, y, z) || 1; n.x = x / r; n.y = y / r; n.z = z / r; }
+  // how well the shown layout keeps linked entities together, against random pairs (the same measure as the server's)
+  const ang = (a, b) => Math.acos(Math.max(-1, Math.min(1, a.x * b.x + a.y * b.y + a.z * b.z)));
+  let se = 0, ne = 0; for (const e of G.edges) { const a = G.byId[e.s], b = G.byId[e.t]; if (a && b) { se += ang(a, b); ne++; } }
+  let sr = 0, seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let k = 0; k < 1500; k++) sr += ang(G.nodes[Math.floor(rnd() * G.nodes.length)], G.nodes[Math.floor(rnd() * G.nodes.length)]);
+  G.shownFit = { edge: (se / Math.max(1, ne)).toFixed(2), random: (sr / 1500).toFixed(2) };
+  G.dirty = true;
+}
+function sphereFocus(on) {
+  document.body.classList.toggle("sph-focus", on);
+  const G = S.sph; if (G) { G.dirty = true; sphereHud(); }
 }
 function sphereView() {
   const G = S.sph;
@@ -1134,7 +1196,10 @@ function sphereView() {
       h("select", { class: "select", "aria-label": "Relation", onchange: e => sphereSelectRel(e.target.value) }, h("option", { value: "" }, "All relations"), ...Object.entries(G.relations).map(([r, n]) => h("option", { value: r, selected: G.rel === r ? true : null }, `${r} (${n})`))),
       h("input", { class: "input", style: "width:200px", type: "search", placeholder: "Find an entity", "aria-label": "Find an entity", value: G.q, oninput: e => { G.q = e.target.value; const hit = G.nodes.find(n => G.q && n.id.toLowerCase().includes(G.q.toLowerCase())); if (hit) sphereSelectNode(hit.id, true); else { G.dirty = true; } } }),
       h("label", { class: "small row", style: "gap:4px" }, h("input", { type: "checkbox", checked: G.arcs ? true : null, onchange: e => { G.arcs = e.target.checked; G.dirty = true; } }), "Arcs"),
-      h("label", { class: "small row", style: "gap:4px" }, h("input", { type: "checkbox", checked: G.labels ? true : null, onchange: e => { G.labels = e.target.checked; G.dirty = true; } }), "Labels")),
+      h("label", { class: "small row", style: "gap:4px" }, h("input", { type: "checkbox", checked: G.labels ? true : null, onchange: e => { G.labels = e.target.checked; G.dirty = true; } }), "Labels"),
+      h("label", { class: "small row spread", style: "gap:6px", title: "Blend from the served layout (0) to a layout spread over the whole sphere (1)" }, "Spread",
+        h("input", { type: "range", min: 0, max: 1, step: 0.05, value: G.spread, "aria-label": "Spread the points over the sphere", oninput: e => { G.spread = Number(e.target.value); sphereApplySpread(G); const f = document.getElementById("sph-fit"); if (f) f.textContent = sphereFitText(G); } })),
+      h("span", { class: "small muted", id: "sph-fit" }, sphereFitText(G))),
     h("div", { class: "sphwrap" }, h("div", { class: "sphbox" }, cv, hud, tip), side),
   ];
 }
@@ -1166,6 +1231,8 @@ function sphereHud() {
     h("button", { class: "btn s", type: "button", "aria-pressed": G.spin ? "true" : "false", title: "Turn the sphere slowly (space)", onclick: () => { G.spin = !G.spin; G.dirty = true; sphereHud(); } },
       h("span", { html: G.spin ? '<svg width="12" height="12" viewBox="0 0 12 12"><rect x="2" y="1.5" width="3" height="9" rx="1" fill="currentColor"/><rect x="7" y="1.5" width="3" height="9" rx="1" fill="currentColor"/></svg>' : '<svg width="12" height="12" viewBox="0 0 12 12"><path d="M3 1.5v9l7.5-4.5z" fill="currentColor"/></svg>' }), G.spin ? "Pause rotation" : "Rotate"),
     h("button", { class: "btn s", type: "button", onclick: () => { G.target = [0.5, -0.35]; G.zoom = 1; G.dirty = true; } }, "Reset view"),
+    h("button", { class: "btn s", type: "button", "aria-pressed": document.body.classList.contains("sph-focus") ? "true" : "false", title: "Give the sphere the whole window (Esc to leave)",
+      onclick: () => sphereFocus(!document.body.classList.contains("sph-focus")) }, document.body.classList.contains("sph-focus") ? "Leave full view" : "Full view"),
     G.rel ? h("span", { class: "hudsel" }, h("span", { class: "k" }, "Relation"), h("b", { class: "mono" }, G.rel), h("button", { class: "btn s ghost", type: "button", "aria-label": "Clear the relation", onclick: () => sphereSelectRel("") }, "×")) : null,
     G.pin ? h("span", { class: "hudsel" }, h("span", { class: "k" }, "Entity"), h("b", { class: "mono" }, G.pin), h("button", { class: "btn s ghost", type: "button", "aria-label": "Clear the entity", onclick: () => sphereSelectNode(null) }, "×")) : null].filter(Boolean));
 }
@@ -1193,7 +1260,7 @@ function sphereMount(cv, tip, side, hud) {
   cv.addEventListener("wheel", e => { e.preventDefault(); G.zoom = Math.max(0.6, Math.min(3, G.zoom * (e.deltaY < 0 ? 1.1 : 0.9))); G.dirty = true; }, { passive: false });
   cv.addEventListener("keydown", e => {
     if (e.key === " ") { e.preventDefault(); G.spin = !G.spin; sphereHud(); return; }
-    if (e.key === "Escape") { sphereSelectNode(null); return; }
+    if (e.key === "Escape") { if (G.pin || G.rel) sphereSelectNode(null); else sphereFocus(false); return; }
     const k = { ArrowLeft: [-0.12, 0], ArrowRight: [0.12, 0], ArrowUp: [0, -0.12], ArrowDown: [0, 0.12] }[e.key]; if (k) { e.preventDefault(); G.target = null; G.rot[0] += k[0]; G.rot[1] = Math.max(-1.5, Math.min(1.5, G.rot[1] + k[1])); G.dirty = true; } });
   fit(); sphereSide(); sphereHud();
   cancelAnimationFrame(G.raf);
@@ -1215,7 +1282,7 @@ function sphereProj(p) {
   const G = S.sph, [a, b] = G.rot, ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b);
   const x1 = ca * p[0] + sa * p[2], z1 = -sa * p[0] + ca * p[2];
   const y2 = cb * p[1] - sb * z1, z2 = sb * p[1] + cb * z1;
-  const W = G.cv.width, H = G.cv.height, R = Math.min(W, H) * 0.42 * G.zoom;
+  const W = G.cv.width, H = G.cv.height, R = Math.min(W, H) * 0.46 * G.zoom;
   return [W / 2 + x1 * R, H / 2 - y2 * R, z2, R];
 }
 function sphereVisible(n) { const G = S.sph; return G.on.has(n.section); }
@@ -1307,6 +1374,9 @@ function sphereDraw() {
       boxes.push(bx); c.fillStyle = hexA(panel, 0.78); c.fillRect(bx[0] - 3 * dpr, bx[1], w + 6 * dpr, fh);
       c.fillStyle = n.id === focus || relEnts.has(n.id) ? ink : ink3; c.fillText(n.id, bx[0], y); }
   }
+}
+function sphereFitText(G) {
+  const f = G.shownFit || {}; return `As shown: linked entities ${f.edge} rad apart, random pairs ${f.random}${G.placement === "store" && G.spread > 0 ? " (spread: the distances are no longer the store's)" : ""}`;
 }
 function hexA(col, a) {                       // a CSS hex colour with alpha, for the canvas
   const m = /^#([0-9a-f]{6})$/i.exec(col || ""); if (!m) return col;
@@ -1425,7 +1495,7 @@ function loopCard(lp) {
 }
 
 // ---------------------------------------------------------------- journey factors (the project)
-function changed() { S.dirty = true; savebar(); clearTimeout(S.checkT); S.checkT = setTimeout(runCheck, 700); }
+function changed() { const was = S.dirty; S.dirty = true; savebar(); if (!was) nav(route().view); clearTimeout(S.checkT); S.checkT = setTimeout(runCheck, 700); }
 async function runCheck() {
   try { const r = await api(`api/journey/${S.pack}/check`, { project: S.P }); S.issues = r.issues || []; S.coverage = r.coverage || S.coverage; validityPill(); markIssues(); }
   catch (e) { toast(`Check failed: ${e.message}`); }
@@ -1806,6 +1876,7 @@ function runView(r) {
       if (S.dirty && !(await confirmBox("Save before running?", "The run reads the saved project. Your unsaved edits would not be used.", "Run without them"))) { startBtn.disabled = false; startBtn.replaceChildren("Start the test"); return; }
       try { const body = { ...F, max_cases: F.max_cases === "" ? null : Number(F.max_cases), runs_per_base: Number(F.runs_per_base) || 1, seed: Number(F.seed) || 42, sut: sutBody() };
         if (body.sut.kind === "llm" && !(await confirmBox("Run the LLM bot?", `Every customer turn of every case costs one to ${body.sut.max_steps + 1} gateway calls${body.sut.critique ? ", twice that with the critique layer" : ""} (${body.sut.mode === "replay" ? "replay: cached replies only, a reply that is not cached stops the run" : "live, cached for re-runs"}). Start with a few cases.`, "Start the test"))) { startBtn.disabled = false; startBtn.replaceChildren("Start the test"); return; }
+        try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); } catch {}
         const { id } = await api("api/runs", body); S.meta.active_run = id; gMark("ran"); toast(`Run ${id} started. You can leave this page; it keeps running.`); go(`#/run/${id}`); }
       catch (x) { toast(x.message); startBtn.disabled = false; startBtn.replaceChildren("Start the test"); } } },
     h("div", { class: "hd" }, h("h2", {}, "Run settings"), h("span", { class: "small muted" }, "The run uses the saved project of the journey.")),
@@ -1945,10 +2016,22 @@ function runPill(R) {
   const cur = STEPS.filter(s => R.steps && R.steps[s[0]]?.status === "running").pop();
   el.replaceChildren(h("a", { class: "pill run", href: `#/run/${R.id}` }, h("span", { class: "spin", style: "width:10px;height:10px" }), cur ? `Running · ${cur[0]}/${STEPS.length} ${cur[1]}` : "Run starting…"));
 }
-async function pollActive() {   // the header pill follows an active run from any page
-  try { const r = await api("api/runs"); S.meta.active_run = r.active; if (r.active && (!S.run || S.run.id !== r.active)) { const ev = await api(`api/runs/${r.active}`); const tmp = { id: r.active, steps: {}, logs: [] }; ev.events.forEach(e => applyEvent(tmp, e)); runPill(tmp); } else if (!r.active) runPill(null); }
-  catch {}
+async function pollActive() {   // the header pill follows an active run from any page; the tab title shows its step
+  try { const r = await api("api/runs"); S.meta.active_run = r.active;
+    if (r.active) { const ev = await api(`api/runs/${r.active}`); const tmp = { id: r.active, steps: {}, logs: [] }; ev.events.forEach(e => applyEvent(tmp, e));
+      if (!S.run || S.run.id !== r.active) runPill(tmp);
+      const done = STEPS.filter(s => tmp.steps[s[0]] && tmp.steps[s[0]].status === "done").length; S.runTitle = `▶ ${done}/${STEPS.length} · `; S.watching = r.active; }
+    else { if (S.watching) runFinished(S.watching); S.watching = null; S.runTitle = ""; runPill(null); }
+    document.title = (S.runTitle || "") + document.title.replace(/^▶ \d+\/\d+ · /, "");
+  } catch {}
   setTimeout(pollActive, 4000);
+}
+async function runFinished(id) {       // say so wherever you are, and in the system tray when the tab is in the background
+  let st = "finished"; try { const ev = await api(`api/runs/${id}`); const last = ev.events[ev.events.length - 1] || {}; st = last.type === "error" ? "stopped with an error" : last.type === "done" ? "finished" : "ended"; } catch {}
+  try { S.runsList = (await api("api/runs")).runs; } catch {}
+  const t = h("div", {}, `Test run ${id} ${st}. `, h("a", { href: `#/run/${id}`, style: "color:inherit;font-weight:600" }, "Open it"));
+  $("#toast").append(t); setTimeout(() => t.remove(), 12000);
+  try { if (document.hidden && "Notification" in window && Notification.permission === "granted") new Notification("Journey Console", { body: `Test run ${id} ${st}` }); } catch {}
 }
 
 // ---------------------------------------------------------------- runs
@@ -1992,7 +2075,7 @@ function botPill() {
     onclick: () => { const d = $("#dlg"); d.className = "help"; d.replaceChildren(h("div", { class: "row", style: "justify-content:space-between;margin-bottom:10px" }, h("h2", {}, "Bot under test"), h("button", { class: "btn s ghost", onclick: () => d.close() }, "Close")),
       sutEditor({ id: "dlg", campaign: true }), h("div", { class: "row", style: "justify-content:flex-end;margin-top:14px" }, h("button", { class: "btn primary", onclick: () => { d.close(); render(); } }, "Done")));
       d.addEventListener("close", () => { d.className = ""; }, { once: true }); d.showModal(); } },
-    h("span", { class: "dot" }), "Bot: ", h("b", {}, s.short)));
+    h("span", { class: "dot" }), h("span", { class: "vx" }, "Bot: "), h("b", {}, s.short)));
 }
 function sutSave() {
   setTimeout(() => { botPill(); document.querySelectorAll(".inuse").forEach(el => { el.textContent = sutSummary().long; }); }, 0);
@@ -2529,6 +2612,40 @@ function vturns(c) {
     h("div", { class: "stack", style: "gap:8px" }, ...rest.map(row))) : null];
 }
 
+// ---------------------------------------------------------------- go to (Ctrl/⌘ K): any page, journey, factor, state, run or action
+function paletteItems() {
+  const out = PAGES.map(p => ({ kind: "Page", label: p.label, hint: `${p.stage + 1}. ${p.stageLabel}`, go: `#/${p.id}` }));
+  for (const m of S.meta.packs || []) out.push({ kind: "Journey", label: m.title, hint: m.name, run: () => m.name === S.pack ? toast(`${m.name} is already open`) : openGraph(m.path) });
+  if (S.P) for (const f of S.P.factors || []) out.push({ kind: "Factor", label: f.name, hint: f.about || "", go: `#/factors?f=${encodeURIComponent(f.name)}` });
+  if (S.J) for (const s of D().states || []) out.push({ kind: "State", label: s.name, hint: s.stage || "", go: `#/graph?tab=states&s=${encodeURIComponent(s.name)}` });
+  for (const r of (S.runsList || []).filter(x => x.job.pack === S.pack).slice(0, 20)) out.push({ kind: "Test run", label: r.id, hint: `${r.status}, ${botLabel(r.job)}`, go: `#/run/${r.id}` });
+  out.push({ kind: "Action", label: "Put the bot to test", hint: "start a test run", go: "#/run" },
+           { kind: "Action", label: "Choose the bot under test", hint: sutSummary().short, run: () => $("#bot-pill button")?.click() },
+           { kind: "Action", label: "Switch to day theme", hint: "blue on white", run: () => setTheme("day") },
+           { kind: "Action", label: "Switch to night theme", hint: "blue on black", run: () => setTheme("night") },
+           { kind: "Action", label: "Open help", hint: "?", run: openHelp });
+  if (S.dirty) out.push({ kind: "Action", label: "Save project", hint: "Ctrl/⌘ S", run: save });
+  return out;
+}
+function openPalette() {
+  const d = $("#dlg"); if (d.open) return;
+  const items = paletteItems(); let sel = 0, shown = items;
+  const list = h("div", { class: "pal-list", role: "listbox", id: "pal-list" });
+  const inp = h("input", { class: "input pal-in", type: "search", placeholder: "Go to a page, journey, factor, state, test run or action", "aria-label": "Go to", "aria-controls": "pal-list", autocomplete: "off" });
+  const pick = it => { d.close(); if (it.go) go(it.go); else if (it.run) it.run(); };
+  const paint = () => { const q = inp.value.trim().toLowerCase();
+    shown = !q ? items.filter(x => x.kind !== "State").slice(0, 40) : items.map(x => { const l = x.label.toLowerCase(), s = l.startsWith(q) ? 3 : l.includes(q) ? 2 : `${x.hint} ${x.kind}`.toLowerCase().includes(q) ? 1 : 0; return [s, x]; }).filter(([s]) => s).sort((a, b) => b[0] - a[0]).map(([, x]) => x).slice(0, 40);
+    sel = Math.min(sel, Math.max(0, shown.length - 1));
+    list.replaceChildren(...(shown.length ? shown.map((x, i) => h("button", { type: "button", class: "pal-it", role: "option", "aria-selected": i === sel ? "true" : "false", onclick: () => pick(x), onmousemove: () => { if (sel !== i) { sel = i; paint(); } } },
+      h("span", { class: "k" }, x.kind), h("span", { class: "l" }, x.label), h("span", { class: "h" }, x.hint))) : [h("p", { class: "small muted", style: "padding:10px" }, "Nothing matches. Try a page name, a factor or a state.")]));
+    const cur = list.querySelector('[aria-selected="true"]'); if (cur) cur.scrollIntoView({ block: "nearest" }); };
+  inp.addEventListener("input", () => { sel = 0; paint(); });
+  inp.addEventListener("keydown", e => { if (e.key === "ArrowDown") { e.preventDefault(); sel = Math.min(sel + 1, shown.length - 1); paint(); } else if (e.key === "ArrowUp") { e.preventDefault(); sel = Math.max(sel - 1, 0); paint(); } else if (e.key === "Enter" && shown[sel]) { e.preventDefault(); pick(shown[sel]); } });
+  d.className = "palette"; d.replaceChildren(inp, list, h("p", { class: "small muted pal-foot" }, h("kbd", {}, "↑"), " ", h("kbd", {}, "↓"), " to move, ", h("kbd", {}, "Enter"), " to open, ", h("kbd", {}, "Esc"), " to close"));
+  d.addEventListener("close", () => { d.className = ""; }, { once: true });
+  paint(); d.showModal(); inp.focus();
+}
+document.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openPalette(); } });
 document.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.key === "s" && S.dirty) { e.preventDefault(); save(); } });
 boot();
 </script>

@@ -266,13 +266,13 @@ def test_the_critique_layer_reviews_every_step_and_corrects_a_wrong_one():
         s, t = _llm_turns(False)
         rec = [x for x in t["tools"] if x["tool"] == "record_charge_response"]
         assert rec and rec[0]["args"]["disposition"] == "RECOGNIZED" and t["critique"] == []
-        assert "critique" not in s.bot_name and s.llm.stats.critiques == 0
+        assert "no critique" in s.bot_name and s.llm.stats.critiques == 0
         s, t = _llm_turns(True)
         rec = [x for x in t["tools"] if x["tool"] == "record_charge_response"]
         assert rec and rec[0]["args"]["disposition"] == "UNRECOGNIZED"
         assert len(t["critique"]) == 1 and t["critique"][0]["after"]["args"]["disposition"] == "UNRECOGNIZED"
         st = s.llm.stats.as_dict()
-        assert "with critique" in s.bot_name and st["critique_revised"] == 1
+        assert "critique by the same model" in s.bot_name and st["critique_revised"] == 1
         assert st["critiques"] == st["critique_approved"] + st["critique_revised"] + st["critique_unusable"] >= 3
         assert "THE BOT'S INSTRUCTIONS" in s.llm.critic_prompt and s.llm.system_prompt in s.llm.critic_prompt
     finally:

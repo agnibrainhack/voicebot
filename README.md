@@ -177,7 +177,11 @@ studio shares the setting. Its parts:
   graph's own relation table), how many triples and entities it has, its section, its pattern (which kinds of
   entity it links), the relations connected to it through the same entities (click one to move to it) and every
   triple with its id and source. Click a point for its relations, grouped by relation; the page states how close
-  linked entities sit against random pairs.
+  linked entities sit against random pairs. **Spread** pushes bunched points apart along the surface while keeping
+  linked entities close (default 0.85 for a graph-only layout); **Full view** gives the sphere the whole window.
+- **Getting around**: Go to (Ctrl/⌘ K) searches pages, journeys, factors, states, recent test runs and common actions; a running test run
+  shows its progress in the tab title and says when it finishes (a system notification if the tab is hidden and
+  allowed); stage 2 shows *unsaved edits* when the project has unsaved changes.
 - **You configure**: the journey factors (decision point, relevance, default, and per level a bank patch, a
   tool's returns call by call, or what the customer says, with a preview of the expected conversation for any
   level), the bank and the customer's scripts, case rules, categories, severities and the release gate. Every edit

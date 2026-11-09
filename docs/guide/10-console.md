@@ -44,6 +44,15 @@ the system; the switch in the top bar keeps your choice (`jc.theme` in the brows
 the GMS sphere redraws in the new colours. Fonts are IBM Plex Sans, Sans Condensed (titles) and Mono (graph names),
 loaded without blocking the page; offline, the system fonts are used.
 
+**Getting around.** **Go to** in the top bar (or Ctrl/⌘ K anywhere) opens a palette that searches every page, journey,
+factor, graph state and recent test run, plus common actions (start a test run, choose the bot, switch theme,
+save); arrow keys and Enter jump there. A test run in progress shows
+in the browser tab's title (`▶ 7/13 · …`), so it can be followed from another tab; when it finishes, a toast says so,
+and if the tab is hidden and the browser allows notifications (asked once, when you start a run) a system
+notification does too. Stage 2 of the route rail says *unsaved edits* as soon as the project has changes you have
+not saved. On narrower screens the top bar keeps its controls on one line by shortening labels (the full text is in
+each control's tooltip).
+
 ```mermaid
 flowchart LR
     B["browser<br/>(ui.html)"] <-->|JSON API| S["server.py"]
@@ -196,6 +205,14 @@ relation table), its counts, section, pattern (entity type to entity type), the 
 calculation: with `c` the normalised mean of the selected points, the yaw `a = atan2(-c.x, c.z)` brings `c` into the
 y-z plane and the pitch `b = atan2(c.y, sqrt(c.x² + c.z²))` then brings it to the front; the view eases towards
 `(a, b)` the short way round.
+
+**Spread and full view.** A spectral layout tends to bunch points on one side of the sphere, so the page relaxes it
+before drawing: a few hundred steps of pairwise repulsion (force ∝ 1/d²) with a pull along each relation, moving
+points along the sphere's surface. The **Spread** slider blends between the computed placement (0) and the relaxed
+one (1); the default is 0.85 for a graph-only layout and 0 for a layout from the learned store, whose positions mean
+something. The text beside it gives, for what is drawn, the mean arc between linked entities against random pairs,
+so you can see that spreading keeps neighbours close. **Full view** hides the rail and page text and gives the
+sphere the whole window; Esc (with nothing selected) or Leave full view goes back.
 
 `build()` places every entity of the graph as a point on the unit sphere and every relation as a great-circle arc,
 coloured by section:
