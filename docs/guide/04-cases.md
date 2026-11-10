@@ -109,6 +109,12 @@ knows their character's intentions rather than a recording. A bot that asks the 
 phrases a prompt differently, still gets the right answers, so a test does not break for reasons that have nothing
 to do with the policy.
 
+In a test run, though, the customer does **not** follow the bot: it plays the case's **base journey**, the lines of
+the graph's own conversation of the case, in order (`JourneyRunner(customer="scripted")`, chapter 6). The simulator
+writes that base journey (the oracle plays it against the graph); once written, a bot that goes wrong cannot change
+what the customer says next, so every bot is graded on the same case. The reactive customer is still there for
+exploring a bot (`customer="adaptive"`).
+
 `activate(project)` builds every case from a given project from now on (the studio previews unsaved edits this way);
 `active_project()` returns it.
 

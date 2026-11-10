@@ -540,6 +540,31 @@ def test_the_words_check_hears_a_clarification_written_with_curly_apostrophes():
     assert s2.turns[-1]["expected"]["acts"] == ["ASK_CLARIFY(T1)"]
 
 
+def test_the_playground_journey_line_follows_the_base_journey_not_the_bot():
+    from gmsjourney.s10_console import bots as PG
+    domain.set_current("charge_review_graph")
+    PG.cases("project", None)
+    s = PG.get(PG.start("project", "default", None)["id"])
+    base = [str(f) for f, _, _ in s._base_lines()]
+    assert s.journey_line()["read"] == base[0]
+    s.say("", "journey")
+    assert s.base_i == 1 and s.journey_line()["read"] == base[1]
+    s.say("Sorry, what was that?", "free")                       # an extra turn: the journey's line stays next
+    w = s.turns[-1]["customer"]["journey_would_say"]
+    assert s.base_i == 1 and w["read"] == base[1] and not w["same_meaning"]
+    s.say("Yes, that one is mine.", "free")                        # the journey's line in other words: it moves on
+    assert s.turns[-1]["customer"]["journey_would_say"]["same_meaning"] and s.base_i == 2
+    while s.journey_line() and not s.ended:
+        s.say("", "journey")
+    assert s.base_i == len(base) and s.journey_line() is None
+    if not s.ended:
+        try:
+            s.say("", "journey")
+            raise AssertionError("a journey line past the base journey")
+        except ValueError as e:
+            assert "no more customer lines" in str(e)
+
+
 def test_confusion_in_many_wordings_and_the_customer_says_it_in_several_ways():
     from gmsjourney.s01_packs import loading
     from gmsjourney.s05_rewording.wording import SemanticFrame as F
@@ -569,3 +594,17 @@ if __name__ == "__main__":
         if name.startswith("test_") and callable(fn):
             fn()
             print("ok", name)
+
+
+def test_a_test_run_scripts_the_customer_by_default_and_the_run_page_can_turn_it_off():
+    from gmsjourney.s08_campaign.pipeline import CampaignConfig
+    from gmsjourney.s10_console import runs
+    assert CampaignConfig().customer == "scripted" and "customer" in runs.OPTIONS
+    html = (Path(runs.__file__).parent / "ui.html").read_text()
+    assert "Customer follows the base journey" in html and 'customer: F.scripted_customer === false ? "adaptive" : "scripted"' in html
+    with tempfile.TemporaryDirectory() as d:
+        try:
+            runs.Runs(Path(d)).start({"pack": "charge_review", "customer": "whatever"})
+            raise AssertionError("an unknown customer was accepted")
+        except ValueError as e:
+            assert "scripted" in str(e)

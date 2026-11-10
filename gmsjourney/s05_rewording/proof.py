@@ -234,6 +234,11 @@ class InvarianceValidator:
             self._states[item.qid] = states
         return self._paths[item.qid]
 
+    def base_states(self, item) -> list:
+        """The dialog state each base-journey line answers (as base_path, one per customer line)."""
+        self.base_path(item)
+        return list(self._states.get(item.qid, []))
+
     # ----------------------------------------------------------------- proof
     def prove(self, scn: Scenario) -> ProofResult:
         item = scn.base
@@ -514,6 +519,11 @@ class GraphInvarianceValidator(InvarianceValidator):
             self._paths[item.qid] = path
             self._states[item.qid] = states
         return self._paths[item.qid]
+
+    def base_states(self, item) -> list:
+        """The dialog state each base-journey line answers (as base_path, one per customer line)."""
+        self.base_path(item)
+        return list(self._states.get(item.qid, []))
 
     def _mutations(self, f: F) -> list[tuple[str, F]]:
         g = _graph()

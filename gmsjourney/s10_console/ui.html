@@ -948,7 +948,7 @@ const GLOSSARY = [
   ["Core segments", "What every graph needs for the validations a test run makes (verification, tool results, handoffs, limits, rules, wording...). A missing one means those checks have nothing to test."],
   ["Graph version", "Edit graph saves your changes as <name>.v2.json (then .v3 ...) beside the original and switches the journey to it. The original file is never changed; switch back from the versions row."],
   ["GMS sphere", "Every entity of the graph as a point on the unit sphere and every relation as an arc: from the knowledge store's learned vectors when a test run has built it, else from the graph's relationships."],
-  ["Playground", "Talk to the bot yourself on one case of any journey. At every turn, stick to the journey (the case's customer answers whatever the bot asked) or talk freely. Every bot turn is validated against the graph either way; a turn that differs is flagged as a deviation, with the answer sheet for both sides."],
+  ["Playground", "Talk to the bot yourself on one case of any journey. At every turn, stick to the journey (the base journey's next line, whatever the bot said) or talk freely. Every bot turn is validated against the graph either way; a turn that differs is flagged as a deviation, with the answer sheet for both sides."],
   ["Put the bot to test", "A test run: every generated case, original and reworded, played against the bot and checked; it ends with the verdict (Start a test run). In code it is run_campaign."],
   ["Volunteered / unread", "Advisory speech findings: a figure about something not asked; a clause no check could read. Counted, not failed, unless you say so (Rules and scoring)."],
 ];
@@ -2020,14 +2020,15 @@ function runView(r) {
   const devs = S.meta.devices.options;
   const active = S.meta.active_run;
   let saved = {}; try { saved = JSON.parse(localStorage.getItem("jc.runform") || "{}"); } catch {}
-  const F = Object.assign({ pack: S.pack, device: "auto", max_cases: "", runs_per_base: 1, seed: 42, run_resilience: true, run_mutation: true, speech_controls: true, run_power: false, run_governance: true, rebuild_store: false, llm_arm: false, llm_mode: "replay", llm_model: "" }, saved, { pack: S.pack });
+  const F = Object.assign({ pack: S.pack, device: "auto", max_cases: "", runs_per_base: 1, seed: 42, run_resilience: true, run_mutation: true, speech_controls: true, run_power: false, run_governance: true, scripted_customer: true, rebuild_store: false, llm_arm: false, llm_mode: "replay", llm_model: "" }, saved, { pack: S.pack });
   if (!devs.some(o => o.id === F.device && o.available)) F.device = "auto";
   const set = (k, v) => { F[k] = v; try { localStorage.setItem("jc.runform", JSON.stringify(F)); } catch {} };
   const chk = (k, label, hint) => h("label", { class: "row", style: "gap:8px;align-items:flex-start;min-height:28px" }, h("input", { type: "checkbox", checked: !!F[k], onchange: e => set(k, e.target.checked) }), h("span", {}, label, hint ? h("span", { class: "small muted", style: "display:block" }, hint) : null));
   const startBtn = h("button", { class: "btn primary", type: "submit", disabled: !!active }, "Start the test");
   const form = h("form", { class: "card", onsubmit: async e => { e.preventDefault(); startBtn.disabled = true; startBtn.replaceChildren(h("span", { class: "spin" }), "Starting…");
       if (S.dirty && !(await confirmBox("Save before running?", "The run reads the saved project. Your unsaved edits would not be used.", "Run without them"))) { startBtn.disabled = false; startBtn.replaceChildren("Start the test"); return; }
-      try { const body = { ...F, max_cases: F.max_cases === "" ? null : Number(F.max_cases), runs_per_base: Number(F.runs_per_base) || 1, seed: Number(F.seed) || 42, sut: sutBody() };
+      try { const body = { ...F, max_cases: F.max_cases === "" ? null : Number(F.max_cases), runs_per_base: Number(F.runs_per_base) || 1, seed: Number(F.seed) || 42, customer: F.scripted_customer === false ? "adaptive" : "scripted", sut: sutBody() };
+        delete body.scripted_customer;
         if (body.sut.kind === "llm" && !(await confirmBox("Run the LLM bot?", `Every customer turn of every case costs one to ${body.sut.max_steps + 1} gateway calls${body.sut.critique ? ", twice that with the critique layer" : ""} (${body.sut.mode === "replay" ? "replay: cached replies only, a reply that is not cached stops the run" : "live, cached for re-runs"}). Start with a few cases.`, "Start the test"))) { startBtn.disabled = false; startBtn.replaceChildren("Start the test"); return; }
         try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); } catch {}
         const { id } = await api("api/runs", body); S.meta.active_run = id; gMark("ran"); toast(`Run ${id} started. You can leave this page; it keeps running.`); go(`#/run/${id}`); }
@@ -2043,7 +2044,7 @@ function runView(r) {
         h("label", { for: "rf-cases" }, "Cases to run"), h("div", { class: "row" }, h("input", { class: "input num", id: "rf-cases", type: "number", min: 1, inputmode: "numeric", style: "width:140px", value: F.max_cases, placeholder: "All…", oninput: e => set("max_cases", e.target.value) }), h("span", { class: "small muted" }, "Each with its reworded variants. Empty: all generated cases.")),
         h("label", { for: "rf-rpb" }, "Runs per case"), h("input", { class: "input num", id: "rf-rpb", type: "number", min: 1, inputmode: "numeric", style: "width:140px", value: F.runs_per_base, oninput: e => set("runs_per_base", e.target.value) }),
         h("label", { for: "rf-seed" }, "Seed"), h("input", { class: "input num", id: "rf-seed", type: "number", inputmode: "numeric", style: "width:140px", value: F.seed, oninput: e => set("seed", e.target.value) })),
-      h("div", { class: "grid2" }, h("div", { class: "stack", style: "gap:4px" }, h("h3", {}, "Checks"), chk("speech_controls", "Speech controls", "Prove the speech check flags planted wording errors"), chk("run_governance", "Runtime gates", "Calibrate and run the runtime monitor"),
+      h("div", { class: "grid2" }, h("div", { class: "stack", style: "gap:4px" }, h("h3", {}, "Checks"), chk("scripted_customer", "Customer follows the base journey", "Says the case's own lines whatever the bot answers, so a wrong turn cannot steer the case. Off: answers the bot's last question."), chk("speech_controls", "Speech controls", "Prove the speech check flags planted wording errors"), chk("run_governance", "Runtime gates", "Calibrate and run the runtime monitor"),
           chk("run_resilience", "Tool faults", "Errors and plausible wrong answers from each tool"), chk("run_mutation", "Planted defects", "Mutant bots each suite must catch"), chk("run_power", "Power analysis", "Slower; sizes the design")),
         h("div", { class: "stack", style: "gap:4px" }, h("h3", {}, "Advanced"), chk("rebuild_store", "Rebuild the knowledge store", "Otherwise a cached store for this graph is reused"),
           chk("llm_arm", "LLM rewording of customer turns", "Adds an arm whose customer words an LLM rewrites, proved like the rest (not the bot under test)"),
@@ -2683,8 +2684,8 @@ function coverageTab(I) {
 }
 
 // ---------------------------------------------------------------- playground: talk to the bot under test, every turn checked
-// Pick any journey and one of its cases, then answer the bot turn by turn: stick to the journey (the case's own
-// customer answers whatever the bot asked) or talk freely. Every bot turn is validated against the graph either way,
+// Pick any journey and one of its cases, then answer the bot turn by turn: stick to the journey (the base journey's
+// next line, whatever the bot said) or talk freely. Every bot turn is validated against the graph either way,
 // and each turn shows the answer sheet for both sides: the customer's meaning in its dialog state, and the graph's hops,
 // tools and acts beside what the bot did and said. A turn that does not match is flagged as a deviation.
 function pgState() {
@@ -2843,7 +2844,7 @@ function exchange(t, Ses) {
       h("div", { class: "small" }, "Means ", h("span", { class: "chip proj" }, cardText(c.card)), c.state ? h("span", { class: "muted" }, ` at ${c.state}`) : null),
       c.state_reading ? h("div", { class: "small muted" }, `A bare ${c.card.act === "CONFIRM" ? "yes" : c.card.act === "DENY" ? "no" : "reply"}: in this state it could mean ${cardText(c.state_reading)}, but the graph is given the words as said and expects the bot to ask rather than guess.`) : null,
       c.admissible === false ? h("div", { class: "small mark warn" }, `The state does not accept this meaning${c.why_not ? ": " + c.why_not : ""}. The graph handles it as it would any unexpected answer.`) : null,
-      c.journey_would_say ? h("div", { class: "small muted" }, c.journey_would_say.same_meaning ? "Same meaning as the journey's line: " : "The journey's customer would have said: ", `“${c.journey_would_say.text}”`, c.journey_would_say.same_meaning ? "" : ` (${c.journey_would_say.read})`) : null)
+      c.journey_would_say ? h("div", { class: "small muted" }, c.journey_would_say.same_meaning ? "Same meaning as the journey's line: " : "The journey's line, still next: ", `“${c.journey_would_say.text}”`, c.journey_would_say.same_meaning ? "" : ` (${c.journey_would_say.read})`) : null)
     : h("div", { class: "xside cust" }, h("div", { class: "xlbl" }, "Customer"), h("div", { class: "small muted" }, "The bot opens the call."));
   const botSide = h("div", { class: "xside bot" },
     h("div", { class: "xlbl" }, "Agent", h("span", { class: `mode ${Ses.bot === "llm" ? "free" : ""}`, title: Ses.bot_name }, Ses.bot === "llm" ? (Ses.llm && Ses.llm.critique ? "LLM bot + critique LLM" : "LLM bot, no critique") : "reference bot, no LLM")),
@@ -2881,7 +2882,7 @@ function playChat() {
       h("div", { class: "opt journey" }, h("div", { class: "ot" }, "Stick to the journey"),
         jl ? [h("div", { class: "line-q" }, `“${jl.text}”`), h("div", { class: "small muted mono" }, jl.read),
           h("button", { class: "btn primary", disabled: P.busy, onclick: () => sayPlay("journey") }, "Send the journey's line")]
-          : h("p", { class: "small muted" }, "The journey's customer has nothing to say here; the call should be ending. Talk freely to keep going.")),
+          : h("p", { class: "small muted" }, "The base journey has no more customer lines; its call has ended. Talk freely to keep going.")),
       h("div", { class: "opt free" }, h("div", { class: "ot" }, "Talk freely"), ta,
         h("button", { class: "btn", disabled: P.busy, onclick: () => sayPlay("free", ta.value) }, "Send what I typed")));
   const devs = Ses.deviations || [];

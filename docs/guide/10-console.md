@@ -70,6 +70,11 @@ without opening anything (`GET /api/graph/peek`): the graph's title, format, siz
 whether it opens a journey already here, switches a journey to this version, or makes a new journey. A partial path
 or a folder lists the graphs found there; arrow keys move through them and Enter picks one.
 
+**The customer in a test run.** Under Checks on the run page, *Customer follows the base journey* (on by default)
+sends `customer: "scripted"` in the job: every case's customer says its base journey's lines in order, whatever the bot
+answers, so a bot mistake cannot steer the rest of the case (chapter 6). Unchecked it sends `"adaptive"`, a customer
+that answers the bot's last question.
+
 **Progress.** Every long part of a test run reports how far it has got (`gmsjourney/progress.py`), and the run page
 draws it inside the running step: the knowledge store's training as one segment per phase (compile, GEODE loop,
 embed loop, contradiction SFT, relevance, production store, coverage, judge), with the time left in the current phase
@@ -190,10 +195,12 @@ s10_console/
   exactly), or the project's default case and one case per non-default level (`factor_cases`). A `Session` sets the
   mock bank from the case and keeps the case's simulated customer. At every turn the tester picks one of two ways to
   answer (`Session.say(text, mode)`):
-  * `journey`: the case's customer answers the bot's last act (the same `UserSimulator` a test run uses, so after a
-    bot mistake it still answers what the bot actually asked; `journey_line` previews it without using it up by
-    replaying the questions already answered on a fresh simulator);
-  * `free`: the typed words, shown next to what the journey's customer would have said and whether it means the same.
+  * `journey`: the **base journey's** next line (`_base_lines`: the customer lines of the graph's own conversation of
+    the case, as a test run's scripted customer says them), whatever the bot said; `base_i` points at it and
+    `journey_line` previews it. After the last line there is nothing to send and the tester talks freely;
+  * `free`: the typed words, shown next to the journey's next line and whether it means the same. A typed line that
+    means the same counts as that line (the journey moves on); anything else is an extra turn and the journey's line
+    stays next.
 
   Both are read into a meaning card and validated identically: the oracle replays the cards so far and the bot's
   turn is compared with the graph's (tools with key arguments, decision acts) and speech-checked. Every turn that

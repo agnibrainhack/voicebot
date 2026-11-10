@@ -186,6 +186,9 @@ studio shares the setting. Its parts:
 - **Progress**: a test run shows, inside the running step, the knowledge store's training phase by phase (with the time
   left estimated from the last build and a live count of optimizer steps), bars with the time left for cases played,
   proofs, tool-fault runs and planted defects, and every LLM call split into cache, model and failed, by caller.
+- **The customer in a test run**: *Customer follows the base journey* (on by default, under Checks on the run page)
+  has each case's customer say its base journey's lines whatever the bot answers, so a wrong turn cannot steer the
+  rest of the case; unchecked, the customer answers the bot's last question instead.
 - **Saved conversations**: *Save as a test case* in the Playground keeps a conversation's customer lines with the
   journey (`<pack>/saved_conversations.json`); replay one with any bot, and every test run replays them all against its
   bot and reports which deviated.
@@ -245,9 +248,9 @@ studio shares the setting. Its parts:
 - **Playground** (`s10_console/bots.py`): talk to the bot under test yourself. Pick any journey (switching it here
   switches the console's journey too) and a case (from the latest finished test run, any test run, or the project's
   default and one-per-level cases); it sets the mock bank and the case's simulated customer. At every turn choose how
-  the customer answers: **stick to the journey** (the case's own customer answers whatever the bot just asked, so it
-  keeps following the case even after the bot goes wrong) or **talk freely** (type anything; the page also shows what
-  the journey's customer would have said and whether it means the same). Either way every bot turn is validated the
+  the customer answers: **stick to the journey** (the base journey's next line, whatever the bot said, so a bot mistake
+  does not change the case) or **talk freely** (type anything; the page also shows the journey's next line and whether
+  you said the same thing, in which case the journey moves on). Either way every bot turn is validated the
   same way: the oracle replays your turns, each read into its meaning card, and the turn is compared with the
   graph's (tools with their key arguments, decision acts) and its words are speech-checked. A turn that differs is
   flagged **Bot deviated here** (later ones **Still off the journey**), with the reasons, and listed in the side
@@ -388,9 +391,11 @@ The overrides are saved in the build report and applied again when the store is 
 
 ## How the bot is validated, and the turn-by-turn view
 
-Each test case runs the real bot (yours or the reference bot) live: a fresh bot and a fresh mock backend, a simulated
-customer that answers whatever the bot actually asks (`journey.UserSimulator`), and every bot reply, act and tool call
-recorded. Some checks happen during the run, turn by turn:
+Each test case runs the real bot (yours or the reference bot) live: a fresh bot and a fresh mock backend, a customer
+that plays the case's base journey line by line, whatever the bot answers (the scripted customer, so a bot mistake
+cannot steer the case away from the one that was designed and proved; the run page's **Customer follows the base
+journey** checkbox, on by default, or `CampaignConfig(customer="adaptive")` switches to a customer that answers the
+bot's last question), and every bot reply, act and tool call recorded. Some checks happen during the run, turn by turn:
 
 - each customer line is read back to its meaning card in its dialog state;
 - the runtime monitor checks every tool call before it executes and every bot sentence (claims, fraud stance,

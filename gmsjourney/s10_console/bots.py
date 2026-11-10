@@ -241,18 +241,19 @@ def check_gateway(model: str = "", timeout: float = 30.0) -> dict[str, Any]:
 # PART 3 - The playground: talk to the bot under test yourself, one turn at a time, with every turn checked as you go.
 #
 # A session is one conversation on one case of any journey. The case sets the mock bank (the items, which tools fail or
-# decline) and its simulated customer. At every turn the tester chooses how the customer answers:
+# decline) and its base journey (the customer's lines in the graph's own conversation of the case). At every turn the tester chooses how the customer answers:
 #
-# * stick to the journey: the case's own customer answers whatever the bot just asked (the same simulator a test run
-#   uses, so after a bot mistake it still answers the question the bot actually asked);
-# * talk freely: the tester types anything.
+# * stick to the journey: the base journey's next line, whatever the bot said (as a test run's scripted customer says
+#   it, so a bot mistake does not change the case);
+# * talk freely: the tester types anything (a line that means the journey's next one counts as it; anything else is an
+#   extra turn and the journey's line stays next).
 #
 # Either way the words are read into a meaning card and the turn is validated the same way. For every bot turn the
 # session shows, as the answer sheet does:
 #
 # * the customer side: the dialog state answered, what it accepts, how it reads a bare yes or no, its rules and
 #   limits; the meaning card read from the words, whether the state admits it, the card as triples; and, for free
-#   talk, what the journey's customer would have said instead;
+#   talk, the journey's next line and whether the typed one means the same;
 # * the agent side: the graph's hops for this turn (state before, trigger, tool calls with results, condition, state
 #   after, rules with their text, the graph triple and its source), the tools and acts the graph expects, and the
 #   bot's own tools, acts and words;
@@ -552,49 +553,53 @@ class Session:
     deviations: list[int] = field(default_factory=list)
     ended: bool = False
     created: float = field(default_factory=time.time)
-    sim: Any = None
-    sim_calls: list = field(default_factory=list)
+    base: list | None = None                            # the base journey's customer lines (built on first use)
+    base_i: int = 0                                     # the next of them
     last_acts: list = field(default_factory=list)
     source: str = "project"
     replay_of: str | None = None
 
     # ------------------------------------------------------------------ the journey's customer
-    def _new_simulator(self):
-        from ..s04_cases.journey import UserSimulator
-        B = bench()
-        return UserSimulator(self.case["spec"], json.loads(json.dumps(self.case["fixture"])),
-                             getattr(B.oracle.limits, "lookback_days", None))
+    def _base_lines(self) -> list[tuple]:
+        """The base journey: the customer's lines in the graph's own conversation of this case, in order, each with
+        its context and the state it answers [(frame, context, state)]. Built once per conversation."""
+        if self.base is None:
+            B = bench()
+            tr = B.oracle.run(self.case["spec"], json.loads(json.dumps(self.case["fixture"])))
+            by_id = {t.get("transaction_id"): t for t in (self.case["fixture"].get("transactions") or [])}
+            lines, last_bot = [], {}
+            for ev in tr.events:
+                if ev["role"] == "bot":
+                    last_bot = ev["acts"][-1] if ev.get("acts") else {}
+                elif ev["role"] == "user":
+                    state = ev.get("state") or last_bot.get("act") or last_bot.get("type")
+                    item = ev.get("item") or {k: v for k, v in (by_id.get(last_bot.get("txn")) or {}).items()
+                                              if k in ("merchant", "amount")}
+                    lines.append((ev["frame"], dict(item or {}), state))
+            self.base = lines
+        return self.base
 
     def _journey_frame(self, consume: bool):
-        """What the case's customer says to the bot's last question (None: nothing, e.g. the call is ending).
-
-        The simulator keeps queues of scripted answers; a preview replays the questions it already answered on a fresh
-        simulator, so looking at the next line never uses it up."""
-        if not self.last_acts:
+        """The base journey's next line (None: the base journey has no more lines). The journey does not follow the
+        bot: it moves on when its line is said, or when a typed line means the same; anything else is an extra turn."""
+        lines = self._base_lines()
+        if self.base_i >= len(lines):
             return None
-        if self.sim is None:
-            self.sim, self.sim_calls = self._new_simulator(), []
-        act = dict(self.last_acts[-1])
+        fr = lines[self.base_i][0]
         if consume:
-            sim = self.sim
-            self.sim_calls.append(act)
-        else:
-            sim = self._new_simulator()
-            for a in self.sim_calls:
-                try:
-                    sim.respond(dict(a))
-                except Exception:                       # noqa: BLE001
-                    pass
-        try:
-            return sim.respond(act)
-        except Exception:                               # noqa: BLE001 - a bot act the script cannot answer
-            return None
+            self.base_i += 1
+        return fr
 
-    def _words(self, frame) -> str:
+    def _words(self, frame, base_line: int | None = None) -> str:
+        """``frame`` in words; a base-journey line (``base_line``) is worded in its own context and state."""
         B = bench()
         state = self.last_acts[-1].get("act") if self.last_acts else None
+        ctx = {"state": state}
+        lines = self._base_lines()
+        if base_line is not None and base_line < len(lines):
+            ctx = {**lines[base_line][1], "state": lines[base_line][2] or state}
         try:
-            return B.realizer.realize(frame, {}, f"{self.case['id']}~play|{len(self.frames)}", {"state": state})
+            return B.realizer.realize(frame, {}, f"{self.case['id']}~play|{len(self.frames)}", ctx)
         except Exception:                               # noqa: BLE001
             return str(frame)
 
@@ -605,7 +610,7 @@ class Session:
         fr = self._journey_frame(consume=False)
         if fr is None:
             return None
-        return {"text": self._words(fr), "read": str(fr)}
+        return {"text": self._words(fr, self.base_i), "read": str(fr)}
 
     # ------------------------------------------------------------------ the answer sheet of one turn
     def _state_sheet(self, state: str | None) -> dict | None:
@@ -724,8 +729,9 @@ class Session:
         return self._bot_turn(turn, n0, None)
 
     def say(self, text: str = "", mode: str = "free") -> dict:
-        """The customer's next turn. ``mode`` "journey": the case's customer answers the bot's last question (``text``
-        is ignored); "free": ``text`` as typed. Both are read into a meaning card and validated the same way."""
+        """The customer's next turn. ``mode`` "journey": the base journey's next line, whatever the bot said (``text``
+        is ignored); "free": ``text`` as typed (it counts as the journey's line when it means the same, otherwise it is
+        an extra turn and the journey's line stays next). Both are read into a meaning card and validated the same way."""
         from ..s09_reports.cases import frame_hrt
         if self.ended:
             raise ValueError("the conversation has ended; start a new one")
@@ -734,17 +740,18 @@ class Session:
         B = bench()
         last = (self.turns[-1]["bot"]["act_names"] or [None])[-1] if self.turns else None
         if mode == "journey":
+            k = self.base_i
             jf = self._journey_frame(consume=True)
             if jf is None:
-                raise ValueError("the journey's customer has nothing to say here (the call should be ending); talk freely instead")
-            text = self._words(jf)
+                raise ValueError("the base journey has no more customer lines (its call has ended); talk freely instead")
+            text = self._words(jf, k)
             would = None
         else:                                           # "free" as typed, or "replay": a saved conversation's line
             text = (text or "").strip()
             if not text:
                 raise ValueError("type what the customer says, or stick to the journey")
             jf = self._journey_frame(consume=False)
-            would = {"text": self._words(jf), "read": str(jf)} if jf is not None else None
+            would = {"text": self._words(jf, self.base_i), "read": str(jf)} if jf is not None else None
         frame = B.reader.read(text, last)
         card = B.ont.card(frame, last) if last else {"act": frame.act, "slots": dict(frame.slots), "admissible": True}
         # The graph is given the reading as said (frame), not the state's reading of a bare yes/no (card): show what it
@@ -757,6 +764,8 @@ class Session:
             wc = B.ont.card(jf, last) if last else {"act": jf.act, "slots": dict(jf.slots)}
             mine = state_reading or card                # meaning compared as read in the state, as the proofs do
             would["same_meaning"] = (wc.get("act"), wc.get("slots")) == (mine.get("act"), mine.get("slots"))
+            if would["same_meaning"]:                   # said in other words: the journey moves on
+                self.base_i += 1
         self.frames.append(frame)
         n0 = len(self.env.log)
         turn = self.bot.respond(text)

@@ -39,6 +39,7 @@ s08_campaign/
 |---|---|
 | what to test | `domain` (pack), `policy_path`, `bot_factory` (default: the reference bot), `bot_name`, `out_dir` |
 | how much | `profile` (`voice_full`), `runs_per_base` (6), `max_cases` (all), `seed` (42), `kb_questions` (`standard` / `extended`), `max_turn_limit_cases` (2) |
+| the customer | `customer` (`scripted`: each case's base journey, line by line, whatever the bot answers; `adaptive`: answers the bot's last question) |
 | which checks | `run_mutation`, `run_resilience`, `run_power`, `run_governance` (all on), `speech_gate` (`fail`), `speech_controls`, `negative_controls_per_type` (40), `decision_rule` (`strict` / `quorum`), `budgets`, `calibration_bootstrap` (200) |
 | the store | `device`, `rebuild_store`, `kx_store_dir`, `kx_epochs`, `kx_geode_epochs` (300), `kx_geode_max_iters` (8), `kx_embed_trainer_epochs` (150), `kx_embed_max_iters` (2), `kx_sft_epochs`, `kx_contradiction_epochs` (400), `kx_store_config`, `kx_dedup_mode` (`off`), `kx_v_sft_mode` (`full`), `allow_failed_self_tests` |
 | the LLM arm | `llm_arm` (off), `llm_mode` (`live` / `replay`), `llm_model`, `llm_temperature` (0.7), `llm_share`, `llm_dual_read` (`gate`), `llm_max_attempts` (3), `llm_adversarial_controls` (20), `llm_workers` (8), `llm_max_scenarios`, `llm_target_accepted`, `llm_asides`, `llm_exclude`, `llm_template_acts`, `llm_turn_fallback` ... |

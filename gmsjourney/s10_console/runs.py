@@ -555,6 +555,8 @@ class Runs:
         why = check_device(job.get("device"))
         if why:
             raise ValueError(why)
+        if job.get("customer") not in (None, "scripted", "adaptive"):
+            raise ValueError('customer is "scripted" (the base journey\'s lines) or "adaptive" (answers the bot)')
         if (job.get("sut") or {}).get("provider") == "local" and (job.get("sut") or {}).get("kind") == "llm":
             from ..s06_bots.llm_bot import status as local_status
             st = local_status(job["sut"].get("local_path"), job["sut"].get("vllm_url"))
@@ -845,7 +847,7 @@ def _elapsed(events) -> float | None:
 
 OPTIONS = ("max_cases", "runs_per_base", "seed", "run_resilience", "run_mutation", "run_power", "run_governance",
            "speech_controls", "calibration_bootstrap", "negative_controls_per_type", "llm_arm", "llm_mode", "llm_model",
-           "rebuild_store", "profile")
+           "rebuild_store", "profile", "customer")
 
 
 def main(run_dir: str) -> int:

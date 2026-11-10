@@ -109,6 +109,39 @@ def test_every_mined_defect_is_caught_or_equivalent():
     print(f"ok test_every_mined_defect_is_caught_or_equivalent {dom.name}: {len(mutants(dom.graph))} defects")
 
 
+def test_the_scripted_customer_says_the_base_journey_whatever_the_bot_does():
+    """In a test run the customer plays its case's base journey line by line and is not steered by the bot: a defect
+    that answers wrongly meets the same next line as the correct bot would. The adaptive customer is still there."""
+    from gmsjourney.s05_rewording.catalog import Scenario
+    from gmsjourney.s05_rewording.proof import GraphInvarianceValidator
+    from gmsjourney.s05_rewording.wording import FrameReader, Realizer
+    from gmsjourney.s06_bots.reference import make_graph_factory, mutants
+    from gmsjourney.s04_cases.factors import to_item
+    from gmsjourney.s06_bots.harness import GraphRunner
+    dom, store, oracle, paths, pert = env(_pack())
+    bases = [to_item(sp, oracle, f"G{i:03d}") for i, sp in enumerate([p for p, _ in paths][:25])]
+    R, rd = Realizer(), FrameReader(store)
+    val = GraphInvarianceValidator(store, oracle, rd, R)
+    kw = dict(store=store, realizer=R, reader=rd, paths=val)
+    said = lambda r: [str(e["frame"]) for e in r.extras["trace"].events if e["role"] == "user"]
+    steered = 0
+    for m in [None, *mutants(dom.graph)]:
+        f = make_graph_factory(store, frozenset({m}) if m else frozenset())
+        for b in bases:
+            scn = Scenario(f"{b.qid}~base", b, {}, "base")
+            base = [str(fr) for fr, _ in val.base_path(b)]
+            r = GraphRunner(bot_factory=f, customer="scripted", **kw).run(scn)
+            assert r.extras["customer"] == "scripted" and said(r) == base[:len(said(r))], (m, b.qid)
+            if m is None:
+                assert said(r) == base, b.qid
+            a = GraphRunner(bot_factory=f, customer="adaptive", **kw).run(scn)
+            assert a.extras["customer"] == "adaptive"
+            steered += said(a) != said(r)
+    assert steered, "no defect ever steered the adaptive customer off its base journey"
+    print(f"ok test_the_scripted_customer_says_the_base_journey_whatever_the_bot_does {dom.name}: "
+          f"{steered} runs where the adaptive customer would have followed the bot")
+
+
 def test_base_factor_array_covers_every_feasible_pair_and_the_graph():
     from gmsjourney.s04_cases import factors as FA
     from gmsjourney.s03_knowledge.questions import kb_frames

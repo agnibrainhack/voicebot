@@ -208,8 +208,17 @@ s06_bots/
 
 1. a **fresh bot and a fresh mock bank** per scenario (never a shared stateful bot: results must not depend on the
    order scenarios run in);
-2. the customer simulator chooses each answer; the realizer writes it under the scenario's levels (the pinned,
-   proved wording);
+2. the customer says its lines; the realizer writes each under the scenario's levels (the pinned, proved wording).
+   Who chooses the lines is `customer`:
+   * `"scripted"` (what a test run uses, `CampaignConfig.customer`): the **base journey's** lines, in order, whatever
+     the bot answers. `paths` (the invariance validator) gives them: `base_path` and `base_states`, the customer lines
+     of the graph's own conversation of the case and the state each one answers. A bot that goes wrong at turn 3 still
+     hears turn 4 of the base case, so the case it is graded on is the case that was designed and proved, not one the
+     bot steered into; the conversation simply ends where the base journey's lines run out or the bot hangs up;
+   * `"adaptive"`: the customer simulator answers the bot's last act (chapter 4), so after a bot mistake it answers
+     what the bot actually asked. Useful to explore a bot, not to grade one against a fixed case.
+
+   The result's `extras["customer"]` records which one played.
 3. the bot's tool calls go to the mock bank, optionally through the fault gateway and the runtime gates (chapter 7);
 4. every bot turn is checked as it happens (runtime monitor, speech check, budgets);
 5. the result and its `Trace` are returned.

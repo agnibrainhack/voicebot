@@ -109,6 +109,9 @@ class CampaignConfig:
     device: str | None = None                    # torch device for the knowlytix store: cpu, cuda, cuda:0 ... (None: auto)
     on_step: Callable | None = None              # on_step(step, title, R) when a step starts (R: the results so far)
     bot_name: str = "ReferenceBot"
+    # "scripted": in every bot run the customer says the base journey's lines in order, whatever the bot replies (a
+    # deviation never changes the case); "adaptive": the customer answers what the bot actually asked
+    customer: str = "scripted"
     # knowlytix build (defaults: the reference build_calibrated_rag_store; s03_knowledge/build.py)
     kx_epochs: int | None = None                 # production store epochs (None: 150; shortcut for "train.epochs")
     kx_geode_epochs: int = 300                   # GEODE correction-loop trainer epochs
@@ -500,7 +503,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     scoring.SPEECH_GATE = cfg.speech_gate
     ref_factory, mutants, runner_kw = _reference(dom, store)
     factory = cfg.bot_factory or ref_factory
-    rk = {"store": store, "realizer": realizer, "reader": reader}
+    rk = {"store": store, "realizer": realizer, "reader": reader, "customer": cfg.customer, "paths": validator}
     budget = ConstraintBudget(**(cfg.budgets or {}))
     arms = {"llm": llm_realizer} if llm_realizer is not None else None
     runner = JourneyRunner(bot_factory=factory, governance=gcfg, arm_realizers=arms, budgets=budget, **rk)
@@ -1144,7 +1147,7 @@ def run_graph_campaign(cfg, log: Callable[[str], None] = print) -> dict[str, Any
     # 7 -------------------------------------------------------------- run the bot under test
     log("[7/12] running the system under test (runtime monitor on)" if gcfg else "[7/12] running the system under test")
     factory = cfg.bot_factory or make_graph_factory(store)
-    rk = {"store": store, "realizer": realizer, "reader": reader}
+    rk = {"store": store, "realizer": realizer, "reader": reader, "customer": cfg.customer, "paths": validator}
     budget = ConstraintBudget(**(cfg.budgets or {}))
     runner = GraphRunner(bot_factory=factory, governance=gcfg, budgets=budget, **rk)
     tested = sample_bases(bases, cfg.max_cases)

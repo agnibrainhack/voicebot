@@ -97,8 +97,14 @@ class BotActClassifier:
 @dataclass
 class JourneyRunner:
     """Runs a bot through one scenario: realises every customer turn under the scenario's levels, plays the
-    reactive customer, passes tool calls to the mock bank (with any injected faults), checks each turn (runtime
-    monitor, speech check, budgets) and returns the result with its Trace.
+    customer, passes tool calls to the mock bank (with any injected faults), checks each turn (runtime monitor,
+    speech check, budgets) and returns the result with its Trace.
+
+    The customer is ``scripted`` or ``adaptive``. Scripted, it says the base journey's lines in order (the lines the
+    customer says in the graph's own conversation, ``paths.base_path``, in the states they answer), whatever the bot
+    replies: every bot turn meets exactly the input the graph met, and a deviation never changes what the customer
+    says next. It stops when the base journey has no more lines or the bot ends the call. Adaptive, the customer
+    answers whatever the bot actually asked (``UserSimulator.respond``), so the conversation follows the bot.
     """
     store: Any
     realizer: Any
@@ -110,6 +116,8 @@ class JourneyRunner:
     arm_realizers: dict[str, Any] | None = None   # enrichment arm -> realizer (scenario.metadata['arm'])
     budgets: Any = None               # evaluation.constraints.ConstraintBudget -> per-turn budgets in every row
     check_speech: bool = True         # read and verify every bot utterance (s07_checks/speech_*.py)
+    customer: str = "adaptive"        # "scripted": the base journey's lines, whatever the bot says; "adaptive": answers the bot
+    paths: Any = None                 # base journeys for the scripted customer (a validator: base_path, base_states)
 
     def __post_init__(self) -> None:
         self.ont = Ontology.from_store(self.store)
@@ -124,7 +132,7 @@ class JourneyRunner:
             self.speech = UtteranceVerifier(self.store, SpeechContract.from_graph(kg))
 
     def run(self, scn: Scenario, faults: list[FaultProfile] | None = None,
-            oracle_path: list | None = None) -> SUTResult:
+            oracle_path: list | None = None, oracle_states: list | None = None) -> SUTResult:
         item = scn.base
         spec, fx = item.metadata["spec"], item.metadata["fixture"]
         env = ToolEnvironment(json.loads(json.dumps(fx)))
@@ -138,6 +146,9 @@ class JourneyRunner:
             tools = GovernedTools(tools, monitor)
         bot = self.bot_factory(tools)
         sim = UserSimulator(spec, fx, self.lookback)
+        script = self._script(scn, oracle_path, oracle_states)   # scripted customer: the base journey's lines
+        if script is not None and oracle_path is None:
+            oracle_path = [(f, c) for f, c, _ in script]          # its lines are the proved, pinned wording
         if self.graph is None:
             merchants = {t["transaction_id"]: t["merchant"] for t in fx["transactions"]}
             by_id = {t["transaction_id"]: t for t in fx["transactions"]}
@@ -183,13 +194,19 @@ class JourneyRunner:
                     for v in a.values():
                         if isinstance(v, str) and v in by_id:
                             current_txn = v
-            frame = sim.respond(act)
-            if frame is None:
-                break
-            t = by_id.get(act.get("txn") or current_txn, {})
-            st = sim.last_state if self.graph is not None else act.get("act")   # the dialog state this turn answers
-            ctx = {**t, "state": st} if self.graph is not None else \
-                {"merchant": t.get("merchant"), "amount": t.get("amount"), "state": st}
+            if script is not None:                   # the base journey's next line, whatever the bot just said
+                if i >= len(script):
+                    break
+                frame, pctx, st = script[i]
+                ctx = {**pctx, "state": st}
+            else:
+                frame = sim.respond(act)
+                if frame is None:
+                    break
+                t = by_id.get(act.get("txn") or current_txn, {})
+                st = sim.last_state if self.graph is not None else act.get("act")   # the dialog state this turn answers
+                ctx = {**t, "state": st} if self.graph is not None else \
+                    {"merchant": t.get("merchant"), "amount": t.get("amount"), "state": st}
             pinned = oracle_path is not None and i < len(oracle_path) and oracle_path[i][0] == frame
             att = overrides.get(i, 0) if pinned else 0
             seed = f"{scn.sid}|{i}" + (f"#{att}" if att else "")
@@ -221,6 +238,8 @@ class JourneyRunner:
             trajectory=[{"tool": c["tool"], "ok": c.get("ok", True)} for c in tr.tool_log],
             status=status, escalation_trigger=tr.transfer_reason,
             extras={"trace": tr, "transcript": transcript, "invariance_violations": violations,
+                    "customer": "scripted" if script is not None else "adaptive",
+                    "script_lines": len(script) if script is not None else None,
                     "bot_turn_stats": bot_stats, "arm": scn.metadata.get("arm", "template"),
                     "injected": list(getattr(tools, "injected", [])),
                     "governance": monitor.finish() if monitor is not None else None,
@@ -228,6 +247,21 @@ class JourneyRunner:
                                                            "turns": [r.as_dict() for r in speech.reports]}})
 
     # ------------------------------------------------------------------ helpers
+    def _script(self, scn: Scenario, oracle_path: list | None, oracle_states: list | None) -> list | None:
+        """The scripted customer's lines for this scenario: [(frame, context, state)], or None (adaptive customer,
+        or no base journey to script from)."""
+        if self.customer != "scripted":
+            return None
+        path, states = oracle_path, oracle_states
+        if self.paths is not None:
+            path = path if path is not None else self.paths.base_path(scn.base)
+            states = states if states is not None else self.paths.base_states(scn.base)
+        if path is None:
+            return None
+        states = list(states or [])
+        return [(f, dict(c or {}), states[i] if i < len(states) and states[i] is not None else (c or {}).get("state"))
+                for i, (f, c) in enumerate(path)]
+
     def _observe_acts(self, tr: Trace, acts: list[dict], last_kb, text: str) -> None:
         if self.graph is not None:                   # outcomes and claims are read at the end (trace.finish)
             for a in acts:
@@ -355,7 +389,7 @@ class GraphRunner(JourneyRunner):
         self.ont = Ontology.from_store(self.store)
 
     def run(self, scn: Scenario, faults: list[FaultProfile] | None = None,
-            oracle_path: list | None = None) -> SUTResult:
+            oracle_path: list | None = None, oracle_states: list | None = None) -> SUTResult:
         g = _graph()
         item = scn.base
         spec, fx = item.metadata["spec"], item.metadata["fixture"]
@@ -369,6 +403,9 @@ class GraphRunner(JourneyRunner):
             tools = GovernedTools(tools, monitor)
         bot = self.bot_factory(tools)
         sim = GraphSimulator(spec, fx)
+        script = self._script(scn, oracle_path, oracle_states)   # scripted customer: the base journey's lines
+        if script is not None and oracle_path is None:
+            oracle_path = [(f, c) for f, c, _ in script]          # its lines are the proved, pinned wording
         items = item_index(fx)
         overrides = scn.metadata.get("seed_overrides", {})
         realizer = (self.arm_realizers or {}).get(scn.metadata.get("arm", "template"), self.realizer)
@@ -395,11 +432,17 @@ class GraphRunner(JourneyRunner):
             if turn.ended or i == MAX_USER_TURNS:
                 break
             act = dict(acts[-1])
-            frame = sim.respond(act)
-            if frame is None:
-                break
-            st = sim.last_state
-            ctx = {**(current or {}), "state": st}
+            if script is not None:                   # the base journey's next line, whatever the bot just said
+                if i >= len(script):
+                    break
+                frame, pctx, st = script[i]
+                ctx = {**pctx, "state": st}
+            else:
+                frame = sim.respond(act)
+                if frame is None:
+                    break
+                st = sim.last_state
+                ctx = {**(current or {}), "state": st}
             pinned = oracle_path is not None and i < len(oracle_path) and oracle_path[i][0] == frame
             att = overrides.get(i, 0) if pinned else 0
             seed = f"{scn.sid}|{i}" + (f"#{att}" if att else "")
@@ -430,6 +473,8 @@ class GraphRunner(JourneyRunner):
             trajectory=[{"tool": c["tool"], "ok": c.get("ok", True)} for c in tr.tool_log],
             status=status, escalation_trigger=tr.transfer_reason,
             extras={"trace": tr, "transcript": transcript, "invariance_violations": violations,
+                    "customer": "scripted" if script is not None else "adaptive",
+                    "script_lines": len(script) if script is not None else None,
                     "bot_turn_stats": bot_stats, "arm": scn.metadata.get("arm", "template"),
                     "injected": list(getattr(tools, "injected", [])),
                     "governance": monitor.finish() if monitor is not None else None})
