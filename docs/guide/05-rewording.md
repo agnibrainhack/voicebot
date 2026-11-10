@@ -124,7 +124,10 @@ Decision-critical tokens (negations, yes/no, digits, protected words) are never 
    style and length;
 3. **surface noise**: typos, ASR errors, disfluencies.
 
-It is deterministic for a given seed (`random.Random(seed)`), so a re-run produces the same words.
+It is deterministic for a given seed (`random.Random(seed)`), so a re-run produces the same words. An act's template at
+a depth may be a list of variants (the confused customer, `UNCLEAR`, has four ways to say it at `light` and four at
+`deep`); one is picked per case from its seed, so a run hears confusion said many ways while the original wording
+(`none`) stays one fixed line.
 
 ### Part 4: the frame reader
 
@@ -135,8 +138,12 @@ It is deterministic for a given seed (`random.Random(seed)`), so a re-run produc
    number is a code only if nothing else was said;
 3. then, in order: a question clause as a policy question (an intent ladder from the most specific cue to the most
    general: refund, fraud, skipping verification, the procedure, a window check with a day count ... fee and time
-   questions last); a decision (e.g. a disposition, with any card request attached); a request on its own; an end;
-   the latest confirm-or-deny cue; otherwise UNCLEAR.
+   questions last); **confusion about the question** (`reading.before_values`: an act's `strong_cues`, such as "what
+   do you mean", "not sure what you're asking", "that makes no sense", "you lost me", "can you rephrase"), so "not
+   sure what you mean" is not read as the answer UNSURE; a decision (e.g. a disposition, with any card request
+   attached); a request on its own; an end or plainer confusion (`reading.then`: "I don't understand", "I don't
+   know", "huh"), after any real answer so "not mine, I don't understand why it's there" stays an answer; the latest
+   confirm-or-deny cue; otherwise UNCLEAR. Curly apostrophes are read as plain ones.
 
 It implements **policy rules**, not the realizer's templates:
 

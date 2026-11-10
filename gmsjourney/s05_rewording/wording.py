@@ -104,6 +104,12 @@ class Lexicon:
     def act_patterns(self) -> dict[str, str]:
         return {a: cue_regex(spec["cues"]) for a, spec in self.acts.items() if spec.get("cues")}
 
+    @cached_property
+    def strong_patterns(self) -> dict[str, str]:
+        """act -> regex of its strong cues, read before any value answer (reading.before_values): "not sure what
+        you mean" is confusion about the question, though "not sure" alone is an answer."""
+        return {a: cue_regex(spec["strong_cues"]) for a, spec in self.acts.items() if spec.get("strong_cues")}
+
     def slot_of(self, value: str) -> str | None:
         for slot, spec in self.slots.items():
             if value in spec.get("order", []):
@@ -315,7 +321,7 @@ class Realizer:
                 context: dict[str, Any] | None = None) -> str:
         lv = {**BASE_LEVELS, **(levels or {})}
         rng = random.Random(seed)
-        ctx = context or {}
+        ctx = {**(context or {}), "_seed": seed}
         core = self._core(frame, lv, ctx)
         text = self._wrap(frame, core, lv, rng)
         return self._surface(frame, text, lv, rng)
@@ -355,16 +361,19 @@ class Realizer:
             return self._value_act(f, spec, lv, ctx)
         if "slots" in spec:
             return self._clarity(f, self._qform(f, self._request(f, spec, lv), lv), lv)
-        return self._fixed_act(f, spec, lv)
+        return self._fixed_act(f, spec, lv, ctx)
 
-    def _fixed_act(self, f: SemanticFrame, spec: dict, lv: dict) -> str:
+    def _fixed_act(self, f: SemanticFrame, spec: dict, lv: dict, ctx: dict | None = None) -> str:
         say = spec["say"]
         if isinstance(say, str):                          # one sentence whatever the levels
             return say
         terse = lv["style"] == "terse"
         al = lv["entity_aliasing"]
         fields = {"phrase": spec["phrase"][al]} if "phrase" in spec else {}
-        core = spec["terse"] if terse else fill(say[lv["paraphrase_depth"]], **fields)
+        tmpl = say[lv["paraphrase_depth"]]
+        if isinstance(tmpl, list):                        # several ways to say it at this depth: one per case, stable
+            tmpl = tmpl[random.Random(f"{(ctx or {}).get('_seed', '')}|{f.act}").randrange(len(tmpl))]
+        core = spec["terse"] if terse else fill(tmpl, **fields)
         if spec.get("false_start") and lv["self_correction"] == "false_start" and not terse:
             core = fill(spec["false_start"], core_low=_low(core))
         return self._clarity(f, self._qform(f, core, lv), lv)
@@ -632,6 +641,7 @@ class FrameReader:
         self.lx = lx = lexicon or Lexicon.current()
         self.value_pat = lx.value_patterns                    # value -> cue regex
         self.act_pat = lx.act_patterns                        # act -> cue regex
+        self.strong_pat = lx.strong_patterns                  # act -> strong cue regex (read before value answers)
         self.reading = lx.get("reading", {})
         kbq = lx.kb
         self.option_name = lx.option_name_regex
@@ -640,7 +650,7 @@ class FrameReader:
         for canon, als in store.aliases.items():
             for a in als + [canon.replace("_", " ")]:
                 vocab.update(re.findall(r"[a-z]+", a.lower().replace("'", "")))
-        for pat in list(self.value_pat.values()) + list(self.act_pat.values()):
+        for pat in list(self.value_pat.values()) + list(self.act_pat.values()) + list(self.strong_pat.values()):
             vocab.update(w for w in re.findall(r"[a-z]{4,}", pat))
         vocab.update(lx.vocabulary)
         if kbq.get("engine") == "generic":            # the policy-question cue words are domain words too
@@ -801,6 +811,9 @@ class FrameReader:
                 kb = self._kb(c)
                 if kb is not None:
                     return kb
+        for a in self.reading.get("before_values", []):    # confusion about the question beats an answer's cue
+            if a in self.strong_pat and re.search(self.strong_pat[a], joined):
+                return F.make(a)
         acts = self.lx.acts
         value_acts = [a for a, sp in acts.items() if "slot" in sp]
         request_acts = [a for a, sp in acts.items() if "slots" in sp]

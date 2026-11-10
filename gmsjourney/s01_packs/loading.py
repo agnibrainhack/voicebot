@@ -358,6 +358,18 @@ def lexicon_matches_graph(dom: Domain, kg) -> list[str]:
     for a in list(rd.get("first", [])) + list(rd.get("then", [])) + list(rd.get("last_cue", [])):
         if not ((lx.get("acts") or {}).get(a) or {}).get("cues"):
             errs.append(f"lexicon.reading: {a} has no cues")
+    for a in rd.get("before_values", []):
+        if not ((lx.get("acts") or {}).get(a) or {}).get("strong_cues"):
+            errs.append(f"lexicon.reading.before_values: {a} has no strong_cues")
+    for a, spec in (lx.get("acts") or {}).items():
+        for c in list(spec.get("cues") or []) + list(spec.get("strong_cues") or []):
+            try:
+                re.compile(c)
+            except re.error as e:
+                errs.append(f"lexicon.acts.{a}: cue {c!r} does not compile ({e})")
+        for d, t in (spec.get("say") or {}).items() if isinstance(spec.get("say"), dict) and "slot" not in spec else []:
+            if isinstance(t, list) and not t:
+                errs.append(f"lexicon.acts.{a}.say.{d}: an empty list of variants")
     return errs
 
 
@@ -398,16 +410,27 @@ def lexicon_round_trip(dom: Domain, kg) -> list[str]:
             frames.append(F.make(a))
     errs = []
     for f in frames:
+        say = (lx.acts.get(f.act) or {}).get("say")
         for lvl in lx["aliasing_levels"]:
             for d in lx["depths"]:
-                try:
-                    text = realizer.realize(f, {"entity_aliasing": lvl, "paraphrase_depth": d}, "lint")
-                    got = reader.read(text)
-                except (KeyError, IndexError, ValueError) as e:
-                    errs.append(f"lexicon round trip: {f} at {lvl}/{d} fails: {type(e).__name__}: {e}")
-                    continue
-                if got != f:
-                    errs.append(f"lexicon round trip: {f} at {lvl}/{d} -> {text!r} reads as {got}")
+                # every variant of a template with several (one per case in a run) must read back too
+                n = len(say[d]) if isinstance(say, dict) and isinstance(say.get(d), list) else 1
+                seeds = ["lint"] + [f"lint{i}" for i in range(8 * n)] if n > 1 else ["lint"]
+                seen = set()
+                for seed in seeds:
+                    try:
+                        text = realizer.realize(f, {"entity_aliasing": lvl, "paraphrase_depth": d}, seed)
+                        got = reader.read(text)
+                    except (KeyError, IndexError, ValueError) as e:
+                        errs.append(f"lexicon round trip: {f} at {lvl}/{d} fails: {type(e).__name__}: {e}")
+                        break
+                    if text in seen:
+                        continue
+                    seen.add(text)
+                    if got != f:
+                        errs.append(f"lexicon round trip: {f} at {lvl}/{d} -> {text!r} reads as {got}")
+                if n > 1 and len(seen) < n:
+                    errs.append(f"lexicon round trip: {f} at {lvl}/{d}: only {len(seen)} of its {n} variants were made")
     return errs
 
 

@@ -49,7 +49,7 @@ JSON graph from it and the PDF, and a self-check proves both compile to identica
 | section | holds | example |
 |---|---|---|
 | `domain` | id, title, graph file, transcription, channel, language | `graph: supplementary_card_kg.json` |
-| `lexicon` | how customers say each value and act (aliasing levels, paraphrase depths, cues, wrappers, protected words, reading order) | `SPOUSE: {say: {canonical: my spouse, synonym: my wife, colloquial: the missus}, cues: [...]}` |
+| `lexicon` | how customers say each value and act (aliasing levels, paraphrase depths, cues and strong cues, a list of variants per depth, wrappers, protected words, reading order: `first`, `code`, `before_values`, `then`, `last_cue`) | `SPOUSE: {say: {canonical: my spouse, synonym: my wife, colloquial: the missus}, cues: [...]}` |
 | `tools` | each tool's role, behaviour, arguments, key arguments, fixture field, default results, how it checks and echoes, its plausible-wrong fault, and its API text for the LLM bot | `authenticate_customer: {role: auth, behaviour: attempts, check: {...}}` |
 | `fixtures` | the bank's credential, items and options | |
 | `figures` | which entities are limits, which relations are figures, named figures | |

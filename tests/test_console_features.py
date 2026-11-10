@@ -540,6 +540,30 @@ def test_the_words_check_hears_a_clarification_written_with_curly_apostrophes():
     assert s2.turns[-1]["expected"]["acts"] == ["ASK_CLARIFY(T1)"]
 
 
+def test_confusion_in_many_wordings_and_the_customer_says_it_in_several_ways():
+    from gmsjourney.s01_packs import loading
+    from gmsjourney.s05_rewording.wording import SemanticFrame as F
+    from gmsjourney.s10_console import bots as PG
+    confused = ["I don't get what you mean", "Sorry, I didn't understand the question", "You lost me there", "Huh?",
+                "Can you rephrase that?", "What are you asking me?", "That makes no sense", "That doesn't make any sense",
+                "Could you clarify?", "No idea what you're talking about", "Not sure what you mean", "Come again?"]
+    for pack in ("charge_review", "charge_review_graph", "supplementary_card"):
+        domain.set_current(pack)
+        assert loading.lint(loading.current()) == [], pack            # every variant reads back as UNCLEAR
+        r = PG.bench().reader
+        assert [t for t in confused if r.read(t, None).act != "UNCLEAR"] == [], pack
+        rz = PG.bench().realizer
+        lines = {rz.realize(F.make("UNCLEAR"), {"paraphrase_depth": d}, f"case{i}") for d in ("light", "deep") for i in range(40)}
+        assert len(lines) >= 8, (pack, lines)                         # four ways per reworded depth
+        assert {rz.realize(F.make("UNCLEAR"), {"paraphrase_depth": "none"}, f"case{i}") for i in range(10)} == {"Hmm, sorry, what was that?"}
+    domain.set_current("charge_review")
+    r = PG.bench().reader                                             # answers that merely contain such words stay answers
+    assert str(r.read("not mine, I don't understand why it's there", None)) == "INFORM_DISPOSITION(disposition=UNRECOGNIZED)"
+    assert str(r.read("I'm not sure about that one", None)) == "INFORM_DISPOSITION(disposition=UNSURE)"
+    assert r.read("I don't understand, can I talk to a real person?", None).act == "REQUEST_HUMAN"
+    assert r.read("Can you explain the expedited fee?", None).act == "ASK_KB"
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):
