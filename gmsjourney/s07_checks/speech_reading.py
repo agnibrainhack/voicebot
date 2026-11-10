@@ -467,13 +467,24 @@ _NUMBER_WORDS = re.compile(r"\b(" + "|".join(_TENS) + r")(?:[ -](" + "|".join(li
                            + "|".join(_UNITS) + r")\b", re.I)
 
 
+# typographic punctuation a model or a phone writes, as plain ASCII: "didn’t catch" must match the cue "didn't catch"
+_PLAIN = str.maketrans({"\u2019": "'", "\u2018": "'", "\u02bc": "'", "\u2032": "'", "\u201c": '"', "\u201d": '"',
+                        "\u2013": "-", "\u2014": "-", "\u2212": "-", "\u00a0": " ", "\u2026": "..."})
+
+
+def plain(text: str) -> str:
+    """``text`` with curly quotes, dashes, non-breaking spaces and ellipses as their plain forms."""
+    return (text or "").translate(_PLAIN)
+
+
 def words_to_digits(text: str) -> str:
-    """'fifteen dollars' -> '15 dollars', 'twenty-five' -> '25' (0-99; enough for spoken figures)."""
+    """'fifteen dollars' -> '15 dollars', 'twenty-five' -> '25' (0-99; enough for spoken figures). Typographic
+    punctuation is made plain first (``plain``), so every reading that goes through here matches cue phrases."""
     def sub(m: re.Match) -> str:                       # one number word (or tens-units pair) -> digits
         if m.group(1):
             return str(_TENS[m.group(1).lower()] + (_UNITS[m.group(2).lower()] if m.group(2) else 0))
         return str(_UNITS[m.group(3).lower()])
-    return _NUMBER_WORDS.sub(sub, text)
+    return _NUMBER_WORDS.sub(sub, plain(text))
 
 
 # A figure that names nothing, said after the asked-about thing already got its figure ("Standard delivery is free.

@@ -502,6 +502,44 @@ def test_the_graph_path_preview_says_what_opening_would_do():
     assert t["kind"] == "triples graph" and t["ok"] and t["counts"]["triples"] > 100
 
 
+def test_confusion_is_unclear_not_no_and_curly_apostrophes_match_cues():
+    from gmsjourney.s07_checks.speech_reading import plain, words_to_digits
+    from gmsjourney.s10_console import bots as PG
+    assert plain("I\u2019m sorry, I didn\u2019t catch \u201cthat\u201d \u2014 ok\u2026") == 'I\'m sorry, I didn\'t catch "that" - ok...'
+    assert "didn't catch" in words_to_digits("I didn\u2019t catch that").lower()
+    for pack in ("charge_review", "charge_review_graph", "supplementary_card"):
+        domain.set_current(pack)
+        r = PG.bench().reader
+        for t in ("I don't really understand what you are saying", "I don\u2019t understand", "what do you mean?", "I'm confused"):
+            assert r.read(t, None).act == "UNCLEAR", (pack, t, r.read(t, None))
+        assert r.read("No.", None).act == "DENY" and r.read("No, don't do that.", None).act == "DENY"
+    domain.set_current("charge_review")
+    r = PG.bench().reader
+    assert str(r.read("not mine, I don't understand why it's there", None)) == "INFORM_DISPOSITION(disposition=UNRECOGNIZED)"
+    assert str(r.read("I don't know", None)) == "INFORM_DISPOSITION(disposition=UNSURE)"
+
+
+def test_the_words_check_hears_a_clarification_written_with_curly_apostrophes():
+    from gmsjourney.s10_console import bots as PG
+    domain.set_current("charge_review")
+    PG.cases("project", None)
+    s = PG.get(PG.start("project", "default", None)["id"])
+    s.say("", "journey")
+    s.say("I don\u2019t really understand what you are saying", "free")
+    c = s.turns[-1]["customer"]
+    assert c["card"]["act"] == "UNCLEAR" and c["state_reading"] is None
+    chk = PG.bench().speech.conversation(s.case["fixture"].get("session_date"))
+    rep = chk.check([{"act": "ASK_CLARIFY", "txn": "T1"}], "I\u2019m sorry, I didn\u2019t catch whether you recognize the "
+                    "Amazon charge for $45.67 on March 13th. Do you recognize this charge?", s.env.log, list(s.frames))
+    assert "ASK_CLARIFY" in rep.heard and not [f for f in rep.findings if f.kind == "label_not_said"]
+    s2 = PG.get(PG.start("project", "default", None)["id"])                 # a bare "No.": shown as the graph got it
+    s2.say("", "journey")
+    s2.say("No.", "free")
+    c2 = s2.turns[-1]["customer"]
+    assert c2["card"]["act"] == "DENY" and c2["state_reading"]["slots"] == {"disposition": "UNRECOGNIZED"}
+    assert s2.turns[-1]["expected"]["acts"] == ["ASK_CLARIFY(T1)"]
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):

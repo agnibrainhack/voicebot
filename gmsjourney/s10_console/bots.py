@@ -747,14 +747,22 @@ class Session:
             would = {"text": self._words(jf), "read": str(jf)} if jf is not None else None
         frame = B.reader.read(text, last)
         card = B.ont.card(frame, last) if last else {"act": frame.act, "slots": dict(frame.slots), "admissible": True}
+        # The graph is given the reading as said (frame), not the state's reading of a bare yes/no (card): show what it
+        # was given, and the state's reading beside it, so "Means" never disagrees with what the graph expects.
+        state_reading = None
+        if (card.get("act"), card.get("slots")) != (frame.act, dict(frame.slots)):
+            state_reading = {"act": card.get("act"), "slots": card.get("slots")}
+            card = {**card, "act": frame.act, "slots": dict(frame.slots)}
         if would is not None:
             wc = B.ont.card(jf, last) if last else {"act": jf.act, "slots": dict(jf.slots)}
-            would["same_meaning"] = (wc.get("act"), wc.get("slots")) == (card.get("act"), card.get("slots"))
+            mine = state_reading or card                # meaning compared as read in the state, as the proofs do
+            would["same_meaning"] = (wc.get("act"), wc.get("slots")) == (mine.get("act"), mine.get("slots"))
         self.frames.append(frame)
         n0 = len(self.env.log)
         turn = self.bot.respond(text)
         return self._bot_turn(turn, n0, {"text": text, "mode": mode, "state": last, "read": str(frame),
                                          "card": {"act": card.get("act"), "slots": card.get("slots")},
+                                         "state_reading": state_reading,
                                          "admissible": card.get("admissible", True), "why_not": card.get("why_not"),
                                          "triples": [list(x) for x in frame_hrt(frame, B.ont, f"turn{len(self.frames)}", last)],
                                          "journey_would_say": would})

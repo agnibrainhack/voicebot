@@ -77,6 +77,8 @@ _GENERIC_ACTS: dict[str, Any] = {
         "say": {"none": "Hmm, sorry, what was that?", "light": "Sorry, could you say that again?",
                 "deep": "Hold on, I lost you there, what did you say?"},
         "terse": "Sorry, what?",
+        # read after any real answer and before a bare yes/no: "I don't understand" is not "no"
+        "cues": ["dont (?:\\w+ )?understand", "do not (?:\\w+ )?understand", "didnt (?:\\w+ )?understand", "dont (?:\\w+ )?follow", "dont know", "do not know", "not following", "what do you mean", "dont get (?:it|what|that)", "didnt (?:catch|get) that", "say that again", "come again", "confus(?:ed|ing)", "lost you", "pardon", "repeat (?:that|it)", "what was that", "what did you say"],
     },
     "CHITCHAT": {"say": "By the way, lovely weather today."},
 }
@@ -202,7 +204,7 @@ def draft_lexicon(g) -> dict[str, Any]:
         acts[human] = dict(_GENERIC_ACTS["REQUEST_HUMAN"])
 
     graph_acts = set(g.data.get("acts") or {}) | ({human} if human else set())
-    reading = {"first": [human or "REQUEST_HUMAN"], "then": ["END"] if "END" in graph_acts else [],
+    reading = {"first": [human or "REQUEST_HUMAN"], "then": (["END"] if "END" in graph_acts else []) + ["UNCLEAR"],
                "last_cue": [a for a in ("CONFIRM", "DENY") if a in graph_acts]}
     if code_act:
         reading["code"] = code_act

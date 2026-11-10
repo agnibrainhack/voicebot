@@ -38,7 +38,7 @@ lexicon:
     UNSURE:
       say: {canonical: "I'm not sure about {obj}", synonym: "I can't remember {obj}", colloquial: "hmm, not certain about {obj}"}
       cues: ["not sure", "unsure", "not certain", "cant remember", "cannot remember", "dont remember", "no idea",
-             "not positive", "need more details"]
+             "not positive", "need more details", "dont know", "do not know"]
     SECURE_CARD:
       say: {canonical: "secure my card", synonym: "lock my card", colloquial: "freeze the card"}
       cues: ["(?:secure|lock|freeze|block)\\b[^.?!|]{0,12}\\bcard"]
@@ -58,7 +58,7 @@ lexicon:
   reading:
     first: [REQUEST_HUMAN]
     code: PROVIDE_CREDENTIAL
-    then: [END]
+    then: [END, UNCLEAR]                 # confusion is read after any real answer, before a bare yes/no
     last_cue: [CONFIRM, DENY]
 
   # how the reader resolves each slot when several cues are present
@@ -133,6 +133,7 @@ lexicon:
       say: {none: "Hmm, sorry, what was that?", light: "Sorry, could you say that again?",
             deep: "Hold on, I lost you there, what did you say?"}
       terse: "Sorry, what?"
+      cues: ["dont (?:\\w+ )?understand", "do not (?:\\w+ )?understand", "didnt (?:\\w+ )?understand", "dont (?:\\w+ )?follow", "dont know", "do not know", "not following", "what do you mean", "dont get (?:it|what|that)", "didnt (?:catch|get) that", "say that again", "come again", "confus(?:ed|ing)", "lost you", "pardon", "repeat (?:that|it)", "what was that", "what did you say"]
     CHITCHAT:
       say: "By the way, lovely weather today."
 

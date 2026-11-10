@@ -2841,6 +2841,7 @@ function exchange(t, Ses) {
       h("div", { class: "xlbl" }, "Customer", h("span", { class: `mode ${c.mode}` }, c.mode === "journey" ? "stuck to the journey" : c.mode === "replay" ? "replayed line" : "talked freely")),
       h("div", { class: "said" }, `“${c.text}”`),
       h("div", { class: "small" }, "Means ", h("span", { class: "chip proj" }, cardText(c.card)), c.state ? h("span", { class: "muted" }, ` at ${c.state}`) : null),
+      c.state_reading ? h("div", { class: "small muted" }, `A bare ${c.card.act === "CONFIRM" ? "yes" : c.card.act === "DENY" ? "no" : "reply"}: in this state it could mean ${cardText(c.state_reading)}, but the graph is given the words as said and expects the bot to ask rather than guess.`) : null,
       c.admissible === false ? h("div", { class: "small mark warn" }, `The state does not accept this meaning${c.why_not ? ": " + c.why_not : ""}. The graph handles it as it would any unexpected answer.`) : null,
       c.journey_would_say ? h("div", { class: "small muted" }, c.journey_would_say.same_meaning ? "Same meaning as the journey's line: " : "The journey's customer would have said: ", `“${c.journey_would_say.text}”`, c.journey_would_say.same_meaning ? "" : ` (${c.journey_would_say.read})`) : null)
     : h("div", { class: "xside cust" }, h("div", { class: "xlbl" }, "Customer"), h("div", { class: "small muted" }, "The bot opens the call."));

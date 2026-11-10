@@ -75,7 +75,8 @@ class BotActClassifier:
         ]
 
     def classify(self, text: str, merchants: dict[str, str]) -> dict[str, Any]:
-        t = text.lower()
+        from ..s07_checks.speech_reading import plain
+        t = plain(text).lower()                                  # "didn’t" reads as "didn't"
         act = "UNKNOWN"
         for name, pat in self.PATTERNS:
             if re.search(pat, t):

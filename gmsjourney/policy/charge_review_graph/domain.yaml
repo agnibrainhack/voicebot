@@ -105,6 +105,8 @@ lexicon:
       - no idea
       - not positive
       - need more details
+      - dont know
+      - do not know
     SECURE_CARD:
       say:
         canonical: secure my card
@@ -149,6 +151,7 @@ lexicon:
     code: PROVIDE_CREDENTIAL
     then:
     - END
+    - UNCLEAR
     last_cue:
     - CONFIRM
     - DENY
@@ -312,6 +315,25 @@ lexicon:
         light: Sorry, could you say that again?
         deep: Hold on, I lost you there, what did you say?
       terse: Sorry, what?
+      cues:
+      - "dont (?:\\w+ )?understand"
+      - "do not (?:\\w+ )?understand"
+      - "didnt (?:\\w+ )?understand"
+      - "dont (?:\\w+ )?follow"
+      - "dont know"
+      - "do not know"
+      - "not following"
+      - "what do you mean"
+      - "dont get (?:it|what|that)"
+      - "didnt (?:catch|get) that"
+      - "say that again"
+      - "come again"
+      - "confus(?:ed|ing)"
+      - "lost you"
+      - "pardon"
+      - "repeat (?:that|it)"
+      - "what was that"
+      - "what did you say"
     CHITCHAT:
       say: By the way, lovely weather today.
   clarity:
