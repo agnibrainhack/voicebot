@@ -497,12 +497,15 @@ def show_turns(runner, oracle, scenario, validator=None, display=None):
 
 # ----------------------------------------------------------------------------- many scenarios
 def export_turn_by_turn(out_dir: str | Path, runner, oracle, scenarios, validator=None,
-                        show: bool = True) -> dict[str, Any]:
-    """dataset/turn_by_turn.csv (one row per turn per scenario) + turn_by_turn_summary.csv."""
+                        show: bool = True, judges=None, kg=None, judge_max: int | None = None,
+                        judge_workers: int = 4) -> dict[str, Any]:
+    """dataset/turn_by_turn.csv (one row per turn per scenario) + turn_by_turn_summary.csv. With ``judges``
+    (s07_checks/llm_judges.Judges) the two LLM judges also read every run (failed runs first, at most ``judge_max``)
+    beside the rules' verdict: dataset/llm_judges.jsonl and the judge columns of the summary."""
     from ..s07_checks.scoring import progress_bar
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    trows, srows = [], []
+    trows, srows, payloads = [], [], []
     bar = progress_bar(len(scenarios), "turn-by-turn export", show)
     for scn in scenarios:
         if bar is not None:
@@ -514,9 +517,40 @@ def export_turn_by_turn(out_dir: str | Path, runner, oracle, scenarios, validato
                           "arm": scn.metadata.get("arm", "base" if not scn.factor_levels else "template"), **r})
         srows.append({**s, "case_type": "base" if not scn.factor_levels else "enriched",
                       "arm": scn.metadata.get("arm", "base" if not scn.factor_levels else "template")})
+        if judges is not None:
+            recs = df.to_dict(orient="records")
+            from ..s07_checks.llm_judges import rules_of
+            payloads.append({"case_id": scn.sid, "turns": recs, "expected_outcome": s["expected_outcome"],
+                             "actual_outcome": s["actual_outcome"], "expected_opening": s["expected_opening"],
+                             "actual_opening": s["actual_opening"],
+                             "rules": rules_of(kg, [r.get("state") for r in recs]),
+                             "rules_ok": bool(s["correct"] and s["workflow_adherent"])})
 
     if bar is not None:
         bar.close()
+    judged = None
+    if judges is not None and payloads:
+        from ..s07_checks.llm_judges import summarize
+        from .. import progress as _progress
+        payloads.sort(key=lambda c: c["rules_ok"])         # failed runs first
+        todo = payloads[:judge_max] if judge_max is not None else payloads
+        jb = _progress.bar(len(todo), "LLM judges", show=False, key="judges", unit="runs", label="Runs read by the two LLM judges")
+        res = []
+        for k in range(0, len(todo), max(1, judge_workers) * 2):
+            chunk = todo[k:k + max(1, judge_workers) * 2]
+            res += judges.judge_many(chunk, workers=judge_workers)
+            jb.update(len(chunk))
+        jb.close()
+        by = {r["case_id"]: r for r in res}
+        for s_ in srows:
+            r = by.get(s_["case_id"])
+            s_["judge_a"] = r["a"]["verdict"] if r else ""
+            s_["judge_b"] = r["b"]["verdict"] if r else ""
+            s_["judges_status"] = r["combined"]["status"] if r else "not judged"
+        with open(out / "llm_judges.jsonl", "w", encoding="utf-8") as f:
+            for r in res:
+                f.write(json.dumps(r, default=str) + "\n")
+        judged = {**summarize(res), "model": judges.model, "not_judged": len(payloads) - len(todo)}
 
     def write(path, rows):
         if not rows:
@@ -531,7 +565,7 @@ def export_turn_by_turn(out_dir: str | Path, runner, oracle, scenarios, validato
     write(out / "turn_by_turn.csv", trows)
     write(out / "turn_by_turn_summary.csv", srows)
     n = len(srows) or 1
-    return {"scenarios": len(srows), "turn_rows": len(trows),
+    return {"scenarios": len(srows), "turn_rows": len(trows), **({"llm_judges": judged} if judged else {}),
             "fully_matching_runs": sum(s["turns_matching"] == max(s["turns_expected"], s["turns_actual"]) for s in srows),
             "outcome_correct": sum(s["outcome_correct"] for s in srows),
             "first_divergence_by_state": _divergence_states(trows), "share_outcome_correct": sum(
@@ -808,7 +842,29 @@ def _verdict_table(row: dict, summ: dict) -> str:
             '<th>Actual (bot)</th><th>Result</th></tr></thead><tbody>' + "".join(lines) + "</tbody></table></div>")
 
 
-def _case(row: dict, summ: dict, turns: list[dict]) -> str:
+def judges_block(j: dict | None) -> str:
+    """The two LLM judges beside the rules' verdict (s07_checks/llm_judges.py), for a case page."""
+    if not j:
+        return ""
+    c = j.get("combined") or {}
+    st = c.get("status") or ""
+    cls = "ok" if st == "agree" else "no" if st in ("judges disagree with the rules", "judges split") else "sev"
+
+    def one(name, v):
+        v = v or {}
+        verdict = v.get("verdict") or "-"
+        tc = "ok" if verdict == "correct" else "no" if verdict == "incorrect" else "sev"
+        fw = v.get("first_wrong_turn")
+        return (f'<li><b>{E(name)}</b> <span class="tag {tc}">{E(verdict)}</span>'
+                + (f' <span class="small">first wrong turn {E(fw)}</span>' if fw is not None else "")
+                + f' <span class="small">{E(v.get("reason") or "")}</span></li>')
+    return (f'<div class="why judges"><span class="who">LLM judges (beside the rules, which decide)</span>'
+            f' <span class="tag {cls}">{E(st)}</span><ul>'
+            + one("Judge A, the auditor (expected steps vs the bot's)", j.get("a"))
+            + one("Judge B, the reviewer (the call and the policy rules only)", j.get("b")) + "</ul></div>")
+
+
+def _case(row: dict, summ: dict, turns: list[dict], judges: dict | None = None) -> str:
     from .report import failure_reasons
     sid = row.get("sid") or summ.get("case_id")
     ok = bool(int(row.get("correct", 0))) if row else _b(summ.get("outcome_correct"))
@@ -856,7 +912,22 @@ def _case(row: dict, summ: dict, turns: list[dict]) -> str:
             f'<span class="kind">{E(arm)}</span><span class="tag {"ok" if ok else "no"}">{"correct" if ok else "incorrect"}</span>'
             + (f'<span class="tag sev">severity {E(sev)}</span>' if sev != "none" else "")
             + f'</h3><div class="cmeta">{" · ".join(meta)}</div></div>'
-            + _verdict_table(row, summ) + why + turns_html + "</section>")
+            + _verdict_table(row, summ) + why + judges_block(judges) + turns_html + "</section>")
+
+
+def read_judges(ds: Path) -> dict[str, dict]:
+    """dataset/llm_judges.jsonl as {case_id: judges}; empty when the run had no LLM judges."""
+    out: dict[str, dict] = {}
+    p = Path(ds) / "llm_judges.jsonl"
+    if p.exists():
+        for line in p.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                try:
+                    r = json.loads(line)
+                    out[r["case_id"]] = r
+                except (ValueError, KeyError):
+                    continue
+    return out
 
 
 def write_case_comparison(out_dir: str | Path, out_name: str = "case_comparison.html") -> Path:
@@ -873,6 +944,7 @@ def write_case_comparison(out_dir: str | Path, out_name: str = "case_comparison.
                 r = json.loads(line)
                 rows[r["sid"]] = r
     summ = {s["case_id"]: s for s in _read_csv(ds / "turn_by_turn_summary.csv")}
+    judged = read_judges(ds)
     turns: dict[str, list[dict]] = {}
     for t in _read_csv(ds / "turn_by_turn.csv"):
         turns.setdefault(t["case_id"], []).append(t)
@@ -891,7 +963,7 @@ def write_case_comparison(out_dir: str | Path, out_name: str = "case_comparison.
         n_bad += not ok
         arm = row.get("arm") or sm.get("arm") or "base"
         arms[arm] = arms.get(arm, 0) + 1
-        blocks.append(_case(row, sm, turns.get(sid, [])))
+        blocks.append(_case(row, sm, turns.get(sid, []), judged.get(sid)))
         toc.append(f'<a class="{"p" if ok else "f"}" data-ok="{int(ok)}" data-arm="{E(arm)}" href="#{E(sid)}">{E(sid)}</a>')
     smp = (R.get("results") or {}).get("sample") or {}
     sample = (f" Sample: {smp['base_cases_tested']} of {smp['base_cases_total']} base cases (max_cases={smp['max_cases']})."

@@ -9,6 +9,7 @@ gmsjourney/s07_checks/
 ├── __init__.py        Checks: scoring, what the bot said, the runtime monitor, diagnosis
 ├── diagnosis.py       Diagnosis: why the bot fails, and whether the test suite can be trusted
 ├── gates.py           The runtime gates and their calibration
+├── llm_judges.py      Two LLM judges beside the rule-based verdict: a second opinion on every run, never the decider
 ├── runtime.py         The runtime monitor: the checks that would run next to the bot in production
 ├── scoring.py         Scoring a run: was it correct, how bad is a failure, may the bot be released
 ├── speech_checks.py   Checking what the bot said: every claim against its source, every act for completeness
@@ -72,6 +73,19 @@ Parts:
 | `validation_summary` | def | The page's numbers without the cards (for report.json and report.html). |
 | `write_bot_validation` | def | Write the page into the campaign folder and return its summary. |
 | `write_bot_validation_from_dir` | def | Rebuild the page from a finished campaign's files (report.json, dataset/case_results.jsonl). |
+
+## `llm_judges.py`
+
+Two LLM judges beside the rule-based verdict: a second opinion on every run of the bot, never the decider. Judge A
+(the auditor) compares each turn with the graph's expected steps; judge B (the reviewer) sees only the conversation
+and the policy rules of the states it went through.
+
+| name | kind | what it is |
+|---|---|---|
+| `Judges` | class | The two judges (cache tags ``judge_a``, ``judge_b``): ``judge_case`` (one test run), ``judge_turn`` (one Playground turn), ``judge_many`` (in parallel). |
+| `combine` | def | The judges beside the rules' verdict: agree, judges split, or judges disagree with the rules. |
+| `rules_of` | def | The policy rules of the dialog states a call went through (id -> text). |
+| `summarize` | def | Agreement of each judge with the rules, how often the judges agree, and the runs to review. |
 
 ## `gates.py`
 

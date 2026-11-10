@@ -943,27 +943,113 @@ def spectral_sphere(names: list[str], edges: list[dict], iters: int = 300) -> np
     return X
 
 
-def _find_store(dom, runs_root: Path | None, store_dir: str | None) -> Path | None:
+_VIEW_CACHE: dict[str, str] = {}
+
+
+def _view_of(dom) -> str | None:
+    """The GMS view of the journey's graph as a store is trained on it (policy.gms.md), to find its cached store."""
+    try:
+        key = str(dom.graph_path) + "|" + str(dom.graph_path.stat().st_mtime)
+        if key not in _VIEW_CACHE:
+            from ..s03_knowledge.build import _render_view, build_store
+            _VIEW_CACHE[key] = _render_view(build_store(dom.graph_path).store)
+        return _VIEW_CACHE[key]
+    except Exception:                                    # noqa: BLE001 - no view: no cache lookup
+        return None
+
+
+def _store_dirs(dom, runs_root: Path | None, store_dir: str | None) -> list[Path]:
+    """Built knowlytix stores of this journey, newest first: the one given, the stores of the console's finished runs
+    of the journey, and the build cache's stores trained on exactly this graph's GMS view."""
     if store_dir:
-        p = Path(store_dir).expanduser()
-        return p if (p / "v_emb.pt").exists() else None
+        return [Path(store_dir).expanduser()]
+    found: list[tuple[float, Path]] = []
     root = runs_root or ROOT / "output" / "console_runs"
-    best = None
     if root.exists():
         for job in root.glob("*/job.json"):
             try:
-                j = json.loads(job.read_text())
-                if j.get("pack") != dom.dir.name:
+                if json.loads(job.read_text()).get("pack") != dom.dir.name:
                     continue
                 rep = json.loads((job.parent / "out" / "report.json").read_text())
                 sd = Path(((rep.get("store") or {}).get("store_dir")) or "")
-                if (sd / "v_emb.pt").exists():
-                    m = job.stat().st_mtime
-                    if best is None or m > best[0]:
-                        best = (m, sd)
+                if sd.is_dir():
+                    found.append((job.stat().st_mtime, sd))
             except (OSError, ValueError):
                 continue
-    return best[1] if best else None
+    try:
+        from ..s03_knowledge.build import CACHE
+        stores = CACHE / "stores"
+        if stores.is_dir():
+            view = None
+            for d in stores.iterdir():
+                v = d / "policy.gms.md"
+                if not v.exists() or not (d / "kx").exists():
+                    continue
+                view = view if view is not None else (_view_of(dom) or "")
+                if view and v.read_text(encoding="utf-8", errors="replace") == view:
+                    found.append((v.stat().st_mtime, d))
+    except OSError:
+        pass
+    seen, out = set(), []
+    for _, d in sorted(found, key=lambda x: -x[0]):
+        if str(d) not in seen:
+            seen.add(str(d))
+            out.append(d)
+    return out
+
+
+def _find_store(dom, runs_root: Path | None, store_dir: str | None) -> Path | None:
+    """The newest built store of this journey with its trained entity points (gms_points.npz), else with the tuned
+    encoder's vectors (v_emb.pt)."""
+    dirs = _store_dirs(dom, runs_root, store_dir)
+    from ..s03_knowledge.build import POINTS_FILE
+    for want in (POINTS_FILE, "v_emb.pt"):
+        for d in dirs:
+            if (d / want).exists():
+                return d
+    return None
+
+
+def store_points(sdir: Path) -> tuple[list[str], np.ndarray, str]:
+    """The trained store's entity points (gms_points.npz, written when the store is built or loaded)."""
+    from ..s03_knowledge.build import POINTS_FILE
+    z = np.load(sdir / POINTS_FILE, allow_pickle=False)
+    return [str(x) for x in z["names"]], np.asarray(z["vectors"], dtype=float), str(z["source"]) if "source" in z else ""
+
+
+def angular(M: np.ndarray) -> np.ndarray:
+    """Pairwise angular distance (radians) between the rows of ``M`` as points on the unit hypersphere."""
+    U = M / (np.linalg.norm(M, axis=1, keepdims=True) + 1e-12)
+    return np.arccos(np.clip(U @ U.T, -1.0, 1.0))
+
+
+def spherical_mds(D: np.ndarray, X0: np.ndarray, iters: int = 400, lr: float = 0.05) -> np.ndarray:
+    """Points on S^2 whose great-circle angles match the angular distances ``D`` as closely as possible (least squares
+    on the angles, gradient steps on the sphere), started from ``X0``."""
+    X = _unit(X0.copy())
+    n = len(X)
+    if n < 3:
+        return X
+    mask = 1.0 - np.eye(n)
+    for k in range(iters):
+        C = np.clip(X @ X.T, -0.999999, 0.999999)
+        T = np.arccos(C)
+        W = (T - D) * mask / np.sqrt(1.0 - C * C)          # d(theta)/dc = -1/sqrt(1-c^2)
+        G = -(W @ X)                                      # gradient of sum (theta - D)^2 / 2, per point
+        G -= (G * X).sum(1, keepdims=True) * X            # tangent to the sphere
+        X = _unit(X - lr * (1 - 0.7 * k / iters) * G / max(1, n ** 0.5))
+    return X
+
+
+def _fit(D: np.ndarray, X: np.ndarray) -> dict[str, float]:
+    """How faithfully the sphere keeps the store's angles: correlation and relative error over all pairs."""
+    T = np.arccos(np.clip(X @ X.T, -1, 1))
+    iu = np.triu_indices(len(X), 1)
+    d, t = D[iu], T[iu]
+    if len(d) < 3 or d.std() == 0 or t.std() == 0:
+        return {"angle_correlation": None, "angle_error": None}
+    return {"angle_correlation": round(float(np.corrcoef(d, t)[0, 1]), 3),
+            "angle_error": round(float(np.sqrt(((t - d) ** 2).sum() / (d ** 2).sum())), 3)}
 
 
 def store_vectors(sdir: Path) -> tuple[list[str], np.ndarray]:
@@ -1000,25 +1086,52 @@ def build(dom, runs_root: Path | None = None, store_dir: str | None = None) -> d
     placement, note = "graph", ""
     X = None
     sdir = _find_store(dom, runs_root, store_dir)
-    if sdir is not None:
+    angles = None
+    from ..s03_knowledge.build import POINTS_FILE
+    norm = lambda x: re.sub(r"[\s_]+", " ", str(x).lower()).strip()      # noqa: E731 - the store lower-cases names
+    if sdir is not None and (sdir / POINTS_FILE).exists():
+        try:
+            snames, M, src = store_points(sdir)
+            pos_i = {norm(nm): i for i, nm in enumerate(snames)}
+            hit = [n for n in names if norm(n) in pos_i]
+            if len(hit) >= max(3, len(names) // 2):
+                idx_s = [pos_i[norm(n)] for n in hit]
+                D = angular(M[idx_s])
+                Xs = spherical_mds(D, pca_sphere(M[idx_s]))
+                G = spectral_sphere(names, edges)          # entities the store never embedded keep a graph place
+                place = {n: Xs[k] for k, n in enumerate(hit)}
+                X = np.array([place[n] if n in place else G[i] for i, n in enumerate(names)])
+                placement = "gms"
+                angles = {**_fit(D, Xs), "source": src, "store": sdir.name}
+                note = (f"{len(hit)} of {len(names)} entities placed from the trained GMS store ({sdir.name}) by their "
+                        f"angular distances on the store's hypersphere, kept on this sphere as closely as possible "
+                        f"(angle correlation {angles['angle_correlation']})"
+                        + (f"; {len(names) - len(hit)} the store does not hold are placed from the graph" if len(hit) < len(names) else ""))
+            else:
+                note = f"the trained store at {sdir} holds too few of this graph's entities ({len(hit)} of {len(names)}); "
+        except Exception as e:                             # noqa: BLE001
+            note = f"could not read the trained store's points ({type(e).__name__}: {e}); "
+    elif sdir is not None:
+        note = (f"the store {sdir.name} was built before its entity points were saved: run a test run of this journey "
+                f"once (the store is reloaded, not rebuilt) to save them; ")
+    if X is None and sdir is not None and (sdir / "v_emb.pt").exists():
         try:
             snames, M = store_vectors(sdir)
-            pos = dict(zip(snames, pca_sphere(M)))
-            hit = [n for n in names if n in pos]
+            pos = {norm(k): v for k, v in zip(snames, pca_sphere(M))}
+            hit = [n for n in names if norm(n) in pos]
             if len(hit) >= max(3, len(names) // 2):
-                G = spectral_sphere(names, edges)          # entities the store never embedded keep a graph place
-                X = np.array([pos[n] if n in pos else G[i] for i, n in enumerate(names)])
-                placement = "store"
-                note = (f"{len(hit)} of {len(names)} entities placed from the store's learned vectors ({sdir.name}, PCA to 3D)"
-                        + (f"; {len(names) - len(hit)} from the graph" if len(hit) < len(names) else ""))
-            else:
-                note = f"the store at {sdir} embeds too few of this graph's entities ({len(hit)}); placed from the graph"
+                G = spectral_sphere(names, edges)
+                X = np.array([pos[norm(n)] if norm(n) in pos else G[i] for i, n in enumerate(names)])
+                placement = "encoder"
+                note += (f"until then, {len(hit)} of {len(names)} entities are placed from the store's tuned name "
+                         f"encoder (v_emb.pt, PCA to 3D), not from the trained points")
         except Exception as e:                             # noqa: BLE001
-            note = f"could not read the store's vectors ({type(e).__name__}: {e}); placed from the graph"
-    else:
-        note = "no built knowledge store found for this journey (run a campaign with knowlytix); placed from the graph's relationships"
+            note += f"the encoder's vectors could not be read either ({type(e).__name__}); "
     if X is None:
         X = spectral_sphere(names, edges)
+        note += ("placed from the graph's relationships" if sdir is not None else
+                 "no trained knowledge store found for this journey (run a test run with knowlytix); placed from the "
+                 "graph's relationships")
     deg = Counter()
     for e in edges:
         deg[e["s"]] += 1
@@ -1037,4 +1150,4 @@ def build(dom, runs_root: Path | None = None, store_dir: str | None = None) -> d
             "relations": dict(Counter(e["relation"] for e in edges).most_common()),
             "relation_docs": _relation_docs(dom.kg, {e["relation"] for e in edges}),
             "sections": [{"key": k, "title": t} for k, t, _ in SECTIONS],
-            "fit": {"edge_arc": round(ang(I, J), 3), "random_arc": round(ang(R1, R2), 3)}}
+            "fit": {"edge_arc": round(ang(I, J), 3), "random_arc": round(ang(R1, R2), 3), **(angles or {})}}

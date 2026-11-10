@@ -608,3 +608,141 @@ def test_a_test_run_scripts_the_customer_by_default_and_the_run_page_can_turn_it
             raise AssertionError("an unknown customer was accepted")
         except ValueError as e:
             assert "scripted" in str(e)
+
+
+# ---------------------------------------------------------------------------- the two LLM judges, the tools' LLM
+class _FakeJudge:
+    """A stand-in judge: calls a run incorrect when the bot transferred (and records what it was shown)."""
+
+    def __init__(self, who):
+        self.who, self.seen = who, []
+
+    def invoke(self, msgs):
+        from types import SimpleNamespace
+        u = msgs[-1].content
+        self.seen.append(u)
+        bad = "TRANSFER" in u.upper() if self.who == "a" else "transfer" in u.lower()
+        return SimpleNamespace(content='{"verdict": "%s", "first_wrong_turn": null, "reason": "stand-in %s"}'
+                               % ("incorrect" if bad else "correct", self.who))
+
+
+def _judges():
+    from gmsjourney.llm import CachedLLM, LLMSettings
+    from gmsjourney.s07_checks.llm_judges import Judges
+    d = tempfile.mkdtemp()
+    fa, fb = _FakeJudge("a"), _FakeJudge("b")
+    return Judges(llm_a=CachedLLM(LLMSettings(cache_dir=d, backend="gateway"), model=fa, tag="judge_a"),
+                  llm_b=CachedLLM(LLMSettings(cache_dir=d, backend="gateway"), model=fb, tag="judge_b")), fa, fb
+
+
+def test_two_llm_judges_sit_beside_the_rules_and_see_different_material():
+    from gmsjourney.s07_checks.llm_judges import combine, summarize
+    c = lambda v: {"verdict": v}                                              # noqa: E731
+    assert combine(True, c("correct"), c("correct"))["status"] == "agree"
+    assert combine(True, c("incorrect"), c("incorrect"))["status"] == "judges disagree with the rules"
+    assert combine(False, c("correct"), c("incorrect"))["status"] == "judges split"
+    assert combine(True, c("unavailable"), c("unavailable"))["status"] == "judges unavailable"
+    J, fa, fb = _judges()
+    case = {"case_id": "X~base", "rules_ok": True, "expected_outcome": {"end": "END"}, "actual_outcome": {"end": "TRANSFER"},
+            "turns": [{"turn": 0, "state": "ASK_AUTH", "customer_text": "4821", "customer_card": "{}", "expected_tools": "auth()",
+                       "expected_bot": "PRESENT_TXN", "actual_tools": "auth()", "actual_bot_acts": "TRANSFER", "actual_bot_text": "Transferring you."}],
+            "rules": {"R1": "Verify the caller first."}}
+    r = J.judge_case(case)
+    assert r["a"]["verdict"] == "incorrect" and r["b"]["verdict"] == "incorrect"
+    assert r["combined"]["status"] == "judges disagree with the rules"
+    assert "REQUIRED" in fa.seen[0] and "REQUIRED" not in fb.seen[0] and "R1: Verify the caller first." in fb.seen[0]
+    s = summarize([r])
+    assert s["judged"] == 1 and s["a_agrees_with_rules"] == 0.0 and s["to_review"][0]["case_id"] == "X~base"
+    again = J.judge_case(case)                                                # cached: no second call
+    assert again["a"] == r["a"] and len(fa.seen) == 1
+
+
+def test_the_playground_shows_both_judges_on_every_bot_turn():
+    from gmsjourney.s10_console import bots as PG
+    domain.set_current("charge_review_graph")
+    J, fa, fb = _judges()
+    PG._JUDGES[:] = [J]
+    try:
+        PG.cases("project", None)
+        s = PG.get(PG.start("project", "default", None, judge=True)["id"])
+        assert s.turns[0]["judges"]["combined"]["status"] in ("agree", "judges disagree with the rules", "judges split")
+        s.say("", "journey")
+        t = s.turns[-1]
+        assert t["judges"]["a"]["verdict"] in ("correct", "incorrect") and t["judges"]["combined"]["rules"] == ("incorrect" if t["deviated"] else "correct")
+        assert "Customer said" in fa.seen[-1] and "REQUIRED" in fa.seen[-1]
+        assert "conversation so far" in fb.seen[-1] and "REQUIRED" not in fb.seen[-1]
+        s.judges = False
+        s.say("", "journey")
+        assert "judges" not in s.turns[-1] and s.view()["judges"] is False
+    finally:
+        PG.reset_judges()
+
+
+def test_the_test_tools_llm_can_run_on_a_local_model():
+    from gmsjourney import llm as L
+    from gmsjourney.s10_console import bots as PG
+    keep = {k: os.environ.get(k) for k in ("GMSJOURNEY_LLM_BACKEND", "GMSJOURNEY_LLM_LOCAL_MODEL", "GMSJOURNEY_LLM_VLLM_URL")}
+    try:
+        L.use_backend("local", "/models/Llama-3.1-8B-Instruct", "http://localhost:8000/v1")
+        s = L.LLMSettings(model="gpt-41")
+        assert s.backend == "local" and s.model == "local-Llama-3.1-8B-Instruct" and s.vllm_url.endswith("/v1")
+        assert s.public()["where"].startswith("local model")
+        chat = L.make_chat_model(s)
+        assert type(chat).__name__ == "LocalChat" and chat.url == "http://localhost:8000/v1"
+        assert PG.settings_for({"kind": "llm", "model": "gpt-41"}).backend == "gateway"     # the bot keeps its own
+        L.use_backend("local", "", "")
+        try:
+            L.make_chat_model(L.LLMSettings())
+            raise AssertionError("an unusable local model was accepted")
+        except L.LLMUnavailable as e:
+            assert "local model" in str(e)
+        L.use_backend("gateway")
+        assert L.LLMSettings().backend == "gateway"
+    finally:
+        for k, v in keep.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def test_the_sphere_is_placed_by_the_trained_stores_angular_distances():
+    import numpy as np
+    from types import SimpleNamespace
+    from gmsjourney.s03_knowledge.build import export_entity_points
+    from gmsjourney.s10_console import graphs as GR
+    dom = domain.set_current("charge_review_graph")
+    names, _edges, sec, _ty = GR._entity_graph(dom.kg)
+    rng = np.random.default_rng(0)
+    cen = {s: rng.normal(size=24) for s in set(sec.values())}
+    W = np.stack([cen[sec[n]] + 0.3 * rng.normal(size=24) for n in names])
+    model = SimpleNamespace(state_dict=lambda: {"rel_emb.weight": np.zeros((4, 24)), "ent_emb.weight": W})
+    kx = SimpleNamespace(adapter=SimpleNamespace(entity_to_idx={n: i for i, n in enumerate(names)}), model=model)
+    d = tempfile.mkdtemp()
+    info = export_entity_points(kx, d)
+    assert info["entities"] == len(names) and info["source"] == "model.ent_emb.weight"
+    V = GR.build(dom, store_dir=d)
+    assert V["placement"] == "gms" and V["fit"]["angle_correlation"] > 0.8, V["fit"]
+    assert "angular distances" in V["note"]
+    assert GR.build(dom, store_dir=tempfile.mkdtemp())["placement"] == "graph"
+
+
+def test_the_answer_sheet_lists_every_case_its_answer_key_and_its_rewordings():
+    from gmsjourney.s02_graph.compile import compile_graph
+    from gmsjourney.s02_graph.interpreter import GraphOracle
+    from gmsjourney.s04_cases.factors import mine_paths, to_item
+    from gmsjourney.s05_rewording.catalog import Scenario
+    from gmsjourney.s05_rewording.proof import GraphInvarianceValidator
+    from gmsjourney.s05_rewording.wording import FrameReader, Realizer
+    from gmsjourney.s09_reports.answer_sheet import write_answer_sheet
+    dom = domain.set_current("supplementary_card")
+    store = compile_graph(dom.graph_path).store
+    oracle = GraphOracle(store)
+    bases = [to_item(sp, oracle, f"G{i:03d}") for i, (sp, _) in enumerate(mine_paths(oracle)[:3])]
+    val = GraphInvarianceValidator(store, oracle, FrameReader(store), Realizer())
+    proofs = [val.prove(Scenario(f"{b.qid}~0001", b, {}, "enriched")) for b in bases]
+    d = tempfile.mkdtemp()
+    info = write_answer_sheet(d, oracle=oracle, store=store, validator=val, bases=bases, proofs=proofs, journey=dom.name)
+    html_ = (Path(d) / "answer_sheet.html").read_text()
+    assert info == {"file": "answer_sheet.html", "cases": 3, "rewordings": 3, "accepted": 3}
+    assert all(b.qid in html_ for b in bases) and "A correct bot must, in order" in html_ and "proved: same answer key" in html_

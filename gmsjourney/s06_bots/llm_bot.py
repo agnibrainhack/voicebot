@@ -81,8 +81,14 @@ def _messages(msgs: list[Any]) -> list[dict[str, str]]:
     return [{"role": _role(m), "content": _text(m)} for m in msgs]
 
 
+_ENGINES: dict[str, Any] = {}                       # one vLLM engine per model folder, shared by every client
+_ENGINE_LOCK = __import__("threading").Lock()        # vLLM's in-process engine is not safe to call from two threads
+
+
 class LocalChat:
-    """A chat model on vLLM: in-process from a folder, or through an OpenAI-compatible vLLM server."""
+    """A chat model on vLLM: in-process from a folder, or through an OpenAI-compatible vLLM server. Every client of
+    the same folder shares one engine (the bot under test, its critique, the rewording and the judges load the
+    weights once), and in-process calls are serialised."""
 
     def __init__(self, path: str | None = None, temperature: float = 0.0, max_tokens: int = 900, engine: Any = None,
                  url: str | None = None):
@@ -100,18 +106,25 @@ class LocalChat:
 
     def _llm(self):
         if self._engine is None:
-            p = Path(self.path).expanduser()
-            if not (p.is_dir() and (p / "config.json").exists()):
-                raise RuntimeError(f"{self.path} is not a model folder (config.json missing)")
-            try:
-                from vllm import LLM
-            except ImportError as e:
-                raise RuntimeError("vLLM is not installed (pip install vllm), or set GMSJOURNEY_VLLM_URL to a vLLM server") from e
-            self._engine = LLM(model=str(p), tensor_parallel_size=int(os.environ.get("GMSJOURNEY_VLLM_TP", "1")),
-                               gpu_memory_utilization=float(os.environ.get("GMSJOURNEY_VLLM_GPU_UTIL", "0.80")),
-                               max_model_len=int(os.environ.get("GMSJOURNEY_VLLM_MAX_LEN", "16384")),
-                               dtype=os.environ.get("GMSJOURNEY_VLLM_DTYPE", "auto"), seed=0)
+            key = str(Path(self.path).expanduser().resolve())
+            with _ENGINE_LOCK:
+                if key not in _ENGINES:
+                    _ENGINES[key] = self._load()
+                self._engine = _ENGINES[key]
         return self._engine
+
+    def _load(self):
+        p = Path(self.path).expanduser()
+        if not (p.is_dir() and (p / "config.json").exists()):
+            raise RuntimeError(f"{self.path} is not a model folder (config.json missing)")
+        try:
+            from vllm import LLM
+        except ImportError as e:
+            raise RuntimeError("vLLM is not installed (pip install vllm), or set GMSJOURNEY_VLLM_URL to a vLLM server") from e
+        return LLM(model=str(p), tensor_parallel_size=int(os.environ.get("GMSJOURNEY_VLLM_TP", "1")),
+                   gpu_memory_utilization=float(os.environ.get("GMSJOURNEY_VLLM_GPU_UTIL", "0.80")),
+                   max_model_len=int(os.environ.get("GMSJOURNEY_VLLM_MAX_LEN", "16384")),
+                   dtype=os.environ.get("GMSJOURNEY_VLLM_DTYPE", "auto"), seed=0)
 
     def invoke(self, messages: list[Any]) -> SimpleNamespace:
         msgs = _messages(messages)
@@ -125,10 +138,11 @@ class LocalChat:
             except ImportError:
                 params = {"temperature": self.temperature, "max_tokens": self.max_tokens}
             eng = self._llm()
-            try:
-                out = eng.chat(msgs, params, use_tqdm=False)
-            except TypeError:                           # an engine without the progress-bar argument
-                out = eng.chat(msgs, params)
+            with _ENGINE_LOCK:
+                try:
+                    out = eng.chat(msgs, params, use_tqdm=False)
+                except TypeError:                       # an engine without the progress-bar argument
+                    out = eng.chat(msgs, params)
             o = out[0]
             text = o.outputs[0].text
             usage = {"input_tokens": len(getattr(o, "prompt_token_ids", None) or []),

@@ -153,6 +153,8 @@ def build(path: str | Path) -> dict[str, Any]:
             for r in csv.DictReader(f):
                 tbt[r["case_id"]].append(r)
     from ..s07_checks.scoring import DEFAULT_SEVERITY, RANK
+    from .cases import read_judges
+    judged = read_judges(out / "dataset")
 
     # ---- gates and numbers
     gates = []
@@ -172,7 +174,8 @@ def build(path: str | Path) -> dict[str, Any]:
                "proved": ((R.get("invariance") or {}).get("summary") or {}).get("acceptance_rate"),
                "defects_caught": ((R.get("mutation") or {}).get("mutation_score") or {}).get("all_suites_combined"),
                "speech_grounded_original": b.get("speech_grounded"), "outcome_original": b.get("outcome_accuracy"),
-               "outcome_reworded": e.get("outcome_accuracy")}
+               "outcome_reworded": e.get("outcome_accuracy"),
+               "judges": {k: v for k, v in ((R.get("turn_by_turn") or {}).get("llm_judges") or {}).items() if k != "to_review"} or None}
 
     # ---- risks: codes by severity, then by runs hit
     hit: Counter = Counter()
@@ -231,7 +234,8 @@ def build(path: str | Path) -> dict[str, Any]:
                       "severity": r.get("severity"), "codes": r.get("failure_codes") or [],
                       "question": c.get("policy_question"), "changed": c.get("enrichment_changed") or "",
                       "expected": exp, "actual": act, "stages": stages, "turns": turns,
-                      "first_difference": next((t["turn"] for t in turns if not t["match"]), None)})
+                      "first_difference": next((t["turn"] for t in turns if not t["match"]), None),
+                      "judges": _judges(judged.get(sid))})
     cases.sort(key=lambda x: (x["correct"], -RANK.get(x["severity"] or "none", 0), x["base"], x["arm"] != "base", x["sid"]))
     ready = bool(gates) and all(g["passed"] for g in gates if g["wording"] != "LLM-reworded wording")
     return {"run": fp["run"], "ready": ready, "gates": gates, "numbers": numbers, "risks": risks,
@@ -271,6 +275,16 @@ details > summary { cursor:pointer; color:var(--ink2); font-size:12.5px; margin-
 """
 
 
+def _judges(j: dict | None) -> dict | None:
+    """One run's two LLM judges, as the verdict shows them beside the rules."""
+    if not j:
+        return None
+    c = j.get("combined") or {}
+    return {"status": c.get("status"), "rules": c.get("rules"),
+            "a": {k: (j.get("a") or {}).get(k) for k in ("verdict", "reason", "first_wrong_turn")},
+            "b": {k: (j.get("b") or {}).get(k) for k in ("verdict", "reason", "first_wrong_turn")}}
+
+
 def render_html(V: dict[str, Any]) -> str:
     """The verdict as a standalone page (out/verdict.html): page one is the one-pager, every case follows."""
     from html import escape as e
@@ -279,10 +293,16 @@ def render_html(V: dict[str, Any]) -> str:
     gates = "".join(f"<div><b>{'✓ Passed' if g['passed'] else '✗ Not passed'} on {e(g['wording'])}</b>"
                     f"{'' if g['passed'] else ': ' + e('; '.join(g['reasons']))}</div>" for g in V["gates"])
     tested = N["cases_tested"] if N["cases_tested"] in (None, N["cases_generated"]) else f"{N['cases_tested']} of {N['cases_generated']}"
-    tiles = "".join(f"<div class='tile'><div class='v'>{e(str(v))}</div><div class='l'>{e(l)}</div></div>" for v, l in (
+    J = N.get("judges") or {}
+    tile_list = [
         (tested, "cases tested"), (pc(N["accuracy_original"]), "correct, original wording"), (pc(N["accuracy_reworded"]), "correct, reworded"),
         (pc(N["proved"]), "reworded cases proved to mean the same"), ("not run" if N["defects_caught"] is None else pc(N["defects_caught"]), "planted defects caught"),
-        (pc(N["speech_grounded_original"]), "runs where everything said was true")))
+        (pc(N["speech_grounded_original"]), "runs where everything said was true")]
+    if J:
+        tile_list += [(pc(J.get("judges_agree")), "the two LLM judges agree"),
+                      (pc(J.get("a_agrees_with_rules")), "judge A agrees with the rules"),
+                      (pc(J.get("b_agrees_with_rules")), "judge B agrees with the rules")]
+    tiles = "".join(f"<div class='tile'><div class='v'>{e(str(v))}</div><div class='l'>{e(l)}</div></div>" for v, l in tile_list)
     risks = ("<table><tr><th>Severity</th><th>What the bot did</th><th>Code</th><th>Runs</th><th>Example</th></tr>" + "".join(
         f"<tr><td><span class='chip {'bad' if r['severity'] in ('critical', 'high') else ''}'>{e(r['severity'])}</span></td><td>{e(r['what'])}</td>"
         f"<td class='mono'>{e(r['code'])}</td><td>{r['runs']}</td><td class='mono'><a href='#case-{e(r['example'])}'>{e(r['example'])}</a></td></tr>"
@@ -311,6 +331,15 @@ def render_html(V: dict[str, Any]) -> str:
                 f"<div class='grid'>{side('exp', '', [x for x in (t['exp_tools'], t['exp_acts'] or 'nothing (the call has ended)') if x])}"
                 f"{side('bot', '', [x for x in (t['bot_tools'], t['bot_acts'] or '–') if x], bot_extra)}</div></div>")
 
+    def judges_line(j):
+        if not j:
+            return ""
+        cls = "ok" if j["status"] == "agree" else "bad" if j["status"] in ("judges disagree with the rules", "judges split") else ""
+        one = lambda n, v: (f"<span class='mono'>{n}: <b class='{'ok' if v.get('verdict') == 'correct' else 'bad' if v.get('verdict') == 'incorrect' else 'warn'}'>"  # noqa: E731
+                            f"{e(str(v.get('verdict') or '–'))}</b></span> <span class='small muted'>{e(v.get('reason') or '')}</span>")
+        return (f"<div class='side' style='margin-bottom:8px'><div class='lbl'>LLM judges, beside the rules (the rules decide) · "
+                f"<span class='{cls}'>{e(j['status'] or '')}</span></div><div>{one('A, auditor', j['a'])}</div><div>{one('B, reviewer', j['b'])}</div></div>")
+
     def case(c):
         out_lines = lambda o: [f"ends {o['end'] or '?'}" + (f" (transfer: {o['transfer_reason']})" if o.get("transfer_reason") else "")] + (o["writes"] or ["no write"])  # noqa: E731
         same = c["expected"] == c["actual"]
@@ -321,7 +350,8 @@ def render_html(V: dict[str, Any]) -> str:
         return (f"<section class='case {'' if c['correct'] else 'fail'}' id='case-{e(c['sid'])}'><header><div><b class='mono'>{e(c['sid'])}</b><div class='small muted'>{e(sub)}</div></div>"
                 f"<div><span class='pill {'ok' if c['correct'] else 'bad'}'>{'passed' if c['correct'] else 'failed · ' + e(str(c['severity']))}</span> "
                 + "".join(f"<span class='chip bad'>{e(x)}</span>" for x in c["codes"]) + "</div></header>"
-                f"<div class='grid head'>{side('exp', 'Expected outcome (policy graph)', out_lines(c['expected']))}"
+                + judges_line(c.get("judges"))
+                + f"<div class='grid head'>{side('exp', 'Expected outcome (policy graph)', out_lines(c['expected']))}"
                 f"{side('bot' + ('' if same else ' diff'), 'The bot’s outcome · ' + ('same' if same else 'different'), out_lines(c['actual']))}</div>"
                 + (f"<p class='small'><b>Stages that differ:</b> {e(', '.join(s['stage'] for s in c['stages']))}</p>" if c["stages"] else "")
                 + (f"<div class='grid small muted' style='margin-top:8px'><div class='lbl'>The policy graph expects</div><div class='lbl'>The bot did and said</div></div>" if c["turns"] else "")

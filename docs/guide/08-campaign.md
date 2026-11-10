@@ -42,6 +42,8 @@ s08_campaign/
 | the customer | `customer` (`scripted`: each case's base journey, line by line, whatever the bot answers; `adaptive`: answers the bot's last question) |
 | which checks | `run_mutation`, `run_resilience`, `run_power`, `run_governance` (all on), `speech_gate` (`fail`), `speech_controls`, `negative_controls_per_type` (40), `decision_rule` (`strict` / `quorum`), `budgets`, `calibration_bootstrap` (200) |
 | the store | `device`, `rebuild_store`, `kx_store_dir`, `kx_epochs`, `kx_geode_epochs` (300), `kx_geode_max_iters` (8), `kx_embed_trainer_epochs` (150), `kx_embed_max_iters` (2), `kx_sft_epochs`, `kx_contradiction_epochs` (400), `kx_store_config`, `kx_dedup_mode` (`off`), `kx_v_sft_mode` (`full`), `allow_failed_self_tests` |
+| the test tools' LLM | `llm_backend` (`gateway` / `local`; None: the environment's choice), `llm_local_path` (the model folder vLLM loads, or the served model's name), `llm_vllm_url` (an OpenAI-compatible vLLM server): one setting for the LLM arm (rewording, dual read, adversary), the case narration, the policy judge and the LLM judges. The bot under test chooses its own model |
+| the LLM judges | `llm_judges` (off; on by default in the console), `llm_judges_mode` (`live` / `replay`), `llm_judges_max_runs` (all; failed runs first) |
 | the LLM arm | `llm_arm` (off), `llm_mode` (`live` / `replay`), `llm_model`, `llm_temperature` (0.7), `llm_share`, `llm_dual_read` (`gate`), `llm_max_attempts` (3), `llm_adversarial_controls` (20), `llm_workers` (8), `llm_max_scenarios`, `llm_target_accepted`, `llm_asides`, `llm_exclude`, `llm_template_acts`, `llm_turn_fallback` ... |
 | reporting | `progress`, `on_step(step, title, R)` (the console's hook), `max_failed_cases_in_report` (400) |
 
@@ -78,7 +80,12 @@ flowchart TD
 5. **Rewording and proof.** Every scenario's turns are realised and proved (chapter 5); rejected scenarios are
    excluded and counted. With `llm_arm`, `llm_pool` selects the design rows the LLM may rewrite (rows with policy
    questions or turn padding stay with the templates, `llm_exclude`), `pick_llm_rows` takes a share of them spread
-   over the bases, and the LLM arm proves its own scenarios.
+   over the bases, and the LLM arm proves its own scenarios. Then, before any bot is run, the **answer sheet**
+   (`s09_reports/answer_sheet.py`, `out/answer_sheet.html`): every generated case, turn by turn, with what the
+   customer says and means, what a correct bot must do (tool calls with key arguments, then its acts), the rules of
+   the state and how the call must end, all from the oracle's own run of the case; and under it every reworded version
+   (both arms) with its changed factor levels and whether the proof accepted it. The console shows it from step 5 of
+   the run page (**Open the answer sheet**).
 6. **Bot runs.** Each scenario is played (chapter 6) with the runtime monitor watching and the speech check on every
    turn; the speech negative controls run on the base cases.
 7. **Scoring** (chapter 7): accuracy on original and on reworded wording, severities, two release gates (original

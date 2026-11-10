@@ -992,9 +992,70 @@ def build_kx_store(policy_path: str | Path, store_dir: str | Path, *, geode_epoc
         "timings_s": {k: round(v, 1) for k, v in timings.items()},
         "elapsed_s": round(time.time() - t0, 1),
     }
+    report["entity_points"] = export_entity_points(kx, store_dir)
     (store_dir / "gms_build_report.json").write_text(json.dumps(report, indent=1, default=str))
     phase(len(GMS_PHASES))
     return KXBuild(store, report)
+
+
+POINTS_FILE = "gms_points.npz"
+
+
+def entity_points(kx) -> tuple[list[str], Any, str]:
+    """The trained production store's own entity points: (entity names in index order, a matrix with one row per
+    entity, where it was read from). The GMS places every entity on a hypersphere and measures closeness as the angle
+    between two points, so these rows (normalised) are what the store's angular distances are computed from.
+
+    Read from the store's model: an entity-embedding accessor when it has one, else the model's 2-D weight whose rows
+    are the entities (``adapter.entity_to_idx``), preferring one named for entities."""
+    import numpy as np
+    adapter = kx.adapter
+    e2i = dict(adapter.entity_to_idx)
+    n = len(e2i)
+    names = [None] * n
+    for name, i in e2i.items():
+        if 0 <= int(i) < n:
+            names[int(i)] = str(name)
+    model = getattr(kx, "model", None) or getattr(kx, "gkg", None)
+    to_np = lambda t: np.asarray(t.detach().cpu().float().numpy() if hasattr(t, "detach") else t, dtype=float)  # noqa: E731
+    for holder in (model, kx):
+        for attr in ("entity_embeddings", "get_entity_embeddings", "entity_vectors", "entity_points"):
+            fn = getattr(holder, attr, None)
+            if fn is None:
+                continue
+            try:
+                M = to_np(fn() if callable(fn) else fn)
+            except Exception:                              # noqa: BLE001 - try the next way
+                continue
+            if M.ndim == 2 and M.shape[0] == n:
+                return names, M, f"{type(holder).__name__}.{attr}"
+    cands = []
+    sd = model.state_dict() if hasattr(model, "state_dict") else {}
+    for key, t in sd.items():
+        shape = tuple(getattr(t, "shape", ()))
+        if len(shape) == 2 and shape[0] == n and shape[1] >= 3:
+            k = key.lower()
+            score = (2 if "ent" in k else 0) - (2 if "rel" in k else 0) + (1 if "emb" in k or "weight" in k else 0)
+            cands.append((score, key, t))
+    if not cands:
+        raise ValueError(f"the store's model has no {n}-row entity matrix")
+    cands.sort(key=lambda x: -x[0])
+    _, key, t = cands[0]
+    return names, to_np(t), f"model.{key}"
+
+
+def export_entity_points(kx, store_dir: str | Path) -> dict[str, Any]:
+    """Save the trained store's entity points next to it (``gms_points.npz``: names, vectors, source), so the
+    console's GMS sphere is drawn from the store's own angular distances without loading knowlytix."""
+    import numpy as np
+    try:
+        names, M, src = entity_points(kx)
+        keep = [i for i, nm in enumerate(names) if nm is not None]
+        np.savez_compressed(Path(store_dir) / POINTS_FILE, names=np.array([names[i] for i in keep]), vectors=M[keep],
+                            source=np.array(src))
+        return {"file": POINTS_FILE, "entities": len(keep), "dim": int(M.shape[1]), "source": src}
+    except Exception as e:                                 # noqa: BLE001 - the sphere falls back; the build goes on
+        return {"error": f"{type(e).__name__}: {str(e)[:200]}"}
 
 
 def load_kx_store(policy_path: str | Path, store_dir: str | Path) -> KXBuild:
@@ -1020,6 +1081,8 @@ def load_kx_store(policy_path: str | Path, store_dir: str | Path) -> KXBuild:
         judge.apply_thresholds()
         v_ft = FineTunedEmbedding.load(store_dir / "tuned_encoder")
         u_ft = FineTunedEmbedding.load(store_dir / "contradiction_encoder")
+    if not (store_dir / POINTS_FILE).exists():          # a store built before the points were saved
+        report["entity_points"] = export_entity_points(kx, store_dir)
     return KXBuild(KXPolicyStore.from_compiled(compiled.store, kx, judge, v_ft, u_ft, report.get("encoders")), report)
 
 

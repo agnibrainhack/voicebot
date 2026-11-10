@@ -179,6 +179,9 @@ crashing torch.
 9. **judge calibration** (`GMSJudge.calibrate`, saved as `calibration.json`);
 10. a build report with every diagnostic, timing and the ENM agreement table (all 12 figures must agree byte for
     byte with the compiled register, or the build fails).
+11. the trained store's **entity points** (`export_entity_points` → `gms_points.npz`: every entity's row of the
+    production store's model, `entity_points`), which the console's GMS sphere draws by their angular distances
+    (chapter 10). A store built before this was saved gets them the next time it is loaded.
 
 A store is cached by the hash of the policy and settings, so later campaigns reload it in seconds
 (`load_kx_store`). `store_config` assembles the production store's configuration; `KXBuild` is a store plus its

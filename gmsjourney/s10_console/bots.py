@@ -174,7 +174,8 @@ def settings_for(sut: dict[str, Any]):
     """The model-client settings of a console job's ``sut`` block."""
     from ..llm import LLMSettings
     return LLMSettings(model=str(sut.get("model") or ""), temperature=float(sut.get("temperature") or 0.0),
-                       max_tokens=int(sut.get("max_tokens") or 900), mode=str(sut.get("mode") or "live"))
+                       max_tokens=int(sut.get("max_tokens") or 900), mode=str(sut.get("mode") or "live"),
+                       backend="gateway")                  # the bot's own choice, not the test tools' LLM
 
 
 def make_factory(sut: dict[str, Any] | None, store=None):
@@ -199,7 +200,7 @@ def make_factory(sut: dict[str, Any] | None, store=None):
     want = str(sut.get("critic_model") or "").strip()
     if critique_on(sut) and want and want != (s.model or "") and sut.get("provider") != "local":
         from ..llm import CachedLLM, LLMSettings           # a different model reviews the bot's steps
-        cs = LLMSettings(model=want, temperature=0.0, max_tokens=s.max_tokens, mode=s.mode)
+        cs = LLMSettings(model=want, temperature=0.0, max_tokens=s.max_tokens, mode=s.mode, backend="gateway")
         fake = fake_model()
         critic, cname = CachedLLM(cs, model=fake, tag="critic") if fake is not None else CachedLLM(cs, tag="critic"), want
     fac = make_llm_factory(store, s, llm=llm, instructions=sut.get("instructions") or None,
@@ -219,7 +220,7 @@ def check_gateway(model: str = "", timeout: float = 30.0) -> dict[str, Any]:
         return {"ok": True, "fake": True, "detail": "a stand-in model is configured (GMSJOURNEY_SUT_FAKE_MODEL); "
                                                     "the gateway is not called"}
     from ..llm import LLMSettings, LLMUnavailable, _messages, make_chat_model
-    s = LLMSettings(model=model, timeout=timeout)
+    s = LLMSettings(model=model, timeout=timeout, backend="gateway")
     try:
         chat = make_chat_model(s)
     except LLMUnavailable as e:
@@ -553,6 +554,7 @@ class Session:
     deviations: list[int] = field(default_factory=list)
     ended: bool = False
     created: float = field(default_factory=time.time)
+    judges: bool = False                                # the two LLM judges read every bot turn beside the rules
     base: list | None = None                            # the base journey's customer lines (built on first use)
     base_i: int = 0                                     # the next of them
     last_acts: list = field(default_factory=list)
@@ -711,8 +713,32 @@ class Session:
                "match": match, "tools_match": tools_match, "after_divergence": after, "speech": speech,
                "deviated": deviated, "first_deviation": deviated and self.diverged_at == len(self.turns),
                "why": why, "sheet": sheet, "critique": self._revisions_since()}
+        if self.judges:
+            out["judges"] = self._judge(out, e_tools, e_acts, acts, tools)
         self.turns.append(out)
         return out
+
+    def _judge(self, out: dict, e_tools: list, e_acts: list, acts: list, tools: list) -> dict:
+        """The two LLM judges on this turn (s07_checks/llm_judges.py), beside the rules' verdict."""
+        c = out.get("customer") or {}
+        hist = []
+        for t in self.turns:
+            if t.get("customer"):
+                hist.append(f"customer: {t['customer'].get('text')}")
+            hist.append(f"bot: {t['bot'].get('text') or ', '.join(t['bot'].get('acts') or [])}")
+        sheet = (out.get("sheet") or {}).get("state") or {}
+        try:
+            return judges().judge_turn({
+                "key": f"{self.pack}|{self.case['id']}|{len(self.turns)}|{c.get('text')}|{out['bot'].get('text')}",
+                "state": c.get("state") or "(call opens)", "customer_text": c.get("text") or "(the call opens)",
+                "customer_card": c.get("card"), "expected_tools": "; ".join(x["text"] for x in e_tools),
+                "expected_acts": "; ".join(_describe(e_acts)), "actual_tools": "; ".join(t["text"] for t in tools),
+                "actual_acts": "; ".join(_describe(acts)), "bot_text": out["bot"].get("text"), "history": hist,
+                "rules": {r["id"]: r["text"] for r in sheet.get("rules") or []}, "rules_ok": not out["deviated"]})
+        except Exception as e:                          # noqa: BLE001 - a judge never breaks the conversation
+            na = {"verdict": "unavailable", "reason": f"{type(e).__name__}: {str(e)[:160]}", "first_wrong_turn": None}
+            from ..s07_checks.llm_judges import combine
+            return {"a": na, "b": na, "combined": combine(not out["deviated"], na, na), "model": None}
 
     def _revisions_since(self) -> list[dict]:
         """The steps the critique layer corrected during this turn (LLM bot with critique on)."""
@@ -781,7 +807,8 @@ class Session:
                 "source": self.source, "replay_of": self.replay_of,
                 "bot": self.bot_kind, "bot_name": self.bot_name, "turns": self.turns, "ended": self.ended,
                 "diverged_at": self.diverged_at, "deviations": list(self.deviations), "next_line": self._next_line(),
-                "journey_line": self.journey_line(),
+                "journey_line": self.journey_line(), "judges": self.judges,
+                "judges_model": judges().model if self.judges else None,
                 "llm": ({"stats": self.llm.stats.as_dict(), "calls": self.llm.llm.report(),
                          "critique": bool(getattr(self.llm, "critique", False))} if self.llm is not None else None)}
 
@@ -794,12 +821,29 @@ class Session:
 _SESSIONS: "OrderedDict[str, Session]" = OrderedDict()
 
 
-def start(source: str, case_id: str, sut: dict | None) -> dict:
-    """A new conversation on a case with the reference bot (``sut`` None or kind "reference") or the LLM bot."""
-    return _open(source, case_id, sut).view()
+_JUDGES: list = []
 
 
-def _open(source: str, case_id: str, sut: dict | None, fac=None, name: str | None = None) -> Session:
+def judges():
+    """The Playground's two LLM judges (built once, on the test tools' LLM: the console's setting)."""
+    if not _JUDGES:
+        from ..s07_checks.llm_judges import Judges
+        _JUDGES.append(Judges())
+    return _JUDGES[0]
+
+
+def reset_judges() -> None:
+    """Forget the judges (the test tools' LLM changed)."""
+    _JUDGES.clear()
+
+
+def start(source: str, case_id: str, sut: dict | None, judge: bool = False) -> dict:
+    """A new conversation on a case with the reference bot (``sut`` None or kind "reference") or the LLM bot; with
+    ``judge`` the two LLM judges read every bot turn beside the rules."""
+    return _open(source, case_id, sut, judge=judge).view()
+
+
+def _open(source: str, case_id: str, sut: dict | None, fac=None, name: str | None = None, judge: bool = False) -> Session:
     """A new conversation, opened: the bot's first turn is taken. ``fac``/``name``: a bot factory already built (a test
     run's), used instead of building one from ``sut``."""
     from ..s06_bots.tools import ToolEnvironment
@@ -821,7 +865,7 @@ def _open(source: str, case_id: str, sut: dict | None, fac=None, name: str | Non
             fac, name = B.reference_factory()
     checker = B.speech.conversation(case["fixture"].get("session_date")) if B.speech is not None else None
     s = Session(uuid.uuid4().hex[:12], B.pack, case, kind, name or "the bot under test", fac(env), env, checker, llm,
-                source=source)
+                source=source, judges=bool(judge))
     _SESSIONS[s.id] = s
     while len(_SESSIONS) > MAX_SESSIONS:
         _SESSIONS.popitem(last=False)

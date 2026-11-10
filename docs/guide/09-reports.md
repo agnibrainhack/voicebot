@@ -6,6 +6,7 @@ voicebot/
     ├── s01_packs/  s02_graph/  s03_knowledge/  s04_cases/  s05_rewording/  s06_bots/  s07_checks/  s08_campaign/
     ├── s09_reports/      ◀ this chapter
     │   ├── __init__.py
+    │   ├── answer_sheet.py  answer_sheet.html: every case and what a correct bot must do (after step 5)
     │   ├── report.py     report.html: every section of the campaign
     │   ├── cases.py      narration, turn by turn, case_comparison.html, show_case
     │   └── verdict.py    verdict.html / verdict.json: the one-pager
@@ -22,6 +23,11 @@ zoom levels**:
 | country | `verdict.html` (`verdict.py`) | can the bot be released? what are the three biggest risks? can anyone reproduce this? |
 | region | `report.html` (`report.py`), `bot_validation.html` (chapter 7) | every step's results: store, bases, design, proof, results, attribution, resilience, mutation, governance, speech |
 | street | `case_comparison.html`, `turn_by_turn.csv` (`cases.py`) | one case, turn by turn: what the graph expected beside what the bot did |
+| the key | `answer_sheet.html` (`answer_sheet.py`) | before any bot runs: every case, what a correct bot must do turn by turn, how the call must end, and its proved rewordings |
+
+Where a run had the two LLM judges (chapter 7), the verdict adds tiles for how often they agree with each other and
+with the rules, and every case (in the verdict and in `case_comparison.html`) shows both judges' verdicts and reasons
+beside the rules' (`read_judges` reads `dataset/llm_judges.jsonl`).
 
 Every page is a single self-contained HTML file (no external scripts), with light and dark themes, so it can be
 attached to an email or opened offline.

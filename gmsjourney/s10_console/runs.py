@@ -38,7 +38,7 @@ STEPS = [
     ("2", "Policy questions", "Questions whose answers the graph proves (two-way admission)", ("kb",)),
     ("3", "Journey cases", "Cases from the journey factors: every feasible pair of levels, then closure", ("bases", "coverage")),
     ("4", "Rewording design", "How each case's customer turns are reworded (the enrichment factors)", ("design",)),
-    ("5", "Meaning proof", "Every reworded case must read back to the same meaning and expected outcome", ("invariance",)),
+    ("5", "Meaning proof", "Every reworded case must read back to the same meaning and expected outcome; the answer sheet", ("invariance",)),
     ("6", "Runtime gates", "Thresholds of the runtime monitor, calibrated on the graph", ("governance",)),
     ("7", "Bot under test", "Every case run against the bot; every utterance checked", ("results",)),
     ("8", "Attribution", "Which factors and stages explain the failures", ("diagnosis",)),
@@ -170,7 +170,10 @@ def _s5(R):
     inv = R.get("invariance") or {}
     s = inv.get("summary") or {}
     ctl = inv.get("negative_controls") or {}
+    sheet = R.get("answer_sheet") or {}
     return _out([_m("Scenarios proved", f"{s.get('accepted')}/{s.get('scenarios')}"), _m("Acceptance", _pct(s.get("acceptance_rate"))),
+                 _m("Answer sheet", f"{sheet.get('cases')} cases" if sheet.get("cases") is not None else "–",
+                    "out/answer_sheet.html: every generated case, its required bot behaviour and its proved rewordings"),
                  _m("Turns checked", s.get("turns_checked")), _m("Mean surface similarity", s.get("surface_cosine_mean"),
                                                                   "lower: the rewording changed the words more")],
                 [_t("Proof layers", ["Layer", "Scenarios"], [["Ground truth identical", s.get("L1_gt_identical")],
@@ -272,9 +275,16 @@ def _s12(R):
     ds = R.get("dataset") or {}
     gate = R.get("release_gate") or {}
     rows = [[t, "passed" if v.get("passed") else "not passed"] for t, v in ((gate.get("base_level") or {}).get("tiers") or {}).items()]
+    J = R.get("llm_judges") or {}
+    jm = [_m("LLM judges agree with each other", _pct(J.get("judges_agree")), J.get("model") or ""),
+          _m("Judge A agrees with the rules", _pct(J.get("a_agrees_with_rules"))),
+          _m("Judge B agrees with the rules", _pct(J.get("b_agrees_with_rules")))] if J.get("judged") else []
+    look = [[x.get("case_id"), x.get("status"), x.get("rules"), (x.get("a") or {}).get("verdict"), (x.get("b") or {}).get("verdict"),
+             (x.get("a") or {}).get("reason") or (x.get("b") or {}).get("reason")] for x in J.get("to_review") or []]
     return _out([_m("Test cases exported", ds.get("test_cases")), _m("Turn rows", ds.get("turn_rows")),
-                 _m("Elapsed", f"{R.get('elapsed_seconds')} s" if R.get("elapsed_seconds") else "–")],
+                 _m("Elapsed", f"{R.get('elapsed_seconds')} s" if R.get("elapsed_seconds") else "–"), *jm],
                 [_t("Release gate by risk tier", ["Tier", "Verdict"], rows),
+                 _t("Runs the LLM judges flag (the rules decide; look at these)", ["Run", "Judges", "Rules", "Judge A", "Judge B", "Why"], look) if look else None,
                  _t("Files", ["File"], [[f] for f in ds.get("files") or []])])
 
 
@@ -289,7 +299,15 @@ def headline(R: dict[str, Any]) -> dict[str, Any]:
             "proved": ((R.get("invariance") or {}).get("summary") or {}).get("acceptance_rate"),
             "defects_caught": (m.get("mutation_score") or {}).get("all_suites_combined"),
             "gate": ((R.get("release_gate") or {}).get("base_level") or {}).get("passed"),
-            "gate_reworded": ((R.get("release_gate") or {}).get("enriched_template") or {}).get("passed")}
+            "gate_reworded": ((R.get("release_gate") or {}).get("enriched_template") or {}).get("passed"),
+            "judges_agree": (R.get("llm_judges") or {}).get("judges_agree"),
+            "judges_with_rules": _mean([(R.get("llm_judges") or {}).get("a_agrees_with_rules"),
+                                        (R.get("llm_judges") or {}).get("b_agrees_with_rules")])}
+
+
+def _mean(xs: list) -> float | None:
+    xs = [x for x in xs if x is not None]
+    return round(sum(xs) / len(xs), 4) if xs else None
 
 
 def clean(x: Any) -> Any:
@@ -437,6 +455,8 @@ def detail(out: str | Path, base_id: str) -> dict[str, Any]:
     if not cs:
         raise KeyError(base_id)
     base = next((c for c in cs if c["case_type"] == "base"), cs[0])
+    from ..s09_reports.cases import read_judges
+    judged = read_judges(Path(out) / "dataset")
 
     def version(c: dict) -> dict:
         proof = D["proofs"].get(c["case_id"]) or {}
@@ -456,7 +476,7 @@ def detail(out: str | Path, base_id: str) -> dict[str, Any]:
                 "proof": {"status": c.get("proof_status"), "accepted": c.get("proof_accepted"), "layers": c.get("proof_layers"),
                           "similarity": c.get("surface_cosine_mean")},
                 "turns": turns, "result": _result(res), "why": fail.get("why"), "transcript": fail.get("transcript"),
-                "turn_by_turn": tbt}
+                "turn_by_turn": tbt, "judges": judged.get(c["case_id"])}
     traj = []
     for s in base.get("trajectory") or []:
         if s["actor"] == "bot":
@@ -847,7 +867,8 @@ def _elapsed(events) -> float | None:
 
 OPTIONS = ("max_cases", "runs_per_base", "seed", "run_resilience", "run_mutation", "run_power", "run_governance",
            "speech_controls", "calibration_bootstrap", "negative_controls_per_type", "llm_arm", "llm_mode", "llm_model",
-           "rebuild_store", "profile", "customer")
+           "rebuild_store", "profile", "customer", "llm_backend", "llm_local_path", "llm_vllm_url", "llm_judges",
+           "llm_judges_mode", "llm_judges_max_runs")
 
 
 def main(run_dir: str) -> int:

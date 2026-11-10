@@ -561,6 +561,10 @@ canvas.sph:active { cursor: grabbing; }
 .xhd .n { font: 600 14px var(--head); }
 .xbadge { margin-left: auto; font-size: 12px; font-weight: 600; border-radius: 999px; padding: 2px 10px; }
 .xbadge.ok { background: var(--ok-bg); color: var(--ok); } .xbadge.first, .xbadge.dev { background: var(--bad-bg); color: var(--bad); }
+.jrow { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 4px 12px; align-items: baseline; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; }
+.jrow .jv { font-weight: 600; } .jrow .jv.correct { color: var(--ok); } .jrow .jv.incorrect { color: var(--bad); } .jrow .jv.other { color: var(--ink-3); }
+.jrow.flag { border-color: var(--bad); }
+.sheetframe { width: 100%; height: calc(100vh - 190px); min-height: 520px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
 .xgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 12px; }
 .xside { border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; align-content: start; min-width: 0; }
 .xside.cust { background: var(--proj-bg); } .xside.bot { background: var(--graph-bg); }
@@ -750,7 +754,7 @@ const STAGES = [
 ];
 const VIEWS = STAGES.map(([, label, , items]) => [label, items]);
 const PAGES = STAGES.flatMap(([sid, label, , items], si) => items.map(([id, l]) => ({ id, label: l, stage: si, stageLabel: label })));
-const PAGE_OF = { cases: "runs", verdict: "runs", compare: "runs" };
+const PAGE_OF = { cases: "runs", verdict: "runs", compare: "runs", sheet: "runs" };
 function pageInfo(view) { return PAGES.find(p => p.id === (PAGE_OF[view] || view)) || PAGES[0]; }
 function stageDone(si) {
   const st = guideState(), g = gGet();
@@ -947,7 +951,7 @@ const GLOSSARY = [
   ["Graph sections", "The graph split by who uses each part: the customer, the bot, both, the flow, the rules, knowledge and figures, and the rest (Graph sections)."],
   ["Core segments", "What every graph needs for the validations a test run makes (verification, tool results, handoffs, limits, rules, wording...). A missing one means those checks have nothing to test."],
   ["Graph version", "Edit graph saves your changes as <name>.v2.json (then .v3 ...) beside the original and switches the journey to it. The original file is never changed; switch back from the versions row."],
-  ["GMS sphere", "Every entity of the graph as a point on the unit sphere and every relation as an arc: from the knowledge store's learned vectors when a test run has built it, else from the graph's relationships."],
+  ["GMS sphere", "Every entity of the graph as a point on the unit sphere and every relation as an arc: placed by the trained GMS store's angular distances when a test run has built or loaded the store, else from the graph's relationships."],
   ["Playground", "Talk to the bot yourself on one case of any journey. At every turn, stick to the journey (the base journey's next line, whatever the bot said) or talk freely. Every bot turn is validated against the graph either way; a turn that differs is flagged as a deviation, with the answer sheet for both sides."],
   ["Put the bot to test", "A test run: every generated case, original and reworded, played against the bot and checked; it ends with the verdict (Start a test run). In code it is run_campaign."],
   ["Volunteered / unread", "Advisory speech findings: a figure about something not asked; a clause no check could read. Counted, not failed, unless you say so (Rules and scoring)."],
@@ -974,12 +978,12 @@ function render() {
   if (r.view !== "sphere") document.body.classList.remove("sph-focus");
   nav(r.view);
   const main = $("#main");
-  if (!S.J && !["run", "runs", "compare", "cases", "verdict", "sections", "edit", "sphere"].includes(r.view)) { main.replaceChildren(h("div", { class: "notice bad" }, `This journey could not be read: ${S.err || "unknown error"}`)); return; }
-  const fn = { overview, graph, factors, bank, scoring, run: runView, runs: runsView, compare: compareView, cases: casesView, play: playView, verdict: verdictView, sections: sectionsView, edit: editView, sphere: sphereView }[r.view] || overview;
+  if (!S.J && !["run", "runs", "compare", "cases", "verdict", "sheet", "sections", "edit", "sphere"].includes(r.view)) { main.replaceChildren(h("div", { class: "notice bad" }, `This journey could not be read: ${S.err || "unknown error"}`)); return; }
+  const fn = { overview, graph, factors, bank, scoring, run: runView, runs: runsView, compare: compareView, cases: casesView, play: playView, verdict: verdictView, sheet: sheetView, sections: sectionsView, edit: editView, sphere: sphereView }[r.view] || overview;
   const out = fn(r);
   if (out) main.replaceChildren(...[out, pageFoot(r.view)].flat().filter(x => x != null && x !== false));
-  if (S.dirty && !["run", "runs", "compare", "cases", "play", "verdict", "sections", "edit", "sphere"].includes(r.view)) savebar();      // a re-render keeps the unsaved-changes bar
-  document.title = `${S.runTitle || ""}${({ cases: "Cases", verdict: "Verdict", compare: "Compare test runs" })[r.view] || (PAGES.find(p => p.id === r.view) || {}).label || "Journey Console"} · Journey Console`;
+  if (S.dirty && !["run", "runs", "compare", "cases", "play", "verdict", "sheet", "sections", "edit", "sphere"].includes(r.view)) savebar();      // a re-render keeps the unsaved-changes bar
+  document.title = `${S.runTitle || ""}${({ cases: "Cases", verdict: "Verdict", compare: "Compare test runs", sheet: "Answer sheet" })[r.view] || (PAGES.find(p => p.id === r.view) || {}).label || "Journey Console"} · Journey Console`;
 }
 function nav(view) {
   const here = pageInfo(view);
@@ -1264,7 +1268,7 @@ async function loadSphere(force) {
   render();
   try { Object.assign(S.sph, await api(`api/graph/${S.pack}/sphere`), { loading: false }); }
   catch (e) { S.sph.loading = false; S.sph.err = e.message; }
-  if (S.sph.nodes) { S.sph.byId = {}; for (const n of S.sph.nodes) S.sph.byId[n.id] = n; sphereRelax(S.sph); S.sph.spread = S.sph.placement === "store" ? 0 : 0.85; sphereApplySpread(S.sph); }
+  if (S.sph.nodes) { S.sph.byId = {}; for (const n of S.sph.nodes) S.sph.byId[n.id] = n; sphereRelax(S.sph); S.sph.spread = S.sph.placement === "graph" ? 0.85 : 0; sphereApplySpread(S.sph); }
   if (route().view === "sphere") render();
 }
 // Spreading the points for reading. The served layout keeps linked entities close but bunches them on one side of
@@ -1312,9 +1316,9 @@ function sphereView() {
   const side = h("div", { class: "card sphside" });
   setTimeout(() => sphereMount(cv, tip, side, hud), 0);
   return [
-    head("GMS sphere", `Every entity of the graph as a point on the unit sphere, every relation as an arc. ${G.placement === "store" ? "Placed from the knowledge store's learned geometry." : "Placed from the graph's relationships."}`,
+    head("GMS sphere", `Every entity of the graph as a point on the unit sphere, every relation as an arc. ${G.placement === "gms" ? "Placed by the trained GMS store's angular distances." : G.placement === "encoder" ? "Placed from the store's name encoder until its trained points are saved." : "Placed from the graph's relationships."}`,
       h("a", { class: "btn", href: "#/sections" }, "Graph sections")),
-    h("div", { class: `notice ${G.placement === "store" ? "ok" : "info"}`, style: "margin-bottom:12px" }, G.note,
+    h("div", { class: `notice ${G.placement === "gms" ? "ok" : G.placement === "encoder" ? "warn" : "info"}`, style: "margin-bottom:12px" }, G.note,
       G.fit ? h("span", { class: "small" }, `. Linked entities sit ${G.fit.edge_arc} rad apart on average, against ${G.fit.random_arc} rad for a random pair.`) : null),
     h("div", { class: "row sphctl", style: "flex-wrap:wrap;gap:6px;margin-bottom:10px" },
       ...G.sections.map(s => h("button", { class: "chip w", type: "button", "aria-pressed": G.on.has(s.key) ? "true" : "false", onclick: () => { G.on.has(s.key) ? G.on.delete(s.key) : G.on.add(s.key); G.dirty = true; render(); } }, secDot(s.key), s.title)),
@@ -1501,7 +1505,7 @@ function sphereDraw() {
   }
 }
 function sphereFitText(G) {
-  const f = G.shownFit || {}; return `As shown: linked entities ${f.edge} rad apart, random pairs ${f.random}${G.placement === "store" && G.spread > 0 ? " (spread: the distances are no longer the store's)" : ""}`;
+  const f = G.shownFit || {}; return `As shown: linked entities ${f.edge} rad apart, random pairs ${f.random}${G.placement !== "graph" && G.spread > 0 ? " (spread: the distances are no longer the store's)" : ""}`;
 }
 function hexA(col, a) {                       // a CSS hex colour with alpha, for the canvas
   const m = /^#([0-9a-f]{6})$/i.exec(col || ""); if (!m) return col;
@@ -2015,12 +2019,28 @@ const LOOK = {
   "12": "The report and datasets of this run; download them from the files listed or the buttons above.",
   "13": "Ready to release or not and why, the worst risks, how to reproduce the run, and every case with the expected run beside the bot's. Written for every run as out/verdict.html.",
 };
+// The test tools' LLM (rewording, dual read, case summaries, the two judges): the Microsoft gateway or a local model.
+// One setting for the console and its test runs (POST /api/llm/settings); the bot under test chooses its own model.
+function toolsLlmPick() {
+  const TL = Object.assign({ backend: "gateway", local_path: "", vllm_url: "" }, S.meta.tools_llm || {});
+  const st = h("div", { class: "small muted", style: "padding-left:2px" }, TL.backend === "local" ? (TL.usable ? "Ready: " : "Not usable yet: ") + (TL.detail || "") : "Microsoft gateway");
+  const save = async (patch) => { try { S.meta.tools_llm = await api("api/llm/settings", Object.assign({}, TL, patch)); toast(S.meta.tools_llm.backend === "local" ? "The test tools now use the local model." : "The test tools now use the Microsoft gateway."); render(); } catch (x) { toast(x.message); } };
+  const path = h("input", { class: "input mono", id: "tl-path", style: "height:28px;flex:1;min-width:160px", value: TL.local_path || "", placeholder: "/models/Llama-3.1-8B-Instruct", autocomplete: "off", spellcheck: "false", "aria-label": "Local model folder" });
+  const url = h("input", { class: "input mono", id: "tl-url", style: "height:28px;flex:1;min-width:160px", value: TL.vllm_url || "", placeholder: "http://localhost:8000/v1 (optional)", autocomplete: "off", spellcheck: "false", "aria-label": "vLLM server URL" });
+  return h("div", { class: "stack", style: "gap:4px;margin-top:6px" },
+    h("label", { for: "tl-backend", style: "font-size:13px" }, "LLM for rewording, summaries and the judges"),
+    h("select", { class: "select", id: "tl-backend", style: "height:28px;max-width:220px", onchange: e => save({ backend: e.target.value }) },
+      h("option", { value: "gateway", selected: TL.backend !== "local" }, "Microsoft gateway"), h("option", { value: "local", selected: TL.backend === "local" }, "Local model (vLLM)")),
+    TL.backend === "local" ? h("div", { class: "row", style: "gap:6px;flex-wrap:wrap" }, path, url,
+      h("button", { class: "btn s", type: "button", onclick: () => save({ backend: "local", local_path: path.value.trim(), vllm_url: url.value.trim() }) }, "Use this model")) : null,
+    st);
+}
 function runView(r) {
   if (r.arg) return runDetail(r.arg, r.q.get("step"));
   const devs = S.meta.devices.options;
   const active = S.meta.active_run;
   let saved = {}; try { saved = JSON.parse(localStorage.getItem("jc.runform") || "{}"); } catch {}
-  const F = Object.assign({ pack: S.pack, device: "auto", max_cases: "", runs_per_base: 1, seed: 42, run_resilience: true, run_mutation: true, speech_controls: true, run_power: false, run_governance: true, scripted_customer: true, rebuild_store: false, llm_arm: false, llm_mode: "replay", llm_model: "" }, saved, { pack: S.pack });
+  const F = Object.assign({ pack: S.pack, device: "auto", max_cases: "", runs_per_base: 1, seed: 42, run_resilience: true, run_mutation: true, speech_controls: true, run_power: false, run_governance: true, scripted_customer: true, llm_judges: true, rebuild_store: false, llm_arm: false, llm_mode: "replay", llm_model: "" }, saved, { pack: S.pack });
   if (!devs.some(o => o.id === F.device && o.available)) F.device = "auto";
   const set = (k, v) => { F[k] = v; try { localStorage.setItem("jc.runform", JSON.stringify(F)); } catch {} };
   const chk = (k, label, hint) => h("label", { class: "row", style: "gap:8px;align-items:flex-start;min-height:28px" }, h("input", { type: "checkbox", checked: !!F[k], onchange: e => set(k, e.target.checked) }), h("span", {}, label, hint ? h("span", { class: "small muted", style: "display:block" }, hint) : null));
@@ -2029,6 +2049,8 @@ function runView(r) {
       if (S.dirty && !(await confirmBox("Save before running?", "The run reads the saved project. Your unsaved edits would not be used.", "Run without them"))) { startBtn.disabled = false; startBtn.replaceChildren("Start the test"); return; }
       try { const body = { ...F, max_cases: F.max_cases === "" ? null : Number(F.max_cases), runs_per_base: Number(F.runs_per_base) || 1, seed: Number(F.seed) || 42, customer: F.scripted_customer === false ? "adaptive" : "scripted", sut: sutBody() };
         delete body.scripted_customer;
+        const TL = S.meta.tools_llm || {};
+        Object.assign(body, { llm_backend: TL.backend || "gateway", llm_local_path: TL.local_path || "", llm_vllm_url: TL.vllm_url || "", llm_judges: F.llm_judges !== false });
         if (body.sut.kind === "llm" && !(await confirmBox("Run the LLM bot?", `Every customer turn of every case costs one to ${body.sut.max_steps + 1} gateway calls${body.sut.critique ? ", twice that with the critique layer" : ""} (${body.sut.mode === "replay" ? "replay: cached replies only, a reply that is not cached stops the run" : "live, cached for re-runs"}). Start with a few cases.`, "Start the test"))) { startBtn.disabled = false; startBtn.replaceChildren("Start the test"); return; }
         try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); } catch {}
         const { id } = await api("api/runs", body); S.meta.active_run = id; gMark("ran"); toast(`Run ${id} started. You can leave this page; it keeps running.`); go(`#/run/${id}`); }
@@ -2045,11 +2067,13 @@ function runView(r) {
         h("label", { for: "rf-rpb" }, "Runs per case"), h("input", { class: "input num", id: "rf-rpb", type: "number", min: 1, inputmode: "numeric", style: "width:140px", value: F.runs_per_base, oninput: e => set("runs_per_base", e.target.value) }),
         h("label", { for: "rf-seed" }, "Seed"), h("input", { class: "input num", id: "rf-seed", type: "number", inputmode: "numeric", style: "width:140px", value: F.seed, oninput: e => set("seed", e.target.value) })),
       h("div", { class: "grid2" }, h("div", { class: "stack", style: "gap:4px" }, h("h3", {}, "Checks"), chk("scripted_customer", "Customer follows the base journey", "Says the case's own lines whatever the bot answers, so a wrong turn cannot steer the case. Off: answers the bot's last question."), chk("speech_controls", "Speech controls", "Prove the speech check flags planted wording errors"), chk("run_governance", "Runtime gates", "Calibrate and run the runtime monitor"),
-          chk("run_resilience", "Tool faults", "Errors and plausible wrong answers from each tool"), chk("run_mutation", "Planted defects", "Mutant bots each suite must catch"), chk("run_power", "Power analysis", "Slower; sizes the design")),
+          chk("run_resilience", "Tool faults", "Errors and plausible wrong answers from each tool"), chk("run_mutation", "Planted defects", "Mutant bots each suite must catch"), chk("run_power", "Power analysis", "Slower; sizes the design"),
+          chk("llm_judges", "Two LLM judges", "Two LLM judges read every run beside the rules (which still decide); disagreements are flagged")),
         h("div", { class: "stack", style: "gap:4px" }, h("h3", {}, "Advanced"), chk("rebuild_store", "Rebuild the knowledge store", "Otherwise a cached store for this graph is reused"),
           chk("llm_arm", "LLM rewording of customer turns", "Adds an arm whose customer words an LLM rewrites, proved like the rest (not the bot under test)"),
           h("div", { class: "row", style: "padding-left:26px" }, h("label", { for: "rf-llm", class: "small muted" }, "mode"), h("select", { class: "select", id: "rf-llm", style: "height:28px", onchange: e => set("llm_mode", e.target.value) }, ...["replay", "live"].map(m => h("option", { selected: F.llm_mode === m }, m))),
-            h("label", { for: "rf-model", class: "small muted" }, "model"), h("input", { class: "input mono", id: "rf-model", style: "width:140px;height:28px", value: F.llm_model, placeholder: "gpt-41…", autocomplete: "off", spellcheck: "false", oninput: e => set("llm_model", e.target.value) })))),
+            h("label", { for: "rf-model", class: "small muted" }, "model"), h("input", { class: "input mono", id: "rf-model", style: "width:140px;height:28px", value: F.llm_model, placeholder: "gpt-41…", autocomplete: "off", spellcheck: "false", oninput: e => set("llm_model", e.target.value) })),
+          toolsLlmPick())),
       active ? h("div", { class: "notice warn" }, "A run is in progress, and one runs at a time. ", h("a", { href: `#/run/${active}` }, "View it"), " or cancel it before starting another.") : null,
       h("div", { class: "row", style: "justify-content:space-between;gap:12px" }, h("div", { id: "pastnote", style: "flex:1;min-width:0" }), startBtn)));
   const past = (S.runsList || []).filter(x => x.job.pack === S.pack && x.status === "finished" && x.elapsed).slice(0, 4);
@@ -2097,6 +2121,9 @@ function runDetailBody() {
       h("span", {}, "The one page to judge the bot by, then every case with the policy's expected run on the left and the bot's on the right."),
       h("span", { class: "row" }, h("a", { class: "btn s primary", href: `#/verdict/${R.id}` }, "Open the verdict"), st.details ? h("a", { class: "btn s", href: `runs/${R.id}/verdict.html`, target: "_blank", rel: "noopener" }, "verdict.html") : null)),
     st.details ? detail : h("p", { class: "muted" }, "This run finished before step 13 existed; the verdict is built from its files when you open it."));
+  if (sel === "5" && st.status === "done") detail = h("div", { class: "stack" }, h("div", { class: "notice info row", style: "justify-content:space-between" },
+      h("span", {}, "The answer sheet: every generated case with what the customer says and means at each turn, what a correct bot must do, how the call must end, and its proved rewordings. Ready before the bot is run."),
+      h("span", { class: "row" }, h("a", { class: "btn s primary", href: `#/sheet/${R.id}` }, "Open the answer sheet"), h("a", { class: "btn s", href: `runs/${R.id}/answer_sheet.html`, target: "_blank", rel: "noopener" }, "answer_sheet.html"))), detail);
   if (sel === "11" && R.status === "finished") detail = h("div", { class: "stack" }, h("div", { class: "notice info row", style: "justify-content:space-between" },
       h("span", {}, "See every generated case next to its reworded versions, the bot's result on each and the coverage, as pictures."), h("a", { class: "btn s primary", href: `#/cases/${R.id}` }, "Explore cases")), detail);
   if (R.status === "finished") gMark("read");
@@ -2106,11 +2133,12 @@ function runDetailBody() {
   const outputs = R.status === "finished" ? h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Results")), h("div", { class: "bd stack" },
       R.headline ? h("div", { class: "tiles" }, tile(R.headline.tested != null && R.headline.tested !== R.headline.bases ? `${R.headline.tested} of ${R.headline.bases}` : R.headline.bases, "cases tested"), tile(pct(R.headline.accuracy_original), "correct, original wording"), tile(pct(R.headline.accuracy_reworded), "correct, reworded"),
         tile(pct(R.headline.proved), "reworded cases proved"), tile(pct(R.headline.defects_caught), "planted defects caught"),
-        tile(R.headline.gate ? "Passed" : "Not passed", "release gate, original", R.headline.gate ? "ok" : "bad"), R.headline.gate_reworded != null ? tile(R.headline.gate_reworded ? "Passed" : "Not passed", "release gate, reworded", R.headline.gate_reworded ? "ok" : "bad") : null) : null,
+        tile(R.headline.gate ? "Passed" : "Not passed", "release gate, original", R.headline.gate ? "ok" : "bad"), R.headline.gate_reworded != null ? tile(R.headline.gate_reworded ? "Passed" : "Not passed", "release gate, reworded", R.headline.gate_reworded ? "ok" : "bad") : null,
+        R.headline.judges_with_rules != null ? tile(pct(R.headline.judges_with_rules), "LLM judges agree with the rules") : null) : null,
       R.headline ? meaning(R.headline) : null,
       h("div", { class: "row" }, h("a", { class: "btn primary", href: `#/verdict/${R.id}` }, "Open the verdict"), h("a", { class: "btn", href: `#/cases/${R.id}` }, "Explore cases"),
         (prev => prev ? h("a", { class: "btn", href: `#/compare?a=${encodeURIComponent(prev.id)}&b=${encodeURIComponent(R.id)}`, title: `Compare with ${prev.id}, the previous finished run of ${job.pack}` }, "Compare with the previous run") : null)(
-          (S.runsList || []).filter(x => x.status === "finished" && x.job.pack === job.pack && x.id < R.id).sort((x, y) => (x.id < y.id ? 1 : -1))[0]), ...["report.html", "bot_validation.html", "case_comparison.html"].map(f => h("a", { class: "btn", href: `runs/${R.id}/${f}`, target: "_blank", rel: "noopener" }, { "report.html": "Open report", "bot_validation.html": "Open bot validation", "case_comparison.html": "Open case comparison" }[f]))))) : null;
+          (S.runsList || []).filter(x => x.status === "finished" && x.job.pack === job.pack && x.id < R.id).sort((x, y) => (x.id < y.id ? 1 : -1))[0]), h("a", { class: "btn", href: `#/sheet/${R.id}` }, "Open the answer sheet"), ...["report.html", "bot_validation.html", "case_comparison.html"].map(f => h("a", { class: "btn", href: `runs/${R.id}/${f}`, target: "_blank", rel: "noopener" }, { "report.html": "Open report", "bot_validation.html": "Open bot validation", "case_comparison.html": "Open case comparison" }[f]))))) : null;
   const savedRes = R.saved && R.saved.length ? h("section", { class: "card", style: "margin:16px 0" }, h("div", { class: "hd" }, h("h2", {}, "Saved conversations"),
       h("span", { class: `pill ${R.saved.every(x => x.passed) ? "ok" : "bad"}` }, `${R.saved.filter(x => x.passed).length} of ${R.saved.length} without a deviation`)),
     h("div", { class: "bd" }, h("p", { class: "small muted", style: "margin-bottom:8px" }, "The journey's saved Playground conversations, replayed line by line against this run's bot and validated turn by turn."),
@@ -2625,7 +2653,7 @@ function botResult(v) {
         x.turn_match === "True" ? "✓ same" : x.after_divergence === "True" ? "after a difference" : "✗ differs"),
       x.customer_text, `${x.expected_tools !== "-" ? x.expected_tools + " ; " : ""}${x.expected_bot}`, `${x.actual_tools !== "-" ? x.actual_tools + " ; " : ""}${x.actual_bot_acts}`,
       x.speech_check || "–"]), { max: 420 }) : null;
-  return h("div", { class: "level" }, h("div", { class: "lh" }, pill, h("b", { class: "mono" }, v.id), facts), h("div", { class: "lb" }, codes,
+  return h("div", { class: "level" }, h("div", { class: "lh" }, pill, h("b", { class: "mono" }, v.id), facts), h("div", { class: "lb" }, codes, judgesRow(v.judges),
     tbt || h("p", { class: "small muted" }, "No turn-by-turn record for this version."),
     v.transcript ? h("details", {}, h("summary", { style: "padding:4px 0" }, "Full transcript"), h("div", { class: "conv" }, ...v.transcript.map(m => h("div", { class: `turn ${m.role === "bot" ? "bot" : "customer"}` }, h("div", { class: "who" }, m.role === "bot" ? "Bot" : "Customer"), h("div", { class: "what" }, m.text))))) : null));
 }
@@ -2755,7 +2783,7 @@ function playSetup() {
 }
 async function startPlay() {
   const P = pgState(); P.busy = true; paintPlay();
-  try { P.sess = await api(`api/play/${S.pack}/start`, { source: P.list.source, case: P.caseId, sut: sutBody() }); P.draft = ""; P.open = {}; gMark("played"); }
+  try { P.sess = await api(`api/play/${S.pack}/start`, { source: P.list.source, case: P.caseId, sut: sutBody(), judges: pgJudges() }); P.draft = ""; P.open = {}; gMark("played"); }
   catch (e) { toast(e.message); }
   P.busy = false; paintPlay();
 }
@@ -2797,12 +2825,23 @@ async function sayPlay(mode, text) {
   text = String(text || "").trim();
   if (mode === "free" && !text) { toast("Type what the customer says, or stick to the journey."); return; }
   P.busy = true; P.pending = mode === "journey" ? (P.sess.journey_line || {}).text : text; P.pendingMode = mode; if (mode === "free") P.draft = ""; P.scroll = true; paintPlay();
-  try { const r = await api(`api/play/s/${P.sess.id}/say`, { mode, text }); P.sess = r; }
+  try { const r = await api(`api/play/s/${P.sess.id}/say`, { mode, text, judges: pgJudges() }); P.sess = r; }
   catch (e) { toast(e.message); if (mode === "free") P.draft = text; }
   P.busy = false; P.pending = null; P.scroll = true; paintPlay();
   const ta = $("#pg-say"); if (ta && mode === "free") ta.focus();
 }
 const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+function pgJudges() { try { return localStorage.getItem("jc.pgjudges") !== "0"; } catch { return true; } }
+function judgesRow(j) {        // the two LLM judges beside the rules' verdict (s07_checks/llm_judges.py)
+  if (!j) return null;
+  const c = j.combined || {}, flag = c.status === "judges disagree with the rules" || c.status === "judges split";
+  const one = (name, v) => [h("span", { class: "small muted" }, name), h("span", {}, h("span", { class: `jv ${v.verdict === "correct" || v.verdict === "incorrect" ? v.verdict : "other"}` }, v.verdict || "–"), v.reason ? h("span", { class: "muted" }, ` · ${v.reason}`) : null)];
+  return h("div", { class: `jrow ${flag ? "flag" : ""}`, role: "group", "aria-label": "LLM judges" },
+    h("span", { class: "small" }, h("b", {}, "LLM judges")), h("span", { class: `small ${flag ? "mark bad" : c.status === "agree" ? "mark ok" : "muted"}` },
+      c.status === "agree" ? "Both agree with the rules" : c.status === "judges split" ? "The judges disagree with each other" : c.status === "judges disagree with the rules" ? "The judges disagree with the rules: worth a look" : c.status || "",
+      " (the rules decide)"),
+    ...one("A · auditor", j.a || {}), ...one("B · reviewer", j.b || {}));
+}
 function sheetState(st) {     // the dialog state the customer answered, as the answer sheet shows it
   if (!st) return null;
   return h("dl", { class: "kv sheet-kv" },
@@ -2865,7 +2904,7 @@ function exchange(t, Ses) {
       h("div", { class: "stack", style: "gap:10px" }, h("h3", {}, "Agent side"), sheetHops(t.sheet && t.sheet.hops, t.expected.tools), speechBlock(t.speech))));
   return h("article", { class: `xturn ${status}`, id: `turn-${t.n}`, "aria-label": `Turn ${t.n}` },
     h("div", { class: "xhd" }, h("span", { class: "n" }, t.n === 0 ? "Opening" : `Turn ${t.n}`), c && c.state ? h("span", { class: "mono small muted" }, c.state) : null, badge),
-    h("div", { class: "xgrid" }, custSide, botSide), why, crit, sheet);
+    h("div", { class: "xgrid" }, custSide, botSide), why, judgesRow(t.judges), crit, sheet);
 }
 function playChat() {
   const P = pgState(), Ses = P.sess;
@@ -2895,6 +2934,10 @@ function playChat() {
       h("div", {}, h("div", { class: "k small muted" }, "Validation"), devs.length
         ? h("ul", { class: "devlist" }, ...devs.map(n => h("li", {}, h("a", { href: `#/play`, onclick: e => { e.preventDefault(); const el = document.getElementById(`turn-${n}`); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); } }, n === 0 ? "Opening" : `Turn ${n}`), n === Ses.diverged_at ? " (first deviation)" : "")))
         : h("p", { class: "small mark ok" }, "No deviation so far")),
+      h("label", { class: "row", style: "gap:8px;align-items:flex-start" }, h("input", { type: "checkbox", checked: pgJudges() ? true : null, onchange: e => { try { localStorage.setItem("jc.pgjudges", e.target.checked ? "1" : "0"); } catch {} } }),
+        h("span", { class: "small" }, "Two LLM judges read each bot turn", h("span", { class: "muted", style: "display:block" }, Ses.judges_model ? `beside the rules, on ${Ses.judges_model}` : "beside the rules (from the next turn)"))),
+      (() => { const js = Ses.turns.filter(t => t.judges); if (!js.length) return null; const flagged = js.filter(t => ["judges disagree with the rules", "judges split"].includes((t.judges.combined || {}).status));
+        return h("p", { class: `small ${flagged.length ? "mark bad" : "mark ok"}` }, flagged.length ? `Judges flag ${plural(flagged.length, "turn")}: ${flagged.map(t => t.n === 0 ? "opening" : t.n).join(", ")}` : `Judges agree with the rules on all ${plural(js.length, "judged turn")}`); })(),
       h("div", { class: "stack", style: "gap:6px" }, h("button", { class: "btn s primary", type: "button", disabled: !Ses.turns.some(t => t.customer) || P.busy, title: "Keep the customer's lines; every test run sends them again to its bot and validates each turn", onclick: () => saveConversation() }, "Save as a test case"),
         h("p", { class: "small muted" }, Ses.turns.some(t => t.customer) ? "Every test run replays saved conversations against its bot." : "Say something first; then you can save the conversation.")),
       h("div", { class: "row" }, h("button", { class: "btn s", onclick: () => { const blob = new Blob([JSON.stringify(Ses, null, 1)], { type: "application/json" }); const a = h("a", { href: URL.createObjectURL(blob), download: `playground-${Ses.case}-${Ses.id}.json` }); document.body.append(a); a.click(); a.remove(); } }, "Download transcript"),
@@ -2921,7 +2964,8 @@ function verdictView(r) {
   const nums = h("div", { class: "tiles" }, tile(N.cases_tested != null && N.cases_tested !== N.cases_generated ? `${N.cases_tested} of ${N.cases_generated}` : N.cases_generated, "cases tested"),
     tile(pct(N.accuracy_original), "correct, original wording"), tile(pct(N.accuracy_reworded), "correct, reworded"),
     tile(pct(N.proved), "reworded cases proved to mean the same"), tile(N.defects_caught == null ? "not run" : pct(N.defects_caught), "planted defects caught"),
-    tile(pct(N.speech_grounded_original), "runs where everything said was true"));
+    tile(pct(N.speech_grounded_original), "runs where everything said was true"),
+    ...(N.judges ? [tile(pct(N.judges.judges_agree), "the two LLM judges agree"), tile(pct(N.judges.a_agrees_with_rules), "judge A agrees with the rules"), tile(pct(N.judges.b_agrees_with_rules), "judge B agrees with the rules")] : []));
   const risks = V.risks.length ? table(["Severity", "What the bot did", "Code", "Runs", "Example"], V.risks.slice(0, 6).map(x => [
       h("span", { class: `chip w ${x.severity === "critical" || x.severity === "high" ? "bad" : ""}` }, x.severity), x.what, h("span", { class: "mono" }, x.code), String(x.runs),
       h("a", { href: `#case-${x.example}`, onclick: e => { e.preventDefault(); X.show = "all"; paintVerdict(); setTimeout(() => document.getElementById(`case-${x.example}`)?.scrollIntoView({ block: "start" }), 50); } }, x.example)]), { max: 9999 })
@@ -2948,6 +2992,16 @@ function verdictView(r) {
     h("div", { id: "verdict" }, page1, page2)];
 }
 function paintVerdict() { render(); }
+// ---------------------------------------------------------------- the answer sheet of a run (written after step 5: s09_reports/answer_sheet.py)
+function sheetView(r) {
+  const id = r.arg;
+  if (!id) return [head("Answer sheet", "Open a test run first: its answer sheet is written once the cases and their rewordings are proved (step 5).", h("a", { class: "btn", href: "#/runs" }, "Test runs"))];
+  const acts = h("div", { class: "row" }, h("a", { class: "btn", href: `runs/${id}/answer_sheet.html`, target: "_blank", rel: "noopener" }, "Open in a new tab"),
+    h("a", { class: "btn", href: `#/run/${id}?step=5` }, "Back to the test run"));
+  const fr = h("iframe", { class: "sheetframe", src: `runs/${id}/answer_sheet.html?embed=1`, title: `Answer sheet of run ${id}` });
+  fr.addEventListener("load", () => { try { const d = fr.contentDocument; if (d && d.body && /not found/i.test(d.body.textContent || "") && d.body.textContent.length < 200) fr.replaceWith(h("div", { class: "notice warn" }, "This run has no answer sheet yet: it is written when step 5 (the meaning proof) finishes. Runs started before the answer sheet existed do not have one.")); } catch {} });
+  return [head(`Answer sheet · Run ${id}`, "Every generated case: what the customer says and means at each turn, what a correct bot must do and say, how the call must end, and the proved rewordings of the same case.", acts), fr];
+}
 function outcomeText(o) { return [`ends ${o.end || "?"}${o.transfer_reason ? ` (transfer: ${o.transfer_reason})` : ""}`, ...(o.writes.length ? o.writes : ["no write"])]; }
 function vcase(c) {
   const sameEnd = JSON.stringify(c.expected) === JSON.stringify(c.actual);
@@ -2957,6 +3011,7 @@ function vcase(c) {
     h("div", { class: "bd stack", style: "gap:10px" },
       h("div", { class: "vgrid head" }, h("div", { class: "vside exp" }, h("div", { class: "lbl" }, "Expected outcome (policy graph)"), ...outcomeText(c.expected).map(t => h("div", { class: "mono small" }, t))),
         h("div", { class: `vside bot ${sameEnd ? "" : "diff"}` }, h("div", { class: "lbl" }, `The bot's outcome ${sameEnd ? "· same" : "· different"}`), ...outcomeText(c.actual).map(t => h("div", { class: "mono small" }, t)))),
+      c.judges ? judgesRow({ combined: { status: c.judges.status }, a: c.judges.a, b: c.judges.b }) : null,
       c.stages.length ? h("p", { class: "small" }, h("b", {}, "Stages that differ: "), c.stages.map(s => s.stage).join(", ")) : null,
       c.turns.length ? h("div", { class: "vgrid" }, h("div", { class: "lbl vhead" }, "The policy graph expects"), h("div", { class: "lbl vhead" }, "The bot did and said")) : null,
       ...vturns(c)));

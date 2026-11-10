@@ -195,7 +195,7 @@ def test_the_sphere_puts_every_entity_on_the_unit_sphere_and_keeps_linked_ones_c
     from gmsjourney.s10_console import graphs as sphere
     d = domain.set_current("supplementary_card")
     B = sphere.build(d, runs_root=Path(tempfile.mkdtemp()))
-    assert B["placement"] == "graph" and B["note"].startswith("No built knowledge store")
+    assert B["placement"] == "graph" and B["note"].startswith("No trained knowledge store")
     assert all(abs(math.sqrt(n["x"] ** 2 + n["y"] ** 2 + n["z"] ** 2) - 1) < 1e-3 for n in B["nodes"])
     ids = {n["id"] for n in B["nodes"]}
     assert all(e["s"] in ids and e["t"] in ids for e in B["edges"])

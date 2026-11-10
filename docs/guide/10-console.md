@@ -70,6 +70,19 @@ without opening anything (`GET /api/graph/peek`): the graph's title, format, siz
 whether it opens a journey already here, switches a journey to this version, or makes a new journey. A partial path
 or a folder lists the graphs found there; arrow keys move through them and Enter picks one.
 
+**The answer sheet.** Once step 5 of a run (the meaning proof) is done, its panel offers **Open the answer sheet**
+(also under Results when the run finishes): `#/sheet/<run>` shows `out/answer_sheet.html` inside the console, every
+generated case turn by turn with what the customer says and means, what a correct bot must do and the rules of the
+state, how the call must end, and the case's reworded versions with their proof verdicts (chapter 8, step 5).
+
+**The LLM judges and the test tools' LLM.** Under Checks, *Two LLM judges* (on by default) has two LLM judges read
+every run beside the rules, which still decide (chapter 7); the run's Results show how often they agree with the
+rules, step 12 lists the runs they flag, the verdict shows both judges on every case and the case explorer on every
+version. Under Advanced, *LLM for rewording, summaries and the judges* chooses where those calls go: the Microsoft
+gateway, or a local model on vLLM (its folder, and a server URL when it is served elsewhere; **Use this model**). The
+choice is the console's (`POST /api/llm/settings`, kept in `output/console_llm.json`, applied again at start), is sent
+with every run (`llm_backend`, `llm_local_path`, `llm_vllm_url`) and is used by the Playground's judges.
+
 **The customer in a test run.** Under Checks on the run page, *Customer follows the base journey* (on by default)
 sends `customer: "scripted"` in the job: every case's customer says its base journey's lines in order, whatever the bot
 answers, so a bot mistake cannot steer the rest of the case (chapter 6). Unchecked it sends `"adaptive"`, a customer
@@ -202,6 +215,11 @@ s10_console/
     means the same counts as that line (the journey moves on); anything else is an extra turn and the journey's line
     stays next.
 
+  With **Two LLM judges read each bot turn** checked in the side panel (the default; `judges` on start and say), both
+  judges read every bot turn (`Session._judge`, `judge_turn`) and the turn shows their verdicts and reasons beside the
+  rules' badge: *Both agree with the rules*, *The judges disagree with each other* or *The judges disagree with the
+  rules: worth a look*; the side panel lists the turns they flag. The rules' verdict is the one that counts.
+
   Both are read into a meaning card and validated identically: the oracle replays the cards so far and the bot's
   turn is compared with the graph's (tools with key arguments, decision acts) and speech-checked. Every turn that
   differs is a deviation (`deviations`, the first is `diverged_at`) with its reasons (`why`). Each turn carries its
@@ -274,8 +292,17 @@ sphere the whole window; Esc (with nothing selected) or Leave full view goes bac
 `build()` places every entity of the graph as a point on the unit sphere and every relation as a great-circle arc,
 coloured by section:
 
-* when a campaign has trained this journey's store, from the store's learned entity vectors (`store_vectors` reads
-  `v_emb.pt`; `pca_sphere` takes their first three principal components and normalises them onto the sphere);
+* when a test run has built or loaded this journey's knowlytix store (`_store_dirs`: the stores of the console's runs
+  of the journey, then the build cache's stores trained on exactly this graph's GMS view, `policy.gms.md`), from the
+  **trained store's own entity points** (`gms_points.npz`, saved when the store is built or loaded,
+  `s03_knowledge/build.py: export_entity_points`). The GMS keeps every entity on a hypersphere and measures closeness
+  as the angle between two points, so `angular` computes the angle between every pair, and `spherical_mds` finds
+  points on this sphere whose great-circle angles match those angles as closely as possible (least squares on the
+  angles, gradient steps along the sphere, started from the first three principal components). The page states the
+  correlation between the store's angles and the drawn ones (`fit.angle_correlation`), and Spread starts at 0 so the
+  positions are the store's;
+* a store built before the points were saved has only the tuned name encoder's vectors (`v_emb.pt`): until one test
+  run reloads the store (which saves the points; nothing is retrained), the sphere uses those (PCA to 3D) and says so;
 * otherwise from the graph alone (`spectral_sphere`): build the adjacency matrix `A` and the normalised Laplacian
   `L = I − D^(-1/2) A D^(-1/2)`; its 2nd–4th eigenvectors give each entity three coordinates in which linked entities
   are close (the first eigenvector is trivial); normalise onto the sphere, then refine by a few hundred steps where

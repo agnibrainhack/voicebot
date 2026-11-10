@@ -168,9 +168,10 @@ studio shares the setting. Its parts:
   with no bot line, runs on drafted wording (reported on Graph sections) until you write it. "What each state says"
   is advisory for compact graphs: the speech check reads what each state must say from the graph itself.
 - **GMS sphere** (`s10_console/graphs.py`): every entity as a point on the unit sphere and every relation as a great-circle
-  arc, coloured by section. When a campaign with knowlytix has built this journey's store, the points come from the
-  store's learned entity vectors (`v_emb.pt`, PCA to 3D); otherwise from the graph's relationships (a spectral layout
-  refined on the sphere, deterministic). The sphere turns slowly on its own (Pause rotation / Rotate, or space;
+  arc, coloured by section. When a test run with knowlytix has built or loaded this journey's store, the points are
+  the **trained store's own entity points**, placed so that the angles between them on this sphere match their angular
+  distances on the store's hypersphere as closely as possible (spherical MDS; the page states the angle correlation);
+  otherwise from the graph's relationships (a spectral layout refined on the sphere, deterministic). The sphere turns slowly on its own (Pause rotation / Rotate, or space;
   off when the system asks for reduced motion); drag to turn it, with momentum, scroll to zoom, Reset view to go
   back. **Pick a relation** from the side list, the menu, or by clicking an arc: the sphere turns to face it, its
   arcs are drawn with their direction flowing head to tail, and the panel shows what the relation means (the
@@ -186,6 +187,18 @@ studio shares the setting. Its parts:
 - **Progress**: a test run shows, inside the running step, the knowledge store's training phase by phase (with the time
   left estimated from the last build and a live count of optimizer steps), bars with the time left for cases played,
   proofs, tool-fault runs and planted defects, and every LLM call split into cache, model and failed, by caller.
+- **The answer sheet**: once a run's cases and rewordings are proved (step 5), **Open the answer sheet** shows every
+  generated case turn by turn: what the customer says and means, what a correct bot must do (tool calls, then acts),
+  the state's rules, how the call must end, and each reworded version with its proof verdict (`out/answer_sheet.html`,
+  `s09_reports/answer_sheet.py`).
+- **Two LLM judges** (Checks on the run page, on by default; and in the Playground side panel): two LLM judges read
+  every run (and every Playground turn) beside the rule-based checks, which still decide. Judge A compares the bot
+  with the graph's expected steps; judge B sees only the conversation and the policy rules. Each run shows both
+  verdicts and whether they agree with the rules; the runs where they disagree are listed for review
+  (`s07_checks/llm_judges.py`, `dataset/llm_judges.jsonl`).
+- **Local LLM for the test tools** (Advanced on the run page): the rewording arm, dual read, summaries and the judges
+  use the Microsoft gateway or a local model on vLLM (a folder loaded in the process, or a vLLM server URL); one
+  console setting, sent with every run (`llm_backend`, `llm_local_path`, `llm_vllm_url`).
 - **The customer in a test run**: *Customer follows the base journey* (on by default, under Checks on the run page)
   has each case's customer say its base journey's lines whatever the bot answers, so a wrong turn cannot steer the
   rest of the case; unchecked, the customer answers the bot's last question instead.

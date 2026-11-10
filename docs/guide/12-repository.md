@@ -24,7 +24,16 @@ gmsjourney/
 ```
 
 One client is shared by every part that calls a language model: the LLM rewording arm (chapter 5), the LLM bot
-(chapter 6), the optional speech judge (chapter 7) and the narrator (chapter 9).
+(chapter 6), the optional speech judge and the two LLM judges (chapter 7) and the narrator (chapter 9).
+
+**Where the test tools' model runs.** `LLMSettings.backend` is `"gateway"` (the Microsoft gateway, below) or `"local"`:
+a model on vLLM, loaded in this process from `local_path` or served at `vllm_url` (`s06_bots/llm_bot.LocalChat`; every
+client of the same folder shares one engine, and in-process calls are serialised). Settings left empty take the
+environment's choice (`backend_env`: `GMSJOURNEY_LLM_BACKEND`, `GMSJOURNEY_LLM_LOCAL_MODEL`, `GMSJOURNEY_LLM_VLLM_URL`),
+which `use_backend` sets for every tool at once: the console's **LLM for rewording, summaries and the judges** setting
+(kept in `output/console_llm.json`) and a campaign's `llm_backend` do this. With a local model the cache keys on its
+name (`local-<folder>`). The bot under test keeps its own choice (its settings pin the gateway unless the tester picks
+a local model for the bot).
 
 **`GatewayChat`** posts OpenAI-style chat completions to the company's model gateway with `requests`:
 

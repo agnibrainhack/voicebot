@@ -142,6 +142,17 @@ class CampaignConfig:
     budgets: dict | None = None                  # ConstraintBudget fields (None = defaults)
     decision_rule: str = "strict"                # strict | quorum   (runtime gates)
     calibration_bootstrap: int = 200             # bootstrap resamples for theta / tau intervals
+    # where the test tools' LLM runs (rewording, dual read, adversary, narration, the judges): "gateway" (the
+    # Microsoft gateway) or "local" (a vLLM model: llm_local_path in this process, or the server at llm_vllm_url).
+    # None: the environment's choice (llm.backend_env). The bot under test chooses its own model.
+    llm_backend: str | None = None
+    llm_local_path: str | None = None
+    llm_vllm_url: str | None = None
+    # two independent LLM judges read every run of the bot beside the rule-based verdict (which still decides);
+    # their verdicts and any disagreement with the rules are reported (s07_checks/llm_judges.py)
+    llm_judges: bool = False
+    llm_judges_mode: str = "live"                # live | replay (cache only)
+    llm_judges_max_runs: int | None = None       # judge at most this many runs (failed ones first); None: all
     # LLM enrichment arm (enrich/llm): a chat model writes the turns, proved separately
     llm_arm: bool = False
     llm_mode: str = "live"                       # live (call on cache miss) | replay (cache only)
@@ -265,6 +276,9 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     out = Path(cfg.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     R: dict[str, Any] = {"config": {k: v for k, v in asdict(cfg).items() if k not in ("bot_factory", "on_step")}}
+    if cfg.llm_backend:                           # every test tool's LLM, from here on
+        from ..llm import use_backend
+        use_backend(cfg.llm_backend, cfg.llm_local_path, cfg.llm_vllm_url)
     if cfg.device:                                # the store's encoders and training run here
         from ..s03_knowledge import build as kx_store
         kx_store.DEVICE = cfg.device
@@ -420,8 +434,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     # 5b ------------------------------------------------------------- LLM enrichment arm
     llm_scns, llm_proofs, llm_realizer, llm_validator, llm_controls = [], [], None, None, None
     if cfg.llm_arm:
-        log("[5b/13] LLM enrichment arm (Microsoft gateway): generate blind, gate every turn, prove "
-            "separately, controls on LLM text")
+        log("[5b/13] LLM enrichment arm: generate blind, gate every turn, prove separately, controls on LLM text")
         from ..llm import LLMSettings, LLMUnavailable
         from ..s05_rewording.llm_proof import build_llm_arm
         settings = cfg.llm_settings or LLMSettings(model=cfg.llm_model or "", temperature=cfg.llm_temperature,
@@ -434,7 +447,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         if why:
             log(f"      LLM not callable ({why}); only cached generations can be used")
         else:
-            log(f"      LLM: Microsoft gateway · model {settings.model}")
+            log(f"      LLM: {settings.public()['where']} · model {settings.model}")
         ctl_n = cfg.llm_controls_per_type if cfg.llm_controls_per_type is not None else cfg.negative_controls_per_type
         if cfg.llm_target_accepted:
             pool = pick_llm_rows(llm_pool(scenarios, cfg.llm_exclude), cfg.llm_share, None, cfg.seed + 7, ordered=True)
@@ -444,7 +457,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
                 llm_scns, llm_proofs = llm_validator.prove_target(
                     pool, cfg.llm_target_accepted, cfg.llm_max_candidates, workers=cfg.llm_workers, log=log)
             except LLMUnavailable as e:
-                raise RuntimeError(f"LLM gateway not usable - {e}\n"
+                raise RuntimeError(f"LLM not usable ({settings.public()['where']}) - {e}\n"
                                    "check it with:  python tools/check_llm.py   (endpoint, token, CA bundle, proxy)")
         else:
             chosen = pick_llm_rows(llm_pool(scenarios, cfg.llm_exclude), cfg.llm_share, cfg.llm_max_scenarios,
@@ -476,6 +489,17 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         a = R["invariance_llm"]["summary"]
         log(f"      LLM arm: {a['accepted']}/{a['scenarios']} scenarios proved; controls rejected "
             f"{llm_controls['_overall']['detection_rate']:.1%} of {llm_controls['_overall']['n']}")
+
+    # the answer sheet: every case, what a correct bot must do, and its proved rewordings (before any bot runs)
+    try:
+        from ..s09_reports.answer_sheet import write_answer_sheet
+        R["answer_sheet"] = write_answer_sheet(out, oracle=oracle, store=store, validator=validator, bases=bases,
+                                               proofs=proofs, llm_proofs=llm_proofs, journey=dom.name)
+        log(f"      answer sheet: {R['answer_sheet']['cases']} cases, {R['answer_sheet']['rewordings']} reworded "
+            f"versions -> {out / 'answer_sheet.html'}")
+    except Exception as e:                       # noqa: BLE001 - the sheet never costs the run
+        R["answer_sheet"] = {"error": f"{type(e).__name__}: {e}"}
+        log(f"      the answer sheet could not be written: {R['answer_sheet']['error']}")
 
     # 6 -------------------------------------------------------------- runtime gates (Appendix C)
     gcfg = None
@@ -606,8 +630,22 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     diag_runner = runner if (gcfg is not None and getattr(gcfg, "mode", "observe") == "enforce") else \
         JourneyRunner(bot_factory=factory, governance=None, arm_realizers=arms, budgets=budget, **rk)
     llm_ok = [s for s in run_llm if (s.metadata.get("proof") or {}).get("accepted")]
+    judges = None
+    if cfg.llm_judges:
+        from ..s07_checks.llm_judges import Judges
+        judges = Judges(mode=cfg.llm_judges_mode)
+        why = judges.a.unavailable_reason() if cfg.llm_judges_mode == "live" else None
+        if why:
+            log(f"      LLM judges skipped: {why}")
+            R["llm_judges"] = {"skipped": why, "model": judges.model}
+            judges = None
+        else:
+            log(f"      two LLM judges read every run beside the rules ({judges.model})")
     R["turn_by_turn"] = export_turn_by_turn(out / "dataset", diag_runner, oracle, base_scns + run_scns + llm_ok,
-                                            validator=validator, show=cfg.progress)
+                                            validator=validator, show=cfg.progress, judges=judges, kg=kg,
+                                            judge_max=cfg.llm_judges_max_runs, judge_workers=max(1, cfg.llm_workers))
+    if judges is not None:
+        R["llm_judges"] = R["turn_by_turn"].get("llm_judges")
     if llm_scns:
         from ..s05_rewording.llm_arm import write_llm_exports
         R["llm_exports"] = write_llm_exports(out / "dataset", llm_proofs, llm_controls,

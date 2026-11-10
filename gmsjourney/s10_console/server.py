@@ -13,13 +13,15 @@
     GET  /api/runs/<id>/verdict             the one-page verdict (s09_reports/verdict.py): gates, risks, fingerprint, case by case
     GET  /api/journey/<pack>/sut            the suggested prompt for an LLM bot, and the fixed part the harness adds
     POST /api/attach                        text from a file for the LLM bot's prompt (body: {name, data: base64})
+    POST /api/llm/settings                  the test tools' LLM: gateway or a local model (body: {backend, local_path,
+                                            vllm_url}); kept in output/console_llm.json
     POST /api/llm/check                     one tiny call through the model gateway (body: {model}), or, with
                                             provider "local", whether a model folder / vLLM server can be used
                                             (body: {provider, local_path, vllm_url})
     GET  /api/play/<pack>/cases?source=S    the playground's cases: "latest" run, a run id, or "project"
-    POST /api/play/<pack>/start             a conversation (body: {source, case, sut})
+    POST /api/play/<pack>/start             a conversation (body: {source, case, sut, judges})
     GET  /api/play/s/<sid>                  a conversation so far
-    POST /api/play/s/<sid>/say              the customer's next turn (body: {mode: "journey" or "free", text})
+    POST /api/play/s/<sid>/say              the customer's next turn (body: {mode: "journey" or "free", text, judges?})
     GET  /api/runs/compare?a=A&b=B          what changed from test run A to test run B, case by case
     POST /api/play/s/<sid>/save             keep the conversation as a test case (body: {name, note})
     GET  /api/play/<pack>/saved             the journey's saved conversations
@@ -131,9 +133,52 @@ def _draft(pack: str) -> dict[str, Any]:
         return {"drafted": True, "path": str(dom.project_path)}
 
 
+_TOOLS_LLM = ROOT / "output" / "console_llm.json"
+
+
+def tools_llm() -> dict[str, Any]:
+    """The test tools' LLM (rewording, dual read, narration, the judges): where it runs and whether it can be used."""
+    from ..llm import backend_env
+    cur = backend_env()
+    if cur["backend"] == "local":
+        from ..s06_bots.llm_bot import status as local_status
+        st = local_status(cur["local_path"], cur["vllm_url"])
+        why = st["detail"] if cur["local_path"] else ("type the model folder (and, for a model served elsewhere, the vLLM "
+                                                      "server URL), then Use this model")
+        return {**cur, "usable": st["usable"], "detail": why}
+    return {**cur, "usable": None, "detail": "Microsoft gateway (checked when a call is made)"}
+
+
+def save_tools_llm(body: dict) -> dict[str, Any]:
+    """Point the test tools' LLM at the gateway or a local model, for this console and its test runs (kept in
+    output/console_llm.json, applied again when the console starts)."""
+    from ..llm import use_backend
+    backend = "local" if body.get("backend") == "local" else "gateway"
+    use_backend(backend, str(body.get("local_path") or ""), str(body.get("vllm_url") or ""))
+    try:
+        _TOOLS_LLM.parent.mkdir(parents=True, exist_ok=True)
+        _TOOLS_LLM.write_text(json.dumps({"backend": backend, "local_path": str(body.get("local_path") or ""),
+                                          "vllm_url": str(body.get("vllm_url") or "")}, indent=1))
+    except OSError:
+        pass
+    from .bots import reset_judges
+    reset_judges()
+    return tools_llm()
+
+
+def _load_tools_llm() -> None:
+    try:
+        d = json.loads(_TOOLS_LLM.read_text())
+    except (OSError, ValueError):
+        return
+    from ..llm import use_backend
+    use_backend(d.get("backend"), d.get("local_path"), d.get("vllm_url"))
+
+
 def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path | None = None) -> ThreadingHTTPServer:
     """The console's HTTP server: the page (ui.html) and the JSON API listed at the top of this file."""
     runs = Runs(runs_dir or ROOT / "output" / "console_runs")
+    _load_tools_llm()
     _warm()
 
     class H(BaseHTTPRequestHandler):
@@ -169,6 +214,7 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                 if parts == ["api", "meta"]:
                     from ..s06_bots.llm_bot import status as local_status
                     return self._json({"packs": packs(), "devices": devices(), "runs_dir": str(runs.root),
+                                       "tools_llm": tools_llm(),
                                        "active_run": runs.active(), "sut_local": local_status(),
                                        "sut_critique": __import__("gmsjourney.s10_console.bots", fromlist=["x"]).critique_default()})
                 if parts[:2] == ["api", "journey"] and len(parts) == 3:
@@ -283,6 +329,8 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                     import base64
                     from .bots import extract
                     return self._json(extract(str(body.get("name") or ""), base64.b64decode(body.get("data") or "")))
+                if parts == ["api", "llm", "settings"]:
+                    return self._json(save_tools_llm(body))
                 if parts == ["api", "llm", "check"]:
                     from .bots import check_gateway
                     if body.get("provider") == "local":
@@ -294,7 +342,7 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                     from . import bots as PG
                     with _on(parts[2]):
                         return self._json(PG.start(str(body.get("source") or "project"), str(body.get("case") or ""),
-                                                   body.get("sut")))
+                                                   body.get("sut"), judge=bool(body.get("judges"))))
                 if parts[:3] == ["api", "play", "s"] and len(parts) == 5 and parts[4] == "save":
                     from . import bots as PG
                     sess = PG.get(parts[3])
@@ -314,6 +362,8 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                     from . import bots as PG
                     sess = PG.get(parts[3])
                     with _on(sess.pack):
+                        if "judges" in body:
+                            sess.judges = bool(body.get("judges"))
                         turn = sess.say(str(body.get("text") or ""), str(body.get("mode") or "free"))
                         return self._json({"turn": turn, **sess.view()})
                 if parts == ["api", "runs"]:

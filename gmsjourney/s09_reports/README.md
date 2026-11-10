@@ -7,6 +7,7 @@ The full explanation, with the theory and diagrams, is chapter 9 of the guide: [
 ```
 gmsjourney/s09_reports/
 ├── __init__.py  Reports: reading a campaign's results
+├── answer_sheet.py  The answer sheet: every generated case and what a correct bot must do, written after step 5
 ├── cases.py     Case by case: what happened in each run, expected beside actual
 ├── report.py    The campaign report: one self-contained HTML file (light and dark themes)
 └── verdict.py   The one-page verdict of a finished run: is the bot ready, what are the risks, can anyone reproduce it, and, case
@@ -15,6 +16,15 @@ gmsjourney/s09_reports/
 ## `__init__.py`
 
 Reports: reading a campaign's results.
+
+## `answer_sheet.py`
+
+The answer sheet of a test run: every generated case and what a correct bot must do, written right after the cases
+and their rewordings are proved (campaign step 5, before any bot is run).
+
+| name | kind | what it is |
+|---|---|---|
+| `write_answer_sheet` | def | Write ``answer_sheet.html`` in a run folder: each case turn by turn (the customer's words and meaning, what a correct bot must do, the state's rules), how the call must end, and every reworded version with its proof verdict. |
 
 ## `cases.py`
 
@@ -43,6 +53,8 @@ Parts:
 | `turn_by_turn` | def | Expected (oracle) vs actual (bot) for one scenario, one row per customer turn. |
 | `show_turns` | def | Print one case turn by turn (expected vs actual tools, bot acts, whether words were grounded) and return the table and its summary. |
 | `export_turn_by_turn` | def | dataset/turn_by_turn.csv (one row per turn per scenario) + turn_by_turn_summary.csv. |
+| `judges_block` | def | The two LLM judges beside the rules' verdict, for a case page. |
+| `read_judges` | def | dataset/llm_judges.jsonl as {case_id: judges}; empty when the run had no LLM judges. |
 | `write_case_comparison` | def | Write ``case_comparison.html`` in a run folder: every case side by side with the expected and actual turns, from the run's dataset files. |
 | `variants_of` | def | The reworded versions of one base case. |
 | `pick` | def | (seed item, enriched scenario) by base qid (e.g. 'J015', 'kb-exact_recall-01') or index, and variant index. |

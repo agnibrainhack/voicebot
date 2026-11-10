@@ -12,6 +12,7 @@ voicebot/
     │   ├── speech_policy.py   policy statements in the words; speech negative controls
     │   ├── runtime.py         the runtime monitor that would run beside the bot
     │   ├── gates.py           the runtime gates and their calibration
+    │   ├── llm_judges.py      two LLM judges beside the rule-based verdict (a second opinion, never the decider)
     │   └── diagnosis.py       statistics, attribution, mutation, resilience, bot validation
     ├── s08_campaign/  s09_reports/  s10_console/
     └── policy/<pack>/project.yaml   evaluation: and speech: sections
@@ -204,6 +205,32 @@ to flag every edited turn; the report shows the detection rate per control.
 
 `SPEECH_CONTRADICTED` and `SPEECH_UNSUPPORTED` are critical (the customer was told something false or baseless);
 `SPEECH_UNFAITHFUL` and `SPEECH_DISCLOSED` high; `SPEECH_MISSING` moderate; `SPEECH_FLOW` and `SPEECH_VOLUNTEERED` low.
+
+## llm_judges.py — two LLM judges beside the rules
+
+The rules above decide whether a run passed. Next to them, two LLM judges read every run and say whether the bot did
+and said the right thing, each on its own material:
+
+* **Judge A, the auditor**, sees each customer turn with what the graph requires (tool calls with key arguments,
+  acts, in order) next to what the bot did and said, and how the call had to end against how it ended;
+* **Judge B, the reviewer**, sees only the conversation (customer and bot words, the bot's tool calls), the written
+  rules of the dialog states the call went through (`rules_of`) and how the call had to end, not the expected steps.
+
+Each answers `correct` or `incorrect` with the first wrong turn and one line of reason (`unknown` when the reply could
+not be read, `unavailable` without a model; a model that cannot be reached is not retried for two minutes, so a judge
+never stalls the work). `combine` puts them beside the rules' verdict: **agree**, **judges split** (A and B differ) or
+**judges disagree with the rules** (both say the opposite of the rules): the runs worth a human look.
+`summarize` gives each judge's agreement with the rules, how often the judges agree, and the runs to review.
+
+Analogy: the rules are the referee's decision; the judges are two commentators watching the replay from different
+angles. The decision stands; where both commentators disagree with it is where the review panel looks.
+
+In a test run (`CampaignConfig.llm_judges`, the run page's **Two LLM judges** checkbox, on by default in the console)
+the judges read every run of the turn-by-turn export (`s09_reports/cases.py: export_turn_by_turn`, failed runs first,
+at most `llm_judges_max_runs`), in parallel: `dataset/llm_judges.jsonl`, `report.json` → `llm_judges`, the
+verdict's tiles and each case's judges line, and the case comparison. In the Playground they read every bot turn
+(`judge_turn`, both at once). They run on the test tools' LLM (chapter 8: the gateway or a local model) at
+temperature 0, behind the replay cache (tags `judge_a`, `judge_b`).
 
 ## runtime.py and gates.py — the monitor that runs beside the bot
 

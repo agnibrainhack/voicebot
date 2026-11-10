@@ -1,5 +1,10 @@
-"""The LLM behind the second enrichment arm: the internal Microsoft (Azure OpenAI) model gateway,
-behind a replay cache. There is one transport and no fallback.
+"""The LLM behind the test tools (the second enrichment arm, the dual read, the adversary, the case narration, the
+LLM judges): the internal Microsoft (Azure OpenAI) model gateway, or a local model on vLLM, behind a replay cache.
+
+Which one is ``LLMSettings.backend``: ``"gateway"`` (default) or ``"local"`` (a model folder loaded in this process
+with vLLM, or an OpenAI-compatible vLLM server). The console's setting, a campaign's ``llm_backend`` and the
+environment set it for every tool at once (``GMSJOURNEY_LLM_BACKEND``, ``GMSJOURNEY_LLM_LOCAL_MODEL``,
+``GMSJOURNEY_LLM_VLLM_URL``; see ``use_backend``). The bot under test chooses its own model separately.
 
 ``GatewayChat`` posts OpenAI-style chat completions to the gateway with ``requests``:
 
@@ -40,6 +45,30 @@ DEFAULT_MODEL = "gpt-41"
 DEFAULT_BASE_URL = "https://gaiapis.aexp.com/gcpapi/v1/microsoft"
 
 
+def backend_env() -> dict[str, str]:
+    """The test tools' LLM as the environment sets it: backend ("gateway" | "local"), local model folder, vLLM URL."""
+    b = os.environ.get("GMSJOURNEY_LLM_BACKEND", "").strip().lower()
+    return {"backend": "local" if b == "local" else "gateway",
+            "local_path": os.environ.get("GMSJOURNEY_LLM_LOCAL_MODEL", "").strip()
+            or os.environ.get("GMSJOURNEY_SUT_LOCAL_MODEL", "").strip(),
+            "vllm_url": os.environ.get("GMSJOURNEY_LLM_VLLM_URL", "").strip()
+            or os.environ.get("GMSJOURNEY_VLLM_URL", "").strip()}
+
+
+def use_backend(backend: str | None, local_path: str | None = None, vllm_url: str | None = None) -> dict[str, str]:
+    """Point every test tool's LLM at ``backend`` from now on (in this process and the processes it starts):
+    "gateway", or "local" with a model folder and/or a vLLM server URL. None leaves the environment as it is."""
+    if backend:
+        os.environ["GMSJOURNEY_LLM_BACKEND"] = "local" if backend == "local" else "gateway"
+        for k, v in (("GMSJOURNEY_LLM_LOCAL_MODEL", local_path), ("GMSJOURNEY_LLM_VLLM_URL", vllm_url)):
+            if v is not None:
+                if str(v).strip():
+                    os.environ[k] = str(v).strip()
+                else:
+                    os.environ.pop(k, None)
+    return backend_env()
+
+
 class LLMUnavailable(RuntimeError):
     """No usable LLM: no credential, the gateway refused or is unreachable, or a replay-cache miss."""
 
@@ -75,8 +104,22 @@ class LLMSettings:
     # circuit breaker: after this many failed calls in a row (no success in between) the client stops
     # calling and every further miss fails at once with the reason - instead of hours of timeouts
     max_consecutive_failures: int = 8
+    # where the model runs: "gateway" (the Microsoft gateway) or "local" (vLLM: local_path in this process, or the
+    # server at vllm_url). Empty: the environment's choice (backend_env), else the gateway.
+    backend: str = ""
+    local_path: str = ""
+    vllm_url: str = ""
 
     def __post_init__(self) -> None:
+        env = backend_env()
+        self.backend = (self.backend or env["backend"]).strip().lower()
+        if self.backend == "local":
+            self.local_path = self.local_path or env["local_path"]
+            self.vllm_url = self.vllm_url or env["vllm_url"]
+            if not str(self.model or "").startswith("local-"):    # the cache keys on the local model's name
+                self.model = "local-" + (Path(self.local_path).name if self.local_path else "vllm-server")
+        else:
+            self.backend = "gateway"
         self.model = self.model or DEFAULT_MODEL
         self.base_url = os.environ.get("GMSJOURNEY_LLM_BASE_URL", "") or self.base_url or DEFAULT_BASE_URL
         self.url = os.environ.get("GMSJOURNEY_LLM_URL", "") or self.url
@@ -96,6 +139,7 @@ class LLMSettings:
         """Settings safe to put in a report (no token, no token material)."""
         d = asdict(self)
         d["provider"] = PROVIDER
+        d["where"] = ("local model " + (self.vllm_url or self.local_path)) if self.backend == "local" else "Microsoft gateway"
         d["access_token_present"] = bool(os.environ.get(self.access_token_env))
         return d
 
@@ -237,8 +281,16 @@ class GatewayChat:
         raise LLMUnavailable(f"gateway unreachable after {self.s.max_retries + 1} attempts: {last_error}")
 
 
-def make_chat_model(s: LLMSettings) -> "GatewayChat":
-    """The gateway client (obtains the token now), or LLMUnavailable with the reason."""
+def make_chat_model(s: LLMSettings):
+    """The client for ``s.backend``: the gateway client (obtains the token now) or the local vLLM model (loaded on the
+    first call, shared by every client of the same folder), or LLMUnavailable with the reason."""
+    if s.backend == "local":
+        from .s06_bots.llm_bot import LocalChat, status
+        st = status(s.local_path, s.vllm_url)
+        if not st["usable"]:
+            raise LLMUnavailable(f"the local model cannot be used: {st['detail']}")
+        return LocalChat(s.local_path or None, temperature=s.temperature, max_tokens=s.max_tokens,
+                         url=s.vllm_url or None)
     return GatewayChat(s)
 
 
@@ -381,7 +433,7 @@ class CachedLLM:
                 _log_line(f"[LLM {self.tag} FAILED · {salt} · {time.time() - t0:.1f}s] {self.stats.last_error}")
             lim = self.settings.max_consecutive_failures
             if lim and self._fails_in_row >= lim and not self._tripped:
-                self._tripped = (f"stopped calling the gateway after {self._fails_in_row} failed calls in a row; "
+                self._tripped = (f"stopped calling the {'local model' if self.settings.backend == 'local' else 'gateway'} after {self._fails_in_row} failed calls in a row; "
                                  f"last error: {self.stats.last_error}")
                 _log_line(f"[LLM {self.tag}] {self._tripped}")
             raise LLMUnavailable(self.stats.last_error) from e
