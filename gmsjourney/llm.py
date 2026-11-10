@@ -23,7 +23,14 @@ with vLLM, or an OpenAI-compatible vLLM server). It is chosen per **role**, sepa
 * TLS goes through the corporate CA bundle (``GMSJOURNEY_CA_BUNDLE``, else ``REQUESTS_CA_BUNDLE``, else
   ``/etc/ssl/certs/ca-certificates.crt``);
 * if the deployment rejects ``temperature``/``max_tokens`` or the system role (HTTP 400) the client adapts
-  once and records it; 429 and 5xx back off and retry.
+  once and records it;
+* every gateway call in the process goes through one **pacer** (``_Pacer``): at most
+  ``GMSJOURNEY_LLM_MAX_INFLIGHT`` calls at once (default 4). When the gateway throttles (HTTP 429) or strains (5xx,
+  a read timeout), every client pauses for its ``Retry-After`` (else an exponential, jittered wait) and the number
+  of calls at once is halved; each success raises it again, one step at a time, up to the maximum. So several
+  conversations at once, the critique and the judges share the gateway's capacity instead of racing for it;
+* a throttled or straining call is retried patiently, for up to ``retry_seconds`` (``GMSJOURNEY_LLM_RETRY_SECONDS``,
+  default 300) before it fails with ``LLMThrottled``; an unreachable endpoint still fails after ``max_retries``.
 
 ``CachedLLM`` puts a content-addressed cache in front of it. Every response is stored under the SHA-256 of
 (prompt version, provider, model, temperature, messages, salt), so a campaign re-runs byte for byte without
@@ -93,6 +100,61 @@ class LLMUnavailable(RuntimeError):
     """No usable LLM: no credential, the gateway refused or is unreachable, or a replay-cache miss."""
 
 
+class LLMThrottled(LLMUnavailable):
+    """The gateway kept throttling or straining (429, 5xx, read timeouts) for longer than the retry window: it is
+    there but busy, so this does not open the circuit breaker."""
+
+
+class _Pacer:
+    """The process's share of the gateway: at most ``limit`` calls in flight, halved on throttling and raised again
+    one step per success (additive increase, multiplicative decrease), and a common pause after a 429 so every
+    client waits instead of each hammering the gateway on its own."""
+
+    def __init__(self, cap: int):
+        import threading
+        self.cap = max(1, cap)
+        self.limit = float(self.cap)
+        self.inflight = 0
+        self.pause_until = 0.0
+        self.cv = threading.Condition()
+        self.throttled = 0                   # how often the gateway pushed back (reported)
+
+    def acquire(self) -> None:
+        with self.cv:
+            while True:
+                wait = self.pause_until - time.time()
+                if wait > 0:
+                    self.cv.wait(min(wait, 5.0))
+                elif self.inflight < max(1, int(self.limit)):
+                    self.inflight += 1
+                    return
+                else:
+                    self.cv.wait(1.0)
+
+    def release(self, pushed_back: bool = False, pause: float = 0.0) -> None:
+        with self.cv:
+            self.inflight = max(0, self.inflight - 1)
+            if pushed_back:
+                self.throttled += 1
+                self.limit = max(1.0, self.limit / 2)
+                self.pause_until = max(self.pause_until, time.time() + pause)
+            else:
+                self.limit = min(float(self.cap), self.limit + 1.0 / max(1.0, self.limit))
+            self.cv.notify_all()
+
+
+_PACERS: dict[str, _Pacer] = {}
+
+
+def _pacer(url: str) -> _Pacer:
+    """The pacer of one gateway host (shared by every client calling it)."""
+    host = url.split("/")[2] if "://" in url else url
+    with _SHARED_LOCK:
+        if host not in _PACERS:
+            _PACERS[host] = _Pacer(int(os.environ.get("GMSJOURNEY_LLM_MAX_INFLIGHT", "4") or 4))
+        return _PACERS[host]
+
+
 @dataclass
 class LLMSettings:
     """Where and how the LLM is called: model, temperature, token limit, gateway URL, use-case header, how the
@@ -112,9 +174,12 @@ class LLMSettings:
     # send temperature/max_tokens (standard OpenAI fields); AEXP_SEND_SAMPLING_PARAMS=0 sends model +
     # messages only. A deployment that rejects them is also detected and adapted to automatically.
     send_sampling_params: bool = True
-    timeout: float = 60.0                 # read timeout per request (seconds)
+    timeout: float = 180.0                # read timeout per request (seconds): a reasoning deployment on a long prompt
     connect_timeout: float = 10.0         # an unreachable endpoint fails in seconds, not minutes
-    max_retries: int = 2
+    max_retries: int = 2                  # retries of an endpoint that cannot be reached
+    # how long a throttled (429) or straining (5xx, read timeout) call keeps being retried before it fails;
+    # env GMSJOURNEY_LLM_RETRY_SECONDS
+    retry_seconds: float = 300.0
     mode: str = "live"                    # live (call on a cache miss) | replay (cache only)
     cache_dir: str | None = None          # default: <gmsjourney cache>/llm/<model>
     # print every live gateway response as it arrives (role, seed, seconds, reply text); cache hits are
@@ -309,18 +374,48 @@ class GatewayChat:
                 "Content-Type": "application/json"}
 
     def invoke(self, messages: list[Any]) -> SimpleNamespace:
+        import random
+        import requests
         last_error = "no attempt made"
         self._learn()
-        refreshed, adapted, attempt = False, 0, 0
-        while attempt <= self.s.max_retries:
+        pacer = _pacer(self._url())
+        window = float(os.environ.get("GMSJOURNEY_LLM_RETRY_SECONDS", "") or self.s.retry_seconds)
+        deadline = time.time() + window
+        refreshed, adapted, unreachable, busy = False, 0, 0, 0
+        while True:
+            pacer.acquire()
+            pushed_back, pause = False, 0.0
             try:
                 r = _session().post(self._url(), headers=self._headers(), json=self._payload(messages),
                                     timeout=(min(self.s.connect_timeout, self.s.timeout), self.s.timeout),
                                     verify=self._verify())
-            except Exception as e:                         # noqa: BLE001 - transport errors (incl. TLS)
+            except (requests.exceptions.ReadTimeout, requests.exceptions.ChunkedEncodingError) as e:
+                r, busy = None, busy + 1                   # it is there but slow: straining, retried patiently
                 last_error = f"{type(e).__name__}: {str(e)[:160]}"
-                attempt += 1
-                time.sleep(min(8.0, 1.5 ** attempt))
+                pushed_back, pause = True, min(30.0, 2.0 ** busy) * (0.5 + random.random())
+            except Exception as e:                         # noqa: BLE001 - cannot reach it (DNS, TLS, proxy, refused)
+                r, unreachable = None, unreachable + 1
+                last_error = f"{type(e).__name__}: {str(e)[:160]}"
+            else:
+                if r.status_code == 429 or r.status_code >= 500:   # throttled / straining: everyone backs off
+                    busy += 1
+                    last_error = f"HTTP {r.status_code}: {r.text[:160]}"
+                    wait = r.headers.get("retry-after")
+                    pause = float(wait) if wait and wait.replace(".", "", 1).isdigit() else \
+                        min(30.0, 2.0 ** busy) * (0.5 + random.random())
+                    pushed_back = True
+            finally:
+                pacer.release(pushed_back, pause)
+            if r is None:
+                if pushed_back:
+                    if time.time() + pause > deadline:
+                        raise LLMThrottled(f"the gateway stayed busy for {int(window)} s ({busy} tries): {last_error}")
+                    if busy == 1 or busy % 5 == 0:
+                        _log_line(f"[LLM] gateway slow ({last_error[:60]}); retrying, {int(pacer.limit)} calls at once")
+                    continue
+                if unreachable > self.s.max_retries:
+                    raise LLMUnavailable(f"gateway unreachable after {unreachable} attempts: {last_error}")
+                time.sleep(min(8.0, 1.5 ** unreachable))
                 continue
             if r.status_code in (401, 403) and not refreshed:   # the credential expired: refresh once (for everyone)
                 self._token = _token(self.s, fresh=self._token == _TOKENS.get(self.s.token_cmd, (0, ""))[1])
@@ -331,11 +426,13 @@ class GatewayChat:
                 _ADAPTED[self._url()] = {"send_sampling": self.send_sampling, "token_field": self.token_field,
                                          "system_role": self.system_role, "adaptations": list(self.adaptations)}
                 continue
-            if r.status_code == 429 or r.status_code >= 500:   # throttled / transient: back off
-                last_error = f"HTTP {r.status_code}: {r.text[:160]}"
-                attempt += 1
-                wait = r.headers.get("retry-after")
-                time.sleep(float(wait) if wait and wait.replace(".", "", 1).isdigit() else min(20.0, 2.0 ** attempt))
+            if pushed_back:
+                if time.time() + pause > deadline:
+                    raise LLMThrottled(f"the gateway kept answering {r.status_code} for {int(window)} s "
+                                       f"({busy} tries): {last_error}")
+                if busy == 1 or busy % 5 == 0:
+                    _log_line(f"[LLM] gateway throttling ({last_error[:60]}): every client waits {pause:.0f} s, "
+                              f"{int(pacer.limit)} calls at once")
                 continue
             if r.status_code != 200:
                 raise LLMUnavailable(f"gateway HTTP {r.status_code} at {self._url()}: {r.text[:200]}")
@@ -348,7 +445,6 @@ class GatewayChat:
             return SimpleNamespace(content=((choice.get("message") or {}).get("content") or ""),
                                    usage_metadata={"input_tokens": usage.get("prompt_tokens", 0),
                                                    "output_tokens": usage.get("completion_tokens", 0)})
-        raise LLMUnavailable(f"gateway unreachable after {self.s.max_retries + 1} attempts: {last_error}")
 
 
 def make_chat_model(s: LLMSettings):
@@ -497,12 +593,17 @@ class CachedLLM:
         except Exception as e:                       # noqa: BLE001 - transport / gateway errors
             self.stats.errors += 1
             self.stats.last_error = f"{type(e).__name__}: {str(e)[:200]}"
-            self._fails_in_row += 1
+            if isinstance(e, LLMThrottled):          # busy, not down: the pacer slows everyone; no breaker
+                _progress.llm_call(self.tag, "error", time.time() - t0)
+                _log_line(f"[LLM {self.tag} gave up after the retry window · {salt}] {self.stats.last_error}")
+                raise
+            with _SHARED_LOCK:
+                self._fails_in_row += 1
             _progress.llm_call(self.tag, "error", time.time() - t0)
             if self.settings.log_responses or self.stats.errors <= 3:      # failures always show at first
                 _log_line(f"[LLM {self.tag} FAILED · {salt} · {time.time() - t0:.1f}s] {self.stats.last_error}")
             lim = self.settings.max_consecutive_failures
-            if lim and self._fails_in_row >= lim and not self._tripped:
+            if lim and self._fails_in_row >= lim and not self._tripped:     # several down-type failures in a row
                 self._tripped = (f"stopped calling the {'local model' if self.settings.backend == 'local' else 'gateway'} after {self._fails_in_row} failed calls in a row; "
                                  f"last error: {self.stats.last_error}")
                 _log_line(f"[LLM {self.tag}] {self._tripped}")

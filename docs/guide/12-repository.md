@@ -65,6 +65,14 @@ two judges and the rewording arm does not pay the set-up once per role:
   (HTTP 400), the first client to learn it records it for the endpoint and every other client sends the accepted
   form from its next call, instead of spending a failed call each.
 
+**Pacing and patience.** All gateway calls of a process share one pacer (`_Pacer`): at most
+`GMSJOURNEY_LLM_MAX_INFLIGHT` calls at once (default 4). When the gateway throttles (HTTP 429) or strains (5xx, a
+read timeout, 180 s by default), every client pauses for its `Retry-After` (else an exponential, jittered wait) and
+the number of calls at once is halved; each success raises it again, one step at a time. A throttled call is retried
+for up to `retry_seconds` (`GMSJOURNEY_LLM_RETRY_SECONDS`, 300 s) before it fails with `LLMThrottled`, which does
+not open the circuit breaker: busy is not down. An unreachable endpoint (DNS, TLS, proxy, refused) still fails after
+`max_retries`, and eight such failures in a row stop the client.
+
 The calls themselves are what the work needs: the LLM bot makes one call per step (a tool call or its reply) and the
 critique one review per step; the two judges one call each per run (or per Playground turn, both at once); every
 reply is cached by content, so the turn-by-turn export's re-run of every conversation, repeated runs and the

@@ -1017,3 +1017,63 @@ def test_a_bot_that_writes_a_reference_as_an_object_is_graded_not_crashed():
     assert [t["deviated"] for t in odd.turns] == [t["deviated"] for t in plain.turns]
     t = _clean(type("T", (), {"acts": [{"act": "PRESENT_TXN", "txn": {"id": "T2"}}]})())
     assert t.acts[0]["txn"] == "T2"
+
+
+def test_a_throttling_gateway_slows_every_client_down_instead_of_failing_the_run():
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from gmsjourney import llm as L
+    state = {"n": 0, "always": False}
+    lock = threading.Lock()
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers["Content-Length"]))
+            with lock:
+                state["n"] += 1
+                busy = state["always"] or state["n"] <= 3                    # the first calls are throttled
+            out = json.dumps({"error": "rate limited"} if busy else {"choices": [{"message": {"content": "ok"}}]}).encode()
+            self.send_response(429 if busy else 200)
+            if busy:
+                self.send_header("Retry-After", "0.2")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    srv.daemon_threads = True
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    keep = {k: os.environ.get(k) for k in ("AEXP_ACCESS_TOKEN", "GMSJOURNEY_LLM_RETRY_SECONDS")}
+    os.environ["AEXP_ACCESS_TOKEN"] = "tok"
+    L._PACERS.clear()
+    try:
+        url = f"http://127.0.0.1:{srv.server_address[1]}/v1/{{model}}/chat"
+        d = tempfile.mkdtemp()
+        llm = L.CachedLLM(L.LLMSettings(url=url, backend="gateway", cache_dir=d, send_sampling_params=False), tag="sut")
+        with ThreadPoolExecutor(4) as ex:                                       # four conversations at once
+            out = list(ex.map(lambda i: llm.invoke("sys", f"turn {i}", "x"), range(8)))
+        assert out == ["ok"] * 8
+        p = L._PACERS[f"127.0.0.1:{srv.server_address[1]}"]
+        assert p.throttled >= 3 and not llm._tripped
+        state["always"] = True                                                  # now it never lets up
+        os.environ["GMSJOURNEY_LLM_RETRY_SECONDS"] = "1"
+        for i in range(10):                                                     # more than the breaker's 8
+            try:
+                llm.invoke("sys", f"more {i}", "x")
+                raise AssertionError("a call succeeded against a gateway that only throttles")
+            except L.LLMThrottled as e:
+                assert "busy" in str(e) or "kept answering 429" in str(e)
+        assert not llm._tripped                                                 # busy is not down
+    finally:
+        L._PACERS.clear()
+        for k, v in keep.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        L._session().close()
+        srv.shutdown()
