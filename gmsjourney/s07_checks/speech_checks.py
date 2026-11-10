@@ -9,6 +9,7 @@ Parts of this file:
 """
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -249,6 +250,8 @@ class UtteranceVerifier:
         asked = self.policy.asked_subjects(question) if self.policy is not None else set()
         for label, seg_text in segments:
             about = (label or {}).get("txn") or last_item
+            if about is not None and not isinstance(about, (str, int, float)):   # a bot's malformed reference:
+                about = json.dumps(about, sort_keys=True, default=str)           # matches no item, never crashes
             answering = question if (label is None or ("ANSWER_KB" in N.state and label.get("act") == N.state.ANSWER_KB)) \
                 else None
             read = self.reader.read(seg_text, facts, about_item=about, question=answering)

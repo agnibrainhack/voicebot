@@ -678,9 +678,25 @@ class LLMBot:
                     v = a[f]
                     if f == "actions" and isinstance(v, list):
                         v = [list(x) if isinstance(x, (list, tuple)) else [x, None] for x in v]
+                    elif isinstance(v, dict):
+                        v = _ref(v)
                     act[f] = v
             out.append(act)
         return out
+
+
+REF_KEYS = ("transaction_id", "txn", "id", "item_id")
+
+
+def _ref(v: dict) -> Any:
+    """A field the model wrote as an object that names an item (``"txn": {"transaction_id": "T1", "merchant": ...}``)
+    where a reference was asked for: the reference (its id). Any other object (``"recorded": {"T1": ...}``) is kept
+    as it is."""
+    for k in REF_KEYS:
+        x = v.get(k)
+        if isinstance(x, (str, int, float)) and x != "":
+            return x
+    return v
 
 
 def _parse(text: str) -> dict[str, Any] | None:

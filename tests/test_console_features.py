@@ -990,3 +990,30 @@ def test_a_vllm_server_error_is_shown_and_an_unsupported_field_is_dropped():
             assert "HTTP 500" in str(e) and "vocab file" in str(e)
     finally:
         srv.shutdown()
+
+
+def test_a_bot_that_writes_a_reference_as_an_object_is_graded_not_crashed():
+    from gmsjourney.s06_bots.harness import _clean
+    from gmsjourney.s06_bots.llm_bot import _ref
+    from gmsjourney.s10_console import bots as PG
+    assert _ref({"transaction_id": "T1", "merchant": "Amazon"}) == "T1" and _ref({"T1": "RECOGNIZED"}) == {"T1": "RECOGNIZED"}
+    domain.set_current("charge_review_graph")
+    PG.cases("project", None)
+    plain = PG.get(PG.start("project", "default", None)["id"])
+    odd = PG.get(PG.start("project", "default", None)["id"])
+    real = odd.bot.respond
+
+    def as_objects(text):                                    # the same bot, writing every reference as an object
+        t = real(text)
+        for a in t.acts:
+            for k, v in list(a.items()):
+                if k != "act" and isinstance(v, str) and v.startswith("T"):
+                    a[k] = {"transaction_id": v, "merchant": "?"}
+        return t
+    odd.bot.respond = as_objects
+    for s in (plain, odd):
+        while s.journey_line() is not None and not (s.ended and s.journey_line() is None):
+            s.say("", "journey")
+    assert [t["deviated"] for t in odd.turns] == [t["deviated"] for t in plain.turns]
+    t = _clean(type("T", (), {"acts": [{"act": "PRESENT_TXN", "txn": {"id": "T2"}}]})())
+    assert t.acts[0]["txn"] == "T2"

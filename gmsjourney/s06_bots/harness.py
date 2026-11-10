@@ -94,6 +94,23 @@ class BotActClassifier:
         return out
 
 
+def _clean(turn):
+    """A bot's turn with every act field the harness uses as a reference made comparable: a field a bot wrote as an
+    object (``"txn": {"transaction_id": "T1"}``) becomes the reference it names, else that object as text, so a
+    malformed label is graded as written instead of breaking the checks."""
+    from .llm_bot import _ref
+    acts = getattr(turn, "acts", None)
+    if acts:
+        for a in acts:
+            if isinstance(a, dict):
+                for k, v in list(a.items()):
+                    if isinstance(v, dict):
+                        a[k] = _ref(v)
+                        if k == "txn" and isinstance(a[k], dict):   # an item reference must be comparable
+                            a[k] = json.dumps(a[k], sort_keys=True, default=str)
+    return turn
+
+
 @dataclass
 class JourneyRunner:
     """Runs a bot through one scenario: realises every customer turn under the scenario's levels, plays the
@@ -168,7 +185,7 @@ class JourneyRunner:
         speech = self.speech.conversation(fx.get("session_date")) if self.speech is not None else None
         t0 = time.perf_counter()
         ended_at = None                              # the customer line before which the bot ended the call
-        turn: BotTurn = bot.start()
+        turn: BotTurn = _clean(bot.start())
         bot_stats.append(_turn_stats(turn.text, t0))
         for i in range(MAX_USER_TURNS + 1):
             acts = turn.acts if (self.use_structured_acts and turn.acts) else \
@@ -228,7 +245,7 @@ class JourneyRunner:
                 monitor.on_user(text, st)
             n0 = len(env.log)
             t0 = time.perf_counter()
-            turn = bot.respond(text)
+            turn = _clean(bot.respond(text))
             bot_stats.append(_turn_stats(turn.text, t0))
             for c in env.log[n0:]:          # tool calls caused by this user turn, in order
                 tr.events.append({"role": "tool", "tool": c["tool"], "args": c["args"], "result": c.get("result")})
@@ -423,7 +440,7 @@ class GraphRunner(JourneyRunner):
         last_kb = None
         t0 = time.perf_counter()
         ended_at = None                              # the customer line before which the bot ended the call
-        turn = bot.start()
+        turn = _clean(bot.start())
         bot_stats.append(_turn_stats(turn.text, t0))
         for i in range(MAX_USER_TURNS + 1):
             acts = turn.acts if (self.use_structured_acts and turn.acts) else [{"act": "UNKNOWN"}]
@@ -468,7 +485,7 @@ class GraphRunner(JourneyRunner):
                 monitor.on_user(text, st)
             n0 = len(env.log)
             t0 = time.perf_counter()
-            turn = bot.respond(text)
+            turn = _clean(bot.respond(text))
             bot_stats.append(_turn_stats(turn.text, t0))
             for c in env.log[n0:]:
                 tr.events.append({"role": "tool", "tool": c["tool"], "args": c["args"], "result": c.get("result"),

@@ -757,7 +757,7 @@ class Session:
 
     def start(self) -> dict:
         n0 = len(self.env.log)
-        turn = self.bot.start()
+        turn = _clean_turn(self.bot.start())
         return self._bot_turn(turn, n0, None)
 
     def say(self, text: str = "", mode: str = "free") -> dict:
@@ -800,7 +800,7 @@ class Session:
                 self.base_i += 1
         self.frames.append(frame)
         n0 = len(self.env.log)
-        turn = self.bot.respond(text)
+        turn = _clean_turn(self.bot.respond(text))
         return self._bot_turn(turn, n0, {"text": text, "mode": mode, "state": last, "read": str(frame),
                                          "card": {"act": card.get("act"), "slots": card.get("slots")},
                                          "state_reading": state_reading,
@@ -827,6 +827,8 @@ class Session:
 
 _SESSIONS: "OrderedDict[str, Session]" = OrderedDict()
 
+
+from ..s06_bots.harness import _clean as _clean_turn    # a bot's malformed references graded, not fatal
 
 _JUDGES: list = []
 
