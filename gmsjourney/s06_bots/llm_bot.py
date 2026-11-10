@@ -182,11 +182,30 @@ class LocalChat:
             body.update(json.loads(extra))
         return body
 
+    _DROPPED: dict[str, set] = {}                     # per server: optional fields it turned out to reject
+
     def _server(self, msgs: list[dict[str, str]]) -> tuple[str, dict]:
-        body = json.dumps(self._body(msgs)).encode()
-        req = urllib.request.Request(f"{self.url}/chat/completions", data=body, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=300) as r:
-            j = json.loads(r.read())
+        import urllib.error
+        dropped = LocalChat._DROPPED.setdefault(self.url, set())
+        while True:
+            body = {k: v for k, v in self._body(msgs).items() if k not in dropped}
+            req = urllib.request.Request(f"{self.url}/chat/completions", data=json.dumps(body).encode(),
+                                         headers={"Content-Type": "application/json"})
+            try:
+                with urllib.request.urlopen(req, timeout=300) as r:
+                    j = json.loads(r.read())
+                break
+            except urllib.error.HTTPError as e:
+                detail = e.read().decode("utf-8", "replace")[:800]
+                # an optional field the server does not take (an older vLLM, another model): sent once more without
+                # it, and not sent to this server again; anything else is the server's own error, shown as it is
+                opt = [k for k in ("reasoning_effort", "seed") if k in body and k not in dropped
+                       and (e.code in (400, 422) or k in detail)]
+                if opt:
+                    dropped.add(opt[0])
+                    continue
+                raise RuntimeError(f"the vLLM server at {self.url} answered HTTP {e.code}: {detail or e.reason}"
+                                   + (f" (sent without: {', '.join(sorted(dropped))})" if dropped else "")) from None
         u = j.get("usage") or {}
         m = j["choices"][0]["message"]
         # a reasoning model's answer is "content" (its thinking, "reasoning_content", is not the answer); when the

@@ -944,3 +944,49 @@ def test_a_reasoning_model_on_vllm_gets_a_thinking_budget_and_low_effort():
     for c in nb["cells"]:
         if c["cell_type"] == "code":
             compile("".join(c["source"]), "cell", "exec")                       # every cell is valid Python
+
+
+def test_a_vllm_server_error_is_shown_and_an_unsupported_field_is_dropped():
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from gmsjourney.s06_bots.llm_bot import LocalChat
+    seen = []
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            seen.append(sorted(body))
+            if "reasoning_effort" in body:                                   # an older server: rejects the field
+                code, out = 400, {"message": "extra fields not permitted: reasoning_effort"}
+            elif body["messages"][-1]["content"] == "boom":
+                code, out = 500, {"message": "HarmonyError: error downloading or loading vocab file"}
+            else:
+                code, out = 200, {"choices": [{"message": {"content": "OK", "reasoning_content": "hmm"}}]}
+            data = json.dumps(out).encode()
+            self.send_response(code)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    srv.daemon_threads = True
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        from gmsjourney.llm import _messages
+        _m = lambda t: _messages("Be brief.", t)                               # noqa: E731
+        url = f"http://127.0.0.1:{srv.server_address[1]}/v1"
+        chat = LocalChat("openai/gpt-oss-20b", temperature=0.0, max_tokens=50, url=url)
+        assert chat.invoke(_m("hi")).content == "OK"
+        assert "reasoning_effort" in seen[0] and "reasoning_effort" not in seen[1]     # retried once without it
+        chat.invoke(_m("again"))
+        assert "reasoning_effort" not in seen[2]                                      # and not sent again
+        try:
+            chat.invoke(_m("boom"))
+            raise AssertionError("a server error was swallowed")
+        except RuntimeError as e:
+            assert "HTTP 500" in str(e) and "vocab file" in str(e)
+    finally:
+        srv.shutdown()
