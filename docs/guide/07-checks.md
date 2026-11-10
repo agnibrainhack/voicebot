@@ -230,7 +230,8 @@ the judges read every run of the turn-by-turn export (`s09_reports/cases.py: exp
 at most `llm_judges_max_runs`), in parallel: `dataset/llm_judges.jsonl`, `report.json` → `llm_judges`, the
 verdict's tiles and each case's judges line, and the case comparison. In the Playground they read every bot turn
 (`judge_turn`, both at once). They run on the test tools' LLM (chapter 8: the gateway or a local model) at
-temperature 0, behind the replay cache (tags `judge_a`, `judge_b`).
+temperature 0, behind the replay cache (tags `judge_a`, `judge_b`). A run's prompts carry no case id, so two runs with
+the same conversation (a repeated run, a rewording the bot answered identically) are judged once.
 
 ## runtime.py and gates.py — the monitor that runs beside the bot
 

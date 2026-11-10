@@ -498,18 +498,31 @@ def progress_bar(total: int, desc: str, show: bool = True, key: str | None = Non
 
 
 def run(scenarios: list[Scenario], runner, limits: Limits, workflow, validator=None,
-        faults=None, keep_transcripts: int = 0, desc: str | None = None, show: bool = True) -> list[dict[str, Any]]:
-    """Run and score every scenario; with `desc`, a progress bar (tqdm) shows runs done and accuracy so far."""
+        faults=None, keep_transcripts: int = 0, desc: str | None = None, show: bool = True,
+        workers: int = 1) -> list[dict[str, Any]]:
+    """Run and score every scenario; with `desc`, a progress bar (tqdm) shows runs done and accuracy so far.
+
+    ``workers`` > 1 plays that many conversations at once (each has its own bot and mock bank), so a bot that waits
+    on a model gateway is not run one call at a time; the rows come back in the scenarios' order either way."""
     rows = []
     bar = progress_bar(len(scenarios), desc, show) if desc else None
-    for i, scn in enumerate(scenarios):
-        proof = scn.metadata.get("proof")
-        if proof is not None and not proof["accepted"]:
-            if bar is not None:
-                bar.update(1)
-            continue
+    todo = [(i, scn) for i, scn in enumerate(scenarios)
+            if (scn.metadata.get("proof") or {"accepted": True})["accepted"]]
+    if bar is not None and len(todo) < len(scenarios):
+        bar.update(len(scenarios) - len(todo))           # rewordings the proof rejected are never run
+
+    def one(x):
+        i, scn = x
         path = validator.base_path(scn.base) if validator else None
-        res = runner.run(scn, faults=faults, oracle_path=path)
+        return i, scn, runner.run(scn, faults=faults, oracle_path=path)
+
+    if workers > 1 and len(todo) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        ex = ThreadPoolExecutor(max_workers=workers)
+        results = ex.map(one, todo)
+    else:
+        ex, results = None, map(one, todo)
+    for i, scn, res in results:
         row = score(scn, res, limits, workflow, getattr(runner, "budgets", None))
         if i < keep_transcripts or not row["correct"] or not row["workflow_adherent"]:
             row["transcript"] = res.extras["transcript"]
@@ -517,6 +530,8 @@ def run(scenarios: list[Scenario], runner, limits: Limits, workflow, validator=N
         if bar is not None:
             bar.update(1)
             bar.set_postfix_str(f"correct {sum(r['correct'] for r in rows)}/{len(rows)}")
+    if ex is not None:
+        ex.shutdown()
     if bar is not None:
         bar.close()
     return rows

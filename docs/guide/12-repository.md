@@ -54,6 +54,23 @@ choice (Bot under test): its settings pin the gateway unless the tester picks a 
 
 `make_chat_model(settings)` returns the client or raises `LLMUnavailable` with the reason.
 
+**Fewer round trips.** Every client in a process shares what can be shared, so a run with the LLM bot, its critique,
+two judges and the rewording arm does not pay the set-up once per role:
+
+* **one token** (`_token`): fetched once per process with `gcloud` and reused by every client for 40 minutes; a
+  401/403 refreshes it for everyone (a client that sees a token another one already refreshed takes that one);
+* **kept-alive connections** (`_session`): one `requests` session per thread, so calls reuse open connections
+  instead of a new TCP and TLS handshake through the proxy for each call;
+* **what the deployment rejects** (`_ADAPTED`): when a deployment refuses the sampling parameters or the system role
+  (HTTP 400), the first client to learn it records it for the endpoint and every other client sends the accepted
+  form from its next call, instead of spending a failed call each.
+
+The calls themselves are what the work needs: the LLM bot makes one call per step (a tool call or its reply) and the
+critique one review per step; the two judges one call each per run (or per Playground turn, both at once); every
+reply is cached by content, so the turn-by-turn export's re-run of every conversation, repeated runs and the
+judges' reading of the same conversation twice cost no call. `CampaignConfig.bot_workers` (the console sets 4 for an
+LLM bot) plays several conversations at once, which cuts the wall time without changing the calls or the results.
+
 **`CachedLLM`** puts a **content-addressed replay cache** in front of it: every response is stored under the SHA-256 of
 (prompt version, provider, model, temperature, messages, salt). Analogy: a **recipe book indexed by the exact list of
 ingredients**: the same ingredients always open the same page. So a campaign re-runs byte for byte with no network

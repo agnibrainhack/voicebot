@@ -112,6 +112,10 @@ class CampaignConfig:
     # "scripted": in every bot run the customer says the base journey's lines in order, whatever the bot replies (a
     # deviation never changes the case); "adaptive": the customer answers what the bot actually asked
     customer: str = "scripted"
+    # how many conversations with the bot under test are played at once (each with its own bot and mock bank): an
+    # LLM bot spends most of a conversation waiting on its model, so a few at once cut the wall time (the number of
+    # model calls is the same; replies are cached, so the results do not depend on it)
+    bot_workers: int = 1
     # knowlytix build (defaults: the reference build_calibrated_rag_store; s03_knowledge/build.py)
     kx_epochs: int | None = None                 # production store epochs (None: 150; shortcut for "train.epochs")
     kx_geode_epochs: int = 300                   # GEODE correction-loop trainer epochs
@@ -550,9 +554,11 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         log(f"      testing {len(tested)} of {len(bases)} base cases (max_cases={cfg.max_cases}): "
             f"{len(base_scns)} base runs, {len(run_scns)} enriched" + (f", {len(run_llm)} LLM-arm" if llm_scns else ""))
     pb = cfg.progress
-    base_rows = run(base_scns, runner, oracle.limits, store.workflow, None, desc="SUT · base cases", show=pb)
-    rows = run(run_scns, runner, oracle.limits, store.workflow, validator, desc="SUT · enriched (template arm)", show=pb)
-    llm_rows = run(run_llm, runner, oracle.limits, store.workflow, llm_validator,
+    bw = max(1, int(cfg.bot_workers or 1))          # conversations played at once (an LLM bot waits on its model)
+    base_rows = run(base_scns, runner, oracle.limits, store.workflow, None, desc="SUT · base cases", show=pb, workers=bw)
+    rows = run(run_scns, runner, oracle.limits, store.workflow, validator, desc="SUT · enriched (template arm)", show=pb,
+               workers=bw)
+    llm_rows = run(run_llm, runner, oracle.limits, store.workflow, llm_validator, workers=bw,
                    desc="SUT · enriched (LLM arm)", show=pb) if run_llm else []
     bot = cfg.bot_name if (cfg.bot_factory is not None or dom.graph is None) else "GraphBot (the pack's reference bot)"
     R["results"] = {"bot": bot, "base_level": summary(base_rows), "enriched": summary(rows),

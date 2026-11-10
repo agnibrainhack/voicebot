@@ -2056,6 +2056,7 @@ function runView(r) {
         delete body.scripted_customer;
         const TE = (S.meta.tools_llm || {}).enrichment || {}, TT = (S.meta.tools_llm || {}).testing || {};
         Object.assign(body, { llm_backend: TE.backend || "gateway", llm_model: TE.backend === "local" ? "" : (TE.model || ""), llm_local_path: TE.local_path || "", llm_vllm_url: TE.vllm_url || "",
+          bot_workers: body.sut.kind === "llm" ? 4 : 1,
           llm_judges: F.llm_judges !== false, judges_backend: TT.backend || "gateway", judges_model: TT.backend === "local" ? "" : (TT.model || ""), judges_local_path: TT.local_path || "", judges_vllm_url: TT.vllm_url || "" });
         if (body.sut.kind === "llm" && !(await confirmBox("Run the LLM bot?", `Every customer turn of every case costs one to ${body.sut.max_steps + 1} gateway calls${body.sut.critique ? ", twice that with the critique layer" : ""} (${body.sut.mode === "replay" ? "replay: cached replies only, a reply that is not cached stops the run" : "live, cached for re-runs"}). Start with a few cases.`, "Start the test"))) { startBtn.disabled = false; startBtn.replaceChildren("Start the test"); return; }
         try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); } catch {}

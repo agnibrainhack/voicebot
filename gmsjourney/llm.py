@@ -166,11 +166,48 @@ class LLMSettings:
         return d
 
 
-def _token(s: LLMSettings) -> str:
-    """The bearer token for the gateway: from the environment when set, else the CLI."""
+_TOKENS: dict[str, tuple[float, str]] = {}          # token command -> (when fetched, token): one per process
+_TOKEN_TTL = 40 * 60.0                                # gcloud tokens live an hour; refreshed well before
+_SHARED_LOCK = __import__("threading").Lock()
+
+
+def _token(s: LLMSettings, fresh: bool = False) -> str:
+    """The bearer token for the gateway: from the environment when set, else the CLI. Fetched once per process and
+    shared by every client (the bot, its critique, the judges, the rewording ...); ``fresh`` fetches a new one (after
+    a 401/403)."""
     tok = os.environ.get(s.access_token_env)
     if tok:
         return tok.strip()
+    with _SHARED_LOCK:
+        hit = _TOKENS.get(s.token_cmd)
+        if hit and not fresh and time.time() - hit[0] < _TOKEN_TTL:
+            return hit[1]
+        tok = _fetch_token(s)
+        _TOKENS[s.token_cmd] = (time.time(), tok)
+        return tok
+
+
+_SESSIONS = __import__("threading").local()          # one HTTP session (kept-alive connections) per thread
+
+
+def _session():
+    """This thread's requests session: connections to the gateway are kept alive and reused, so a call does not pay
+    a new TCP and TLS handshake through the proxy."""
+    ses = getattr(_SESSIONS, "s", None)
+    if ses is None:
+        import requests
+        ses = requests.Session()
+        ses.mount("https://", requests.adapters.HTTPAdapter(pool_connections=4, pool_maxsize=16))
+        _SESSIONS.s = ses
+    return ses
+
+
+# what a deployment turned out to reject (learnt from an HTTP 400), shared by every client of the same endpoint so
+# each one does not spend a failed call learning it again
+_ADAPTED: dict[str, dict[str, Any]] = {}
+
+
+def _fetch_token(s: LLMSettings) -> str:
     cmd = shlex.split(s.token_cmd)
     try:
         out = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=30)
@@ -215,6 +252,15 @@ class GatewayChat:
         self.token_field = "max_tokens"         # reasoning deployments (gpt-5.x) want max_completion_tokens
         self.system_role = True                 # some gateways reject the system role: folded into user
         self.adaptations: list[str] = []
+        self._learn()
+
+    def _learn(self) -> None:
+        """Take what another client of this endpoint already learnt the deployment rejects."""
+        learnt = _ADAPTED.get(self._url())
+        if learnt and learnt["adaptations"] != self.adaptations:
+            self.send_sampling = learnt["send_sampling"] and self.send_sampling
+            self.token_field, self.system_role = learnt["token_field"], learnt["system_role"]
+            self.adaptations = list(learnt["adaptations"])
 
     def _url(self) -> str:
         if self.s.url:
@@ -263,25 +309,27 @@ class GatewayChat:
                 "Content-Type": "application/json"}
 
     def invoke(self, messages: list[Any]) -> SimpleNamespace:
-        import requests                                    # the gateway path needs only requests
         last_error = "no attempt made"
+        self._learn()
         refreshed, adapted, attempt = False, 0, 0
         while attempt <= self.s.max_retries:
             try:
-                r = requests.post(self._url(), headers=self._headers(), json=self._payload(messages),
-                                  timeout=(min(self.s.connect_timeout, self.s.timeout), self.s.timeout),
-                                  verify=self._verify())
+                r = _session().post(self._url(), headers=self._headers(), json=self._payload(messages),
+                                    timeout=(min(self.s.connect_timeout, self.s.timeout), self.s.timeout),
+                                    verify=self._verify())
             except Exception as e:                         # noqa: BLE001 - transport errors (incl. TLS)
                 last_error = f"{type(e).__name__}: {str(e)[:160]}"
                 attempt += 1
                 time.sleep(min(8.0, 1.5 ** attempt))
                 continue
-            if r.status_code in (401, 403) and not refreshed:   # the credential expired: refresh once
-                self._token = _token(self.s)
+            if r.status_code in (401, 403) and not refreshed:   # the credential expired: refresh once (for everyone)
+                self._token = _token(self.s, fresh=self._token == _TOKENS.get(self.s.token_cmd, (0, ""))[1])
                 refreshed = True
                 continue
             if r.status_code == 400 and adapted < 3 and self._adapt(r.text):
                 adapted += 1                               # retried with what the deployment accepts
+                _ADAPTED[self._url()] = {"send_sampling": self.send_sampling, "token_field": self.token_field,
+                                         "system_role": self.system_role, "adaptations": list(self.adaptations)}
                 continue
             if r.status_code == 429 or r.status_code >= 500:   # throttled / transient: back off
                 last_error = f"HTTP {r.status_code}: {r.text[:160]}"

@@ -235,7 +235,7 @@ def test_gateway_transport_builds_the_documented_request():
 
     with mock.patch.dict(os.environ, {"AEXP_ACCESS_TOKEN": "token-123", "AEXP_USE_CASE_ID": "825"}):
         model = C.GatewayChat(C.LLMSettings())
-        with mock.patch.object(requests, "post", _post):
+        with mock.patch.object(llm_client, "_session", lambda: __import__("types").SimpleNamespace(post=_post)):
             out = model.invoke(C._messages("SYS", "USER"))
     assert out.content == '{"utterance": "hi"}'
     assert out.usage_metadata == {"input_tokens": 7, "output_tokens": 3}
@@ -272,7 +272,7 @@ def test_gateway_url_override_ca_bundle_and_400_adaptation():
     bundle = tempfile.NamedTemporaryFile(suffix=".crt", delete=False).name
     env = {"AEXP_ACCESS_TOKEN": "tok", "GMSJOURNEY_LLM_URL": "gaiapis.example/gcpapi/x/{model}/completions",
            "GMSJOURNEY_CA_BUNDLE": bundle}
-    with mock.patch.dict(os.environ, env), mock.patch.object(requests, "post", _post), \
+    with mock.patch.dict(os.environ, env), mock.patch.object(llm_client, "_session", lambda: __import__("types").SimpleNamespace(post=_post)), \
             mock.patch.object(C.time, "sleep", lambda *_: None):
         model = C.GatewayChat(C.LLMSettings())
         assert model.invoke(C._messages("S", "U")).content == "ok"
@@ -299,7 +299,7 @@ def test_gateway_path_is_langchain_free():
         settings = C.LLMSettings(cache_dir=tempfile.mkdtemp())
         blocked = {"langchain_core": None, "langchain_core.messages": None}
         with mock.patch.dict(sys.modules, blocked):          # None in sys.modules = ImportError
-            with mock.patch.object(requests, "post", lambda *a, **k: _Resp()):
+            with mock.patch.object(llm_client, "_session", lambda: __import__("types").SimpleNamespace(post=lambda *a, **k: _Resp())):
                 client = C.CachedLLM(settings, tag="langchain-free")
                 assert client.invoke("sys", "user", salt="s") == "gateway answer"
                 assert client.stats.errors == 0 and client.stats.provider == "aexp"

@@ -147,7 +147,7 @@ class Judges:
     # ------------------------------------------------------------------ one test run
     @staticmethod
     def _case_a(c: dict) -> str:
-        lines = [f"Case {c.get('case_id')}"]
+        lines = ["The case:"]                      # no case id: the same conversation is judged once (cache)
         if c.get("expected_opening") or c.get("actual_opening"):
             lines.append(f"Call opening - required: {c.get('expected_opening') or '-'} | bot: {c.get('actual_opening') or '-'}")
         for t in c.get("turns") or []:
@@ -164,7 +164,7 @@ class Judges:
 
     @staticmethod
     def _case_b(c: dict) -> str:
-        lines = [f"Call {c.get('case_id')}", "", "The conversation:"]
+        lines = ["The conversation:"]
         if c.get("actual_opening"):
             lines.append(f"  (bot opens) {c.get('actual_opening')}")
         for t in c.get("turns") or []:
@@ -186,8 +186,10 @@ class Judges:
     def judge_case(self, c: dict) -> dict[str, Any]:
         """One test run: ``c`` holds case_id, turns (turn_by_turn rows), expected/actual outcome and opening, rules
         (id -> text) and ``rules_ok`` (the rule-based verdict)."""
-        a = self._ask(self.a, SYSTEM_A, self._case_a(c), f"case|{c.get('case_id')}")
-        b = self._ask(self.b, SYSTEM_B, self._case_b(c), f"case|{c.get('case_id')}")
+        # salted by content only: two runs with the same conversation (a repeated run, a rewording the bot answered
+        # identically) are judged once and the verdict is read from the cache
+        a = self._ask(self.a, SYSTEM_A, self._case_a(c), "case")
+        b = self._ask(self.b, SYSTEM_B, self._case_b(c), "case")
         return {"case_id": c.get("case_id"), "a": a, "b": b, **{"combined": combine(c.get("rules_ok"), a, b)}}
 
     def judge_many(self, cases: list[dict], workers: int = 4) -> list[dict[str, Any]]:

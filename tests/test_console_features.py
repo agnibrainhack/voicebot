@@ -819,3 +819,69 @@ def test_the_playground_customer_plays_on_after_the_bot_ends_the_call():
     except ValueError as e:
         assert "no more customer lines" in str(e)
     assert s.view()["ended_turn"] == 2
+
+
+def test_gateway_clients_share_one_token_one_connection_pool_and_what_the_deployment_rejects():
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from gmsjourney import llm as L
+    seen = {"posts": 0, "ports": set(), "rejected": 0}
+
+    class H(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"                                  # keep-alive
+
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            seen["posts"] += 1
+            seen["ports"].add(self.client_address[1])
+            if any(m["role"] == "system" for m in body["messages"]):    # this deployment rejects the system role
+                seen["rejected"] += 1
+                out, code = json.dumps({"error": "the system role is not supported"}).encode(), 400
+            else:
+                out, code = json.dumps({"choices": [{"message": {"content": "ok"}}]}).encode(), 200
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    srv.daemon_threads = True
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    calls = []
+    real = L._fetch_token
+    L._fetch_token = lambda s: (calls.append(1), "tok")[1]
+    L._TOKENS.clear()
+    L._ADAPTED.clear()
+    keep = os.environ.pop("AEXP_ACCESS_TOKEN", None)
+    try:
+        url = f"http://127.0.0.1:{srv.server_address[1]}/v1/{{model}}/chat"
+        mk = lambda: L.make_chat_model(L.LLMSettings(url=url, backend="gateway", send_sampling_params=False))   # noqa: E731
+        bot, critic, judge = mk(), mk(), mk()
+        for c in (bot, critic, judge, bot, critic, judge):
+            assert c.invoke(L._messages("sys", "hi")).content == "ok"
+        assert len(calls) == 1                                          # one token for every client
+        assert seen["rejected"] == 1                                    # learnt once, not once per client
+        assert len(seen["ports"]) == 1                                  # one kept-alive connection
+        assert critic.system_role is False and judge.system_role is False
+    finally:
+        L._fetch_token = real
+        L._TOKENS.clear()
+        L._ADAPTED.clear()
+        if keep is not None:
+            os.environ["AEXP_ACCESS_TOKEN"] = keep
+        L._session().close()                                            # drop the kept-alive connection
+        srv.shutdown()
+
+
+def test_identical_conversations_are_judged_once():
+    J, fa, fb = _judges()
+    case = {"turns": [{"turn": 0, "state": "S", "customer_text": "hi", "expected_tools": "-", "expected_bot": "A",
+                       "actual_tools": "-", "actual_bot_acts": "A", "actual_bot_text": "hello"}],
+            "expected_outcome": {"end": "END"}, "actual_outcome": {"end": "END"}, "rules": {}, "rules_ok": True}
+    J.judge_case({**case, "case_id": "J001~base"})
+    r = J.judge_case({**case, "case_id": "J001~0004"})                  # the same conversation in another run
+    assert len(fa.seen) == 1 and len(fb.seen) == 1 and r["case_id"] == "J001~0004"
