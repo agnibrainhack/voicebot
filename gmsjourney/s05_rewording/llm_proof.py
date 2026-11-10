@@ -726,7 +726,7 @@ def build_llm_arm(store, oracle, reader, template_validator, settings: LLMSettin
                   dual_read: str = "gate", adversarial: bool = True, max_attempts: int = 3,
                   asides: str = "verbatim", turn_fallback: str = "template", template_acts: tuple = ()):
     """Wire the arm: one cached client per role so the roles never share completions."""
-    s = settings or LLMSettings()
+    s = settings or LLMSettings(role="enrichment")
     rephraser = CachedLLM(s, tag="rephrase")
     extractor = CachedLLM(LLMSettings(**{**s.__dict__, "temperature": 0.0}), tag="extract") if dual_read != "off" else None
     adversary = CachedLLM(LLMSettings(**{**s.__dict__, "temperature": 0.7}), tag="adversary") if adversarial else None

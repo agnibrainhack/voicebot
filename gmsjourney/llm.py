@@ -1,10 +1,16 @@
-"""The LLM behind the test tools (the second enrichment arm, the dual read, the adversary, the case narration, the
-LLM judges): the internal Microsoft (Azure OpenAI) model gateway, or a local model on vLLM, behind a replay cache.
+"""The LLM behind the test tools (the enrichment arm, the dual read, the adversary; the LLM judges, the policy judge,
+the case narration): the internal Microsoft (Azure OpenAI) model gateway, or a local model on vLLM, behind a replay cache.
 
 Which one is ``LLMSettings.backend``: ``"gateway"`` (default) or ``"local"`` (a model folder loaded in this process
-with vLLM, or an OpenAI-compatible vLLM server). The console's setting, a campaign's ``llm_backend`` and the
-environment set it for every tool at once (``GMSJOURNEY_LLM_BACKEND``, ``GMSJOURNEY_LLM_LOCAL_MODEL``,
-``GMSJOURNEY_LLM_VLLM_URL``; see ``use_backend``). The bot under test chooses its own model separately.
+with vLLM, or an OpenAI-compatible vLLM server). It is chosen per **role**, separately:
+
+* ``enrichment``: the LLM arm that rewords the customer's turns (rephrase, dual read, adversary);
+* ``testing``: the two LLM judges, the policy judge of the speech check and the case narration.
+
+``use_backend(role, ...)`` sets a role's choice for this process and the processes it starts (environment
+``GMSJOURNEY_LLM_<ROLE>_BACKEND`` / ``_MODEL`` / ``_LOCAL_MODEL`` / ``_VLLM_URL``; without a role, the shared
+``GMSJOURNEY_LLM_BACKEND`` ... that both roles fall back to). The console's two settings and a campaign's
+``llm_backend`` / ``judges_backend`` do this. The bot under test chooses its own model separately.
 
 ``GatewayChat`` posts OpenAI-style chat completions to the gateway with ``requests``:
 
@@ -45,28 +51,42 @@ DEFAULT_MODEL = "gpt-41"
 DEFAULT_BASE_URL = "https://gaiapis.aexp.com/gcpapi/v1/microsoft"
 
 
-def backend_env() -> dict[str, str]:
-    """The test tools' LLM as the environment sets it: backend ("gateway" | "local"), local model folder, vLLM URL."""
-    b = os.environ.get("GMSJOURNEY_LLM_BACKEND", "").strip().lower()
-    return {"backend": "local" if b == "local" else "gateway",
-            "local_path": os.environ.get("GMSJOURNEY_LLM_LOCAL_MODEL", "").strip()
-            or os.environ.get("GMSJOURNEY_SUT_LOCAL_MODEL", "").strip(),
-            "vllm_url": os.environ.get("GMSJOURNEY_LLM_VLLM_URL", "").strip()
-            or os.environ.get("GMSJOURNEY_VLLM_URL", "").strip()}
+ROLES = ("enrichment", "testing")
 
 
-def use_backend(backend: str | None, local_path: str | None = None, vllm_url: str | None = None) -> dict[str, str]:
-    """Point every test tool's LLM at ``backend`` from now on (in this process and the processes it starts):
-    "gateway", or "local" with a model folder and/or a vLLM server URL. None leaves the environment as it is."""
+def _env(role: str | None, key: str) -> str:
+    """A role's setting from the environment, else the shared one."""
+    if role:
+        v = os.environ.get(f"GMSJOURNEY_LLM_{role.upper()}_{key}", "").strip()
+        if v:
+            return v
+    return os.environ.get(f"GMSJOURNEY_LLM_{key}", "").strip()
+
+
+def backend_env(role: str | None = None) -> dict[str, str]:
+    """A role's LLM as the environment sets it: backend ("gateway" | "local"), gateway model, local model folder, vLLM
+    URL (each falling back to the shared setting, then to the bot's local-model variables)."""
+    b = _env(role, "BACKEND").lower()
+    return {"role": role or "", "backend": "local" if b == "local" else "gateway", "model": _env(role, "MODEL"),
+            "local_path": _env(role, "LOCAL_MODEL") or os.environ.get("GMSJOURNEY_SUT_LOCAL_MODEL", "").strip(),
+            "vllm_url": _env(role, "VLLM_URL") or os.environ.get("GMSJOURNEY_VLLM_URL", "").strip()}
+
+
+def use_backend(backend: str | None, local_path: str | None = None, vllm_url: str | None = None,
+                role: str | None = None, model: str | None = None) -> dict[str, str]:
+    """Point a role's LLM (``role``: enrichment | testing; None: both, through the shared setting) at ``backend`` from
+    now on, in this process and the processes it starts: "gateway" (with an optional deployment ``model``) or
+    "local" with a model folder and/or a vLLM server URL. None leaves the environment as it is."""
+    pre = f"GMSJOURNEY_LLM_{role.upper()}_" if role else "GMSJOURNEY_LLM_"
     if backend:
-        os.environ["GMSJOURNEY_LLM_BACKEND"] = "local" if backend == "local" else "gateway"
-        for k, v in (("GMSJOURNEY_LLM_LOCAL_MODEL", local_path), ("GMSJOURNEY_LLM_VLLM_URL", vllm_url)):
+        os.environ[pre + "BACKEND"] = "local" if backend == "local" else "gateway"
+        for k, v in (("LOCAL_MODEL", local_path), ("VLLM_URL", vllm_url), ("MODEL", model)):
             if v is not None:
                 if str(v).strip():
-                    os.environ[k] = str(v).strip()
+                    os.environ[pre + k] = str(v).strip()
                 else:
-                    os.environ.pop(k, None)
-    return backend_env()
+                    os.environ.pop(pre + k, None)
+    return backend_env(role)
 
 
 class LLMUnavailable(RuntimeError):
@@ -78,7 +98,7 @@ class LLMSettings:
     """Where and how the LLM is called: model, temperature, token limit, gateway URL, use-case header, how the
     bearer token is obtained, CA bundle, cache folder and timeouts (each also settable from the environment).
     """
-    model: str = DEFAULT_MODEL            # gateway deployment: gpt-41 (gpt-4.1), gpt-55 (5.5), ...
+    model: str = ""                       # gateway deployment: gpt-41 (gpt-4.1), gpt-55 (5.5), ...; empty: the role's, else gpt-41
     temperature: float = 0.7              # paraphrase diversity; reproducibility comes from the cache
     max_tokens: int = 220
     base_url: str = DEFAULT_BASE_URL
@@ -109,9 +129,10 @@ class LLMSettings:
     backend: str = ""
     local_path: str = ""
     vllm_url: str = ""
+    role: str = ""                        # enrichment | testing: whose setting an empty backend/model takes
 
     def __post_init__(self) -> None:
-        env = backend_env()
+        env = backend_env(self.role or None)
         self.backend = (self.backend or env["backend"]).strip().lower()
         if self.backend == "local":
             self.local_path = self.local_path or env["local_path"]
@@ -120,6 +141,7 @@ class LLMSettings:
                 self.model = "local-" + (Path(self.local_path).name if self.local_path else "vllm-server")
         else:
             self.backend = "gateway"
+            self.model = self.model or env["model"]
         self.model = self.model or DEFAULT_MODEL
         self.base_url = os.environ.get("GMSJOURNEY_LLM_BASE_URL", "") or self.base_url or DEFAULT_BASE_URL
         self.url = os.environ.get("GMSJOURNEY_LLM_URL", "") or self.url

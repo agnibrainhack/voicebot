@@ -78,10 +78,19 @@ state, how the call must end, and the case's reworded versions with their proof 
 **The LLM judges and the test tools' LLM.** Under Checks, *Two LLM judges* (on by default) has two LLM judges read
 every run beside the rules, which still decide (chapter 7); the run's Results show how often they agree with the
 rules, step 12 lists the runs they flag, the verdict shows both judges on every case and the case explorer on every
-version. Under Advanced, *LLM for rewording, summaries and the judges* chooses where those calls go: the Microsoft
-gateway, or a local model on vLLM (its folder, and a server URL when it is served elsewhere; **Use this model**). The
-choice is the console's (`POST /api/llm/settings`, kept in `output/console_llm.json`, applied again at start), is sent
-with every run (`llm_backend`, `llm_local_path`, `llm_vllm_url`) and is used by the Playground's judges.
+version. Each LLM is chosen where it is used, separately (`llmPick`): **Rewording LLM** under *LLM rewording of
+customer turns* (role `enrichment`), **Judges' LLM** under *Two LLM judges* and again in the Playground's side panel
+(role `testing`; the same setting in both places), and the bot under test in its own card. Each is the Microsoft
+gateway (a deployment, **Use**) or a local model on vLLM (its folder, and a server URL when it is served elsewhere;
+**Use this model**). The choices are the console's (`POST /api/llm/settings` with the role, kept in
+`output/console_llm.json`, applied again at start) and are sent with every run (`llm_backend`, `llm_model`,
+`llm_local_path`, `llm_vllm_url`; `judges_backend`, `judges_model`, `judges_local_path`, `judges_vllm_url`).
+
+**The validation report.** `bot_validation.html` has a section *Three verdicts per run*: the share of runs correct by
+the rules and for each judge, how often all three agree, then the runs where the judges disagree (all judged runs
+folded below), each with the rules' verdict and its deterministic details (did the right thing, said it right,
+followed the graph's transitions, the stages and failure codes that went wrong) beside each judge's verdict, first
+wrong turn and reason (`s07_checks/diagnosis.py: judges_section`).
 
 **The customer in a test run.** Under Checks on the run page, *Customer follows the base journey* (on by default)
 sends `customer: "scripted"` in the job: every case's customer says its base journey's lines in order, whatever the bot

@@ -163,7 +163,7 @@ class LLMNarrator:
 
     def __init__(self, settings=None, workers: int = 8, log=print):
         from ..llm import CachedLLM, LLMSettings
-        s = settings or LLMSettings()
+        s = settings or LLMSettings(role="testing")
         self.llm = CachedLLM(LLMSettings(**{**s.__dict__, "temperature": 0.0, "max_tokens": 450}), tag="narrate")
         self.workers, self.log = workers, log
         self.stats = {"llm": 0, "template_fallback": 0}

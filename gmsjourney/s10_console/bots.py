@@ -175,7 +175,7 @@ def settings_for(sut: dict[str, Any]):
     from ..llm import LLMSettings
     return LLMSettings(model=str(sut.get("model") or ""), temperature=float(sut.get("temperature") or 0.0),
                        max_tokens=int(sut.get("max_tokens") or 900), mode=str(sut.get("mode") or "live"),
-                       backend="gateway")                  # the bot's own choice, not the test tools' LLM
+                       backend="gateway")                  # the bot's own choice, not the rewording or judges' LLM
 
 
 def make_factory(sut: dict[str, Any] | None, store=None):
@@ -825,7 +825,7 @@ _JUDGES: list = []
 
 
 def judges():
-    """The Playground's two LLM judges (built once, on the test tools' LLM: the console's setting)."""
+    """The Playground's two LLM judges (built once, on the testing LLM: the console's Judges' LLM setting)."""
     if not _JUDGES:
         from ..s07_checks.llm_judges import Judges
         _JUDGES.append(Judges())
@@ -833,7 +833,7 @@ def judges():
 
 
 def reset_judges() -> None:
-    """Forget the judges (the test tools' LLM changed)."""
+    """Forget the judges (the testing LLM changed)."""
     _JUDGES.clear()
 
 

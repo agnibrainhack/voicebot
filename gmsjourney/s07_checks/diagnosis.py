@@ -894,7 +894,65 @@ def render_card(r: dict[str, Any], card: dict[str, Any], levels: dict[str, list]
             + (f"<ul style='margin:6px 0 0'>{finds}</ul>" if finds else "") + "</div>")
 
 
-def render_bot_validation_html(R: dict[str, Any], rows: list[dict[str, Any]]) -> str:
+def _rules_detail(r: dict[str, Any]) -> str:
+    """The deterministic checks of one run in a line: outcome, words, workflow, and what failed."""
+    bits = [("✓" if did_right(r) else "✗") + " did the right thing", ("✓" if said_right(r) else "✗") + " said it right",
+            ("✓" if r.get("workflow_adherent", 1) else "✗") + " followed the graph's transitions"]
+    wrong = [k[2:] for k, v in r.items() if k.startswith("c_") and k != "c_speech" and v == 0]
+    out = " · ".join(bits)
+    if wrong:
+        out += f"<div class='muted'>stages wrong: {esc(', '.join(wrong))}</div>"
+    if r.get("failure_codes"):
+        out += f"<div class='muted mono'>{esc(', '.join(r['failure_codes']))}</div>"
+    if r.get("violations"):
+        out += f"<div class='muted mono'>{esc(', '.join(map(str, r['violations'][:4])))}</div>"
+    return out
+
+
+def judges_section(rows: list[dict[str, Any]], judges: dict[str, dict], meta: dict | None = None) -> str:
+    """Every run's three verdicts side by side: the deterministic rules (which decide) and the two LLM judges."""
+    if not judges:
+        why = (meta or {}).get("skipped")
+        return ("<h2>Three verdicts per run: the rules and two LLM judges</h2><p class='lede'>"
+                + (f"The LLM judges were on but could not run: {esc(why)}." if why else
+                   "The two LLM judges were off for this run (run page: Checks, Two LLM judges).") + "</p>")
+    jr = [(r, judges[r["sid"]]) for r in rows if r.get("sid") in judges]
+    n = len(jr) or 1
+    ok = lambda j, k: (j.get(k) or {}).get("verdict") == "correct"            # noqa: E731
+    rules_ok = lambda r: bool(r.get("correct")) and bool(r.get("workflow_adherent", 1))   # noqa: E731
+    flag = [(r, j) for r, j in jr if (j.get("combined") or {}).get("status") in ("judges disagree with the rules", "judges split")]
+    tiles = "".join(f"<div><div class='v'>{v}</div><div class='l'>{l}</div></div>" for v, l in (
+        (pct(sum(rules_ok(r) for r, _ in jr) / n), "correct by the rules (deterministic)"),
+        (pct(sum(ok(j, "a") for _, j in jr) / n), "correct for judge A, the auditor"),
+        (pct(sum(ok(j, "b") for _, j in jr) / n), "correct for judge B, the reviewer"),
+        (pct(sum((j.get("combined") or {}).get("status") == "agree" for _, j in jr) / n), "all three agree")))
+
+    def verdict(v):
+        v = v or {}
+        cls = "st-supported" if v.get("verdict") == "correct" else "st-contradicted" if v.get("verdict") == "incorrect" else "muted"
+        fw = v.get("first_wrong_turn")
+        return (f"<b class='{cls}'>{esc(v.get('verdict') or '–')}</b>" + (f" <span class='muted'>(first wrong turn {esc(fw)})</span>" if fw is not None else "")
+                + f"<div class='muted'>{esc(v.get('reason') or '')}</div>")
+
+    def tab(items):
+        return table(["run", "rules (deterministic, decides)", "judge A · auditor", "judge B · reviewer", "together"],
+                     [[f"<span class='mono'>{esc(r['sid'])}</span><div class='muted'>{esc(ARM_LABEL.get(r.get('arm') or 'base', r.get('arm') or 'base'))}</div>",
+                       f"<b class='{'st-supported' if rules_ok(r) else 'st-contradicted'}'>{'correct' if rules_ok(r) else 'incorrect'}</b><div>{_rules_detail(r)}</div>",
+                       verdict(j.get("a")), verdict(j.get("b")),
+                       esc((j.get("combined") or {}).get("status") or "")] for r, j in items])
+    model = (meta or {}).get("model")
+    return ("<h2>Three verdicts per run: the rules and two LLM judges</h2><p class='lede'>Every run is graded by the "
+            "deterministic rules (outcome against the oracle, every claim in the words, the graph's transitions); "
+            "those decide. Beside them two LLM judges read the same run: <b>judge A, the auditor</b>, compares each "
+            "turn with the graph's expected steps; <b>judge B, the reviewer</b>, sees only the conversation and the "
+            "policy rules of the states it went through." + (f" Judges' model: {esc(model)}." if model else "") + "</p>"
+            f"<div class='card'><div class='rates3'>{tiles}</div></div>"
+            + (f"<h3>Where the judges disagree ({len(flag)} runs): worth a human look</h3><div class='card'>{tab(flag)}</div>"
+               if flag else "<p>The judges agree with the rules on every judged run.</p>")
+            + f"<details><summary>All {len(jr)} judged runs</summary><div class='card'>{tab(jr)}</div></details>")
+
+
+def render_bot_validation_html(R: dict[str, Any], rows: list[dict[str, Any]], judges: dict[str, dict] | None = None) -> str:
     """The whole page (self-contained HTML; same look as report.html, light and dark)."""
     levels = (R.get("design") or {}).get("levels") or {}
     res = R.get("results") or {}
@@ -924,6 +982,7 @@ def render_bot_validation_html(R: dict[str, Any], rows: list[dict[str, Any]]) ->
                   "</tbody></table><p class='muted' style='margin:6px 0 0'>Top right: the outcome was right but the "
                   "customer was told something false or incomplete; only the response check sees these.</p></div>")
     w("<div class='grid2'>" + "".join(mx) + "</div>")
+    w(judges_section(rows, judges or {}, R.get("llm_judges")))
 
     # 2 -------------------------------------------------------------- by what the case contained
     w("<h2>Performance by what the test case contained</h2><p class='lede'>Each test case is a base case (what it "
@@ -1058,7 +1117,9 @@ def validation_summary(R: dict[str, Any], rows: list[dict[str, Any]]) -> dict[st
 def write_bot_validation(out_dir: str | Path, R: dict[str, Any], rows: list[dict[str, Any]],
                          name: str = "bot_validation.html") -> dict[str, Any]:
     """Write the page into the campaign folder and return its summary."""
-    Path(out_dir, name).write_text(render_bot_validation_html(R, rows), encoding="utf-8")
+    from ..s09_reports.cases import read_judges
+    Path(out_dir, name).write_text(render_bot_validation_html(R, rows, read_judges(Path(out_dir) / "dataset")),
+                                   encoding="utf-8")
     return validation_summary(R, rows)
 
 

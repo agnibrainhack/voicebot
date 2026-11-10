@@ -196,9 +196,12 @@ studio shares the setting. Its parts:
   with the graph's expected steps; judge B sees only the conversation and the policy rules. Each run shows both
   verdicts and whether they agree with the rules; the runs where they disagree are listed for review
   (`s07_checks/llm_judges.py`, `dataset/llm_judges.jsonl`).
-- **Local LLM for the test tools** (Advanced on the run page): the rewording arm, dual read, summaries and the judges
-  use the Microsoft gateway or a local model on vLLM (a folder loaded in the process, or a vLLM server URL); one
-  console setting, sent with every run (`llm_backend`, `llm_local_path`, `llm_vllm_url`).
+- **LLM selection, separately for each use**: the rewording LLM (under *LLM rewording of customer turns*), the judges'
+  LLM (under *Two LLM judges*, and in the Playground's side panel) and the bot under test (its own card) are each the
+  Microsoft gateway (a deployment) or a local model on vLLM (a folder loaded in the process, or a vLLM server URL);
+  sent with every run (`llm_backend` ..., `judges_backend` ...).
+- **Validation report**: `bot_validation.html` shows, per run, the rule-based verdict with its deterministic details
+  beside both judges' verdicts and reasons, the agreement rates, and the runs where they disagree.
 - **The customer in a test run**: *Customer follows the base journey* (on by default, under Checks on the run page)
   has each case's customer say its base journey's lines whatever the bot answers, so a wrong turn cannot steer the
   rest of the case; unchecked, the customer answers the bot's last question instead.

@@ -2019,21 +2019,26 @@ const LOOK = {
   "12": "The report and datasets of this run; download them from the files listed or the buttons above.",
   "13": "Ready to release or not and why, the worst risks, how to reproduce the run, and every case with the expected run beside the bot's. Written for every run as out/verdict.html.",
 };
-// The test tools' LLM (rewording, dual read, case summaries, the two judges): the Microsoft gateway or a local model.
-// One setting for the console and its test runs (POST /api/llm/settings); the bot under test chooses its own model.
-function toolsLlmPick() {
-  const TL = Object.assign({ backend: "gateway", local_path: "", vllm_url: "" }, S.meta.tools_llm || {});
-  const st = h("div", { class: "small muted", style: "padding-left:2px" }, TL.backend === "local" ? (TL.usable ? "Ready: " : "Not usable yet: ") + (TL.detail || "") : "Microsoft gateway");
-  const save = async (patch) => { try { S.meta.tools_llm = await api("api/llm/settings", Object.assign({}, TL, patch)); toast(S.meta.tools_llm.backend === "local" ? "The test tools now use the local model." : "The test tools now use the Microsoft gateway."); render(); } catch (x) { toast(x.message); } };
-  const path = h("input", { class: "input mono", id: "tl-path", style: "height:28px;flex:1;min-width:160px", value: TL.local_path || "", placeholder: "/models/Llama-3.1-8B-Instruct", autocomplete: "off", spellcheck: "false", "aria-label": "Local model folder" });
-  const url = h("input", { class: "input mono", id: "tl-url", style: "height:28px;flex:1;min-width:160px", value: TL.vllm_url || "", placeholder: "http://localhost:8000/v1 (optional)", autocomplete: "off", spellcheck: "false", "aria-label": "vLLM server URL" });
-  return h("div", { class: "stack", style: "gap:4px;margin-top:6px" },
-    h("label", { for: "tl-backend", style: "font-size:13px" }, "LLM for rewording, summaries and the judges"),
-    h("select", { class: "select", id: "tl-backend", style: "height:28px;max-width:220px", onchange: e => save({ backend: e.target.value }) },
-      h("option", { value: "gateway", selected: TL.backend !== "local" }, "Microsoft gateway"), h("option", { value: "local", selected: TL.backend === "local" }, "Local model (vLLM)")),
+// Where an LLM role runs, chosen separately in each place it is used (POST /api/llm/settings, kept by the console and
+// sent with every run): "enrichment" (the rewording arm: rephrase, dual read, adversary) and "testing" (the two
+// judges, the policy judge, the case narration). The Microsoft gateway (a deployment) or a local model on vLLM (its
+// folder, and a server URL when it is served elsewhere). The bot under test chooses its own model (Bot under test).
+function llmPick(role, id, label) {
+  const TL = Object.assign({ backend: "gateway", model: "", local_path: "", vllm_url: "" }, ((S.meta.tools_llm || {})[role]) || {});
+  const save = async (patch) => { try { S.meta.tools_llm = await api("api/llm/settings", Object.assign({}, TL, patch, { role }));
+      const now = S.meta.tools_llm[role]; toast(`${role === "enrichment" ? "Rewording now uses" : "The judges now use"} ${now.backend === "local" ? "the local model" : `the Microsoft gateway (${now.model || "gpt-41"})`}.`); render(); } catch (x) { toast(x.message); } };
+  const inp = (key, ph, aria, w) => h("input", { class: "input mono", id: `${id}-${key}`, style: `height:28px;${w}`, value: TL[key] || "", placeholder: ph, autocomplete: "off", spellcheck: "false", "aria-label": aria });
+  const model = inp("model", "gpt-41", "Gateway deployment", "width:130px");
+  const path = inp("local_path", "/models/Llama-3.1-8B-Instruct", "Local model folder", "flex:1;min-width:150px");
+  const url = inp("vllm_url", "http://localhost:8000/v1 (optional)", "vLLM server URL", "flex:1;min-width:150px");
+  const sel = h("select", { class: "select", id: `${id}-backend`, style: "height:28px", "aria-label": `${label}: where the model runs`, onchange: e => save({ backend: e.target.value }) },
+    h("option", { value: "gateway", selected: TL.backend !== "local" }, "Microsoft gateway"), h("option", { value: "local", selected: TL.backend === "local" }, "Local model (vLLM)"));
+  return h("div", { class: "stack llmpick", style: "gap:4px" },
+    h("div", { class: "row", style: "gap:6px;flex-wrap:wrap;align-items:center" }, h("span", { class: "small muted" }, label), sel,
+      TL.backend === "local" ? null : [model, h("button", { class: "btn s", type: "button", onclick: () => save({ backend: "gateway", model: model.value.trim() }) }, "Use")]),
     TL.backend === "local" ? h("div", { class: "row", style: "gap:6px;flex-wrap:wrap" }, path, url,
       h("button", { class: "btn s", type: "button", onclick: () => save({ backend: "local", local_path: path.value.trim(), vllm_url: url.value.trim() }) }, "Use this model")) : null,
-    st);
+    TL.backend === "local" ? h("div", { class: `small ${TL.usable ? "mark ok" : "mark warn"}` }, (TL.usable ? "Ready: " : "Not usable yet: ") + (TL.detail || "")) : null);
 }
 function runView(r) {
   if (r.arg) return runDetail(r.arg, r.q.get("step"));
@@ -2049,8 +2054,9 @@ function runView(r) {
       if (S.dirty && !(await confirmBox("Save before running?", "The run reads the saved project. Your unsaved edits would not be used.", "Run without them"))) { startBtn.disabled = false; startBtn.replaceChildren("Start the test"); return; }
       try { const body = { ...F, max_cases: F.max_cases === "" ? null : Number(F.max_cases), runs_per_base: Number(F.runs_per_base) || 1, seed: Number(F.seed) || 42, customer: F.scripted_customer === false ? "adaptive" : "scripted", sut: sutBody() };
         delete body.scripted_customer;
-        const TL = S.meta.tools_llm || {};
-        Object.assign(body, { llm_backend: TL.backend || "gateway", llm_local_path: TL.local_path || "", llm_vllm_url: TL.vllm_url || "", llm_judges: F.llm_judges !== false });
+        const TE = (S.meta.tools_llm || {}).enrichment || {}, TT = (S.meta.tools_llm || {}).testing || {};
+        Object.assign(body, { llm_backend: TE.backend || "gateway", llm_model: TE.backend === "local" ? "" : (TE.model || ""), llm_local_path: TE.local_path || "", llm_vllm_url: TE.vllm_url || "",
+          llm_judges: F.llm_judges !== false, judges_backend: TT.backend || "gateway", judges_model: TT.backend === "local" ? "" : (TT.model || ""), judges_local_path: TT.local_path || "", judges_vllm_url: TT.vllm_url || "" });
         if (body.sut.kind === "llm" && !(await confirmBox("Run the LLM bot?", `Every customer turn of every case costs one to ${body.sut.max_steps + 1} gateway calls${body.sut.critique ? ", twice that with the critique layer" : ""} (${body.sut.mode === "replay" ? "replay: cached replies only, a reply that is not cached stops the run" : "live, cached for re-runs"}). Start with a few cases.`, "Start the test"))) { startBtn.disabled = false; startBtn.replaceChildren("Start the test"); return; }
         try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); } catch {}
         const { id } = await api("api/runs", body); S.meta.active_run = id; gMark("ran"); toast(`Run ${id} started. You can leave this page; it keeps running.`); go(`#/run/${id}`); }
@@ -2068,12 +2074,12 @@ function runView(r) {
         h("label", { for: "rf-seed" }, "Seed"), h("input", { class: "input num", id: "rf-seed", type: "number", inputmode: "numeric", style: "width:140px", value: F.seed, oninput: e => set("seed", e.target.value) })),
       h("div", { class: "grid2" }, h("div", { class: "stack", style: "gap:4px" }, h("h3", {}, "Checks"), chk("scripted_customer", "Customer follows the base journey", "Says the case's own lines whatever the bot answers, so a wrong turn cannot steer the case. Off: answers the bot's last question."), chk("speech_controls", "Speech controls", "Prove the speech check flags planted wording errors"), chk("run_governance", "Runtime gates", "Calibrate and run the runtime monitor"),
           chk("run_resilience", "Tool faults", "Errors and plausible wrong answers from each tool"), chk("run_mutation", "Planted defects", "Mutant bots each suite must catch"), chk("run_power", "Power analysis", "Slower; sizes the design"),
-          chk("llm_judges", "Two LLM judges", "Two LLM judges read every run beside the rules (which still decide); disagreements are flagged")),
+          chk("llm_judges", "Two LLM judges", "Two LLM judges read every run beside the rules (which still decide); disagreements are flagged"),
+          h("div", { style: "padding-left:26px" }, llmPick("testing", "rf-jdg", "Judges' LLM"))),
         h("div", { class: "stack", style: "gap:4px" }, h("h3", {}, "Advanced"), chk("rebuild_store", "Rebuild the knowledge store", "Otherwise a cached store for this graph is reused"),
           chk("llm_arm", "LLM rewording of customer turns", "Adds an arm whose customer words an LLM rewrites, proved like the rest (not the bot under test)"),
-          h("div", { class: "row", style: "padding-left:26px" }, h("label", { for: "rf-llm", class: "small muted" }, "mode"), h("select", { class: "select", id: "rf-llm", style: "height:28px", onchange: e => set("llm_mode", e.target.value) }, ...["replay", "live"].map(m => h("option", { selected: F.llm_mode === m }, m))),
-            h("label", { for: "rf-model", class: "small muted" }, "model"), h("input", { class: "input mono", id: "rf-model", style: "width:140px;height:28px", value: F.llm_model, placeholder: "gpt-41…", autocomplete: "off", spellcheck: "false", oninput: e => set("llm_model", e.target.value) })),
-          toolsLlmPick())),
+          h("div", { class: "stack", style: "padding-left:26px;gap:6px" }, h("div", { class: "row" }, h("label", { for: "rf-llm", class: "small muted" }, "mode"), h("select", { class: "select", id: "rf-llm", style: "height:28px", onchange: e => set("llm_mode", e.target.value) }, ...["replay", "live"].map(m => h("option", { selected: F.llm_mode === m }, m)))),
+            llmPick("enrichment", "rf-enr", "Rewording LLM")))),
       active ? h("div", { class: "notice warn" }, "A run is in progress, and one runs at a time. ", h("a", { href: `#/run/${active}` }, "View it"), " or cancel it before starting another.") : null,
       h("div", { class: "row", style: "justify-content:space-between;gap:12px" }, h("div", { id: "pastnote", style: "flex:1;min-width:0" }), startBtn)));
   const past = (S.runsList || []).filter(x => x.job.pack === S.pack && x.status === "finished" && x.elapsed).slice(0, 4);
@@ -2936,6 +2942,7 @@ function playChat() {
         : h("p", { class: "small mark ok" }, "No deviation so far")),
       h("label", { class: "row", style: "gap:8px;align-items:flex-start" }, h("input", { type: "checkbox", checked: pgJudges() ? true : null, onchange: e => { try { localStorage.setItem("jc.pgjudges", e.target.checked ? "1" : "0"); } catch {} } }),
         h("span", { class: "small" }, "Two LLM judges read each bot turn", h("span", { class: "muted", style: "display:block" }, Ses.judges_model ? `beside the rules, on ${Ses.judges_model}` : "beside the rules (from the next turn)"))),
+      llmPick("testing", "pg-jdg", "Judges' LLM"),
       (() => { const js = Ses.turns.filter(t => t.judges); if (!js.length) return null; const flagged = js.filter(t => ["judges disagree with the rules", "judges split"].includes((t.judges.combined || {}).status));
         return h("p", { class: `small ${flagged.length ? "mark bad" : "mark ok"}` }, flagged.length ? `Judges flag ${plural(flagged.length, "turn")}: ${flagged.map(t => t.n === 0 ? "opening" : t.n).join(", ")}` : `Judges agree with the rules on all ${plural(js.length, "judged turn")}`); })(),
       h("div", { class: "stack", style: "gap:6px" }, h("button", { class: "btn s primary", type: "button", disabled: !Ses.turns.some(t => t.customer) || P.busy, title: "Keep the customer's lines; every test run sends them again to its bot and validates each turn", onclick: () => saveConversation() }, "Save as a test case"),

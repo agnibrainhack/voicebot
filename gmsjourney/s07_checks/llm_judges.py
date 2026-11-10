@@ -18,7 +18,7 @@ the first turn it found wrong. ``combine`` puts them beside the rules' verdict: 
 Analogy: the rules are the referee's decision; the judges are two commentators watching the replay from different
 angles. The decision stands, and the commentators' disagreements are what the review panel looks at.
 
-The judges run on the test tools' LLM (the gateway or the local model, ``llm.LLMSettings.backend``), at temperature
+The judges run on the testing LLM (role "testing": the gateway or a local model, chosen apart from the rewording LLM), at temperature
 0, behind the replay cache like every other LLM call (cache tags ``judge_a`` and ``judge_b``).
 
     Judges(settings, mode)          the two clients
@@ -113,7 +113,7 @@ class Judges:
     def __init__(self, settings=None, mode: str | None = None, llm_a=None, llm_b=None):
         from ..llm import CachedLLM, LLMSettings
         if llm_a is None or llm_b is None:
-            s = settings or LLMSettings()
+            s = settings or LLMSettings(role="testing")
             base = {**s.__dict__, "temperature": 0.0, "max_tokens": 300}
             if mode:
                 base["mode"] = mode

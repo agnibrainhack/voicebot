@@ -593,7 +593,7 @@ class LLMPolicyJudge:
     def __init__(self, model: str | None = None, llm: Any = None, k: int = 6):
         if llm is None:
             from ..llm import CachedLLM, LLMSettings
-            llm = CachedLLM(settings=LLMSettings(model=model or "gpt-41", temperature=0.0), tag="policy-judge")
+            llm = CachedLLM(settings=LLMSettings(model=model or "", temperature=0.0, role="testing"), tag="policy-judge")
         self.llm, self.k = llm, k
         self.errors: list[str] = []
         self.calls = 0

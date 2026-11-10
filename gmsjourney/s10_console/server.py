@@ -13,8 +13,8 @@
     GET  /api/runs/<id>/verdict             the one-page verdict (s09_reports/verdict.py): gates, risks, fingerprint, case by case
     GET  /api/journey/<pack>/sut            the suggested prompt for an LLM bot, and the fixed part the harness adds
     POST /api/attach                        text from a file for the LLM bot's prompt (body: {name, data: base64})
-    POST /api/llm/settings                  the test tools' LLM: gateway or a local model (body: {backend, local_path,
-                                            vllm_url}); kept in output/console_llm.json
+    POST /api/llm/settings                  one role's LLM (enrichment | testing): gateway or a local model (body: {role,
+                                            backend, model, local_path, vllm_url}); kept in output/console_llm.json
     POST /api/llm/check                     one tiny call through the model gateway (body: {model}), or, with
                                             provider "local", whether a model folder / vLLM server can be used
                                             (body: {provider, local_path, vllm_url})
@@ -137,42 +137,62 @@ _TOOLS_LLM = ROOT / "output" / "console_llm.json"
 
 
 def tools_llm() -> dict[str, Any]:
-    """The test tools' LLM (rewording, dual read, narration, the judges): where it runs and whether it can be used."""
-    from ..llm import backend_env
-    cur = backend_env()
-    if cur["backend"] == "local":
-        from ..s06_bots.llm_bot import status as local_status
-        st = local_status(cur["local_path"], cur["vllm_url"])
-        why = st["detail"] if cur["local_path"] else ("type the model folder (and, for a model served elsewhere, the vLLM "
-                                                      "server URL), then Use this model")
-        return {**cur, "usable": st["usable"], "detail": why}
-    return {**cur, "usable": None, "detail": "Microsoft gateway (checked when a call is made)"}
+    """Where each role's LLM runs, and whether it can be used: ``enrichment`` (the rewording arm, dual read,
+    adversary) and ``testing`` (the two judges, the policy judge, the narration), chosen separately."""
+    from ..llm import ROLES, backend_env
+    out = {}
+    for role in ROLES:
+        cur = backend_env(role)
+        if cur["backend"] == "local":
+            from ..s06_bots.llm_bot import status as local_status
+            st = local_status(cur["local_path"], cur["vllm_url"])
+            why = st["detail"] if cur["local_path"] else ("type the model folder (and, for a model served elsewhere, "
+                                                          "the vLLM server URL), then Use this model")
+            out[role] = {**cur, "usable": st["usable"], "detail": why}
+        else:
+            out[role] = {**cur, "usable": None, "detail": f"Microsoft gateway, deployment {cur['model'] or 'gpt-41'}"}
+    return out
+
+
+def _saved_llm() -> dict[str, Any]:
+    try:
+        d = json.loads(_TOOLS_LLM.read_text())
+    except (OSError, ValueError):
+        return {}
+    if "backend" in d:                                   # an older file: one choice for both roles
+        return {"enrichment": d, "testing": d}
+    return d
 
 
 def save_tools_llm(body: dict) -> dict[str, Any]:
-    """Point the test tools' LLM at the gateway or a local model, for this console and its test runs (kept in
-    output/console_llm.json, applied again when the console starts)."""
-    from ..llm import use_backend
+    """Point one role's LLM (``role``: enrichment | testing) at the gateway (``model``: the deployment) or a local
+    model, for this console and its test runs (kept in output/console_llm.json, applied again at start)."""
+    from ..llm import ROLES, use_backend
+    role = str(body.get("role") or "")
+    if role not in ROLES:
+        raise ValueError(f"role is one of {', '.join(ROLES)}")
     backend = "local" if body.get("backend") == "local" else "gateway"
-    use_backend(backend, str(body.get("local_path") or ""), str(body.get("vllm_url") or ""))
+    rec = {"backend": backend, "model": str(body.get("model") or ""), "local_path": str(body.get("local_path") or ""),
+           "vllm_url": str(body.get("vllm_url") or "")}
+    use_backend(backend, rec["local_path"], rec["vllm_url"], role=role, model=rec["model"])
+    saved = _saved_llm()
+    saved[role] = rec
     try:
         _TOOLS_LLM.parent.mkdir(parents=True, exist_ok=True)
-        _TOOLS_LLM.write_text(json.dumps({"backend": backend, "local_path": str(body.get("local_path") or ""),
-                                          "vllm_url": str(body.get("vllm_url") or "")}, indent=1))
+        _TOOLS_LLM.write_text(json.dumps(saved, indent=1))
     except OSError:
         pass
-    from .bots import reset_judges
-    reset_judges()
+    if role == "testing":
+        from .bots import reset_judges
+        reset_judges()
     return tools_llm()
 
 
 def _load_tools_llm() -> None:
-    try:
-        d = json.loads(_TOOLS_LLM.read_text())
-    except (OSError, ValueError):
-        return
-    from ..llm import use_backend
-    use_backend(d.get("backend"), d.get("local_path"), d.get("vllm_url"))
+    from ..llm import ROLES, use_backend
+    for role, d in _saved_llm().items():
+        if role in ROLES and isinstance(d, dict):
+            use_backend(d.get("backend"), d.get("local_path"), d.get("vllm_url"), role=role, model=d.get("model"))
 
 
 def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path | None = None) -> ThreadingHTTPServer:

@@ -746,3 +746,52 @@ def test_the_answer_sheet_lists_every_case_its_answer_key_and_its_rewordings():
     html_ = (Path(d) / "answer_sheet.html").read_text()
     assert info == {"file": "answer_sheet.html", "cases": 3, "rewordings": 3, "accepted": 3}
     assert all(b.qid in html_ for b in bases) and "A correct bot must, in order" in html_ and "proved: same answer key" in html_
+
+
+def test_the_rewording_llm_and_the_judges_llm_are_chosen_separately():
+    from gmsjourney import llm as L
+    from gmsjourney.s10_console import server as SV
+    keys = [k for k in os.environ if k.startswith("GMSJOURNEY_LLM_")]
+    keep = {k: os.environ[k] for k in keys}
+    old = SV._TOOLS_LLM
+    SV._TOOLS_LLM = Path(tempfile.mkdtemp()) / "console_llm.json"
+    try:
+        SV.save_tools_llm({"role": "enrichment", "backend": "gateway", "model": "gpt-55"})
+        out = SV.save_tools_llm({"role": "testing", "backend": "local", "local_path": "/models/Qwen2.5-7B", "vllm_url": "http://127.0.0.1:9/v1"})
+        assert out["enrichment"]["backend"] == "gateway" and out["enrichment"]["model"] == "gpt-55"
+        assert out["testing"]["backend"] == "local" and out["testing"]["usable"]
+        assert L.LLMSettings(role="enrichment").model == "gpt-55" and L.LLMSettings(role="enrichment").backend == "gateway"
+        assert L.LLMSettings(role="testing").model == "local-Qwen2.5-7B"
+        from gmsjourney.s07_checks.llm_judges import Judges
+        assert Judges().a.settings.backend == "local"                      # the judges follow the testing choice
+        saved = json.loads(SV._TOOLS_LLM.read_text())
+        assert set(saved) == {"enrichment", "testing"}
+        try:
+            SV.save_tools_llm({"role": "everything", "backend": "local"})
+            raise AssertionError("an unknown role was accepted")
+        except ValueError:
+            pass
+        html = (Path(SV.__file__).parent / "ui.html").read_text()
+        assert 'llmPick("enrichment", "rf-enr", "Rewording LLM")' in html and 'llmPick("testing", "rf-jdg"' in html
+        assert 'llmPick("testing", "pg-jdg"' in html
+    finally:
+        SV._TOOLS_LLM = old
+        for k in [k for k in os.environ if k.startswith("GMSJOURNEY_LLM_")]:
+            os.environ.pop(k)
+        os.environ.update(keep)
+
+
+def test_the_validation_report_shows_the_rules_and_both_judges_for_every_run():
+    from gmsjourney.s07_checks.diagnosis import render_bot_validation_html
+    rows = [{"sid": "J000~base", "arm": "base", "correct": 1, "workflow_adherent": 1, "outcome_correct": 1, "c_speech": 1},
+            {"sid": "J001~base", "arm": "base", "correct": 0, "workflow_adherent": 1, "outcome_correct": 0, "c_speech": 1,
+             "c_transfer": 0, "failure_codes": ["ESCALATION_MISSED"]}]
+    j = {"J000~base": {"a": {"verdict": "correct", "reason": "fine"}, "b": {"verdict": "incorrect", "reason": "promised a refund"},
+                       "combined": {"status": "judges split"}},
+         "J001~base": {"a": {"verdict": "incorrect", "reason": "no transfer"}, "b": {"verdict": "incorrect", "reason": "x"},
+                       "combined": {"status": "agree"}}}
+    page = render_bot_validation_html({"results": {"bot": "B"}, "llm_judges": {"model": "local-X (local model)"}}, rows, j)
+    assert "Three verdicts per run" in page and "judge A, the auditor" in page and "promised a refund" in page
+    assert "stages wrong: transfer" in page and "ESCALATION_MISSED" in page and "local-X" in page
+    off = render_bot_validation_html({"results": {"bot": "B"}}, rows, {})
+    assert "were off for this run" in off

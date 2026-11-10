@@ -142,12 +142,18 @@ class CampaignConfig:
     budgets: dict | None = None                  # ConstraintBudget fields (None = defaults)
     decision_rule: str = "strict"                # strict | quorum   (runtime gates)
     calibration_bootstrap: int = 200             # bootstrap resamples for theta / tau intervals
-    # where the test tools' LLM runs (rewording, dual read, adversary, narration, the judges): "gateway" (the
-    # Microsoft gateway) or "local" (a vLLM model: llm_local_path in this process, or the server at llm_vllm_url).
-    # None: the environment's choice (llm.backend_env). The bot under test chooses its own model.
+    # where the enrichment LLM runs (the LLM arm: rewording, dual read, adversary): "gateway" (the Microsoft gateway,
+    # deployment llm_model) or "local" (a vLLM model: llm_local_path in this process, or the server at llm_vllm_url).
+    # None: the environment's choice (llm.backend_env("enrichment")). The bot under test chooses its own model.
     llm_backend: str | None = None
     llm_local_path: str | None = None
     llm_vllm_url: str | None = None
+    # where the testing LLM runs (the two judges, the speech check's policy judge, the case narration), chosen
+    # separately: the same choices, judges_model being the gateway deployment. None: llm.backend_env("testing")
+    judges_backend: str | None = None
+    judges_model: str | None = None
+    judges_local_path: str | None = None
+    judges_vllm_url: str | None = None
     # two independent LLM judges read every run of the bot beside the rule-based verdict (which still decides);
     # their verdicts and any disagreement with the rules are reported (s07_checks/llm_judges.py)
     llm_judges: bool = False
@@ -276,9 +282,13 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     out = Path(cfg.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     R: dict[str, Any] = {"config": {k: v for k, v in asdict(cfg).items() if k not in ("bot_factory", "on_step")}}
-    if cfg.llm_backend:                           # every test tool's LLM, from here on
-        from ..llm import use_backend
-        use_backend(cfg.llm_backend, cfg.llm_local_path, cfg.llm_vllm_url)
+    from ..llm import use_backend                 # where each role's LLM runs, from here on
+    if cfg.llm_backend:
+        use_backend(cfg.llm_backend, cfg.llm_local_path, cfg.llm_vllm_url, role="enrichment",
+                    model=cfg.llm_model or None)
+    if cfg.judges_backend:
+        use_backend(cfg.judges_backend, cfg.judges_local_path, cfg.judges_vllm_url, role="testing",
+                    model=cfg.judges_model or None)
     if cfg.device:                                # the store's encoders and training run here
         from ..s03_knowledge import build as kx_store
         kx_store.DEVICE = cfg.device
@@ -437,7 +447,7 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         log("[5b/13] LLM enrichment arm: generate blind, gate every turn, prove separately, controls on LLM text")
         from ..llm import LLMSettings, LLMUnavailable
         from ..s05_rewording.llm_proof import build_llm_arm
-        settings = cfg.llm_settings or LLMSettings(model=cfg.llm_model or "", temperature=cfg.llm_temperature,
+        settings = cfg.llm_settings or LLMSettings(model=cfg.llm_model or "", temperature=cfg.llm_temperature, role="enrichment",
                                                    mode=cfg.llm_mode, cache_dir=cfg.llm_cache_dir)
         llm_realizer, llm_validator, clients = build_llm_arm(
             store, oracle, reader, validator, settings, dual_read=cfg.llm_dual_read,

@@ -868,7 +868,8 @@ def _elapsed(events) -> float | None:
 OPTIONS = ("max_cases", "runs_per_base", "seed", "run_resilience", "run_mutation", "run_power", "run_governance",
            "speech_controls", "calibration_bootstrap", "negative_controls_per_type", "llm_arm", "llm_mode", "llm_model",
            "rebuild_store", "profile", "customer", "llm_backend", "llm_local_path", "llm_vllm_url", "llm_judges",
-           "llm_judges_mode", "llm_judges_max_runs")
+           "llm_judges_mode", "llm_judges_max_runs", "judges_backend", "judges_model", "judges_local_path",
+           "judges_vllm_url")
 
 
 def main(run_dir: str) -> int:
