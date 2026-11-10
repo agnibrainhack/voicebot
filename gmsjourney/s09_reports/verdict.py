@@ -227,6 +227,7 @@ def build(path: str | Path) -> dict[str, Any]:
                   "bot_tools": "" if t.get("actual_tools") in (None, "-") else t["actual_tools"],
                   "bot_acts": t.get("actual_bot_acts") or "", "bot_text": t.get("actual_bot_text") or "",
                   "speech": _speech(t.get("speech_check")), "match": t.get("turn_match") == "True",
+                  "after_end": t.get("after_bot_ended") == "True",
                   "after": t.get("after_divergence") == "True"} for t in tbt.get(sid, [])]
         cases.append({"sid": sid, "base": r.get("seed") or sid.split("~")[0], "arm": r.get("arm") or "base",
                       "wording": "original" if (r.get("arm") or "base") == "base" else f"reworded ({r.get('arm')})",
@@ -323,7 +324,8 @@ def render_html(V: dict[str, Any]) -> str:
         return f"<div class='side {cls}'><div class='lbl'>{e(label)}</div>" + "".join(f"<span class='mono'>{e(x)}</span>" for x in lines) + extra + "</div>"
 
     def turn(t):
-        mark = ("ok", "✓ same") if t["match"] else ("warn", "after a difference") if t["after"] else ("bad", "✗ first difference")
+        mark = ("ok", "✓ same") if t["match"] else ("bad", "✗ the bot had already ended the call") if t.get("after_end") else \
+            ("warn", "after a difference") if t["after"] else ("bad", "✗ first difference")
         bot_extra = (f"<div class='said'>“{e(t['bot_text'])}”</div>" if t["bot_text"] else "") + \
             (f"<div class='speech'>Speech check: {e(t['speech'])}</div>" if t["speech"] else "")
         return (f"<div class='turn {'ok' if t['match'] else 'after' if t['after'] else 'bad'}'><div class='cust'><span class='who'>Turn {e(str(t['turn']))}"

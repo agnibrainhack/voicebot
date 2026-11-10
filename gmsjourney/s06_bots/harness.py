@@ -103,8 +103,10 @@ class JourneyRunner:
     The customer is ``scripted`` or ``adaptive``. Scripted, it says the base journey's lines in order (the lines the
     customer says in the graph's own conversation, ``paths.base_path``, in the states they answer), whatever the bot
     replies: every bot turn meets exactly the input the graph met, and a deviation never changes what the customer
-    says next. It stops when the base journey has no more lines or the bot ends the call. Adaptive, the customer
-    answers whatever the bot actually asked (``UserSimulator.respond``), so the conversation follows the bot.
+    says next. The customer plays its part to the end: when the bot ends the call early (hangs up, transfers) the
+    remaining lines are still said and every bot reply recorded, and ``extras["bot_ended_at"]`` is the line before
+    which the bot ended it (None: it did not end early). It stops when the base journey has no more lines. Adaptive,
+    the customer answers whatever the bot actually asked (``UserSimulator.respond``) and stops when the bot ends.
     """
     store: Any
     realizer: Any
@@ -165,6 +167,7 @@ class JourneyRunner:
         last_kb = None
         speech = self.speech.conversation(fx.get("session_date")) if self.speech is not None else None
         t0 = time.perf_counter()
+        ended_at = None                              # the customer line before which the bot ended the call
         turn: BotTurn = bot.start()
         bot_stats.append(_turn_stats(turn.text, t0))
         for i in range(MAX_USER_TURNS + 1):
@@ -179,8 +182,10 @@ class JourneyRunner:
                 monitor.on_bot(turn.text, turn.acts if self.use_structured_acts else None)
                 monitor.on_speech(said)      # the speech check's findings, sealed live into the audit
             self._observe_acts(tr, acts, last_kb, turn.text)
-            if turn.ended or i == MAX_USER_TURNS:
+            if i == MAX_USER_TURNS or (turn.ended and script is None):
                 break
+            if turn.ended and ended_at is None and i < len(script):   # the bot hung up early: the customer plays on
+                ended_at = i
             act = dict(acts[-1])
             if self.graph is None:                    # one review per item: the customer answers about the current one
                 for a in acts:
@@ -240,6 +245,7 @@ class JourneyRunner:
             extras={"trace": tr, "transcript": transcript, "invariance_violations": violations,
                     "customer": "scripted" if script is not None else "adaptive",
                     "script_lines": len(script) if script is not None else None,
+                    "bot_ended_at": ended_at,
                     "bot_turn_stats": bot_stats, "arm": scn.metadata.get("arm", "template"),
                     "injected": list(getattr(tools, "injected", [])),
                     "governance": monitor.finish() if monitor is not None else None,
@@ -416,6 +422,7 @@ class GraphRunner(JourneyRunner):
         current = None
         last_kb = None
         t0 = time.perf_counter()
+        ended_at = None                              # the customer line before which the bot ended the call
         turn = bot.start()
         bot_stats.append(_turn_stats(turn.text, t0))
         for i in range(MAX_USER_TURNS + 1):
@@ -429,8 +436,10 @@ class GraphRunner(JourneyRunner):
                 for v in a.values():
                     if isinstance(v, str) and v in items:
                         current = items[v]
-            if turn.ended or i == MAX_USER_TURNS:
+            if i == MAX_USER_TURNS or (turn.ended and script is None):
                 break
+            if turn.ended and ended_at is None and i < len(script):   # the bot hung up early: the customer plays on
+                ended_at = i
             act = dict(acts[-1])
             if script is not None:                   # the base journey's next line, whatever the bot just said
                 if i >= len(script):
@@ -475,6 +484,7 @@ class GraphRunner(JourneyRunner):
             extras={"trace": tr, "transcript": transcript, "invariance_violations": violations,
                     "customer": "scripted" if script is not None else "adaptive",
                     "script_lines": len(script) if script is not None else None,
+                    "bot_ended_at": ended_at,
                     "bot_turn_stats": bot_stats, "arm": scn.metadata.get("arm", "template"),
                     "injected": list(getattr(tools, "injected", [])),
                     "governance": monitor.finish() if monitor is not None else None})

@@ -423,6 +423,7 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
     ont = runner.ont
     speech_open, speech_turns = speech_by_turn(actual.events, ((res.extras.get("speech") or {}).get("turns") or []))
     rows, diverged_at = [], None
+    ended_at = res.extras.get("bot_ended_at")
     for i in range(max(len(exp_turns), len(act_turns))):
         e = exp_turns[i] if i < len(exp_turns) else None
         a = act_turns[i] if i < len(act_turns) else None
@@ -457,12 +458,14 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
             "actual_next_state": a_acts[-1][0] if a_acts else "-",
             "tools_match": tools_ok, "acts_match": acts_ok, "turn_match": ok,
             "after_divergence": diverged_at is not None and i > diverged_at,
+            "after_bot_ended": ended_at is not None and i >= ended_at,     # said to a bot that had hung up
         })
     from ..s07_checks.scoring import score
     row = score(scenario, res, oracle.limits, oracle.store.workflow)
     summary = {
         "case_id": scenario.sid, "base_id": item.qid, "turns_expected": len(exp_turns), "turns_actual": len(act_turns),
         "first_divergence_turn": diverged_at, "turns_matching": sum(r["turn_match"] for r in rows),
+        "bot_ended_at": ended_at,
         "expected_outcome": json.loads(item.answer) if isinstance(item.answer, str) else item.answer,
         "actual_outcome": json.loads(res.answer) if isinstance(res.answer, str) else res.answer,
         "outcome_correct": bool(row.get("outcome_correct", row["correct"])),

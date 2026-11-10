@@ -214,7 +214,10 @@ s06_bots/
      the bot answers. `paths` (the invariance validator) gives them: `base_path` and `base_states`, the customer lines
      of the graph's own conversation of the case and the state each one answers. A bot that goes wrong at turn 3 still
      hears turn 4 of the base case, so the case it is graded on is the case that was designed and proved, not one the
-     bot steered into; the conversation simply ends where the base journey's lines run out or the bot hangs up;
+     bot steered into. The customer plays its part to the end: if the bot ends the call early (hangs up, transfers),
+     the remaining lines are still said and every bot reply is recorded and checked, so the turn-by-turn view shows
+     each line the bot no longer handled (`extras["bot_ended_at"]`, `after_bot_ended` per turn). The conversation
+     ends when the base journey's lines run out;
    * `"adaptive"`: the customer simulator answers the bot's last act (chapter 4), so after a bot mistake it answers
      what the bot actually asked. Useful to explore a bot, not to grade one against a fixed case.
 

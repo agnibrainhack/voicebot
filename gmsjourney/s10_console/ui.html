@@ -2916,13 +2916,16 @@ function playChat() {
   const P = pgState(), Ses = P.sess;
   const items = Ses.turns.map(t => exchange(t, Ses));
   if (P.pending != null) items.push(h("div", { class: "typing" }, h("span", { class: "spin" }), P.pendingMode === "journey" ? `Sending the journey's line${P.pending ? `: “${P.pending}”` : ""}…` : `Sending “${P.pending}”…`, Ses.bot === "llm" ? " The LLM bot is working (each tool call is a gateway call)." : ""));
-  if (Ses.ended) items.push(h("div", { class: `notice ${Ses.deviations.length ? "bad" : "ok"}` }, h("b", {}, "The call has ended. "), Ses.deviations.length ? `The bot deviated from the graph at ${plural(Ses.deviations.length, "turn")}: ${Ses.deviations.map(n => n === 0 ? "the opening" : n).join(", ")}.` : "Every turn matched what the graph expects."));
+  const done = Ses.ended && !Ses.journey_line;
+  if (Ses.ended && !done) items.push(h("div", { class: "notice warn" }, h("b", {}, `The bot ended the call at ${Ses.ended_turn === 0 ? "the opening" : `turn ${Ses.ended_turn}`}. `),
+    "The base journey still has customer lines: keep sending them to play the customer's part to the end. Each bot reply is still checked against the graph."));
+  if (done) items.push(h("div", { class: `notice ${Ses.deviations.length ? "bad" : "ok"}` }, h("b", {}, "The call has ended. "), Ses.deviations.length ? `The bot deviated from the graph at ${plural(Ses.deviations.length, "turn")}: ${Ses.deviations.map(n => n === 0 ? "the opening" : n).join(", ")}.` : "Every turn matched what the graph expects."));
   items.push(h("span", { id: "chat-end" }));
   const jl = Ses.journey_line;
-  const ta = h("textarea", { class: "input", id: "pg-say", rows: 2, placeholder: "Type anything the customer might say (Enter sends, Shift+Enter for a new line)", disabled: Ses.ended || P.busy, "aria-label": "What the customer says",
+  const ta = h("textarea", { class: "input", id: "pg-say", rows: 2, placeholder: "Type anything the customer might say (Enter sends, Shift+Enter for a new line)", disabled: (Ses.ended && !Ses.journey_line) || P.busy, "aria-label": "What the customer says",
     oninput: e => { P.draft = e.target.value; }, onkeydown: e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sayPlay("free", e.target.value); } } });
   ta.value = P.draft || "";
-  const composer = Ses.ended ? h("div", { class: "compose2 ended" }, h("p", { class: "muted" }, "The call has ended."), h("button", { class: "btn", onclick: () => startPlay() }, "Restart this case"), h("button", { class: "btn primary", onclick: () => { P.sess = null; paintPlay(); } }, "New conversation"))
+  const composer = done ? h("div", { class: "compose2 ended" }, h("p", { class: "muted" }, "The call has ended."), h("button", { class: "btn", onclick: () => startPlay() }, "Restart this case"), h("button", { class: "btn primary", onclick: () => { P.sess = null; paintPlay(); } }, "New conversation"))
     : h("div", { class: "compose2", role: "group", "aria-label": "How the customer answers" },
       h("div", { class: "opt journey" }, h("div", { class: "ot" }, "Stick to the journey"),
         jl ? [h("div", { class: "line-q" }, `“${jl.text}”`), h("div", { class: "small muted mono" }, jl.read),
@@ -3027,7 +3030,7 @@ function vturns(c) {
   const cut = c.first_difference == null ? c.turns.length : c.turns.findIndex(t => String(t.turn) === String(c.first_difference)) + 2;
   const row = t => h("div", { class: `vturn ${t.match ? "ok" : t.after ? "after" : "bad"}` },
         h("div", { class: "vcust" }, h("span", { class: "who" }, `Turn ${t.turn}${t.state ? " · " + t.state : ""}`), h("span", {}, t.customer || ""),
-          h("span", { class: `mark ${t.match ? "ok" : t.after ? "warn" : "bad"}` }, t.match ? "✓ same" : t.after ? "after a difference" : "✗ first difference")),
+          h("span", { class: `mark ${t.match ? "ok" : t.after_end ? "bad" : t.after ? "warn" : "bad"}` }, t.match ? "✓ same" : t.after_end ? "✗ the bot had already ended the call" : t.after ? "after a difference" : "✗ first difference")),
         h("div", { class: "vgrid" },
           h("div", { class: "vside exp" }, t.exp_tools ? h("div", { class: "mono small" }, t.exp_tools) : null, h("div", { class: "mono small" }, t.exp_acts || "nothing (the call has ended)")),
           h("div", { class: "vside bot" }, t.bot_tools ? h("div", { class: "mono small" }, t.bot_tools) : null, h("div", { class: "mono small" }, t.bot_acts || "–"),

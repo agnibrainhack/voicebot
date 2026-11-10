@@ -555,6 +555,7 @@ class Session:
     ended: bool = False
     created: float = field(default_factory=time.time)
     judges: bool = False                                # the two LLM judges read every bot turn beside the rules
+    ended_turn: int | None = None                       # the turn at which the bot ended the call
     base: list | None = None                            # the base journey's customer lines (built on first use)
     base_i: int = 0                                     # the next of them
     last_acts: list = field(default_factory=list)
@@ -606,9 +607,8 @@ class Session:
             return str(frame)
 
     def journey_line(self) -> dict | None:
-        """The journey's next customer line, without using it up: {text, card} or None."""
-        if self.ended:
-            return None
+        """The journey's next customer line, without using it up: {text, card} or None. The customer plays its part to
+        the end: after the bot has ended the call, the base journey's remaining lines are still offered."""
         fr = self._journey_frame(consume=False)
         if fr is None:
             return None
@@ -682,6 +682,10 @@ class Session:
         after = self.diverged_at is not None
         speech = _speech(rep)
         why = []
+        hung_up = customer is not None and self.ended          # the bot had ended the call before this line
+        if hung_up:
+            why.append(f"the bot had already ended the call (at {'the opening' if self.ended_turn == 0 else f'turn {self.ended_turn}'}); "
+                       "the customer plays the rest of the journey")
         if customer is not None and i >= len(exp_turns):
             why.append("the graph's conversation has already ended here, but the bot carried on")
         else:
@@ -696,11 +700,13 @@ class Session:
             bad += [f"{f['kind']} {f.get('act') or ''}".strip() for f in speech["findings"] if not f["advisory"]]
             if bad:
                 why.append("words: " + "; ".join(bad))
-        deviated = not match or bool(speech and not speech["ok"])
+        deviated = not match or bool(speech and not speech["ok"]) or (hung_up and bool(e_acts or e_tools))
         if deviated:
             self.deviations.append(len(self.turns))
             if self.diverged_at is None:
                 self.diverged_at = len(self.turns)
+        if turn.ended and not self.ended:
+            self.ended_turn = len(self.turns)
         self.ended = bool(turn.ended) or self.ended
         self.last_acts = [a for a in acts if not str(a.get("act", "")).startswith("(")] or self.last_acts
         state = customer.get("state") if customer else None
@@ -759,8 +765,8 @@ class Session:
         is ignored); "free": ``text`` as typed (it counts as the journey's line when it means the same, otherwise it is
         an extra turn and the journey's line stays next). Both are read into a meaning card and validated the same way."""
         from ..s09_reports.cases import frame_hrt
-        if self.ended:
-            raise ValueError("the conversation has ended; start a new one")
+        if self.ended and mode != "replay" and self._journey_frame(consume=False) is None:
+            raise ValueError("the bot has ended the call and the base journey has no more customer lines; start a new one")
         if len(self.turns) >= MAX_TURNS:
             raise ValueError(f"{MAX_TURNS} turns is the playground's limit; start a new conversation")
         B = bench()
@@ -806,6 +812,7 @@ class Session:
         return {"id": self.id, "pack": self.pack, "case": self.case["id"], "case_label": self.case["label"],
                 "source": self.source, "replay_of": self.replay_of,
                 "bot": self.bot_kind, "bot_name": self.bot_name, "turns": self.turns, "ended": self.ended,
+                "ended_turn": self.ended_turn,
                 "diverged_at": self.diverged_at, "deviations": list(self.deviations), "next_line": self._next_line(),
                 "journey_line": self.journey_line(), "judges": self.judges,
                 "judges_model": judges().model if self.judges else None,
@@ -953,8 +960,8 @@ def replay(rec: dict, sut: dict | None = None, runs_root: Path | None = None, fa
         find_case(src, rec["case"])                     # KeyError: the case no longer exists
     s = _open(src, rec["case"], sut, fac=fac, name=name)
     s.replay_of = rec["id"]
-    for ln in rec.get("lines") or []:
-        if s.ended or len(s.turns) >= MAX_TURNS:
+    for ln in rec.get("lines") or []:               # every saved line, even after the bot has ended the call
+        if len(s.turns) >= MAX_TURNS:
             break
         s.say(ln["text"], "replay")
     return s
@@ -971,8 +978,9 @@ def replay_result(rec: dict, s: Session | None, error: str | None = None) -> dic
     out = {**base, "passed": not s.deviations and sent == base["lines"], "sent": sent, "deviations": list(s.deviations),
            "first_deviation": first, "why": s.turns[first]["why"] if first is not None else [], "ended": s.ended,
            "bot": s.bot_name, "session": s.id}
-    if sent < base["lines"]:
-        out["why"] = out["why"] + [f"the bot ended the call after {sent} of {base['lines']} customer lines"]
+    if s.ended_turn is not None and s.ended_turn < len(s.turns) - 1:
+        out["why"] = out["why"] + [f"the bot ended the call at turn {s.ended_turn}, before the customer had said all "
+                                   f"{base['lines']} lines"]
     return out
 
 

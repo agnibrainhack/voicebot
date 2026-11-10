@@ -112,7 +112,8 @@ to do with the policy.
 In a test run, though, the customer does **not** follow the bot: it plays the case's **base journey**, the lines of
 the graph's own conversation of the case, in order (`JourneyRunner(customer="scripted")`, chapter 6). The simulator
 writes that base journey (the oracle plays it against the graph); once written, a bot that goes wrong cannot change
-what the customer says next, so every bot is graded on the same case. The reactive customer is still there for
+what the customer says next, so every bot is graded on the same case. The customer says every line of the base
+journey, even after a bot ends the call early. The reactive customer is still there for
 exploring a bot (`customer="adaptive"`).
 
 `activate(project)` builds every case from a given project from now on (the studio previews unsaved edits this way);

@@ -217,7 +217,9 @@ s10_console/
   exactly), or the project's default case and one case per non-default level (`factor_cases`). A `Session` sets the
   mock bank from the case and keeps the case's simulated customer. At every turn the tester picks one of two ways to
   answer (`Session.say(text, mode)`):
-  * `journey`: the **base journey's** next line (`_base_lines`: the customer lines of the graph's own conversation of
+  * `journey`: the **base journey's** next line (offered even after the bot has ended the call, until the base
+    journey's lines run out, so the customer's part is always played to the end; each such turn says the bot had
+    already ended the call, `ended_turn`) (`_base_lines`: the customer lines of the graph's own conversation of
     the case, as a test run's scripted customer says them), whatever the bot said; `base_i` points at it and
     `journey_line` previews it. After the last line there is nothing to send and the tester talks freely;
   * `free`: the typed words, shown next to the journey's next line and whether it means the same. A typed line that

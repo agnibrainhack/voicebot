@@ -204,7 +204,7 @@ studio shares the setting. Its parts:
   beside both judges' verdicts and reasons, the agreement rates, and the runs where they disagree.
 - **The customer in a test run**: *Customer follows the base journey* (on by default, under Checks on the run page)
   has each case's customer say its base journey's lines whatever the bot answers, so a wrong turn cannot steer the
-  rest of the case; unchecked, the customer answers the bot's last question instead.
+  rest of the case; the customer plays every line, even after the bot ends the call early; unchecked, the customer answers the bot's last question instead.
 - **Saved conversations**: *Save as a test case* in the Playground keeps a conversation's customer lines with the
   journey (`<pack>/saved_conversations.json`); replay one with any bot, and every test run replays them all against its
   bot and reports which deviated.

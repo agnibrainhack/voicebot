@@ -124,20 +124,23 @@ def test_the_scripted_customer_says_the_base_journey_whatever_the_bot_does():
     val = GraphInvarianceValidator(store, oracle, rd, R)
     kw = dict(store=store, realizer=R, reader=rd, paths=val)
     said = lambda r: [str(e["frame"]) for e in r.extras["trace"].events if e["role"] == "user"]
-    steered = 0
+    steered = early = 0
     for m in [None, *mutants(dom.graph)]:
         f = make_graph_factory(store, frozenset({m}) if m else frozenset())
         for b in bases:
             scn = Scenario(f"{b.qid}~base", b, {}, "base")
             base = [str(fr) for fr, _ in val.base_path(b)]
             r = GraphRunner(bot_factory=f, customer="scripted", **kw).run(scn)
-            assert r.extras["customer"] == "scripted" and said(r) == base[:len(said(r))], (m, b.qid)
+            assert r.extras["customer"] == "scripted" and said(r) == base, (m, b.qid)   # every line, even after a hang-up
             if m is None:
-                assert said(r) == base, b.qid
+                assert r.extras["bot_ended_at"] is None, b.qid
+            else:
+                early += r.extras["bot_ended_at"] is not None
             a = GraphRunner(bot_factory=f, customer="adaptive", **kw).run(scn)
             assert a.extras["customer"] == "adaptive"
             steered += said(a) != said(r)
     assert steered, "no defect ever steered the adaptive customer off its base journey"
+    assert early, "no defect ended a call early (the customer should have played on)"
     print(f"ok test_the_scripted_customer_says_the_base_journey_whatever_the_bot_does {dom.name}: "
           f"{steered} runs where the adaptive customer would have followed the bot")
 

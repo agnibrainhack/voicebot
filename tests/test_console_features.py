@@ -795,3 +795,27 @@ def test_the_validation_report_shows_the_rules_and_both_judges_for_every_run():
     assert "stages wrong: transfer" in page and "ESCALATION_MISSED" in page and "local-X" in page
     off = render_bot_validation_html({"results": {"bot": "B"}}, rows, {})
     assert "were off for this run" in off
+
+
+def test_the_playground_customer_plays_on_after_the_bot_ends_the_call():
+    from gmsjourney.s10_console import bots as PG
+    domain.set_current("charge_review_graph")
+    PG.cases("project", None)
+    s = PG.get(PG.start("project", "default", None)["id"])
+    s.say("", "journey")
+    s.say("I want to talk to a real person.", "free")                 # the bot hands over: the call ends here
+    assert s.ended and s.ended_turn == len(s.turns) - 1
+    left = len(s._base_lines()) - s.base_i
+    assert left > 0 and s.journey_line() is not None                  # the journey still has the customer's lines
+    s.say("", "journey")
+    t = s.turns[-1]
+    assert any("already ended the call" in w for w in t["why"]) and t["deviated"]
+    while s.journey_line() is not None:
+        s.say("", "journey")
+    assert s.base_i == len(s._base_lines())
+    try:
+        s.say("", "journey")
+        raise AssertionError("a line past the end of the journey after a hang-up")
+    except ValueError as e:
+        assert "no more customer lines" in str(e)
+    assert s.view()["ended_turn"] == 2
