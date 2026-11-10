@@ -382,10 +382,6 @@ details > summary { cursor: pointer; padding: 11px 16px; font-weight: 600; }
 .db .pa, .db .pb { position: absolute; top: 1px; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%; }
 .db .pa { background: var(--panel); box-shadow: inset 0 0 0 2px var(--ink-2); }
 .db .pb { background: var(--accent); box-shadow: 0 0 0 2px var(--panel); }
-.critpick { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
-.critpick .t { font-weight: 600; }
-.critpick .devs, .devs.w { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-.critpick .dn, .devs.w .dn { font-family: var(--sans); font-weight: 600; font-size: 13px; }
 .saved { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
 .saved > li { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 10px 0; border-top: 1px solid var(--line); }
 .saved > li:first-child { border-top: 0; padding-top: 2px; }
@@ -2427,21 +2423,17 @@ function sutEditor(opts = {}) {
     }
     paint();
   }
-  function critiquePick() {          // use the critique LLM or not: one call reviews every step of the bot before it runs
-    const on = t.critique !== false, set = v => { t.critique = v; sutSave(); paint(); };
-    return h("div", { class: "critpick" },
-      h("div", { class: "row", style: "justify-content:space-between" }, h("span", { class: "t", id: `${opts.id}-crit-l` }, "Critique LLM"),
-        h("span", { class: "small muted" }, on ? "about twice the model calls" : "one model call per step")),
-      h("div", { class: "devs", role: "radiogroup", "aria-labelledby": `${opts.id}-crit-l` },
-        h("label", {}, h("input", { type: "radio", name: `${opts.id}-crit`, value: "on", checked: on, onchange: () => set(true) }),
-          h("span", { class: "dn" }, "Use the critique LLM"), h("span", { class: "dd" }, "A second call reviews every step (each tool call and each reply) against the procedure and approves or corrects it before it runs")),
-        h("label", {}, h("input", { type: "radio", name: `${opts.id}-crit`, value: "off", checked: !on, onchange: () => set(false) }),
-          h("span", { class: "dn" }, "No critique"), h("span", { class: "dd" }, "The bot's steps run as the model proposes them: the model on its own"))),
+  function critiquePick() {          // a plain checkbox: use the critique LLM or not (gateway or local model)
+    const on = t.critique !== false;
+    return h("div", { class: "stack", style: "gap:6px" },
+      h("label", { class: "row", style: "gap:8px;cursor:pointer" },
+        h("input", { type: "checkbox", id: `${opts.id}-crit`, checked: on ? true : null, onchange: e => { t.critique = e.target.checked; sutSave(); paint(); } }),
+        h("b", {}, "Use the critique LLM"),
+        h("span", { class: "small muted" }, on ? "a second call reviews every step and approves or corrects it before it runs (about twice the calls)" : "off: the bot's steps run as the model proposes them")),
       on && t.provider !== "local" ? h("div", { class: "row", style: "gap:8px" }, h("label", { class: "small muted", for: `${opts.id}-critic` }, "Critique model"),
         h("input", { class: "input mono", id: `${opts.id}-critic`, style: "width:150px", value: t.critic_model || "", placeholder: t.model || "gpt-41", autocomplete: "off", spellcheck: "false",
           oninput: e => { t.critic_model = e.target.value.trim(); sutSave(); } }),
-        h("span", { class: "small muted" }, "Empty: the bot's own model reviews its steps; another deployment name gives an independent reviewer.")) : null,
-      on && t.provider === "local" ? h("p", { class: "small muted" }, "With a local model, the same model reviews its steps.") : null);
+        h("span", { class: "small muted" }, "Empty: the bot's own model reviews its steps.")) : null);
   }
   function parts() {
     const where = opts.id === "pg" ? "this conversation" : opts.id === "run" ? "this test run" : "the Playground and test runs";
@@ -2465,7 +2457,7 @@ function sutEditor(opts = {}) {
     const lck = t.lcheck;
     const checkLocal = async () => { try { t.lcheck = await api("api/llm/check", { provider: "local", local_path: t.local_path, vllm_url: t.vllm_url }); } catch (x) { t.lcheck = { ok: false, detail: x.message }; } paint(); };
     const provider = h("div", { class: "form" }, h("span", { id: `${opts.id}-prov-l`, style: "font-size:12.5px;color:var(--ink-2)" }, "Model runs on"),
-      h("div", { class: "stack", style: "gap:4px" }, h("div", { class: "devs w", role: "radiogroup", "aria-labelledby": `${opts.id}-prov-l` },
+      h("div", { class: "stack", style: "gap:4px" }, h("div", { class: "devs", role: "radiogroup", "aria-labelledby": `${opts.id}-prov-l` },
         h("label", {}, h("input", { type: "radio", name: `${opts.id}-prov`, checked: t.provider !== "local", onchange: () => { t.provider = "gateway"; t.check = null; sutSave(); paint(); } }),
           h("span", { class: "dn" }, "Model gateway"), h("span", { class: "dd" }, "Microsoft, through the network")),
         h("label", {}, h("input", { type: "radio", name: `${opts.id}-prov`, checked: t.provider === "local", onchange: () => { t.provider = "local"; t.lcheck = null; sutSave(); paint(); if (t.local_path || t.vllm_url) checkLocal(); } }),

@@ -212,10 +212,10 @@ studio shares the setting. Its parts:
   after it as reference material. The journey's tools with their allowed values, the transfer reasons, the
   dialog acts and the JSON reply format are always appended (read-only on the page), because the harness needs
   them to run the bot's tool calls and read what it says. Model, live or replay, temperature and the tool-call
-  budget per turn are set there; **Check gateway** makes one tiny call. **Critique LLM**, right under the bot
-  choice and for any model (gateway or local), is the option to use the critique layer or not: *Use the critique
-  LLM* (the default; `GMSJOURNEY_SUT_CRITIQUE=0`, or `SUT_CRITIQUE = False` in the console notebook, makes *No
-  critique* the default) or *No critique* (the model on its own, half the calls). With it on, it makes
+  budget per turn are set there; **Check gateway** makes one tiny call. The **Use the critique LLM** checkbox,
+  right under the bot choice and for any model (gateway or local), turns the critique layer on or off (on by
+  default; `GMSJOURNEY_SUT_CRITIQUE=0`, or `SUT_CRITIQUE = False` in the console notebook, starts it unchecked;
+  unchecked, the model runs on its own with half the calls). Checked, it makes
   a second call before every step the bot proposes, each tool call and each reply: a reviewer given the same
   instructions approves it or returns a corrected step, which is carried out instead (`LLMBot._review`; about twice
   the calls). **Critique model** picks the reviewer: empty for the bot's own model, or another gateway deployment
