@@ -184,7 +184,9 @@ A second system under test: a language model given the procedure, the tools and 
 
 Malformed replies and tool errors are counted (`LLMBotStats`). **The critique layer** (`make_llm_factory(...,
 critique=True)`) adds a second call that reviews every proposed step against the bot's own instructions
-(`critic_system`) and approves it or returns a corrected one; `critic_llm=` lets the reviewer be another model.
+(`critic_system`) and approves it or returns a corrected one; `critic_model=` (a gateway deployment) or `critic_llm=`
+lets the reviewer be another model. It is off unless asked for here; the console asks it as its own choice (*Use the
+critique LLM* or *No critique*) and the campaign notebook as `CRITIQUE`.
 Replies are cached like every LLM call (`llm.py`), so repeated runs of the same conversation cost nothing.
 
 **Where the model runs.** Through the model gateway (`llm.py`), or locally with `LocalChat(path, url=...)`: a chat

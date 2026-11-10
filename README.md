@@ -204,7 +204,7 @@ studio shares the setting. Its parts:
 - **Bot under test** (Start a test run and the Playground, and the **Bot:** switch in the top bar, which always says
   which bot is in use and opens the same choice): the **reference bot** (no LLM: it follows the graph by rules and
   reads the customer by keywords; instant, free, the baseline that checks the test suite) or the **LLM bot** (a
-  language model with your prompt and files, every step reviewed by a **critique LLM** by default;
+  language model with your prompt and files, with or without a **critique LLM** that reviews every step;
   `s06_bots/llm_bot.py`). The choice is kept per journey and shared by the Playground and test runs; runs, verdicts
   and the case explorer name the bot each run used, with its critique model. For the LLM bot the page shows a suggested prompt (who the bot is,
   how it behaves, the journey's operating procedure: its transcription, or the graph as text) that you edit
@@ -212,7 +212,10 @@ studio shares the setting. Its parts:
   after it as reference material. The journey's tools with their allowed values, the transfer reasons, the
   dialog acts and the JSON reply format are always appended (read-only on the page), because the harness needs
   them to run the bot's tool calls and read what it says. Model, live or replay, temperature and the tool-call
-  budget per turn are set there; **Check gateway** makes one tiny call. The **critique layer** (on by default) makes
+  budget per turn are set there; **Check gateway** makes one tiny call. **Critique LLM**, right under the bot
+  choice and for any model (gateway or local), is the option to use the critique layer or not: *Use the critique
+  LLM* (the default; `GMSJOURNEY_SUT_CRITIQUE=0`, or `SUT_CRITIQUE = False` in the console notebook, makes *No
+  critique* the default) or *No critique* (the model on its own, half the calls). With it on, it makes
   a second call before every step the bot proposes, each tool call and each reply: a reviewer given the same
   instructions approves it or returns a corrected step, which is carried out instead (`LLMBot._review`; about twice
   the calls). **Critique model** picks the reviewer: empty for the bot's own model, or another gateway deployment
@@ -682,7 +685,8 @@ redone without re-running the bot: `python tools/case_comparison.py --campaign o
 Each customer turn costs 1-4 gateway calls; replies are cached (temperature 0), so repeated runs of the same
 conversation and `mode="replay"` cost nothing. `bot.stats` / `bot.llm.report()` give calls, cache hits,
 malformed replies and tool errors. `make_llm_factory(..., critique=True)` adds the critique layer (a second call
-reviews every step and may correct it; `critic_llm=` gives the reviewer another model). Tests: `python tests/test_llm_sut.py` (a scripted fake model, no network).
+reviews every step and may correct it; `critic_model="gpt-55"` or `critic_llm=` gives the reviewer another model).
+In the campaign notebook, `CRITIQUE = True/False` and `CRITIC_MODEL` in CELL 15b choose it. Tests: `python tests/test_llm_sut.py` (a scripted fake model, no network).
 
 ## Outputs (`output/campaign_out/`)
 

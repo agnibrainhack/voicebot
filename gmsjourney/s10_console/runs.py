@@ -574,7 +574,7 @@ class Runs:
                                   "mode": sut.get("mode") or "live",
                                   "local_path": str(sut.get("local_path") or "") if sut.get("provider") == "local" else "",
                                   "vllm_url": str(sut.get("vllm_url") or "") if sut.get("provider") == "local" else "",
-                                  "critique": sut.get("critique", True) is not False,
+                                  "critique": __import__("gmsjourney.s10_console.bots", fromlist=["x"]).critique_on(sut),
                                   "critic_model": str(sut.get("critic_model") or ""),
                                   "custom_prompt": bool(sut.get("custom_prompt")),
                                   "references": [{"name": r.get("name"), "chars": len(r.get("text") or "")}

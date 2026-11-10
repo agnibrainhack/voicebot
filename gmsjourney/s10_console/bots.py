@@ -12,6 +12,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 import time
 import uuid
 from collections import OrderedDict
@@ -158,9 +159,14 @@ def suggested(store=None) -> dict[str, Any]:
                               else f"the policy graph ({dom.graph_path.name}) as text")}
 
 
+def critique_default() -> bool:
+    """Whether a new LLM bot uses the critique LLM when nothing says: on, unless GMSJOURNEY_SUT_CRITIQUE is 0/off."""
+    return os.environ.get("GMSJOURNEY_SUT_CRITIQUE", "1").strip().lower() not in ("0", "off", "false", "no")
+
+
 def critique_on(sut: dict[str, Any]) -> bool:
-    """The critique layer is on unless the job turns it off."""
-    v = (sut or {}).get("critique", True)
+    """Whether the job's LLM bot uses the critique LLM (``critique`` in the job; the console's default otherwise)."""
+    v = (sut or {}).get("critique", critique_default())
     return v not in (False, "off", "false", 0, "0", None)
 
 

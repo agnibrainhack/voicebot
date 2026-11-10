@@ -148,7 +148,8 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                 if parts == ["api", "meta"]:
                     from ..s06_bots.llm_bot import status as local_status
                     return self._json({"packs": packs(), "devices": devices(), "runs_dir": str(runs.root),
-                                       "active_run": runs.active(), "sut_local": local_status()})
+                                       "active_run": runs.active(), "sut_local": local_status(),
+                                       "sut_critique": __import__("gmsjourney.s10_console.bots", fromlist=["x"]).critique_default()})
                 if parts[:2] == ["api", "journey"] and len(parts) == 3:
                     st = _studio(parts[2], fresh=parse_qs(u.query).get("fresh") == ["1"])
                     with _on(parts[2]):

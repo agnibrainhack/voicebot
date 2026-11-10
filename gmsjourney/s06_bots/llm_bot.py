@@ -634,6 +634,7 @@ def fake_model():
 
 def make_llm_factory(store=None, settings=None, llm=None, policy_text: str | None = None, max_steps: int = 6,
                      instructions: str | None = None, references: list[dict] | None = None, critique: bool = False,
+                     critic_model: str | None = None,
                      critic_llm=None):
     """A bot_factory for CampaignConfig / JourneyRunner. One CachedLLM (tag "sut") is shared by every
     conversation, so the cache and the call statistics cover the whole campaign: ``factory.llm.report()``,
@@ -641,9 +642,10 @@ def make_llm_factory(store=None, settings=None, llm=None, policy_text: str | Non
     ``instructions`` replaces the suggested instructions (who the bot is and its procedure); ``references`` are
     attached files ({name, text}) added after them; the tools, acts and reply format are always appended.
 
-    ``critique`` adds the critique layer: a second call (``critic_llm``, default the same model) reviews every
-    proposed step - each tool call and each reply - against the same instructions and approves it or returns a
-    corrected step, which the bot carries out instead (``LLMBot._review``)."""
+    ``critique`` adds the critique layer (off by default here; the console turns it on unless told otherwise): a
+    second call reviews every proposed step - each tool call and each reply - against the same instructions and
+    approves it or returns a corrected step, which the bot carries out instead (``LLMBot._review``). The reviewer is
+    ``critic_llm``, or a gateway deployment named by ``critic_model``, or else the bot's own model."""
     from ..llm import CachedLLM, LLMSettings
     if llm is None:
         s = settings or LLMSettings(temperature=0.0, max_tokens=900)
@@ -657,6 +659,10 @@ def make_llm_factory(store=None, settings=None, llm=None, policy_text: str | Non
     stats = LLMBotStats()
     names = frozenset(acts)
 
+    if critique and critic_llm is None and critic_model and critic_model != llm.settings.model:
+        cs = LLMSettings(model=critic_model, temperature=0.0, max_tokens=llm.settings.max_tokens, mode=llm.settings.mode)
+        fake = fake_model()                             # another deployment reviews the bot's steps
+        critic_llm = CachedLLM(cs, model=fake, tag="critic") if fake is not None else CachedLLM(cs, tag="critic")
     critic = (critic_llm or llm) if critique else None
     csys = critic_system(system) if critique else ""
 
