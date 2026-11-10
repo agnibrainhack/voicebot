@@ -47,6 +47,10 @@ loaded without blocking the page; offline, the system fonts are used. Colour tha
 colours only the journey's validity and an active run; the machine and the bot under test are set quietly. Help on a
 page (dismissable hints) is drawn dashed, status notices solid. Names from the graph are set in mono and stay on one
 line in tables; words, such as filter choices and severities, are set in the text face. One primary button per screen.
+All text, muted grey included, keeps at least 4.5:1 contrast on every surface in both themes; two-column layouts
+stack below 760 px and the top bar drops the machine indicator below 1180 px so the graph path stays readable. The
+server loads its modules before taking requests (two first requests on two threads could otherwise see a module
+half imported) and ignores a page that goes away before its answer; a real fault is written to the console's log.
 
 **Getting around.** **Go to** in the top bar (or Ctrl/⌘ K anywhere) opens a palette that searches every page, journey,
 factor, graph state and recent test run, plus common actions (start a test run, choose the bot, switch theme,
