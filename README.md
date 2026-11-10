@@ -200,6 +200,10 @@ studio shares the setting. Its parts:
   LLM (under *Two LLM judges*, and in the Playground's side panel) and the bot under test (its own card) are each the
   Microsoft gateway (a deployment) or a local model on vLLM (a folder loaded in the process, or a vLLM server URL);
   sent with every run (`llm_backend` ..., `judges_backend` ...).
+- **gpt-oss-20b on vLLM** (`notebooks/gpt_oss_20b_vllm.ipynb`): starts the model in a vLLM server on this machine and
+  makes it the console's rewording and/or judges' model (and, if you like, the bot under test).
+- **Reusing meaning proofs** (Advanced on the run page, on by default): step 5 takes a reworded case's proof from an
+  earlier run when the case, the journey's files and the code are unchanged (`s05_rewording/proof_cache.py`).
 - **Validation report**: `bot_validation.html` shows, per run, the rule-based verdict with its deterministic details
   beside both judges' verdicts and reasons, the agreement rates, and the runs where they disagree.
 - **The customer in a test run**: *Customer follows the base journey* (on by default, under Checks on the run page)

@@ -885,3 +885,62 @@ def test_identical_conversations_are_judged_once():
     J.judge_case({**case, "case_id": "J001~base"})
     r = J.judge_case({**case, "case_id": "J001~0004"})                  # the same conversation in another run
     assert len(fa.seen) == 1 and len(fb.seen) == 1 and r["case_id"] == "J001~0004"
+
+
+def test_meaning_proofs_are_reused_only_when_nothing_they_depend_on_changed():
+    from gmsjourney.s02_graph.compile import compile_graph
+    from gmsjourney.s02_graph.interpreter import GraphOracle
+    from gmsjourney.s04_cases.factors import mine_paths, to_item
+    from gmsjourney.s05_rewording import proof_cache as PC
+    from gmsjourney.s05_rewording.catalog import Scenario
+    from gmsjourney.s05_rewording.proof import GraphInvarianceValidator
+    from gmsjourney.s05_rewording.wording import FrameReader, Realizer
+    dom = domain.set_current("supplementary_card")
+    store = compile_graph(dom.graph_path).store
+    oracle = GraphOracle(store)
+    bases = [to_item(sp, oracle, f"G{i:03d}") for i, (sp, _) in enumerate(mine_paths(oracle)[:3])]
+    val = GraphInvarianceValidator(store, oracle, FrameReader(store), Realizer())
+    lv = {}
+    scns = lambda: [Scenario(f"{b.qid}~0001", b, dict(lv), "enriched") for b in bases]   # noqa: E731
+    root = tempfile.mkdtemp()
+    first = PC.ProofCache(root, dom, val)
+    fresh = [first.prove(s) for s in scns()]
+    assert first.stats()["proved"] == 3 and first.stats()["reused"] == 0
+    again = PC.ProofCache(root, dom, val)
+    s2 = scns()
+    reused = [again.prove(s) for s in s2]
+    assert again.stats()["reused"] == 3 and again.stats()["proved"] == 0
+    for a, b, s in zip(fresh, reused, s2):
+        assert PC.encode(a, {}) == PC.encode(b, {})                                 # the same proof, turn for turn
+        assert b.turns[0]["frame_obj"] == a.turns[0]["frame_obj"] and s.metadata["proof"]["accepted"] == a.accepted
+        assert "seed_overrides" in s.metadata
+    other = [Scenario(f"{b.qid}~0002", b, dict(lv), "enriched") for b in bases]   # another case: proved
+    third = PC.ProofCache(root, dom, val)
+    [third.prove(s) for s in other]
+    assert third.stats()["proved"] == 3
+    off = PC.ProofCache(root, dom, val, reuse=False)                               # reuse off: proved again
+    [off.prove(s) for s in scns()]
+    assert off.stats()["proved"] == 3
+    real = PC.pack_fingerprint
+    PC.pack_fingerprint = lambda d: "an-edited-journey"                            # the journey's files changed
+    try:
+        changed = PC.ProofCache(root, dom, val)
+        [changed.prove(s) for s in scns()]
+        assert changed.stats()["proved"] == 3 and changed.dir != first.dir
+    finally:
+        PC.pack_fingerprint = real
+
+
+def test_a_reasoning_model_on_vllm_gets_a_thinking_budget_and_low_effort():
+    from gmsjourney.s06_bots.llm_bot import LocalChat, is_reasoning_model
+    assert is_reasoning_model("openai/gpt-oss-20b") and not is_reasoning_model("/models/Llama-3.1-8B")
+    b = LocalChat("openai/gpt-oss-20b", temperature=0.0, max_tokens=300, url="http://x/v1")._body([])
+    assert b["reasoning_effort"] == "low" and b["max_tokens"] == 300 + 1024 and b["model"] == "openai/gpt-oss-20b"
+    plain = LocalChat("/models/Llama-3.1-8B", temperature=0.0, max_tokens=300, url="http://x/v1")._body([])
+    assert "reasoning_effort" not in plain and plain["max_tokens"] == 300
+    nb = json.loads((Path(__file__).resolve().parents[1] / "notebooks" / "gpt_oss_20b_vllm.ipynb").read_text())
+    src = "".join("".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code")
+    assert "vllm.entrypoints.openai.api_server" in src and "api/llm/settings" in src and "save_tools_llm" in src
+    for c in nb["cells"]:
+        if c["cell_type"] == "code":
+            compile("".join(c["source"]), "cell", "exec")                       # every cell is valid Python

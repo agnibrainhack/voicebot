@@ -156,6 +156,13 @@ replaced, kept only for the parity tests).
   four documents in `docs/`).
 * **`journey_console.ipynb`**: start the console (`from gmsjourney import s10_console as console; console.show()`), follow runs from
   the notebook, run the same campaign from code, stop the console.
+* **`gpt_oss_20b_vllm.ipynb`**: serve **gpt-oss-20b** (`openai/gpt-oss-20b`) with vLLM's OpenAI-compatible server on
+  this machine (its own process, `http://localhost:8000/v1`), check it answers a judge prompt through the console's
+  own client, make it the console's *Rewording LLM* and/or *Judges' LLM* (`POST /api/llm/settings`, or
+  `save_tools_llm` when no console is running), optionally the bot under test, open the console, and stop the server.
+  gpt-oss is a reasoning model: the local client sends it `reasoning_effort` ("low") and a thinking budget on top of
+  each answer (`GMSJOURNEY_VLLM_REASONING_EFFORT`, `GMSJOURNEY_VLLM_REASONING_TOKENS`, default 1024;
+  `GMSJOURNEY_VLLM_EXTRA_BODY` adds any other request field).
 
 Both import only public names from the segments (for example `from gmsjourney.s08_campaign.pipeline import CampaignConfig,
 run_campaign`, `from gmsjourney.s07_checks import diagnosis`).

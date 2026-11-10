@@ -75,6 +75,10 @@ or a folder lists the graphs found there; arrow keys move through them and Enter
 generated case turn by turn with what the customer says and means, what a correct bot must do and the rules of the
 state, how the call must end, and the case's reworded versions with their proof verdicts (chapter 8, step 5).
 
+**Reusing meaning proofs.** Under Advanced, *Reuse meaning proofs from earlier runs* (on by default) sends
+`reuse_proofs`: step 5 takes each reworded case's proof from an earlier run when the case, the journey's files and the
+code are unchanged (chapter 5, `proof_cache.py`), and its panel says how many were reused.
+
 **The LLM judges and the test tools' LLM.** Under Checks, *Two LLM judges* (on by default) has two LLM judges read
 every run beside the rules, which still decide (chapter 7); the run's Results show how often they agree with the
 rules, step 12 lists the runs they flag, the verdict shows both judges on every case and the case explorer on every

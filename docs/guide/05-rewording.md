@@ -9,6 +9,7 @@ voicebot/
     │   ├── catalog.py        records (QAItem, Scenario, SUTResult) and the factor catalogs
     │   ├── wording.py        lexicon, surface noise, the realizer, the frame reader
     │   ├── proof.py          the invariance proof and negative controls
+    │   ├── proof_cache.py    proofs reused from earlier runs when nothing they depend on changed
     │   ├── llm_arm.py        an LLM writes the turns: prompts, realizer, second reader, gates, exports
     │   ├── llm_pack.py       the LLM arm's wording for any pack
     │   ├── llm_proof.py      the LLM arm's proof; build_llm_arm
@@ -199,6 +200,22 @@ show the rewording really moved the words.
 
 `GraphInvarianceValidator` (Part 3) is the same proof for a compact pack, with the base path taken from the graph
 oracle's own walk of the case.
+
+## proof_cache.py — reusing proofs from earlier runs
+
+A proof depends only on the case (its spec, mock-bank fixture, answer key and the rewording's factor levels), the
+journey's own files (graph, domain lexicons, project) and the code that words, reads and replays it. `ProofCache`
+files every proof under exactly those (`<GMSJOURNEY_CACHE>/proofs/<context>/<case>.json`: the context hashes the
+validator, the journey's files and the source of the packs, graph, knowledge, cases and rewording stages; the file
+name hashes the case), with what the proof set on the scenario (`seed_overrides`, `proof`), and the frames stored as
+act and slots so they come back equal. With `CampaignConfig.reuse_proofs` (the run page's *Reuse meaning proofs from
+earlier runs*, on by default in the console) step 5 takes a filed proof instead of proving the case again; any change
+to the case, the journey or that code misses the cache and the case is proved afresh (and refiled). Proofs are always
+filed, so the next run can reuse them; `report.json` → `invariance.cache` says how many were reused.
+
+Reused proofs are byte-for-byte the proofs a fresh run computes (the reference runs compare equal). The template arm's
+proofs are quick (768 cases of `supplementary_card` in about 10 s), so the saving grows with the size of the design;
+the LLM arm's rewordings come back from the LLM replay cache already and are proved again each run.
 
 **What the proof does not cover.** It certifies the customer's *meaning*. Whether a given bot understands that
 meaning is exactly what the test measures.

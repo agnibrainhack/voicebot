@@ -39,6 +39,7 @@ s08_campaign/
 |---|---|
 | what to test | `domain` (pack), `policy_path`, `bot_factory` (default: the reference bot), `bot_name`, `out_dir` |
 | how much | `profile` (`voice_full`), `runs_per_base` (6), `max_cases` (all), `seed` (42), `kb_questions` (`standard` / `extended`), `max_turn_limit_cases` (2) |
+| the meaning proof | `reuse_proofs` (off; on by default in the console): take a reworded case's proof from an earlier run when the case, the journey's files and the code are unchanged; `proof_cache_dir` (`<GMSJOURNEY_CACHE>/proofs`) |
 | how fast | `bot_workers` (1; the console uses 4 for an LLM bot): conversations played at once, each with its own bot and mock bank; the same calls and results, less waiting on the model |
 | the customer | `customer` (`scripted`: each case's base journey, line by line, whatever the bot answers; `adaptive`: answers the bot's last question) |
 | which checks | `run_mutation`, `run_resilience`, `run_power`, `run_governance` (all on), `speech_gate` (`fail`), `speech_controls`, `negative_controls_per_type` (40), `decision_rule` (`strict` / `quorum`), `budgets`, `calibration_bootstrap` (200) |

@@ -174,6 +174,8 @@ def _s5(R):
     return _out([_m("Scenarios proved", f"{s.get('accepted')}/{s.get('scenarios')}"), _m("Acceptance", _pct(s.get("acceptance_rate"))),
                  _m("Answer sheet", f"{sheet.get('cases')} cases" if sheet.get("cases") is not None else "–",
                     "out/answer_sheet.html: every generated case, its required bot behaviour and its proved rewordings"),
+                 *([_m("Proofs reused", f"{(inv.get('cache') or {}).get('reused')} of {s.get('scenarios')}",
+                       "taken from earlier runs: same case, journey files and code")] if (inv.get("cache") or {}).get("reuse") else []),
                  _m("Turns checked", s.get("turns_checked")), _m("Mean surface similarity", s.get("surface_cosine_mean"),
                                                                   "lower: the rewording changed the words more")],
                 [_t("Proof layers", ["Layer", "Scenarios"], [["Ground truth identical", s.get("L1_gt_identical")],
@@ -869,7 +871,7 @@ OPTIONS = ("max_cases", "runs_per_base", "seed", "run_resilience", "run_mutation
            "speech_controls", "calibration_bootstrap", "negative_controls_per_type", "llm_arm", "llm_mode", "llm_model",
            "rebuild_store", "profile", "customer", "llm_backend", "llm_local_path", "llm_vllm_url", "llm_judges",
            "llm_judges_mode", "llm_judges_max_runs", "judges_backend", "judges_model", "judges_local_path",
-           "judges_vllm_url", "bot_workers")
+           "judges_vllm_url", "bot_workers", "reuse_proofs")
 
 
 def main(run_dir: str) -> int:

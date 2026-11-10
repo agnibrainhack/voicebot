@@ -218,7 +218,8 @@ voicebot/
 │       └── supplementary_card/  a second journey (adding a card holder)
 ├── tests/                       17 test files and 4 helpers                                     ch. 12
 ├── tools/                       documentation builders and diagnostics                          ch. 12
-├── notebooks/                   charge_journey_campaign.ipynb, journey_console.ipynb            ch. 12
+├── notebooks/                   charge_journey_campaign.ipynb, journey_console.ipynb,           ch. 12
+│                                gpt_oss_20b_vllm.ipynb
 └── docs/                        this guide and generated walkthroughs                           ch. 12
 ```
 

@@ -2045,7 +2045,7 @@ function runView(r) {
   const devs = S.meta.devices.options;
   const active = S.meta.active_run;
   let saved = {}; try { saved = JSON.parse(localStorage.getItem("jc.runform") || "{}"); } catch {}
-  const F = Object.assign({ pack: S.pack, device: "auto", max_cases: "", runs_per_base: 1, seed: 42, run_resilience: true, run_mutation: true, speech_controls: true, run_power: false, run_governance: true, scripted_customer: true, llm_judges: true, rebuild_store: false, llm_arm: false, llm_mode: "replay", llm_model: "" }, saved, { pack: S.pack });
+  const F = Object.assign({ pack: S.pack, device: "auto", max_cases: "", runs_per_base: 1, seed: 42, run_resilience: true, run_mutation: true, speech_controls: true, run_power: false, run_governance: true, scripted_customer: true, llm_judges: true, reuse_proofs: true, rebuild_store: false, llm_arm: false, llm_mode: "replay", llm_model: "" }, saved, { pack: S.pack });
   if (!devs.some(o => o.id === F.device && o.available)) F.device = "auto";
   const set = (k, v) => { F[k] = v; try { localStorage.setItem("jc.runform", JSON.stringify(F)); } catch {} };
   const chk = (k, label, hint) => h("label", { class: "row", style: "gap:8px;align-items:flex-start;min-height:28px" }, h("input", { type: "checkbox", checked: !!F[k], onchange: e => set(k, e.target.checked) }), h("span", {}, label, hint ? h("span", { class: "small muted", style: "display:block" }, hint) : null));
@@ -2078,6 +2078,7 @@ function runView(r) {
           chk("llm_judges", "Two LLM judges", "Two LLM judges read every run beside the rules (which still decide); disagreements are flagged"),
           h("div", { style: "padding-left:26px" }, llmPick("testing", "rf-jdg", "Judges' LLM"))),
         h("div", { class: "stack", style: "gap:4px" }, h("h3", {}, "Advanced"), chk("rebuild_store", "Rebuild the knowledge store", "Otherwise a cached store for this graph is reused"),
+          chk("reuse_proofs", "Reuse meaning proofs from earlier runs", "A reworded case's proof is taken from an earlier run when the case, the journey's files and the code are unchanged"),
           chk("llm_arm", "LLM rewording of customer turns", "Adds an arm whose customer words an LLM rewrites, proved like the rest (not the bot under test)"),
           h("div", { class: "stack", style: "padding-left:26px;gap:6px" }, h("div", { class: "row" }, h("label", { for: "rf-llm", class: "small muted" }, "mode"), h("select", { class: "select", id: "rf-llm", style: "height:28px", onchange: e => set("llm_mode", e.target.value) }, ...["replay", "live"].map(m => h("option", { selected: F.llm_mode === m }, m)))),
             llmPick("enrichment", "rf-enr", "Rewording LLM")))),

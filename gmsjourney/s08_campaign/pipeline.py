@@ -112,6 +112,10 @@ class CampaignConfig:
     # "scripted": in every bot run the customer says the base journey's lines in order, whatever the bot replies (a
     # deviation never changes the case); "adaptive": the customer answers what the bot actually asked
     customer: str = "scripted"
+    # the meaning proof (step 5) takes a reworded case's proof from an earlier run when nothing it depends on has
+    # changed (the case, the journey's files, the code; s05_rewording/proof_cache.py); proofs are always filed
+    reuse_proofs: bool = False
+    proof_cache_dir: str | None = None           # None: <GMSJOURNEY_CACHE>/proofs
     # how many conversations with the bot under test are played at once (each with its own bot and mock bank): an
     # LLM bot spends most of a conversation waiting on its model, so a few at once cut the wall time (the number of
     # model calls is the same; replies are cached, so the results do not depend on it)
@@ -435,10 +439,17 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
         validator = GraphInvarianceValidator(store, oracle, reader, realizer)
     else:
         validator = InvarianceValidator(store, oracle, reader, realizer)
-    proofs = [validator.prove(s) for s in _progress.bar(len(scenarios), "proofs", show=False, iterable=scenarios,
-                                                        key="proofs", unit="cases", label="Reworded cases proved")]
+    from ..s05_rewording.proof_cache import ProofCache
+    from ..s03_knowledge.build import CACHE as _CACHE
+    pcache = ProofCache(cfg.proof_cache_dir or _CACHE, dom, validator, reuse=cfg.reuse_proofs)
+    proofs = [pcache.prove(s) for s in _progress.bar(len(scenarios), "proofs", show=False, iterable=scenarios,
+                                                     key="proofs", unit="cases", label="Reworded cases proved")]
+    if cfg.reuse_proofs:
+        log(f"      {pcache.reused} proofs reused from earlier runs (same case, journey files and code), "
+            f"{pcache.proved} proved now")
     controls = validator.negative_controls(scenarios, per_type=cfg.negative_controls_per_type)
     R["invariance"] = {"summary": validator.summarize(proofs, suite.factor_names), "negative_controls": controls,
+                       "cache": pcache.stats(),
                        "rejected": [p.sid for p in proofs if not p.accepted],
                        "examples": [{"sid": p.sid, "levels": {k: v for k, v in p.levels.items()},
                                      "turns": p.turns} for p in proofs[:12]]}

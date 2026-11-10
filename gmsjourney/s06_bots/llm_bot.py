@@ -81,6 +81,12 @@ def _messages(msgs: list[Any]) -> list[dict[str, str]]:
     return [{"role": _role(m), "content": _text(m)} for m in msgs]
 
 
+def is_reasoning_model(name: str | None) -> bool:
+    """A model that thinks before it answers (gpt-oss), by its folder or served name."""
+    n = (name or "").lower()
+    return "gpt-oss" in n or "gpt_oss" in n
+
+
 _ENGINES: dict[str, Any] = {}                       # one vLLM engine per model folder, shared by every client
 _ENGINE_LOCK = __import__("threading").Lock()        # vLLM's in-process engine is not safe to call from two threads
 
@@ -134,9 +140,9 @@ class LocalChat:
         else:
             try:
                 from vllm import SamplingParams
-                params = SamplingParams(temperature=self.temperature, max_tokens=self.max_tokens, seed=0)
+                params = SamplingParams(temperature=self.temperature, max_tokens=self._budget(), seed=0)
             except ImportError:
-                params = {"temperature": self.temperature, "max_tokens": self.max_tokens}
+                params = {"temperature": self.temperature, "max_tokens": self._budget()}
             eng = self._llm()
             with _ENGINE_LOCK:
                 try:
@@ -145,20 +151,47 @@ class LocalChat:
                     out = eng.chat(msgs, params)
             o = out[0]
             text = o.outputs[0].text
+            if is_reasoning_model(self.path) and "assistantfinal" in text:   # harmony output: keep the final answer
+                text = text.rsplit("assistantfinal", 1)[1].strip()
             usage = {"input_tokens": len(getattr(o, "prompt_token_ids", None) or []),
                      "output_tokens": len(getattr(o.outputs[0], "token_ids", None) or [])}
         self.calls += 1
         self.seconds += time.time() - t0
         return SimpleNamespace(content=text, usage_metadata=usage)
 
+    def _budget(self) -> int:
+        """Output tokens: the answer's, plus a thinking budget for a reasoning model (see ``_body``)."""
+        if is_reasoning_model(self.path) or os.environ.get("GMSJOURNEY_VLLM_REASONING_EFFORT", "").strip():
+            return self.max_tokens + int(os.environ.get("GMSJOURNEY_VLLM_REASONING_TOKENS", "1024"))
+        return self.max_tokens
+
+    def _body(self, msgs: list[dict[str, str]]) -> dict[str, Any]:
+        """The chat request. A reasoning model (gpt-oss) thinks before it answers and its thinking spends output
+        tokens: it is asked for ``reasoning_effort`` (GMSJOURNEY_VLLM_REASONING_EFFORT, default "low") and given
+        a thinking budget on top of the answer's tokens (GMSJOURNEY_VLLM_REASONING_TOKENS, default 1024), so a
+        300-token judge verdict is not cut off by its own reasoning. GMSJOURNEY_VLLM_EXTRA_BODY (JSON) adds any
+        other field the server takes."""
+        body: dict[str, Any] = {"model": self.path, "messages": msgs, "temperature": self.temperature,
+                                "max_tokens": self.max_tokens, "seed": 0}
+        effort = os.environ.get("GMSJOURNEY_VLLM_REASONING_EFFORT", "").strip()
+        if effort or is_reasoning_model(self.path):
+            body["reasoning_effort"] = effort or "low"
+            body["max_tokens"] = self._budget()
+        extra = os.environ.get("GMSJOURNEY_VLLM_EXTRA_BODY", "").strip()
+        if extra:
+            body.update(json.loads(extra))
+        return body
+
     def _server(self, msgs: list[dict[str, str]]) -> tuple[str, dict]:
-        body = json.dumps({"model": self.path, "messages": msgs, "temperature": self.temperature,
-                           "max_tokens": self.max_tokens, "seed": 0}).encode()
+        body = json.dumps(self._body(msgs)).encode()
         req = urllib.request.Request(f"{self.url}/chat/completions", data=body, headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=300) as r:
             j = json.loads(r.read())
         u = j.get("usage") or {}
-        return j["choices"][0]["message"]["content"], {"input_tokens": u.get("prompt_tokens", 0), "output_tokens": u.get("completion_tokens", 0)}
+        m = j["choices"][0]["message"]
+        # a reasoning model's answer is "content" (its thinking, "reasoning_content", is not the answer); when the
+        # budget ran out mid-thought there is no answer: an empty reply, which the caller treats as unreadable
+        return m.get("content") or "", {"input_tokens": u.get("prompt_tokens", 0), "output_tokens": u.get("completion_tokens", 0)}
 
 
 # =====================================================================================================================
