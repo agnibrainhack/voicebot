@@ -67,7 +67,10 @@ s07_checks/
   authentication before account tools, attempt limits, the transaction limit, claims only after SUCCESS,
   confirmation before submit, fee disclosure before expedited, the turn limit;
 * **speech**: `c_speech` (every claim supported, faithful and complete on every turn) and `c_flow` (every act
-  where the graph allows it). With the default `--speech-gate fail`, `c_speech` is folded into `correct`;
+  where the graph allows it). A failure inside a **side step** (the words of a policy answer or a clarification,
+  or a finding about one of those acts) is marked `side` at its turn and left out of `c_speech`; it is still
+  counted in `speech_side` and in `c_speech_strict` (every turn ok, side steps included). A policy-question case
+  (`kb_qid`) is graded on `c_speech_strict`, because the answer is the case. With the default `--speech-gate fail`, `c_speech` is folded into `correct`;
   `outcome_correct` keeps the verdict without it, so the gate's effect is visible.
 
 `run(...)` runs and scores every scenario (with a progress bar); `summary(rows)` gives the headline rates (accuracy,

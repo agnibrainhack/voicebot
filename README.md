@@ -196,7 +196,8 @@ studio shares the setting. Its parts:
   left estimated from the last build and a live count of optimizer steps), bars with the time left for cases played,
   proofs, tool-fault runs and planted defects, and every LLM call split into cache, model and failed, by caller.
 - **The answer sheet**: once a run's cases and rewordings are proved (step 5), **Open the answer sheet** shows every
-  generated case turn by turn: what the customer says and means, what a correct bot must do (tool calls, then acts),
+  generated case turn by turn: what the customer says and means, what a correct bot must do (tool calls and acts in
+  the order they happen),
   the state's rules, how the call must end, and each reworded version with its proof verdict (`out/answer_sheet.html`,
   `s09_reports/answer_sheet.py`).
 - **Two LLM judges** (Checks on the run page, on by default; and in the Playground side panel): two LLM judges read
@@ -713,7 +714,12 @@ every run the outcome signature expected by the oracle beside what the bot produ
 ended, transfer reason, responses recorded, card action completed, and the policy answer for policy-question cases -
 the comparison that decides correct / incorrect), the stage, admissibility, invariance and budget checks reported
 next to it, the reasons a run failed, and every customer turn with EXPECTED (oracle tools and acts) beside ACTUAL
-(bot tools, acts and words). Incorrect runs are shown by default; buttons show the correct ones, all, or one arm.
+(bot tools, acts and words), each numbered in the order it happened. Every turn carries a status: *same as
+expected*; *differs only in a side step* (a policy answer or a clarification differs, the trajectory is the graph's:
+the turn is flagged and the run goes on; a wrong policy answer is flagged the same way, and fails the case only when
+the case is that policy question); *asked again* (the bot re-asked what was just answered; the customer says the line
+again, once); *off the journey*. One turn off followed by a turn back on is tolerated; two in a row stop the run, and
+the lines never said are shown as *not played* (see guide chapter 6). Incorrect runs are shown by default; buttons show the correct ones, all, or one arm.
 It is built from `dataset/case_results.jsonl` and the turn-by-turn files, so an existing campaign folder can be
 redone without re-running the bot: `python tools/case_comparison.py --campaign output/campaign_llm_sut`.
 

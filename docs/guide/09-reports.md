@@ -80,7 +80,12 @@ dialog-state hops; `tool_line` writes a tool call as `tool(arg=value) -> status`
 
 `turn_by_turn(runner, oracle, scenario)` plays a scenario and returns one row per customer turn: the oracle's
 expected tools and bot acts next to the bot's actual tools, acts and words, whether they match, and what the speech
-check said. `segment` cuts a run into turns; `normalize_acts` keeps only the decision content of a reply (act, item,
+check said. Each row has its base-journey `line` (a line said again has `repeat`), the turn's `expected_steps` and
+`actual_steps` (calls and acts in the order they happened), `turn_status` (same / side / asked_again / differs, from
+the run, chapter 6) and `kb_wrong` (a policy answer judged wrong on a turn otherwise on the journey). Lines the
+customer never said because the run stopped (two turns in a row off the journey) are rows with `turn_status`
+`not_played`. The summary adds `turns_side`, `turns_asked_again`, `turns_kb_wrong`, `turns_off`, `turns_not_played`
+and `stopped_at_turn` / `stopped_at_line`. `segment` cuts a run into turns (with `s06_bots/turns.split_turns`); `normalize_acts` keeps only the decision content of a reply (act, item,
 reason), so optional extras do not count as differences; `describe_act` / `describe_tool` make them readable. The
 summary says the first divergent turn, the stages that went wrong, and whether the outcome and the words were right.
 `show_turns` prints it in a notebook; `export_turn_by_turn` writes `dataset/turn_by_turn.csv` and its summary.
@@ -88,7 +93,10 @@ summary says the first divergent turn, the stages that went wrong, and whether t
 ### Part 3: the comparison page
 
 `write_case_comparison(out_dir)` writes `case_comparison.html` from the run's dataset files: every case with its
-expected outcome beside the bot's, turn by turn, with the speech verdict.
+expected outcome beside the bot's, turn by turn, with the speech verdict. Every turn shows its steps numbered in
+order on both sides and a status flag: *same as expected*, *differs only in a side step* (amber, the run went on),
+*asked again* (the customer then says it again), *off the journey*, *not played* (after the run stopped). The case's
+meta line says how many turns were flagged without ending the run and, if it stopped, after which turn.
 
 ### Part 4: inside one case
 

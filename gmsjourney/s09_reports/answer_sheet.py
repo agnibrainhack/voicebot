@@ -7,7 +7,8 @@ For each base case the sheet shows:
   be recorded, what the customer must be told), all from the oracle's own run of the case on the policy graph;
 * the call opening: what the bot must do before the customer speaks;
 * turn by turn: the dialog state, what the customer says (the original wording) and what it means (the meaning
-  card), what a correct bot must do next (tool calls with their key arguments, then its acts), and the policy rules
+  card), what a correct bot must do next (its tool calls with their key arguments and its acts, in the order they
+  happen), and the policy rules
   of that state;
 * every reworded version of the case (both arms, template and LLM), with the factor levels it changed and whether the
   proof accepted it: each reworded turn beside the original, marked as read back to the same meaning or not. An
@@ -146,8 +147,8 @@ def write_answer_sheet(out_dir: str | Path, *, oracle, store, validator, bases: 
                 except Exception:                         # noqa: BLE001
                     words = str(frame)
             card = ont.card(frame, st) if frame is not None else {}
-            must = [f"<div>calls {E(describe_tool(x))}</div>" for x in t["tools"]] + \
-                   [f"<div>{E(describe_act(a, merchants))}</div>" for a in t["acts"]]
+            must = [f"<div>calls {E(describe_tool(x))}</div>" if k == "call" else           # in the order they happen
+                    f"<div>{E(describe_act(x, merchants))}</div>" for k, x in t["steps"]]
             rows.append(f'<tr><td class="n">{i}</td><td><code>{E(st)}</code></td><td>“{E(words)}”</td>'
                         f'<td><code>{E(_card(card))}</code></td>'
                         f'<td class="must">{"".join(must) or "<div>(nothing: the call has ended)</div>"}</td>'
@@ -198,7 +199,7 @@ def write_answer_sheet(out_dir: str | Path, *, oracle, store, validator, bases: 
 <div class="wrap">
 <h1 id="top">Answer sheet{(" · " + E(journey)) if journey else ""}</h1>
 <p class="lede">Every case generated for this test run, before any bot is run: what the customer says and means at each
-turn, what a correct bot must do (tool calls with their key arguments, then its acts) and how the call must end, all read
+turn, what a correct bot must do (its tool calls with their key arguments and its acts, in the order they happen) and how the call must end, all read
 off the policy graph's own run of the case. Under each case, its reworded versions: a proved version has the same answer
 key turn for turn; a rejected one is never sent to the bot.</p>
 <div class="tiles"><div class="tile"><b>{len(bases)}</b><span>cases</span></div><div class="tile"><b>{n_var}</b><span>reworded versions</span></div>

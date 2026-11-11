@@ -201,7 +201,9 @@ The compact machine becomes executable `leads_to` triples with expressions:
 * the **global behaviours** become transitions out of every prompt, in the interpreter's order of precedence: a
   request for a person, a policy question, the state's own acts, an unclear answer; small talk (CHITCHAT) is no
   answer: the prompt is said again, with no clarification and nothing counted against the unclear limit (the
-  compact interpreter does the same);
+  compact interpreter does the same). An unclear answer is clarified at every prompt, "anything else?"
+  (ASK_MORE_HELP) included: the first one is clarified and the question asked again (R22), a second one in a row
+  transfers (`ambiguity_persists`, R23). Only a clear no, a goodbye or a thanks ends the call there;
 * the **turn limit** is checked before a prompt is said (`on: any` with `retract`: the prompt that was about to
   be said is withdrawn and the call transfers);
 * **loops** become a quiet `loop_step` that loads and filters the items the first time, then gives the next item

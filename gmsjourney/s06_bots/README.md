@@ -10,7 +10,8 @@ gmsjourney/s06_bots/
 ├── harness.py    Driving a bot through a case and observing it
 ├── llm_bot.py    The LLM bot under test: a model reads and words, the policy graph decides
 ├── reference.py  The reference bots: well-behaved bots under test that follow the policy
-└── tools.py      The mock bank the bot talks to, and the record of one conversation
+├── tools.py      The mock bank the bot talks to, and the record of one conversation
+└── turns.py      One customer turn of a run compared with the same turn of the graph's own run
 ```
 
 ## `__init__.py`
@@ -29,7 +30,7 @@ Parts:
 | name | kind | what it is |
 |---|---|---|
 | `BotActClassifier` | class | Infer the dialog act of a text-only bot turn (for bots without structured acts). |
-| `JourneyRunner` | class | Runs a bot through one scenario: realises every customer turn under the scenario's levels, plays the reactive customer, passes tool calls to the mock bank (with any injected faults), checks each turn (runtime monitor, speech check, budgets) and returns the result with its Trace. |
+| `JourneyRunner` | class | Runs a bot through one scenario: realises every customer turn under the scenario's levels, plays the customer (scripted or adaptive), passes tool calls to the mock bank (with any injected faults), checks each turn (runtime monitor, speech check, budgets), grades each bot turn against the graph's turn (`extras["turn_status"]`: same / side / asked_again / differs; a re-ask gets the line again once; two turns in a row off the journey stop the run, `extras["stopped"]`) and returns the result with its Trace. |
 | `make_reference_factory` | def | A bot factory for the charge-review reference bot (with the given planted defects). |
 | `CallableBotAdapter` | class | Wrap your own bot: provide start() and respond(text) callables that return text (and optionally a list of act dicts). Tool calls must go to the `tools` object the factory receives, so point your bot's tool client at it. |
 | `HTTPBotAdapter` | class | Drive a deployed bot over HTTP. Expects POST {session, text} -> {text, acts?, ended?}. The bot's backend must be pointed at the mock tools for the session (fixture id). |
@@ -104,3 +105,18 @@ Parts:
 | `ToolGateway` | class | Intercepts every tool call of an environment and applies fault profiles. |
 | `Trace` | class | What happened in one run. Which tools authenticate, read, write and hand over, and which acts and limits matter, come from the domain pack (domain.yaml -> flow, tools). |
 | `new_trace` | def | A trace scored the way the active pack is: the graph-generic scoring (s07_checks/scoring.py) for a pack written as a compact graph, else the per-item scoring configured in domain.yaml (flow). |
+
+## `turns.py`
+
+One customer turn of a run compared with the same turn of the graph's own run: the trajectory and the side steps.
+
+| name | kind | what it is |
+|---|---|---|
+| `OPTIONAL_ACTS` | const | Acknowledgements a bot may add or leave out (OPENING, CONFIRM_RECORDED). |
+| `REASK_AFTER` | const | Acts after which presenting the same item again is not a difference. |
+| `side_acts` | def | The side-step acts of the active graph: its policy answer (`globals.question.answer`) and clarification (`globals.unclear.clarify`). |
+| `normalize_acts` | def | The decision content of a reply: (act, item, reason) in order, without optional acknowledgements and repeats. |
+| `tool_key` | def | A tool call as its name and key arguments. |
+| `compare_turn` | def | A bot turn against the graph's turn: `same`, `side` (only side steps differ) or `differs` (off the journey). |
+| `asked_again` | def | The bot made no call and asks again the question the customer just answered. |
+| `split_turns` | def | A run's events cut into the opening and one entry per customer line, with its calls and acts in the order they happened (`steps`). |

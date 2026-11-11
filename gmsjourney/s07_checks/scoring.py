@@ -457,6 +457,8 @@ def score(scn: Scenario, res, limits: Limits, workflow, budget=None) -> dict[str
     sp = res.extras.get("speech")
     if sp is not None:
         row.update(sp["summary"])
+        if item.metadata.get("kb_qid") and "c_speech_strict" in row:
+            row["c_speech"] = row["c_speech_strict"]   # a policy-question case: its answer is the outcome itself
         if sp["problems"]:
             row["speech_problems"] = sp["problems"]
         row["speech_turns"] = response_cards(sp["turns"], res.extras.get("transcript") or [])
@@ -464,6 +466,14 @@ def score(scn: Scenario, res, limits: Limits, workflow, budget=None) -> dict[str
         row["speech_gate"] = SPEECH_GATE
         if SPEECH_GATE in ("fail", "strict"):
             row["correct"] = int(row["correct"] and row["c_speech"] and (SPEECH_GATE != "strict" or row["c_flow"]))
+    ts = [t for t in (res.extras.get("turn_status") or []) if t.get("status")]
+    if ts:                                           # each bot turn against the graph's turn (s06_bots/turns.py)
+        for st, k in (("side", "turns_side"), ("asked_again", "turns_asked_again"), ("differs", "turns_off")):
+            row[k] = sum(t["status"] == st for t in ts)
+        row["turns_judged"] = len(ts)
+    stopped = res.extras.get("stopped")
+    row["stopped_at_line"] = stopped["line"] if stopped else None
+    row["kb_case"] = int(bool(item.metadata.get("kb_qid")))
     if scn.metadata.get("unrealised_factors"):
         row["unrealised_factors"] = list(scn.metadata["unrealised_factors"])
     row.update(check_constraints(res.extras.get("bot_turn_stats", []), proc["tool_calls"],

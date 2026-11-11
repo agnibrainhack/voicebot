@@ -244,16 +244,34 @@ s06_bots/
      the bot answers. `paths` (the invariance validator) gives them: `base_path` and `base_states`, the customer lines
      of the graph's own conversation of the case and the state each one answers. A bot that goes wrong at turn 3 still
      hears turn 4 of the base case, so the case it is graded on is the case that was designed and proved, not one the
-     bot steered into. The customer plays its part to the end: if the bot ends the call early (hangs up, transfers),
-     the remaining lines are still said and every bot reply is recorded and checked, so the turn-by-turn view shows
-     each line the bot no longer handled (`extras["bot_ended_at"]`, `after_bot_ended` per turn). The conversation
-     ends when the base journey's lines run out;
+     bot steered into. Each bot turn is compared with the graph's turn for the same line (`turns.compare_turn`,
+     `extras["turn_status"]`, one entry per customer turn):
+
+     | status | what the bot did | what happens next |
+     |---|---|---|
+     | `same` | the graph's tool calls and acts | the next line |
+     | `side` | the graph's trajectory; only a **side step** differs: a policy answer (ANSWER_KB) or a clarification (ASK_CLARIFY), the graph's `globals.question.answer` / `globals.unclear.clarify` | the turn is flagged, the next line follows |
+     | `asked_again` | no tool call, and it asks again the question the customer just answered | the customer says the same line again (once per line) |
+     | `differs` | another tool call, another argument, or another act | the next line: the bot may get back on the journey |
+
+     **Two bot turns in a row off the journey** (`differs` or `asked_again`) end the run there: the customer stops
+     and `extras["stopped"]` says at which turn and line (`None`: the base journey was played to the end). One wrong
+     turn followed by a turn back on the journey is reported and the run goes on. A wrong policy answer on a turn
+     that is otherwise on the journey is flagged at that turn (the report's `kb_wrong`); it fails the case only when
+     the case is that policy question. If the bot ends the call early (hangs up, transfers), the remaining lines are
+     still said and every bot reply is recorded and checked (`extras["bot_ended_at"]`, `after_bot_ended` per turn).
+     With faults injected, or without the graph's expected turns (no validator), every line is said in order and
+     nothing is stopped;
    * `"adaptive"`: the customer simulator answers the bot's last act (chapter 4), so after a bot mistake it answers
      what the bot actually asked. Useful to explore a bot, not to grade one against a fixed case.
 
    The result's `extras["customer"]` records which one played.
 3. the bot's tool calls go to the mock bank, optionally through the fault gateway and the runtime gates (chapter 7);
-4. every bot turn is checked as it happens (runtime monitor, speech check, budgets);
+4. every bot turn is checked as it happens (runtime monitor, speech check, budgets). Every bot event in the trace
+   carries `at`: for each act, how many tool calls had been made when it was decided (the bot's
+   `BotTurn.calls_before`; the graph's own runs record it with `s02_graph/pending.py`), so a turn is shown in the
+   order it happened: *calls record_charge_response, says CONFIRM_RECORDED, calls get_card_action_options, says
+   INFORM_NO_CARD_ACTION*. `turns.split_turns(events)` cuts a trace into turns with these ordered `steps`;
 5. the result and its `Trace` are returned.
 
 **Testing your own bot.** Two adapters make any bot a system under test:

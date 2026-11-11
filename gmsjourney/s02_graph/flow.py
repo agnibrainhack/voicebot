@@ -60,6 +60,7 @@ from typing import Any, Callable
 # guards is the order of the calls, as in the procedure.
 # =====================================================================================================================
 
+from .pending import Pending, tool_count
 from ..s04_cases.meaning import SemanticFrame
 from ..s06_bots.tools import ToolEnvironment, ToolError
 from ..s06_bots.tools import Trace, new_trace
@@ -520,8 +521,8 @@ class GraphOracle:
         return a
 
     def _flush(self, ctx: Context, pending: list[dict[str, Any]]) -> None:
-        if pending:
-            ctx.trace.events.append({"role": "bot", "acts": list(pending)})
+        if pending:                              # each act with the tool calls made before it (s02_graph/pending.py)
+            ctx.trace.events.append(pending.event() if isinstance(pending, Pending) else {"role": "bot", "acts": list(pending)})
             pending.clear()
 
     def _choose(self, state: str, on: str | None, ctx: Context) -> Transition | None:
@@ -559,7 +560,7 @@ class GraphOracle:
         return t.dst
 
     def _walk(self, ctx: Context, respond: Callable) -> None:
-        pending: list[dict[str, Any]] = []
+        pending: list[dict[str, Any]] = Pending(lambda: tool_count(ctx.trace.events))
         state = self.spec.initial
         pending.append(self._act(state, ctx))
         while True:

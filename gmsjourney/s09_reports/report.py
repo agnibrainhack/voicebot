@@ -715,6 +715,9 @@ def _fmt(v: Any) -> str:
 def failure_reasons(fc: dict[str, Any]) -> list[str]:
     """Plain-English reasons a run failed, read off its graded row (nothing re-judged here)."""
     out = []
+    if fc.get("stopped_at_line") not in (None, ""):
+        out.append(f"The run stopped at customer line {esc(fc['stopped_at_line'])}: two bot turns in a row were off the "
+                   "journey, so the rest of the base journey was not played.")
     why = fc.get("why") or {}
     exp, act = why.get("expected") or {}, why.get("actual") or {}
     if isinstance(exp, dict) and isinstance(act, dict):
@@ -740,19 +743,22 @@ def failure_reasons(fc: dict[str, Any]) -> list[str]:
     for v in fc.get("violations") or []:
         key, _, detail = str(v).partition(":")
         out.append(f"Policy violation: {esc(_VIOLATION_EN.get(key, key))}" + (f" <code>{esc(detail)}</code>" if detail else "") + ".")
+    side = "" if fc.get("kb_case") in (1, "1", True) else " (flagged at its turn; a side step does not decide the case)"
     for k in fc.get("kb_detail") or []:
         if not k.get("correct"):
             out.append(f"Policy question <code>{esc(k.get('frame'))}</code>: the bot answered “{esc(k.get('answer'))}” "
-                       f"— {esc(k.get('detail'))}.")
+                       f"— {esc(k.get('detail'))}{side}.")
     if fc.get("invariance_ok") == 0:
         out.append("A customer turn did not read back to its intended meaning (runtime invariance monitor).")
     for p in fc.get("speech_problems") or []:
+        flag = " Flagged at its turn: it is in a policy answer or a clarification (a side step)." \
+            if p.get("side") and fc.get("kb_case") not in (1, "1", True) else ""
         if p["kind"] in ("contradicted", "unsupported"):
             out.append(f"The bot said “{esc(p.get('sentence'))}”: {esc(p['kind'])} — {esc(p.get('why'))} "
-                       f"({esc(p.get('where') or 'turn ' + str(p.get('turn')))}).")
+                       f"({esc(p.get('where') or 'turn ' + str(p.get('turn')))}).{flag}")
         else:
             out.append(f"What the bot said in {esc(p.get('where') or 'turn ' + str(p.get('turn')))}: {esc(p.get('why'))}"
-                       + (f" ({esc(p['rule'])})" if p.get("rule") else "") + ".")
+                       + (f" ({esc(p['rule'])})" if p.get("rule") else "") + "." + flag)
     for b in fc.get("budget_violations") or []:
         out.append(f"Budget: {esc(b)}.")
     if not out and fc.get("failure_codes"):

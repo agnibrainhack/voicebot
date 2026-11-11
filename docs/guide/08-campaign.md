@@ -85,9 +85,9 @@ flowchart TD
    questions or turn padding stay with the templates, `llm_exclude`), `pick_llm_rows` takes a share of them spread
    over the bases, and the LLM arm proves its own scenarios. Then, before any bot is run, the **answer sheet**
    (`s09_reports/answer_sheet.py`, `out/answer_sheet.html`): every generated case, turn by turn, with what the
-   customer says and means, what a correct bot must do (tool calls with key arguments, then its acts), the rules of
-   the state and how the call must end, all from the oracle's own run of the case; and under it every reworded version
-   (both arms) with its changed factor levels and whether the proof accepted it. The console shows it from step 5 of
+   customer says and means, what a correct bot must do (tool calls with key arguments and its acts, in the order
+   they happen), the rules of the state and how the call must end, all from the oracle's own run of the case; and
+   under it every reworded version (both arms) with its changed factor levels and whether the proof accepted it. The console shows it from step 5 of
    the run page (**Open the answer sheet**).
 6. **Bot runs.** Each scenario is played (chapter 6) with the runtime monitor watching and the speech check on every
    turn; the speech negative controls run on the base cases.

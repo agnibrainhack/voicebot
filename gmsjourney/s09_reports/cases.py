@@ -318,65 +318,33 @@ def describe_tool(e: dict) -> str:
     return f"{e['tool']}({a}) -> {status}"
 
 
-# Acknowledgements the bot may add or omit without changing what it does; the record they
-# acknowledge is checked on the tool call itself.
-OPTIONAL_ACTS = {"OPENING", "CONFIRM_RECORDED"}
-REASK_AFTER = {"ASK_CLARIFY", "PROVIDE_CONTEXT", "ANSWER_KB"}
-
-
-def normalize_acts(acts: list[dict]) -> list[tuple]:
-    """The decision content of a bot reply: (act, txn, reason) in order, without optional
-    acknowledgements, without a re-presentation of the same charge right after a
-    clarification / context / policy answer, and without immediate repeats."""
-    out: list[tuple] = []
-    prev = None
-    for a in acts:
-        name = a.get("act")
-        if name in OPTIONAL_ACTS:
-            continue
-        if name == "PRESENT_TXN" and prev is not None and prev.get("act") in REASK_AFTER \
-                and (prev.get("txn") in (None, a.get("txn"))) and prev.get("act") != "ANSWER_KB":
-            prev = a
-            continue
-        # a policy answer is about the question, not the charge on screen; its correctness is
-        # graded separately (kb_correct: the figure must equal the exact register)
-        key = (name, None if name == "ANSWER_KB" else a.get("txn"), a.get("reason"))
-        if not out or out[-1] != key:
-            out.append(key)
-        prev = a
-    return out
-
-
-def _tool_key(e: dict) -> tuple:
-    args = e.get("args") or {}
-    return (e["tool"], tuple(sorted((k, str(v)) for k, v in args.items() if k in key_args().get(e["tool"], ()))))
+# The turn comparison is shared with the harness (s06_bots/turns.py): acknowledgements and side steps (a policy answer,
+# a clarification) never move a turn off the journey.
+from ..s06_bots.turns import (OPTIONAL_ACTS, REASK_AFTER, compare_turn, normalize_acts, side_acts,  # noqa: E402,F401
+                              split_turns, tool_key as _tool_key)
 
 
 # ----------------------------------------------------------------------------- segmentation
 def segment(events: list[dict]) -> tuple[list[dict], list[dict]]:
-    """Cut a run into (opening bot acts, per customer turn: prompt state, customer, tools, bot acts/text)."""
-    opening, turns, cur, last_act = [], [], None, None
+    """Cut a run into (opening bot acts, per customer turn: prompt state, customer, tools, bot acts/text, and
+    ``steps``: the calls and acts in the order they happened; see s06_bots/turns.split_turns)."""
+    op, turns = split_turns(events)
+    states, last = [], None
     for ev in events:
-        role = ev.get("role")
-        if role == "user":
-            cur = {"state": last_act, "frame": ev.get("frame"), "text": ev.get("text"), "tools": [], "acts": [],
-                   "bot_text": []}
-            turns.append(cur)
-        elif role == "bot":
-            acts = list(ev.get("acts") or [])
-            if acts:
-                last_act = acts[-1].get("act")
-            if cur is None:
-                opening += acts
-            else:
-                cur["acts"] += acts
-                if ev.get("text"):
-                    cur["bot_text"].append(ev["text"])
-        elif role == "tool" and cur is not None:
-            cur["tools"].append(ev)
-        elif role == "tool":
-            opening.append({"act": f"(tool {ev.get('tool')})"})
+        if ev.get("role") == "bot" and ev.get("acts"):
+            last = ev["acts"][-1].get("act")
+        elif ev.get("role") == "user":
+            states.append(last)
+    for t, st in zip(turns, states):
+        t["state"] = st
+    opening = [a if k == "say" else {"act": f"(tool {a.get('tool')})"} for k, a in op["steps"]]
     return opening, turns
+
+
+def steps_of(steps: list, merchants: dict | None = None) -> list[dict]:
+    """A turn's steps in order, as [{"k": "calls" | "says", "d": text}] (stored with the turn, drawn by ``_col``)."""
+    return [{"k": "calls", "d": describe_tool(x)} if k == "call" else {"k": "says", "d": describe_act(x, merchants)}
+            for k, x in steps]
 
 
 def speech_by_turn(events: list[dict], speech_turns: list[dict]) -> tuple[str, list[str]]:
@@ -421,50 +389,83 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
     _, exp_turns = segment(expected.events)
     _, act_turns = segment(actual.events)
     ont = runner.ont
+    side = side_acts()
     speech_open, speech_turns = speech_by_turn(actual.events, ((res.extras.get("speech") or {}).get("turns") or []))
+    statuses = {s_["turn"]: s_ for s_ in (res.extras.get("turn_status") or [])}
+    stopped = res.extras.get("stopped")
+    kb = list(getattr(actual, "kb", []) or [])           # one judgement per policy answer, in order
     rows, diverged_at = [], None
+    answer_act = ((runner.graph.glob.get("question") or {}).get("answer") if getattr(runner, "graph", None) is not None
+                  else "ANSWER_KB")
     ended_at = res.extras.get("bot_ended_at")
-    for i in range(max(len(exp_turns), len(act_turns))):
-        e = exp_turns[i] if i < len(exp_turns) else None
-        a = act_turns[i] if i < len(act_turns) else None
+    played = set()
+
+    def row_for(i, e, a, line, repeat, status) -> dict:
         st = (e or a)["state"]
         frame = (a or e)["frame"]
-        e_tools = [_tool_key(x) for x in (e["tools"] if e else [])]
-        a_tools = [_tool_key(x) for x in (a["tools"] if a else [])]
-        e_acts = normalize_acts(e["acts"]) if e else []
-        a_acts = normalize_acts(a["acts"]) if a else []
-        tools_ok, acts_ok = e_tools == a_tools, e_acts == a_acts
-        ok = tools_ok and acts_ok and e is not None and a is not None
-        if not ok and diverged_at is None:
-            diverged_at = i
+        cmp = compare_turn(e["tools"] if e else [], e["acts"] if e else [], a["tools"] if a else [],
+                           a["acts"] if a else [], side) if e is not None and a is not None else None
+        status = status or (cmp["status"] if cmp else "not_played" if a is None else "differs")
+        kb_wrong = []
+        if a is not None:                              # this turn's policy answers, judged against the policy
+            for x in a["acts"]:
+                if x.get("act") == answer_act:
+                    j = kb[k_kb[0]] if k_kb[0] < len(kb) else None
+                    k_kb[0] += 1
+                    if j is not None and not j.get("correct"):
+                        kb_wrong.append(j.get("detail") or "the policy answer is not the policy's")
+        if kb_wrong and status in ("same", "side"):
+            status = "kb_wrong"
         card = ont.card(frame, st) if frame is not None else {}
         text = (a or {}).get("text") or ""
-        if not text and e is not None and path is not None and i < len(path):
-            f0, ctx = path[i]                         # what the customer would have said on the expected path
-            att = scenario.metadata.get("seed_overrides", {}).get(i, 0)
-            seed = (f"{scenario.sid}|{i}" + (f"#{att}" if att else "")) if scenario.factor_levels else f"{item.qid}|{i}|base"
-            text = "(expected path) " + runner.realizer.realize(f0, scenario.factor_levels, seed, ctx)
-        rows.append({
-            "turn": i, "state": st,
+        if not text and e is not None and path is not None and line is not None and line < len(path):
+            f0, ctx = path[line]                      # what the customer would have said on the expected path
+            att = scenario.metadata.get("seed_overrides", {}).get(line, 0)
+            seed = (f"{scenario.sid}|{line}" + (f"#{att}" if att else "")) if scenario.factor_levels else f"{item.qid}|{line}|base"
+            text = "(not played) " + runner.realizer.realize(f0, scenario.factor_levels, seed, ctx)
+        e_acts = normalize_acts(e["acts"]) if e else []
+        a_acts = normalize_acts(a["acts"]) if a else []
+        return {
+            "turn": i, "line": line, "repeat": bool(repeat), "state": st,
             "customer_text": text,
             "customer_card": json.dumps({"act": card.get("act"), "slots": card.get("slots")}) if card else "",
             "expected_tools": " ; ".join(describe_tool(x) for x in (e["tools"] if e else [])) or ("-" if e else "(no turn)"),
             "actual_tools": " ; ".join(describe_tool(x) for x in (a["tools"] if a else [])) or ("-" if a else "(no turn)"),
             "expected_bot": " ; ".join(describe_act(x, merchants) for x in (e["acts"] if e else [])) or "-",
             "actual_bot_acts": " ; ".join(describe_act(x, merchants) for x in (a["acts"] if a else [])) or "-",
+            "expected_steps": steps_of(e["steps"], merchants) if e else [],
+            "actual_steps": steps_of(a["steps"], merchants) if a else [],
             "actual_bot_text": " ".join(a["bot_text"]) if a else "",
-            "speech_check": speech_turns[i] if i < len(speech_turns) else "",
+            "speech_check": speech_turns[i] if a is not None and i < len(speech_turns) else "",
             "expected_next_state": e_acts[-1][0] if e_acts else "-",
             "actual_next_state": a_acts[-1][0] if a_acts else "-",
-            "tools_match": tools_ok, "acts_match": acts_ok, "turn_match": ok,
+            "tools_match": bool(cmp and cmp["tools_ok"]), "acts_match": bool(cmp and cmp["acts_ok"]),
+            "turn_match": status == "same", "turn_status": status, "kb_wrong": " ; ".join(map(str, kb_wrong)),
             "after_divergence": diverged_at is not None and i > diverged_at,
-            "after_bot_ended": ended_at is not None and i >= ended_at,     # said to a bot that had hung up
-        })
+            "after_bot_ended": ended_at is not None and line is not None and line >= ended_at,
+        }
+
+    k_kb = [0]
+    for i, a in enumerate(act_turns):
+        line = a.get("line") if a.get("line") is not None else i
+        played.add(line)
+        e = exp_turns[line] if line < len(exp_turns) else None
+        r = row_for(i, e, a, line, a.get("repeat"), (statuses.get(i) or {}).get("status"))
+        if r["turn_status"] in ("differs", "asked_again") and diverged_at is None:
+            diverged_at = i
+        rows.append(r)
+    for line in range(len(exp_turns)):               # lines the run never reached (it stopped, or the bot ended)
+        if line not in played and (stopped is not None or line >= len(act_turns)):
+            rows.append(row_for(len(rows), exp_turns[line], None, line, False, "not_played"))
     from ..s07_checks.scoring import score
     row = score(scenario, res, oracle.limits, oracle.store.workflow)
+    count = lambda st: sum(r["turn_status"] == st for r in rows)          # noqa: E731
     summary = {
         "case_id": scenario.sid, "base_id": item.qid, "turns_expected": len(exp_turns), "turns_actual": len(act_turns),
         "first_divergence_turn": diverged_at, "turns_matching": sum(r["turn_match"] for r in rows),
+        "turns_side": count("side"), "turns_asked_again": count("asked_again"), "turns_kb_wrong": count("kb_wrong"),
+        "turns_off": count("differs"), "turns_not_played": count("not_played"),
+        "stopped_at_turn": (stopped or {}).get("turn"), "stopped_at_line": (stopped or {}).get("line"),
         "bot_ended_at": ended_at,
         "expected_outcome": json.loads(item.answer) if isinstance(item.answer, str) else item.answer,
         "actual_outcome": json.loads(res.answer) if isinstance(res.answer, str) else res.answer,
@@ -673,7 +674,10 @@ tr.sub td{color:var(--muted);font-size:.8rem}tr.grp td{font-family:var(--display
 .sk{display:inline-block;min-width:2.9rem;margin-right:.4rem;font-family:var(--mono);font-size:.66rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
 li.tool .sk{color:var(--accent)}
 .words{margin-top:.35rem;font-size:.86rem;color:var(--muted)}
-.mk{font-family:var(--mono);font-size:.7rem}.mk.ok{color:var(--pass)}.mk.no{color:var(--fail)}
+.mk{font-family:var(--mono);font-size:.7rem}.mk.ok{color:var(--pass)}.mk.no{color:var(--fail)}.mk.side{color:var(--accent)}.mk.na{color:var(--muted)}
+.turn.side{border-color:var(--accent);background:linear-gradient(90deg,var(--accent-soft),transparent 30%)}
+.turn.na{opacity:.7;border-style:dashed}
+.note.bad{color:var(--fail)}
 .note{font-size:.8rem;color:var(--muted);margin-top:.3rem}
 .viewbar{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;padding:.5rem 0;background:var(--bg)}
 .viewbar button{font:inherit;font-size:.82rem;padding:.3rem .7rem;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
@@ -711,13 +715,25 @@ capture, record, card action, transfer, summary), <b>workflow admissibility</b> 
 record that did not succeed, using an account tool before authentication, submitting without confirmation, skipping the
 fee disclosure), runtime invariance of the customer turns, and the latency / length budgets. They set a run's severity
 and feed the release gate.</li>
-<li><b>Turn by turn</b> (below each case) is diagnostic only: the bot may take a different but allowed route and still
-be correct, so a turn that differs from the oracle's does not by itself fail the case. After the first difference the
-simulated customer reacts to what the bot actually asked, so later turns may legitimately differ.
-A turn counts as <b>same as expected</b> when the bot made the same tool calls with the same key arguments, in order,
-and took the same decisions (act, charge, reason, in order). Acknowledgements such as <code>OPENING</code> and
-<code>CONFIRM_RECORDED</code> and a re-presentation of the same charge after a clarification are ignored, and so is the
-content of a policy answer (<code>ANSWER_KB</code>), which is graded by the policy-answer check above.</li>
+<li><b>Turn by turn</b> (below each case): the customer says the base journey's lines, and every bot turn is set
+beside the oracle's turn for the same line, with its tool calls and acts <b>in the order they happened</b> on both
+sides. A turn is
+<ul>
+<li><b>same as expected</b>: the same tool calls with the same key arguments, in order, and the same decisions (act,
+charge, reason, in order). Acknowledgements such as <code>OPENING</code> and <code>CONFIRM_RECORDED</code>, and the
+same charge presented again after a clarification, are ignored;</li>
+<li><b>differs only in a side step</b>: the same calls and decisions, but a different policy answer
+(<code>ANSWER_KB</code>) or clarification (<code>ASK_CLARIFY</code>). Side steps do not move the conversation along the
+policy, so the turn is flagged and the run goes on;</li>
+<li><b>policy answer wrong</b>: on the journey, but the figure in a policy answer is not the policy's. The turn is
+flagged and the run goes on; for a policy-question case the answer is the outcome itself, so the case fails;</li>
+<li><b>asked the same question again</b>: the bot made no call and asked again what the customer had just answered.
+The customer says the same line again, once, as a person would;</li>
+<li><b>off the journey</b>: different calls or decisions. The bot may get back on the journey at the next turn;
+<b>two turns in a row off the journey end the run there</b> (the customer stops), and the lines never reached are
+shown as <b>not played</b>.</li>
+</ul>
+Flagged turns are counted beside each case; whether the case is correct is decided by its outcome, as above.</li>
 </ol>
 </div>"""
 
@@ -760,9 +776,14 @@ def _items(s: str) -> list[str]:
     return [] if s in ("", "-", "(no turn)") else [x.strip() for x in s.split(" ; ") if x.strip()]
 
 
-def _col(kind: str, tools: str, acts: str, words: str = "") -> str:
-    li = [f'<li class="tool"><span class="sk">calls</span><code>{E(t)}</code></li>' for t in _items(tools)]
-    li += [f'<li><span class="sk">says</span><code>{E(a)}</code></li>' for a in _items(acts)]
+def _col(kind: str, tools: str, acts: str, words: str = "", steps: Any = None) -> str:
+    st = _j(steps) if isinstance(steps, str) else steps
+    if st:                                           # calls and acts in the order they happened
+        li = [f'<li class="tool"><span class="sk">calls</span><code>{E(x["d"])}</code></li>' if x.get("k") == "calls" else
+              f'<li><span class="sk">says</span><code>{E(x["d"])}</code></li>' for x in st]
+    else:
+        li = [f'<li class="tool"><span class="sk">calls</span><code>{E(t)}</code></li>' for t in _items(tools)]
+        li += [f'<li><span class="sk">says</span><code>{E(a)}</code></li>' for a in _items(acts)]
     if (tools or "").strip() == "(no turn)":
         body = "<p class='small'>(no such turn in this run)</p>"
     else:
@@ -845,6 +866,17 @@ def _verdict_table(row: dict, summ: dict) -> str:
             '<th>Actual (bot)</th><th>Result</th></tr></thead><tbody>' + "".join(lines) + "</tbody></table></div>")
 
 
+# a turn's status -> (words, mark class, turn box class)
+TURN_STATUS = {
+    "same": ("same as expected", "ok", ""),
+    "side": ("differs only in a side step", "side", " side"),
+    "asked_again": ("asked the same question again", "side", " side"),
+    "kb_wrong": ("policy answer wrong", "no", " side"),
+    "differs": ("off the journey", "no", " diff"),
+    "not_played": ("not played", "na", " na"),
+}
+
+
 def judges_block(j: dict | None) -> str:
     """The two LLM judges beside the rules' verdict (s07_checks/llm_judges.py), for a case page."""
     if not j:
@@ -896,18 +928,32 @@ def _case(row: dict, summ: dict, turns: list[dict], judges: dict | None = None) 
                    + "</div></div>")
     tb = []
     for t in turns:
-        match = _b(t.get("turn_match"))
+        status = t.get("turn_status") or ("same" if _b(t.get("turn_match")) else "differs")
+        word, cls, box = TURN_STATUS.get(status, TURN_STATUS["differs"])
         after = _b(t.get("after_divergence"))
-        flags = (f'<span class="mk {"ok" if match else "no"}">{"same as expected" if match else "differs"}</span>'
-                 + ("<span>after the first difference</span>" if after else ""))
-        tb.append(f'<div class="turn{"" if match else " diff"}"><div class="hd"><b>Turn {E(t.get("turn"))}</b>'
+        flags = (f'<span class="mk {cls}">{E(word)}</span>'
+                 + ("<span>the customer said it again</span>" if _b(t.get("repeat")) else "")
+                 + ("<span>after the first difference</span>" if after and status not in ("not_played",) else ""))
+        kbw = f'<div class="note bad">Policy answer wrong: {E(t.get("kb_wrong"))}</div>' if t.get("kb_wrong") else ""
+        tb.append(f'<div class="turn{box}"><div class="hd"><b>Turn {E(t.get("turn"))}</b>'
                   f'<span>{E(t.get("state"))}</span>{flags}</div>'
                   f'<div class="say"><span class="who">Customer</span><span>“{E(t.get("customer_text"))}”'
                   + (f' <span class="small"><code>{E(t.get("customer_card"))}</code></span>' if t.get("customer_card") else "")
                   + "</span></div><div class='ea'>"
-                  + _col("exp", t.get("expected_tools", ""), t.get("expected_bot", ""))
-                  + _col("act", t.get("actual_tools", ""), t.get("actual_bot_acts", ""), t.get("actual_bot_text", ""))
-                  + "</div></div>")
+                  + _col("exp", t.get("expected_tools", ""), t.get("expected_bot", ""), steps=t.get("expected_steps"))
+                  + (_col("act", t.get("actual_tools", ""), t.get("actual_bot_acts", ""), t.get("actual_bot_text", ""),
+                          steps=t.get("actual_steps")) if status != "not_played" else
+                     '<div class="col act"><span class="who">Actual (bot)</span><p class="small">(not played: the run '
+                     'had ended)</p></div>')
+                  + "</div>" + kbw + "</div>")
+    if summ and summ.get("stopped_at_turn") not in (None, ""):
+        meta.append(f"<b>stopped after turn {E(summ.get('stopped_at_turn'))}</b>: two bot turns in a row off the journey")
+    side_n = sum(int(summ.get(k) or 0) for k in ("turns_side", "turns_asked_again", "turns_kb_wrong")) if summ else 0
+    if side_n:
+        meta.append(f"turns flagged without ending the run: <b>{side_n}</b> ("
+                    + ", ".join(f"{int(summ.get(k) or 0)} {w}" for k, w in (("turns_side", "side step"),
+                                ("turns_asked_again", "asked again"), ("turns_kb_wrong", "wrong policy answer"))
+                                if int(summ.get(k) or 0)) + ")")
     turns_html = (f'<div class="turns">{opening}{"".join(tb)}</div>' if tb or opening else
                   "<p class='small'>(no turn-by-turn record for this run)</p>")
     return (f'<section class="case {"pass" if ok else "fail"}" id="{E(sid)}" data-ok="{int(ok)}" data-arm="{E(arm)}">'

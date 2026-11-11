@@ -11,6 +11,7 @@ gmsjourney/s02_graph/
 ├── compile.py      Compiling a compact policy graph (format 2) into everything the engine reads
 ├── flow.py         The oracle: what the bot should do, computed by walking the policy graph's flow
 ├── interpreter.py  The oracle for a compact policy graph: an interpreter over its state machine
+├── pending.py      The acts a bot has decided but not yet said, each with the place it was decided among the tool calls
 └── triples.py      The full policy graph: the operating procedure as head / relation / tail triples (format 1)
 ```
 
@@ -84,6 +85,15 @@ The oracle for a compact policy graph: an interpreter over its state machine.
 |---|---|---|
 | `NeedChoice` | class | Raised in explore mode when the run needs a decision the script does not make yet. |
 | `GraphOracle` | class | A compact graph's own interpreter: walks its state machine directly (used to mine journeys and to check that the compiled flow walks every journey the same way). |
+
+## `pending.py`
+
+The acts a bot has decided but not yet said, each with the place it was decided among the tool calls.
+
+| name | kind | what it is |
+|---|---|---|
+| `Pending` | class | A list of acts that records, for each, the tool-call count when it was appended; `event()` is the bot event with `at`. |
+| `tool_count` | def | How many tool calls a trace's events hold. |
 
 ## `triples.py`
 

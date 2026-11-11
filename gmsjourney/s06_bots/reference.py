@@ -74,10 +74,29 @@ DEFAULT_CONFIG = {"max_transactions": 4, "lookback_days": 30, "max_auth_attempts
 
 @dataclass
 class BotTurn:
-    """What a bot returns for one turn: the words, the dialog acts (labels with fields) and whether it ended."""
+    """What a bot returns for one turn: the words, the dialog acts (labels with fields) and whether it ended.
+    ``calls_before`` (optional): for each act, how many of the turn's tool calls the bot had made when it decided the
+    act, so the turn can be shown in the order it happened; None: the acts came after all of the turn's calls."""
     text: str
     acts: list[dict[str, Any]]
     ended: bool = False
+    calls_before: list[int] | None = None
+
+
+def turn_order(events: list[dict[str, Any]], mark: int) -> tuple[list[dict[str, Any]], list[int]]:
+    """The acts a graph-run bot decided since ``mark`` in its own trace, and for each the number of the turn's tool
+    calls made before it (from the ``at`` positions of s02_graph/pending.py)."""
+    base = sum(1 for e in events[:mark] if e.get("role") == "tool")
+    acts, before, seen = [], [], 0
+    for e in events[mark:]:
+        if e.get("role") == "tool":
+            seen += 1
+        elif e.get("role") == "bot":
+            at = e.get("at") or [None] * len(e.get("acts") or [])
+            for a, n in zip(e.get("acts") or [], at):
+                acts.append(a)
+                before.append(min(seen, max(0, n - base)) if n is not None else seen)
+    return acts, before
 
 
 # ------------------------------------------------------------------ NLU
@@ -861,9 +880,10 @@ class GraphBot(GraphOracle):
 
     # -------------------------------------------------------- the bot interface
     def _turn(self, ended: bool) -> BotTurn:
-        acts = [{**a, "text": _say(a)} for e in self._tr.events[self._mark:] if e["role"] == "bot" for a in e["acts"]]
+        decided, before = turn_order(self._tr.events, self._mark)
+        acts = [{**a, "text": _say(a)} for a in decided]
         self.ended = self.ended or ended
-        return BotTurn(" ".join(a["text"] for a in acts), acts, self.ended)
+        return BotTurn(" ".join(a["text"] for a in acts), acts, self.ended, before)
 
     def start(self) -> BotTurn:
         self._mark = len(self._tr.events)

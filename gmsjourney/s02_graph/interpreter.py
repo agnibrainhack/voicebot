@@ -29,6 +29,7 @@ from __future__ import annotations
 from typing import Any
 
 
+from .pending import Pending, tool_count
 from ..s04_cases.meaning import SemanticFrame
 from ..s06_bots.tools import ToolEnvironment, ToolError
 from .compact import ECHO_MISMATCH, NEXT, UNAVAILABLE, PolicyGraph
@@ -92,7 +93,7 @@ class GraphOracle:
         self._tools, self._env = tools, env
         self._slots: dict[str, Any] = {}
         self._results: dict[str, dict] = {}
-        self._pending: list[dict[str, Any]] = []
+        self._pending: list[dict[str, Any]] = Pending(lambda: tool_count(self._tr.events))
         self._loops: dict[str, dict[str, Any]] = {}
         self._counters: dict[str, int] = {}
         self._unclear: dict[str, int] = {}
@@ -100,9 +101,9 @@ class GraphOracle:
 
     # ------------------------------------------------------------------ plumbing
     def _emit(self) -> None:
-        if self._pending:
-            self._tr.events.append({"role": "bot", "acts": list(self._pending)})
-            self._pending = []
+        if self._pending:                        # each act with the tool calls made before it (s02_graph/pending.py)
+            self._tr.events.append(self._pending.event())
+            self._pending.clear()
 
     def _ask(self, state: str) -> SemanticFrame:
         self._emit()

@@ -143,7 +143,7 @@
   "EXPLAIN_LIMIT": {"stage": "retrieve", "say": {}, "rules": ["R31"], "go": "!transaction_limit"},
   "EXPLAIN_NO_TXNS": {"stage": "retrieve", "say": {}, "outcome": true, "rules": ["R8"], "go": "ASK_MORE_HELP"},
   "SUMMARIZE": {"stage": "finish", "say": {"recorded": {"$writes": "record_charge_response", "key": "transaction_id", "value": "disposition"}}, "rules": ["R19"], "go": "ASK_MORE_HELP"},
-  "ASK_MORE_HELP": {"stage": "finish", "yes": "UNCLEAR", "no": "END", "on": {"END": "END", "CONFIRM": "END", "DENY": "END", "UNCLEAR": "END"}},
+  "ASK_MORE_HELP": {"stage": "finish", "yes": "UNCLEAR", "no": "END", "on": {"END": "END", "CONFIRM": "END", "DENY": "END"}},
   "END": {"stage": "end", "end": true}
  }
 }

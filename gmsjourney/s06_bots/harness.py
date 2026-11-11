@@ -47,6 +47,7 @@ from ..s05_rewording.catalog import Scenario, SUTResult
 from ..s04_cases.journey import UserSimulator
 from ..s03_knowledge.questions import judge_kb_answer
 from ..s04_cases.meaning import Ontology
+from .turns import asked_again, compare_turn, side_acts, split_turns
 from .tools import Trace, new_trace
 from .reference import BotTurn, ReferenceBot
 from .tools import FaultProfile, ToolEnvironment, ToolGateway
@@ -119,11 +120,21 @@ class JourneyRunner:
 
     The customer is ``scripted`` or ``adaptive``. Scripted, it says the base journey's lines in order (the lines the
     customer says in the graph's own conversation, ``paths.base_path``, in the states they answer), whatever the bot
-    replies: every bot turn meets exactly the input the graph met, and a deviation never changes what the customer
-    says next. The customer plays its part to the end: when the bot ends the call early (hangs up, transfers) the
-    remaining lines are still said and every bot reply recorded, and ``extras["bot_ended_at"]`` is the line before
-    which the bot ended it (None: it did not end early). It stops when the base journey has no more lines. Adaptive,
-    the customer answers whatever the bot actually asked (``UserSimulator.respond``) and stops when the bot ends.
+    replies, so every bot turn meets the input the graph met. Each bot turn is compared with the graph's turn for the
+    line it answers (``turns.compare_turn``; ``extras["turn_status"]``, one entry per customer turn):
+
+    * "same", or "side" (only a policy answer or a clarification differs): on the journey; the next line follows;
+    * "asked_again": the bot made no call and asks again the question the customer just answered: the customer says
+      the same line again (once per line), as a person would;
+    * "differs": off the journey; the next line follows, and the bot may get back on the journey there.
+
+    Two bot turns in a row off the journey (differs or asked again) end the run there: the customer stops, and
+    ``extras["stopped"]`` says at which turn and line (None: the run went to the end of the base journey). When the
+    bot ends the call early (hangs up, transfers) ``extras["bot_ended_at"]`` is the line before which it did.
+    Without the graph's expected turns (faults injected, no validator) every line is said in order, as before.
+    Adaptive, the customer answers whatever the bot actually asked (``UserSimulator.respond``) and stops when the bot
+    ends. Every bot event in the trace carries ``at``: for each act, the tool calls made before it (from the bot's
+    ``BotTurn.calls_before``; without it, after all of the turn's calls), so the reports show a turn in order.
     """
     store: Any
     realizer: Any
@@ -168,6 +179,8 @@ class JourneyRunner:
         script = self._script(scn, oracle_path, oracle_states)   # scripted customer: the base journey's lines
         if script is not None and oracle_path is None:
             oracle_path = [(f, c) for f, c, _ in script]          # its lines are the proved, pinned wording
+        expected = self._expected(scn) if script is not None and not faults else None   # the graph's turn per line
+        side = side_acts()
         if self.graph is None:
             merchants = {t["transaction_id"]: t["merchant"] for t in fx["transactions"]}
             by_id = {t["transaction_id"]: t for t in fx["transactions"]}
@@ -185,6 +198,10 @@ class JourneyRunner:
         speech = self.speech.conversation(fx.get("session_date")) if self.speech is not None else None
         t0 = time.perf_counter()
         ended_at = None                              # the customer line before which the bot ended the call
+        j, off, repeated = 0, 0, set()               # the line said next; bot turns off the journey in a row
+        prev_line, prev_repeat, turn_tools, turn_base = None, False, [], 0
+        statuses: list[dict[str, Any]] = []
+        stopped = None
         turn: BotTurn = _clean(bot.start())
         bot_stats.append(_turn_stats(turn.text, t0))
         for i in range(MAX_USER_TURNS + 1):
@@ -193,16 +210,41 @@ class JourneyRunner:
             said = None
             if speech is not None:           # what the customer hears, checked before they answer
                 said = speech.check(turn.acts if self.use_structured_acts else [], turn.text, env.log, tr.user_frames)
-            tr.events.append({"role": "bot", "acts": acts, "text": turn.text})
+            cb = getattr(turn, "calls_before", None)
+            at = [turn_base + min(max(0, int(c)), len(turn_tools)) for c in cb] \
+                if cb is not None and len(cb) == len(acts) and acts is turn.acts else [turn_base + len(turn_tools)] * len(acts)
+            tr.events.append({"role": "bot", "acts": acts, "text": turn.text, "at": at})
             transcript.append({"role": "bot", "text": turn.text, "acts": [a.get("act") for a in acts]})
             if monitor is not None:
                 monitor.on_bot(turn.text, turn.acts if self.use_structured_acts else None)
                 monitor.on_speech(said)      # the speech check's findings, sealed live into the audit
             self._observe_acts(tr, acts, last_kb, turn.text)
+            if prev_line is not None:               # how the bot answered the line just said
+                status = None
+                if expected is not None:
+                    e = expected[prev_line] if prev_line < len(expected) else None
+                    if e is None:
+                        status = "differs"
+                    else:
+                        status = compare_turn(e["tools"], e["acts"], turn_tools, acts, side)["status"]
+                        if status == "differs" and prev_line not in repeated \
+                                and asked_again(turn_tools, acts, script[prev_line][2]):
+                            status = "asked_again"
+                statuses.append({"turn": i - 1, "line": prev_line, "status": status, "repeat": prev_repeat})
+                if status is not None:
+                    off = 0 if status in ("same", "side") else off + 1
+                    if off >= 2:                     # two turns in a row off the journey: the run ends here
+                        stopped = {"turn": i - 1, "line": prev_line, "why": "two bot turns in a row off the journey"}
+                        break
+                if status == "asked_again":
+                    repeated.add(prev_line)
+                    j = prev_line                    # the customer says it again
+                else:
+                    j = prev_line + 1
             if i == MAX_USER_TURNS or (turn.ended and script is None):
                 break
-            if turn.ended and ended_at is None and i < len(script):   # the bot hung up early: the customer plays on
-                ended_at = i
+            if turn.ended and ended_at is None and script is not None and j < len(script):   # the bot hung up early
+                ended_at = j
             act = dict(acts[-1])
             if self.graph is None:                    # one review per item: the customer answers about the current one
                 for a in acts:
@@ -216,10 +258,10 @@ class JourneyRunner:
                     for v in a.values():
                         if isinstance(v, str) and v in by_id:
                             current_txn = v
-            if script is not None:                   # the base journey's next line, whatever the bot just said
-                if i >= len(script):
+            if script is not None:                   # the base journey's next line
+                if j >= len(script):
                     break
-                frame, pctx, st = script[i]
+                frame, pctx, st = script[j]
                 ctx = {**pctx, "state": st}
             else:
                 frame = sim.respond(act)
@@ -229,17 +271,21 @@ class JourneyRunner:
                 st = sim.last_state if self.graph is not None else act.get("act")   # the dialog state this turn answers
                 ctx = {**t, "state": st} if self.graph is not None else \
                     {"merchant": t.get("merchant"), "amount": t.get("amount"), "state": st}
-            pinned = oracle_path is not None and i < len(oracle_path) and oracle_path[i][0] == frame
-            att = overrides.get(i, 0) if pinned else 0
-            seed = f"{scn.sid}|{i}" + (f"#{att}" if att else "")
+            k = j if script is not None else i       # the line's index: its pinned wording and seed
+            pinned = oracle_path is not None and k < len(oracle_path) and oracle_path[k][0] == frame
+            att = overrides.get(k, 0) if pinned else 0
+            seed = f"{scn.sid}|{k}" + (f"#{att}" if att else "")
             text = realizer.realize(frame, scn.factor_levels, seed, ctx)
             read = self.reader.read(text, st)
             if not self.ont.equivalent(frame, read, st):
                 violations.append({"turn": i, "state": st, "frame": str(frame), "text": text, "read": str(read)})
             tr.turns += 1
             tr.user_frames.append(frame)
-            tr.events.append({"role": "user", "frame": frame, "text": text})
-            transcript.append({"role": "user", "text": text, "frame": str(frame), "state": st})
+            again = script is not None and bool(statuses) and statuses[-1]["status"] == "asked_again" \
+                and statuses[-1]["line"] == j
+            tr.events.append({"role": "user", "frame": frame, "text": text, "line": k, "repeat": again})
+            transcript.append({"role": "user", "text": text, "frame": str(frame), "state": st, "line": k, "repeat": again})
+            prev_line, prev_repeat = (j, again) if script is not None else (None, False)
             last_kb = frame if frame.act == N.act.ASK_KB else None
             if monitor is not None:
                 monitor.on_user(text, st)
@@ -247,8 +293,12 @@ class JourneyRunner:
             t0 = time.perf_counter()
             turn = _clean(bot.respond(text))
             bot_stats.append(_turn_stats(turn.text, t0))
+            turn_base = sum(1 for e in tr.events if e.get("role") == "tool")
+            turn_tools = []
             for c in env.log[n0:]:          # tool calls caused by this user turn, in order
-                tr.events.append({"role": "tool", "tool": c["tool"], "args": c["args"], "result": c.get("result")})
+                ev = {"role": "tool", "tool": c["tool"], "args": c["args"], "result": c.get("result")}
+                tr.events.append(ev)
+                turn_tools.append(ev)
         tr.tool_log = list(env.log)
         tr.ended = bool(turn.ended) and not tr.transferred
         if hasattr(tr, "finish"):
@@ -262,7 +312,7 @@ class JourneyRunner:
             extras={"trace": tr, "transcript": transcript, "invariance_violations": violations,
                     "customer": "scripted" if script is not None else "adaptive",
                     "script_lines": len(script) if script is not None else None,
-                    "bot_ended_at": ended_at,
+                    "bot_ended_at": ended_at, "turn_status": statuses, "stopped": stopped,
                     "bot_turn_stats": bot_stats, "arm": scn.metadata.get("arm", "template"),
                     "injected": list(getattr(tools, "injected", [])),
                     "governance": monitor.finish() if monitor is not None else None,
@@ -284,6 +334,18 @@ class JourneyRunner:
         states = list(states or [])
         return [(f, dict(c or {}), states[i] if i < len(states) and states[i] is not None else (c or {}).get("state"))
                 for i, (f, c) in enumerate(path)]
+
+    def _expected(self, scn: Scenario) -> list[dict] | None:
+        """The graph's own turn for each base-journey line (tool calls and acts), or None without a validator."""
+        oracle = getattr(self.paths, "oracle", None)
+        if oracle is None:
+            return None
+        cache = self.__dict__.setdefault("_exp_cache", {})
+        item = scn.base
+        if item.qid not in cache:
+            tr = oracle.run(item.metadata["spec"], item.metadata["fixture"])
+            cache[item.qid] = split_turns(tr.events)[1]
+        return cache[item.qid]
 
     def _observe_acts(self, tr: Trace, acts: list[dict], last_kb, text: str) -> None:
         if self.graph is not None:                   # outcomes and claims are read at the end (trace.finish)

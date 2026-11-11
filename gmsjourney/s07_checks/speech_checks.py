@@ -151,6 +151,9 @@ class TurnReport:
     heard     the acts the words express
     verdicts  one per claim the words make
     findings  faithfulness, completeness and flow problems of the turn
+    side      the failing verdicts and findings (by index) that belong to a side step: the answer to a policy
+              question or a clarification (s06_bots/turns.py). They are reported at their turn; a journey's grade
+              leaves them out (``core_ok``), unless the case is that policy question
     """
     turn: int
     text: str
@@ -158,6 +161,7 @@ class TurnReport:
     heard: list[str]
     verdicts: list[ClaimVerdict] = field(default_factory=list)
     findings: list[Finding] = field(default_factory=list)
+    side: dict = field(default_factory=lambda: {"verdicts": set(), "findings": set()})
 
     @property
     def flow_findings(self) -> list[Finding]:
@@ -173,6 +177,14 @@ class TurnReport:
             f for f in self.findings if f.kind != "not_allowed_here" and f.kind not in self.advisory]
 
     @property
+    def core_ok(self) -> bool:
+        """``ok``, leaving out what failed in a side step (a policy answer, a clarification)."""
+        sv, sf = self.side["verdicts"], self.side["findings"]
+        return not any(v.failed for i, v in enumerate(self.verdicts) if i not in sv) and not [
+            f for i, f in enumerate(self.findings)
+            if i not in sf and f.kind != "not_allowed_here" and f.kind not in self.advisory]
+
+    @property
     def flow_ok(self) -> bool:
         """Every act of the turn is a transition the dialog-state graph allows."""
         return not self.flow_findings
@@ -180,8 +192,11 @@ class TurnReport:
     def as_dict(self) -> dict[str, Any]:
         """A JSON-ready view (stored per turn in ``extras["speech"]["turns"]``)."""
         return {"turn": self.turn, "text": self.text, "acts": self.acts, "heard": self.heard, "ok": self.ok,
-                "flow_ok": self.flow_ok, "claims": [v.as_dict() for v in self.verdicts],
-                "findings": [f.as_dict() for f in self.findings]}
+                "core_ok": self.core_ok, "flow_ok": self.flow_ok,
+                "claims": [{**v.as_dict(), **({"side": True} if i in self.side["verdicts"] else {})}
+                           for i, v in enumerate(self.verdicts)],
+                "findings": [{**f.as_dict(), **({"side": True} if i in self.side["findings"] else {})}
+                             for i, f in enumerate(self.findings)]}
 
 
 # ------------------------------------------------------------------ the verifier
@@ -602,6 +617,7 @@ class ConversationChecker:
         rep = self.v.check_turn(acts, text, facts, turn=len(self.reports), last_item=self.last_item,
                                 pending_prompts=self.pending, customer_act=customer_act,
                                 question=last if customer_act == N.act.ASK_KB else None, presented=self.presented)
+        self._mark_side(rep, acts)
         self.reports.append(rep)
         for a in acts:                             # a presentation, said or not, counts once
             if a.get("txn") and "PRESENT_TXN" in N.state and a.get("act") == N.state.PRESENT_TXN:
@@ -616,12 +632,33 @@ class ConversationChecker:
             self.pending = prompts
         return rep
 
+    @staticmethod
+    def _mark_side(rep: "TurnReport", acts: list[dict[str, Any]]) -> None:
+        """Mark the failures that belong to a side step: a finding about a side act, a failing claim whose sentence
+        is in the words of a side act (a policy answer, a clarification)."""
+        from ..s06_bots.turns import side_acts
+        side = side_acts()
+        norm = lambda t: " ".join(str(t or "").lower().split())          # noqa: E731
+        texts = [norm(a.get("text")) for a in acts if a.get("act") in side and a.get("text")]
+        for i, v in enumerate(rep.verdicts):
+            sent = norm(getattr(v.claim, "sentence", ""))
+            if v.failed and sent and any(sent in t for t in texts):
+                rep.side["verdicts"].add(i)
+        for i, f in enumerate(rep.findings):
+            if f.act in side:
+                rep.side["findings"].add(i)
+
     def summary(self) -> dict[str, Any]:
         """Counts for the run's result row: claims by verdict, unfaithful / missing / flow findings, how many
-        policy figures knowlytix's AnswerVerifier also read (and agreed on), and the two grades
-        ``c_speech`` (every turn ok) and ``c_flow`` (every turn in flow)."""
-        vs = [v for r in self.reports for v in r.verdicts]
-        fs = [f for r in self.reports for f in r.findings]
+        policy figures knowlytix's AnswerVerifier also read (and agreed on), and the grades ``c_speech`` (every turn
+        ok, leaving out the failures of side steps: a policy answer, a clarification), ``c_speech_strict`` (every
+        turn ok) and ``c_flow`` (every turn in flow). The counts leave the side failures out; ``speech_side``
+        counts them."""
+        vs = [v for r in self.reports for i, v in enumerate(r.verdicts) if i not in r.side["verdicts"]]
+        fs = [f for r in self.reports for i, f in enumerate(r.findings) if i not in r.side["findings"]]
+        side_n = sum(1 for r in self.reports for i, v in enumerate(r.verdicts) if i in r.side["verdicts"] and v.failed) + \
+            sum(1 for r in self.reports for i, f in enumerate(r.findings)
+                if i in r.side["findings"] and f.kind not in r.advisory)
         count = lambda s: sum(v.status == s for v in vs)  # noqa: E731
         kinds = lambda k: sum(f.kind == k for f in fs)    # noqa: E731
         kx = [v for v in vs if (v.geometry or {}).get("knowlytix")]
@@ -638,24 +675,29 @@ class ConversationChecker:
                 "speech_unverifiable": count("unverifiable"), "speech_unfaithful": kinds("text_contradicts_label")
                 + kinds("label_not_said"), "speech_missing": kinds("missing"),
                 "speech_flow": kinds("not_allowed_here"),
-                "c_speech": int(all(r.ok for r in self.reports)), "c_flow": int(all(r.flow_ok for r in self.reports))}
+                "speech_side": side_n,
+                "c_speech": int(all(r.core_ok for r in self.reports)),
+                "c_speech_strict": int(all(r.ok for r in self.reports)),
+                "c_flow": int(all(r.flow_ok for r in self.reports))}
 
     def problems(self, limit: int = 12) -> list[dict[str, Any]]:
         """Every failing claim and finding, with the turn and words, for failure reports."""
         out = []
         for r in self.reports:
             where = turn_where(r.turn)
-            for v in r.verdicts:
+            for i, v in enumerate(r.verdicts):
                 if v.failed:
-                    out.append({"turn": r.turn, "where": where, "kind": v.status, "field": v.claim.field,
+                    out.append({**({"side": True} if i in r.side["verdicts"] else {}),
+                                "turn": r.turn, "where": where, "kind": v.status, "field": v.claim.field,
                                 "words": v.claim.words,
                                 "said": v.claim.value if not isinstance(v.claim.value, tuple) else list(v.claim.value),
                                 "truth": v.truth if not isinstance(v.truth, tuple) else list(v.truth),
                                 "why": v.why, "sentence": v.claim.sentence})
-            for f in r.findings:
+            for i, f in enumerate(r.findings):
                 if f.kind in r.advisory:                  # advisory (unread, volunteered): counted, not a problem
                     continue
-                out.append({"turn": r.turn, "where": where, "kind": f.kind, "act": f.act, "why": f.detail,
+                out.append({**({"side": True} if i in r.side["findings"] else {}),
+                            "turn": r.turn, "where": where, "kind": f.kind, "act": f.act, "why": f.detail,
                             "rule": f.rule})
         return out[:limit]
 
