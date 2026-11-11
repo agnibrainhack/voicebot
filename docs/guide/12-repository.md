@@ -65,7 +65,27 @@ two judges and the rewording arm does not pay the set-up once per role:
   (HTTP 400), the first client to learn it records it for the endpoint and every other client sends the accepted
   form from its next call, instead of spending a failed call each.
 
-**Pacing and patience.** All gateway calls of a process share one pacer (`_Pacer`): at most
+**Pacing by the deployment's token quota.** Azure OpenAI admits a call against the deployment's tokens-per-minute
+quota by its prompt tokens **plus its max_tokens**. A rewording call is a few hundred tokens; a step of the LLM bot
+under test sends its whole system prompt (about 20,000 characters: tools, acts, policy) and costs about 6,300 tokens,
+and the critique as much again. So a deployment that serves the rewording comfortably can admit only a few bot steps
+a minute, and calls sent faster are refused (429) and retried. Each deployment therefore has one pacer
+(`_pacer(url)`, shared by the bot, its critique, the Playground, the rewording and the judges on that model) with a
+**token budget**: a bucket refilled at the quota's rate, from which every call takes its estimated cost
+(`estimate_tokens`: prompt characters / 3.5 + max_tokens) before it is sent, so calls are spaced to be admitted.
+The quota is `GMSJOURNEY_LLM_TPM` when set, else learnt from the `x-ratelimit-limit-tokens` /
+`x-ratelimit-remaining-tokens` headers Azure sends with every reply (logged once:
+"the deployment's quota: N tokens a minute"). `python tools/check_llm.py --bot <journey>` sends one real bot step
+and prints the quota and how many bot steps and customer turns fit in a minute. The bot and its critique also ask for
+**JSON mode** (`LLMSettings.json_mode`: `response_format` json_object, dropped where a deployment rejects it), so a
+reply is never prose that costs a second call to correct, and reserve 500 output tokens instead of 900 (a step's
+reply is one small JSON object). The Playground's side panel shows the bot's deployment quota.
+
+Batching (the Azure OpenAI Batch API) does not fit the bot: a batch is asynchronous (minutes to hours, within 24 h)
+and each step of a conversation needs the previous reply, so a conversation would take one batch round trip per
+step; and the Playground is interactive. What the bot needs is calls the quota admits, which the pacer provides.
+
+**Pacing and patience.** All gateway calls of a deployment share its pacer: at most
 `GMSJOURNEY_LLM_MAX_INFLIGHT` calls at once (default 4). When the gateway throttles (HTTP 429) or strains (5xx, a
 read timeout, 180 s by default), every client pauses for its `Retry-After` (else an exponential, jittered wait) and
 the number of calls at once is halved; each success raises it again, one step at a time. A throttled call is retried
@@ -150,7 +170,7 @@ replaced, kept only for the parity tests).
 | `case_comparison.py` | rebuilds `case_comparison.html` for an existing campaign folder |
 | `graph_showcase.py` | the state-transition graph of a policy graph file as one HTML page |
 | `geode_before_after.py` | measures what GEODE itself learned, on held-out inputs |
-| `check_llm.py` | one tiny call through the model gateway: "will it work here?" |
+| `check_llm.py` | one tiny call through the model gateway: "will it work here?"; `--bot <journey>` sends one real bot step and prints the deployment's token quota and how many bot steps fit in a minute |
 | `llm_rejections.py` | why LLM-written turns were rejected, from an LLM-arm export |
 | `convert_charge_review_v2.py` | converts the charge-review full graph into a compact graph (how `charge_review_graph` was made) |
 | `templates/` | `EXPLAINER.html`, `INVARIANCE.html` (filled with a run's numbers by `build_docs.py`), `annotated_trace.txt` |

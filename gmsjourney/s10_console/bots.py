@@ -173,9 +173,12 @@ def critique_on(sut: dict[str, Any]) -> bool:
 def settings_for(sut: dict[str, Any]):
     """The model-client settings of a console job's ``sut`` block."""
     from ..llm import LLMSettings
+    # max_tokens: a bot step's reply is one small JSON object (well under 300 tokens); the gateway counts max_tokens
+    # against the deployment's tokens-per-minute quota when it admits the call, so 500 instead of 900 leaves room
+    # for more steps a minute. json_mode: the reply is always a JSON object, so no second call to fix a non-JSON one
     return LLMSettings(model=str(sut.get("model") or ""), temperature=float(sut.get("temperature") or 0.0),
-                       max_tokens=int(sut.get("max_tokens") or 900), mode=str(sut.get("mode") or "live"),
-                       backend="gateway")                  # the bot's own choice, not the rewording or judges' LLM
+                       max_tokens=int(sut.get("max_tokens") or 500), mode=str(sut.get("mode") or "live"),
+                       backend="gateway", json_mode=True)  # the bot's own choice, not the rewording or judges' LLM
 
 
 def make_factory(sut: dict[str, Any] | None, store=None):
@@ -200,7 +203,8 @@ def make_factory(sut: dict[str, Any] | None, store=None):
     want = str(sut.get("critic_model") or "").strip()
     if critique_on(sut) and want and want != (s.model or "") and sut.get("provider") != "local":
         from ..llm import CachedLLM, LLMSettings           # a different model reviews the bot's steps
-        cs = LLMSettings(model=want, temperature=0.0, max_tokens=s.max_tokens, mode=s.mode, backend="gateway")
+        cs = LLMSettings(model=want, temperature=0.0, max_tokens=s.max_tokens, mode=s.mode, backend="gateway",
+                         json_mode=True)
         fake = fake_model()
         critic, cname = CachedLLM(cs, model=fake, tag="critic") if fake is not None else CachedLLM(cs, tag="critic"), want
     fac = make_llm_factory(store, s, llm=llm, instructions=sut.get("instructions") or None,
@@ -724,6 +728,15 @@ class Session:
         self.turns.append(out)
         return out
 
+    def _quota(self) -> dict | None:
+        """The bot's gateway deployment's quota as the pacer knows it (tokens a minute, calls at once, pushbacks)."""
+        m = getattr(getattr(self.llm, "llm", None), "model", None) if self.llm is not None else None
+        url = m._url() if hasattr(m, "_url") else None
+        if not url:
+            return None
+        from ..llm import gateway_quota
+        return gateway_quota().get(url)
+
     def _judge(self, out: dict, e_tools: list, e_acts: list, acts: list, tools: list) -> dict:
         """The two LLM judges on this turn (s07_checks/llm_judges.py), beside the rules' verdict."""
         c = out.get("customer") or {}
@@ -816,6 +829,7 @@ class Session:
                 "diverged_at": self.diverged_at, "deviations": list(self.deviations), "next_line": self._next_line(),
                 "journey_line": self.journey_line(), "judges": self.judges,
                 "judges_model": judges().model if self.judges else None,
+                "gateway_quota": self._quota(),
                 "llm": ({"stats": self.llm.stats.as_dict(), "calls": self.llm.llm.report(),
                          "critique": bool(getattr(self.llm, "critique", False))} if self.llm is not None else None)}
 

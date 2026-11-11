@@ -328,6 +328,7 @@ python tests/test_llm_sut.py                # the LLM bot under test, with a fak
 pip install -r requirements-llm.txt
 export GMSJOURNEY_LLM_URL="https://gaiapis.aexp.com/gcpapi/<path>/completions"   # exact endpoint
 python tools/check_llm.py                    # one call through the gateway: will it work here?
+python tools/check_llm.py --bot charge_review_graph   # one real bot step: the deployment's token quota, bot steps a minute
 python run_campaign.py --llm --out output/campaign_llm
 python run_campaign.py --llm --llm-mode replay --out rerun      # re-run from the cache, no network
 ```

@@ -1057,7 +1057,7 @@ def test_a_throttling_gateway_slows_every_client_down_instead_of_failing_the_run
         with ThreadPoolExecutor(4) as ex:                                       # four conversations at once
             out = list(ex.map(lambda i: llm.invoke("sys", f"turn {i}", "x"), range(8)))
         assert out == ["ok"] * 8
-        p = L._PACERS[f"127.0.0.1:{srv.server_address[1]}"]
+        p = next(iter(L._PACERS.values()))                                     # the deployment's pacer
         assert p.throttled >= 3 and not llm._tripped
         state["always"] = True                                                  # now it never lets up
         os.environ["GMSJOURNEY_LLM_RETRY_SECONDS"] = "1"
@@ -1075,5 +1075,72 @@ def test_a_throttling_gateway_slows_every_client_down_instead_of_failing_the_run
                 os.environ.pop(k, None)
             else:
                 os.environ[k] = v
+        L._session().close()
+        srv.shutdown()
+
+
+def test_the_pacer_learns_the_deployments_token_quota_and_spaces_big_calls():
+    import time as _t
+    from gmsjourney import llm as L
+    p = L._Pacer(4)
+    p.observe({"x-ratelimit-limit-tokens": "600", "x-ratelimit-remaining-tokens": "12",
+               "x-ratelimit-limit-requests": "60"})
+    assert p.tpm == 600 and p.quota()["source"] == "x-ratelimit-limit-tokens" and p.quota()["requests_per_minute"] == 60
+    t0 = _t.time()
+    p.acquire(10)                                                    # 12 left: admitted at once
+    p.release()
+    p.acquire(10)                                                    # 2 left, 10/s refill: waits about 0.8 s
+    p.release()
+    assert 0.5 < _t.time() - t0 < 3.0
+    big = L.estimate_tokens([{"content": "x" * 20000}, {"content": "y" * 1300}], 500)
+    small = L.estimate_tokens([{"content": "x" * 1500}, {"content": "y" * 300}], 220)
+    assert big > 6000 and small < 800                                # a bot step costs ten rewording calls
+
+
+def test_json_mode_is_asked_for_and_dropped_where_the_deployment_rejects_it():
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from gmsjourney import llm as L
+    seen = []
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            seen.append("response_format" in body)
+            bad = "response_format" in body
+            out = json.dumps({"error": {"message": "Unrecognized request argument: response_format"}} if bad else
+                             {"choices": [{"message": {"content": '{"say": []}'}}]}).encode()
+            self.send_response(400 if bad else 200)
+            self.send_header("x-ratelimit-limit-tokens", "30000")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    srv.daemon_threads = True
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    keep = os.environ.get("AEXP_ACCESS_TOKEN")
+    os.environ["AEXP_ACCESS_TOKEN"] = "tok"
+    L._ADAPTED.clear()
+    L._PACERS.clear()
+    try:
+        url = f"http://127.0.0.1:{srv.server_address[1]}/v1/{{model}}/chat"
+        c = L.make_chat_model(L.LLMSettings(url=url, backend="gateway", json_mode=True, max_tokens=500))
+        assert c.invoke(L._messages("Reply in JSON.", "hi")).content == '{"say": []}'
+        assert seen == [True, False] and "JSON mode (response_format) dropped" in c.adaptations
+        assert L.gateway_quota()[c._url()]["tokens_per_minute"] == 30000
+        from gmsjourney.s10_console.bots import settings_for
+        b = settings_for({"kind": "llm", "model": "gpt-41"})
+        assert b.json_mode and b.max_tokens == 500
+    finally:
+        L._ADAPTED.clear()
+        L._PACERS.clear()
+        if keep is None:
+            os.environ.pop("AEXP_ACCESS_TOKEN", None)
+        else:
+            os.environ["AEXP_ACCESS_TOKEN"] = keep
         L._session().close()
         srv.shutdown()

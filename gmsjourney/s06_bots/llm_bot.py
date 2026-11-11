@@ -730,7 +730,7 @@ def make_llm_factory(store=None, settings=None, llm=None, policy_text: str | Non
     ``critic_llm``, or a gateway deployment named by ``critic_model``, or else the bot's own model."""
     from ..llm import CachedLLM, LLMSettings
     if llm is None:
-        s = settings or LLMSettings(temperature=0.0, max_tokens=900)
+        s = settings or LLMSettings(temperature=0.0, max_tokens=500, json_mode=True)
         fake = fake_model()
         if fake is not None:
             s.model = f"fake-{type(fake).__name__}"
@@ -742,7 +742,8 @@ def make_llm_factory(store=None, settings=None, llm=None, policy_text: str | Non
     names = frozenset(acts)
 
     if critique and critic_llm is None and critic_model and critic_model != llm.settings.model:
-        cs = LLMSettings(model=critic_model, temperature=0.0, max_tokens=llm.settings.max_tokens, mode=llm.settings.mode)
+        cs = LLMSettings(model=critic_model, temperature=0.0, max_tokens=llm.settings.max_tokens, mode=llm.settings.mode,
+                         json_mode=True)
         fake = fake_model()                             # another deployment reviews the bot's steps
         critic_llm = CachedLLM(cs, model=fake, tag="critic") if fake is not None else CachedLLM(cs, tag="critic")
     critic = (critic_llm or llm) if critique else None

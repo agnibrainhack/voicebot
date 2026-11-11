@@ -106,11 +106,19 @@ class LLMThrottled(LLMUnavailable):
 
 
 class _Pacer:
-    """The process's share of the gateway: at most ``limit`` calls in flight, halved on throttling and raised again
-    one step per success (additive increase, multiplicative decrease), and a common pause after a 429 so every
-    client waits instead of each hammering the gateway on its own."""
+    """One deployment's share of the gateway: a **token budget** and a cap on calls in flight.
 
-    def __init__(self, cap: int):
+    Azure OpenAI admits a request against the deployment's tokens-per-minute quota by its prompt tokens **plus its
+    max_tokens**, so a bot step (a 5-6k-token prompt) costs ten times a rewording call. The pacer keeps a bucket of
+    tokens that refills at the quota's rate and lets a call through only when the bucket holds its estimated cost:
+    calls are spaced so the gateway admits them, instead of being sent at once, refused (429) and retried. The quota
+    is ``GMSJOURNEY_LLM_TPM`` when set, else learnt from the deployment's own ``x-ratelimit-*`` headers (sent with
+    every Azure OpenAI reply), else unknown (no budget: only the cap in flight).
+
+    The cap in flight is halved on a 429/5xx and raised one step per success (AIMD), and a 429 makes every client
+    wait for its ``Retry-After``."""
+
+    def __init__(self, cap: int, tpm: float | None = None):
         import threading
         self.cap = max(1, cap)
         self.limit = float(self.cap)
@@ -118,18 +126,36 @@ class _Pacer:
         self.pause_until = 0.0
         self.cv = threading.Condition()
         self.throttled = 0                   # how often the gateway pushed back (reported)
+        self.tpm = tpm                       # tokens per minute (None: not known)
+        self.tpm_source = "GMSJOURNEY_LLM_TPM" if tpm else ""
+        self.tokens = tpm or 0.0
+        self.last = time.time()
+        self.rpm: float | None = None
+        self.headers: dict[str, str] = {}    # the last rate-limit headers seen
 
-    def acquire(self) -> None:
+    def _refill(self) -> None:
+        now = time.time()
+        if self.tpm:
+            self.tokens = min(self.tpm, self.tokens + (now - self.last) * self.tpm / 60.0)
+        self.last = now
+
+    def acquire(self, cost: float = 0.0) -> None:
         with self.cv:
             while True:
+                self._refill()
                 wait = self.pause_until - time.time()
                 if wait > 0:
                     self.cv.wait(min(wait, 5.0))
-                elif self.inflight < max(1, int(self.limit)):
-                    self.inflight += 1
-                    return
-                else:
+                    continue
+                if self.inflight >= max(1, int(self.limit)):
                     self.cv.wait(1.0)
+                    continue
+                if self.tpm and self.tokens < min(cost, self.tpm):   # wait for the budget to cover this call
+                    self.cv.wait(min(5.0, (min(cost, self.tpm) - self.tokens) * 60.0 / self.tpm + 0.05))
+                    continue
+                self.tokens -= cost
+                self.inflight += 1
+                return
 
     def release(self, pushed_back: bool = False, pause: float = 0.0) -> None:
         with self.cv:
@@ -142,17 +168,61 @@ class _Pacer:
                 self.limit = min(float(self.cap), self.limit + 1.0 / max(1.0, self.limit))
             self.cv.notify_all()
 
+    def observe(self, headers) -> None:
+        """Learn the quota from a reply's x-ratelimit-* headers and line the budget up with what is left."""
+        def num(k):
+            try:
+                return float(headers.get(k))
+            except (TypeError, ValueError):
+                return None
+        lim, left = num("x-ratelimit-limit-tokens"), num("x-ratelimit-remaining-tokens")
+        rpm = num("x-ratelimit-limit-requests")
+        seen = {k: headers.get(k) for k in ("x-ratelimit-limit-tokens", "x-ratelimit-remaining-tokens",
+                                            "x-ratelimit-limit-requests", "x-ratelimit-remaining-requests",
+                                            "retry-after-ms", "retry-after") if headers.get(k) is not None}
+        with self.cv:
+            if seen:
+                self.headers = seen
+            if lim and lim > 0 and self.tpm_source != "GMSJOURNEY_LLM_TPM":
+                if not self.tpm:
+                    _log_line(f"[LLM] the deployment's quota: {int(lim)} tokens a minute"
+                              + (f", {int(rpm)} requests" if rpm else "") + " (from its rate-limit headers)")
+                    self.tokens = lim
+                self.tpm, self.tpm_source = lim, "x-ratelimit-limit-tokens"
+            if rpm:
+                self.rpm = rpm
+            if left is not None and self.tpm:
+                self.tokens = min(self.tokens, left)
+
+    def quota(self) -> dict[str, Any]:
+        return {"tokens_per_minute": self.tpm, "source": self.tpm_source or None, "requests_per_minute": self.rpm,
+                "calls_at_once": int(self.limit), "throttled": self.throttled, "headers": dict(self.headers)}
+
+
+def estimate_tokens(messages: list[dict[str, Any]], max_tokens: int) -> float:
+    """What the gateway counts against the quota when it admits a call: the prompt (about 3.5 characters a token
+    for English and JSON) plus the reply's max_tokens."""
+    return sum(len(str(m.get("content") or "")) for m in messages) / 3.5 + 8 * len(messages) + max_tokens
+
 
 _PACERS: dict[str, _Pacer] = {}
 
 
 def _pacer(url: str) -> _Pacer:
-    """The pacer of one gateway host (shared by every client calling it)."""
-    host = url.split("/")[2] if "://" in url else url
+    """The pacer of one deployment (its URL names the model: the quota is per deployment), shared by every client
+    calling it: the bot under test, its critique, the Playground, the rewording and the judges on the same model."""
     with _SHARED_LOCK:
-        if host not in _PACERS:
-            _PACERS[host] = _Pacer(int(os.environ.get("GMSJOURNEY_LLM_MAX_INFLIGHT", "4") or 4))
-        return _PACERS[host]
+        if url not in _PACERS:
+            tpm = os.environ.get("GMSJOURNEY_LLM_TPM", "").strip()
+            _PACERS[url] = _Pacer(int(os.environ.get("GMSJOURNEY_LLM_MAX_INFLIGHT", "4") or 4),
+                                  float(tpm) if tpm else None)
+        return _PACERS[url]
+
+
+def gateway_quota() -> dict[str, Any]:
+    """What every deployment's pacer knows: quota, calls at once, how often the gateway pushed back."""
+    with _SHARED_LOCK:
+        return {u: p.quota() for u, p in _PACERS.items()}
 
 
 @dataclass
@@ -180,6 +250,9 @@ class LLMSettings:
     # how long a throttled (429) or straining (5xx, read timeout) call keeps being retried before it fails;
     # env GMSJOURNEY_LLM_RETRY_SECONDS
     retry_seconds: float = 300.0
+    # ask for a JSON object reply (response_format json_object): the bot and its critique answer in JSON, and a
+    # reply that is not JSON costs a whole second call; dropped automatically where a deployment rejects it
+    json_mode: bool = False
     mode: str = "live"                    # live (call on a cache miss) | replay (cache only)
     cache_dir: str | None = None          # default: <gmsjourney cache>/llm/<model>
     # print every live gateway response as it arrives (role, seed, seconds, reply text); cache hits are
@@ -316,6 +389,8 @@ class GatewayChat:
         self.send_sampling = s.send_sampling_params
         self.token_field = "max_tokens"         # reasoning deployments (gpt-5.x) want max_completion_tokens
         self.system_role = True                 # some gateways reject the system role: folded into user
+        self.json_mode = True                   # response_format json_object, when the settings ask for it
+        self.last_headers: dict[str, str] = {}
         self.adaptations: list[str] = []
         self._learn()
 
@@ -325,6 +400,7 @@ class GatewayChat:
         if learnt and learnt["adaptations"] != self.adaptations:
             self.send_sampling = learnt["send_sampling"] and self.send_sampling
             self.token_field, self.system_role = learnt["token_field"], learnt["system_role"]
+            self.json_mode = learnt.get("json_mode", True) and self.json_mode
             self.adaptations = list(learnt["adaptations"])
 
     def _url(self) -> str:
@@ -349,11 +425,17 @@ class GatewayChat:
         if self.send_sampling:
             payload["temperature"] = self.s.temperature
             payload[self.token_field] = self.s.max_tokens
+        if self.s.json_mode and self.json_mode:
+            payload["response_format"] = {"type": "json_object"}
         return payload
 
     def _adapt(self, body: str) -> bool:
         """After an HTTP 400, drop or rename what the deployment rejected; False when nothing applies."""
         b = body.lower()
+        if self.s.json_mode and self.json_mode and ("response_format" in b or "json_object" in b):
+            self.json_mode = False
+            self.adaptations.append("JSON mode (response_format) dropped")
+            return True
         if self.send_sampling and self.token_field == "max_tokens" and "max_completion_tokens" in b:
             self.token_field = "max_completion_tokens"
             self.adaptations.append("max_tokens -> max_completion_tokens")
@@ -379,11 +461,12 @@ class GatewayChat:
         last_error = "no attempt made"
         self._learn()
         pacer = _pacer(self._url())
+        cost = estimate_tokens(self._payload(messages)["messages"], self.s.max_tokens)
         window = float(os.environ.get("GMSJOURNEY_LLM_RETRY_SECONDS", "") or self.s.retry_seconds)
         deadline = time.time() + window
         refreshed, adapted, unreachable, busy = False, 0, 0, 0
         while True:
-            pacer.acquire()
+            pacer.acquire(cost)
             pushed_back, pause = False, 0.0
             try:
                 r = _session().post(self._url(), headers=self._headers(), json=self._payload(messages),
@@ -397,12 +480,19 @@ class GatewayChat:
                 r, unreachable = None, unreachable + 1
                 last_error = f"{type(e).__name__}: {str(e)[:160]}"
             else:
+                hdrs = getattr(r, "headers", None) or {}
+                pacer.observe(hdrs)
+                self.last_headers = dict(getattr(pacer, "headers", {}) or {})
                 if r.status_code == 429 or r.status_code >= 500:   # throttled / straining: everyone backs off
                     busy += 1
                     last_error = f"HTTP {r.status_code}: {r.text[:160]}"
-                    wait = r.headers.get("retry-after")
-                    pause = float(wait) if wait and wait.replace(".", "", 1).isdigit() else \
-                        min(30.0, 2.0 ** busy) * (0.5 + random.random())
+                    ms, wait = hdrs.get("retry-after-ms"), hdrs.get("retry-after")
+                    if ms and ms.replace(".", "", 1).isdigit():
+                        pause = float(ms) / 1000.0
+                    elif wait and wait.replace(".", "", 1).isdigit():
+                        pause = float(wait)
+                    else:
+                        pause = min(30.0, 2.0 ** busy) * (0.5 + random.random())
                     pushed_back = True
             finally:
                 pacer.release(pushed_back, pause)
@@ -424,7 +514,8 @@ class GatewayChat:
             if r.status_code == 400 and adapted < 3 and self._adapt(r.text):
                 adapted += 1                               # retried with what the deployment accepts
                 _ADAPTED[self._url()] = {"send_sampling": self.send_sampling, "token_field": self.token_field,
-                                         "system_role": self.system_role, "adaptations": list(self.adaptations)}
+                                         "system_role": self.system_role, "json_mode": self.json_mode,
+                                         "adaptations": list(self.adaptations)}
                 continue
             if pushed_back:
                 if time.time() + pause > deadline:
