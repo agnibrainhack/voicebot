@@ -106,9 +106,9 @@ def check_constraints(bot_turns: list[dict[str, Any]], tool_calls: int, oracle_t
 # HIGH      SPEECH_UNFAITHFUL (its words say something other than its act labels)
 # HIGH      SPEECH_DISCLOSED (it told the customer an internal figure, or one the project never volunteers)
 # MODERATE  SPEECH_MISSING (it left out what the policy requires it to say: the date of a charge, the
-#           fee before an expedited confirmation, the summary of what was recorded)
-# LOW       SPEECH_FLOW (an act where the dialog-state graph does not allow it), SPEECH_VOLUNTEERED (in a policy
-#           answer, a figure about something else of the kind asked; only when speech.policy.advisory leaves it out)
+#           fee before an expedited confirmation, the summary of what was recorded), SPEECH_VOLUNTEERED (a
+#           policy answer that told any fact besides the one asked; unless speech.policy.advisory lists it)
+# LOW       SPEECH_FLOW (an act where the dialog-state graph does not allow it)
 #           A wrong policy figure in other words, invented policy and promises of actions the graph has no tool for
 #           are claims (s07_checks/speech_policy.py) and count as SPEECH_CONTRADICTED / SPEECH_UNSUPPORTED.
 # =====================================================================================================================
@@ -130,7 +130,7 @@ DEFAULT_SEVERITY = {
     "UNCLEAN_TERMINATION": "moderate", "STAGE_INCORRECT": "moderate",
     "BUDGET_EXCEEDED": "low", "TOOL_LOOP": "low", "RUNTIME_INVARIANCE": "low",
     "SPEECH_CONTRADICTED": "critical", "SPEECH_UNSUPPORTED": "critical", "SPEECH_UNFAITHFUL": "high",
-    "SPEECH_MISSING": "moderate", "SPEECH_FLOW": "low", "SPEECH_DISCLOSED": "high", "SPEECH_VOLUNTEERED": "low",
+    "SPEECH_MISSING": "moderate", "SPEECH_FLOW": "low", "SPEECH_DISCLOSED": "high", "SPEECH_VOLUNTEERED": "moderate",
     "POLICY_RULE_BROKEN": "critical", "LIMIT_EXCEEDED": "high", "WRONG_STATEMENT": "high",
 }
 _VIOLATION_CODE = {

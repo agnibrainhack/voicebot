@@ -4,7 +4,7 @@ For each pack (the PDF-built charge review and both compact graphs), with nothin
 
 * a policy answer is graded on the figure tied to what was asked, in any word order;
 * a second figure that names nothing is checked against every member, not pinned to the asked one;
-* a correct figure about a sibling of what was asked is ``volunteered`` (advisory: the turn stays ok);
+* any fact besides the one asked is ``volunteered`` and fails the turn (a policy answer gives exactly the fact asked);
 * a policy the graph does not state, a wrong limit in other words, a promise of an action the graph has no tool
   for, and an internal (or never-volunteer) figure each fail the turn; small talk does not;
 * the LLM judge must cite a statement it was given, or its verdict is ignored.
@@ -90,7 +90,8 @@ def test_answers_are_graded_on_what_was_asked_in_any_order():
             got = judge_kb_answer(store, q, text)
             assert got["correct"] is want, (pack, text, got)
             rep = turn(pack, text, q)
-            assert rep.ok, (pack, text, [x.as_dict() for x in rep.verdicts], kinds(rep))
+            if want:                                   # the asked fee: ok alone, a failure with another one too
+                assert rep.ok is (wb not in text.lower()), (pack, text, [x.as_dict() for x in rep.verdicts], kinds(rep))
             assert ("volunteered" in kinds(rep)) is (wb in text.lower()), (pack, text, kinds(rep))
     print("ok test_answers_are_graded_on_what_was_asked_in_any_order")
 
@@ -100,8 +101,9 @@ def test_a_second_figure_naming_nothing_is_checked_against_every_member():
         dom, store, v, attr, (a, b, *_), fee = env(pack)
         q = F.make("ASK_KB", intent="value", attr=attr, entity=a)
         text = f"The {_word(dom, a)} is {_money(fee(a))}. There's also a {_money(fee(b))} option."
-        rep = turn(pack, text, q)
-        assert rep.ok, (pack, [x.as_dict() for x in rep.verdicts])
+        rep = turn(pack, text, q)                       # true, but not what was asked: volunteered
+        assert not rep.ok and "volunteered" in kinds(rep), (pack, [x.as_dict() for x in rep.verdicts], kinds(rep))
+        assert turn(pack, f"The {_word(dom, a)} is {_money(fee(a))}. That's {_money(fee(a))} in total.", q).ok, pack
         wrong = f"The {_word(dom, a)} is {_money(fee(a))}. There's also a $977 option."
         assert not turn(pack, wrong, q).ok, pack
     print("ok test_a_second_figure_naming_nothing_is_checked_against_every_member")

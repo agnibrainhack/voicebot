@@ -11,10 +11,10 @@ the exact error. It writes nothing to disk; the token is never printed.
 
     python tools/check_llm.py --bot charge_review_graph
 
-sends one step of the LLM bot under test instead: its real system prompt (5-6k tokens), JSON mode and its
-max_tokens, and prints what the deployment's rate-limit headers say: its tokens-per-minute quota, what one bot
-step costs against it, and so how many bot steps (and customer turns, with the critique) fit in a minute. A bot
-that "gets no response" while the small rewording calls work is almost always this quota.
+sends what the LLM bot under test sends for one customer turn instead: its real reading call (the reading prompt
+and the menu of the journey's first question) and its real wording call (the acts of that question), with JSON mode
+and their max_tokens, and prints what the deployment's rate-limit headers say: its tokens-per-minute quota, what a
+customer turn costs against it, and so how many customer turns fit in a minute.
 """
 from __future__ import annotations
 
@@ -41,8 +41,8 @@ def main() -> int:
     ap.add_argument("--bot", default=None, metavar="PACK",
                     help="send one step of the LLM bot under test of this journey (its real prompt) and report the quota")
     a = ap.parse_args()
-    s = LLMSettings(model=a.model, timeout=max(a.timeout, 180.0) if a.bot else a.timeout, backend="gateway",
-                    temperature=0.0, max_tokens=500 if a.bot else 220, json_mode=bool(a.bot))
+    s = LLMSettings(model=a.model, timeout=max(a.timeout, 60.0) if a.bot else a.timeout, backend="gateway",
+                    temperature=0.0, max_tokens=200 if a.bot else 220, json_mode=bool(a.bot))
     if a.usecase:
         s.use_case_id = a.usecase
     if a.url:
@@ -57,29 +57,27 @@ def main() -> int:
         print(f"\nFAILED - no token:\n  {e}")
         return 1
     print(f"endpoint  : {model._url()}")
-    system, user = "You are a terse assistant.", PROMPT
+    calls = [("call", "You are a terse assistant.", PROMPT, s.max_tokens)]
     if a.bot:
-        from gmsjourney.s01_packs import loading as domain
-        from gmsjourney.s10_console import bots as PG
-        domain.set_current(a.bot)
-        fac, _name, _ = PG.make_factory({"kind": "llm", "model": s.model, "critique": False})
-        system = fac.system_prompt
-        user = json.dumps({"customer_turns_so_far": 1, "conversation": [
-            {"customer": "Hi, I got a text about some charges on my card."}]})
+        calls = bot_calls(a.bot)
     from gmsjourney.llm import estimate_tokens
-    cost = estimate_tokens([{"content": system}, {"content": user}], s.max_tokens)
-    if a.bot:
-        print(f"bot step  : prompt {len(system) + len(user)} characters, about {int(cost)} tokens counted "
-              f"against the quota (prompt + max_tokens {s.max_tokens})")
-    t0 = time.time()
-    try:
-        out = model.invoke(_messages(system, user))
-    except Exception as e:                                     # noqa: BLE001 - report anything
-        print(f"\nFAILED - the gateway call raised:\n  {type(e).__name__}: {str(e)[:400]}")
-        return 1
-    print(f"\nOK in {time.time() - t0:.2f}s")
-    print(f"  reply      : {out.content[:160]!r}")
-    print(f"  tokens     : {getattr(out, 'usage_metadata', None)}")
+    total = 0.0
+    for what, system, user, mt in calls:
+        s.max_tokens = mt
+        cost = estimate_tokens([{"content": system}, {"content": user}], mt)
+        total += cost
+        if a.bot:
+            print(f"\n{what}: prompt {len(system) + len(user)} characters, about {int(cost)} tokens counted against the "
+                  f"quota (prompt + max_tokens {mt})")
+        t0 = time.time()
+        try:
+            out = model.invoke(_messages(system, user))
+        except Exception as e:                                 # noqa: BLE001 - report anything
+            print(f"\nFAILED - the gateway call raised:\n  {type(e).__name__}: {str(e)[:400]}")
+            return 1
+        print(f"OK in {time.time() - t0:.2f}s")
+        print(f"  reply      : {out.content[:160]!r}")
+        print(f"  tokens     : {getattr(out, 'usage_metadata', None)}")
     print(f"  adaptations: {model.adaptations or 'none'}")
     h = getattr(model, "last_headers", {}) or {}
     print(f"  rate limits: {h or 'the gateway sent no x-ratelimit headers'}")
@@ -88,13 +86,31 @@ def main() -> int:
     except (TypeError, ValueError):
         tpm = None
     if tpm:
-        steps = tpm / cost
-        print(f"\nquota     : {int(tpm)} tokens a minute -> about {steps:.1f} calls of this size a minute")
+        print(f"\nquota     : {int(tpm)} tokens a minute -> about {tpm / total:.1f} "
+              + ("customer turns (one reading and one wording call each) a minute" if a.bot else "calls of this size a minute"))
         if a.bot:
-            print(f"            a customer turn is about 1.5 bot steps, and as many critique calls: about "
-                  f"{steps / 3:.1f} turns a minute with the critique, {steps / 1.5:.1f} without")
             print("            set GMSJOURNEY_LLM_TPM to this quota to pace the calls from the first one")
     return 0
+
+
+def bot_calls(pack: str) -> list[tuple[str, str, str, int]]:
+    """The LLM bot's two calls for one customer turn at the journey's first question: (what, system, user, max_tokens)."""
+    from gmsjourney.s01_packs import loading as domain
+    from gmsjourney.s06_bots.llm_bot import READ_SYSTEM, WORD_SYSTEM, LLMReader, StructuredStats, Wording
+    from gmsjourney.s06_bots.reference import _say
+    domain.set_current(pack)
+    g = domain.current().graph
+    if g is None:
+        raise SystemExit(f"{pack} has no policy graph: the LLM bot is built on one")
+    first = next(st for st in g.states if g.kind(st) == "ask")
+    acts = [{"act": first}]
+    lines = [_say(x) for x in acts]
+    read = json.dumps({"state": first, "bot_said": " ".join(lines), "customer": "Sure, one moment, let me check.",
+                       "menu": LLMReader(g, None, StructuredStats()).menu(first)}, ensure_ascii=False)
+    w = Wording(None, StructuredStats())
+    word = json.dumps({"customer_said": "", "customer_turn": "", "voice": "",
+                       "lines": [{"act": x["act"], "facts": w.facts(x), "template": t} for x, t in zip(acts, lines)]})
+    return [("reading call", READ_SYSTEM, read, 200), ("wording call", WORD_SYSTEM, word, 400)]
 
 
 if __name__ == "__main__":

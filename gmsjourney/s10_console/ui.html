@@ -2040,7 +2040,7 @@ function llmPick(role, id, label) {
       h("button", { class: "btn s", type: "button", onclick: () => save({ backend: "local", local_path: path.value.trim(), vllm_url: url.value.trim() }) }, "Use this model")) : null,
     TL.backend === "local" ? h("div", { class: `small ${TL.usable ? "mark ok" : "mark warn"}` }, (TL.usable ? "Ready: " : "Not usable yet: ") + (TL.detail || "")) : null);
 }
-// Every model a test run will call, in one place above Start: the bot and its critic (Bot under test), the two judges
+// Every model a test run will call, in one place above Start: the bot's reading and wording models (Bot under test), the two judges
 // with the policy judge and the case narration (Judges' LLM, role testing) and the rewording (Rewording LLM, role
 // enrichment); each line says where it is chosen, and a role that is switched off says so.
 function roleModel(T) {
@@ -2051,12 +2051,13 @@ function runModels(F) {
   const warn = T => T.backend === "local" && T.usable === false ? h("span", { class: "mark warn" }, ` not usable yet: ${T.detail || "check the folder or server"}`) : null;
   const line = (who, what, where, extra) => h("li", {}, h("b", {}, `${who}: `), what, where ? h("span", { class: "muted" }, ` (${where})`) : null, extra || null);
   const llm = t.kind === "llm";
-  const bot = llm ? (t.provider === "local" ? `local model ${(t.local_path || "(no folder)").split("/").filter(Boolean).pop()}${t.vllm_url ? ` via ${t.vllm_url}` : ""} (vLLM)` : `Microsoft gateway, ${t.model || "gpt-41"}`) : "the reference bot, no LLM";
-  const crit = !llm ? "none (the reference bot has no critique)" : t.critique === false ? "off" :
-    `${critWhere(t) === "same" ? `the bot's own model` : critWhere(t) === "gateway" ? `Microsoft gateway, ${t.critic_model || "gpt-41"}` : `local model ${(t.critic_local_path || "(no folder)").split("/").filter(Boolean).pop()}${t.critic_vllm_url ? ` via ${t.critic_vllm_url}` : ""} (vLLM)`}; reviews ${SCOPES[critScope(t)]}`;
+  const bot = llm ? (t.provider === "local" ? `local model ${lastPart(t.local_path) || "(no folder)"}${t.vllm_url ? ` via ${t.vllm_url}` : ""} (vLLM)` : `Microsoft gateway, ${t.model || "gpt-41"}`) : "the reference bot, no LLM";
+  const w = wordWhere(t);
+  const words = !llm ? "none (the reference bot says the journey's templates)" : w === "template" ? "the journey's templates, no model" : w === "same" ? "the reading model" :
+    w === "gateway" ? `Microsoft gateway, ${t.wording_model || "gpt-41"}` : `local model ${lastPart(t.wording_local_path) || "(no folder)"}${t.wording_vllm_url ? ` via ${t.wording_vllm_url}` : ""} (vLLM)`;
   return [h("b", {}, "Models in this run"), h("ul", { class: "small", style: "margin:4px 0 0 18px;padding:0" },
-    line("Bot under test", bot, "Bot under test, above"),
-    line("Critic", crit, llm ? "Bot under test, above" : null),
+    line("Bot under test, reading", bot, llm ? "Reading model, above; the graph decides the rest" : "Bot under test, above"),
+    line("Bot under test, wording", words, llm ? "Wording model, above" : null),
     line("Two judges", F.llm_judges === false ? "off" : roleModel(TT), F.llm_judges === false ? "Two LLM judges unchecked" : "Judges' LLM; also the policy judge and the case narration", F.llm_judges === false ? null : warn(TT)),
     line("Rewording", F.llm_arm ? `${roleModel(TE)}, ${F.llm_mode === "live" ? "live" : "replay (cache only)"}` : "not used", F.llm_arm ? "Rewording LLM" : "LLM rewording of customer turns unchecked", F.llm_arm ? warn(TE) : null))];
 }
@@ -2080,7 +2081,7 @@ function runView(r) {
         Object.assign(body, { llm_backend: TE.backend || "gateway", llm_model: TE.backend === "local" ? "" : (TE.model || ""), llm_local_path: TE.local_path || "", llm_vllm_url: TE.vllm_url || "",
           bot_workers: body.sut.kind === "llm" ? 4 : 1,
           llm_judges: F.llm_judges !== false, judges_backend: TT.backend || "gateway", judges_model: TT.backend === "local" ? "" : (TT.model || ""), judges_local_path: TT.local_path || "", judges_vllm_url: TT.vllm_url || "" });
-        if (body.sut.kind === "llm" && !(await confirmBox("Run the LLM bot?", `Every customer turn of every case costs one to ${body.sut.max_steps + 1} gateway calls${body.sut.critique ? ", twice that with the critique layer" : ""} (${body.sut.mode === "replay" ? "replay: cached replies only, a reply that is not cached stops the run" : "live, cached for re-runs"}). Start with a few cases.`, "Start the test"))) { startBtn.disabled = false; startBtn.replaceChildren("Start the test"); return; }
+        if (body.sut.kind === "llm" && !(await confirmBox("Run the LLM bot?", `Every customer turn of every case costs one reading call${body.sut.wording === "template" ? "" : " and one wording call"}, each well under 2,000 tokens (${body.sut.mode === "replay" ? "replay: cached replies only, a reply that is not cached stops the run" : "live, cached for re-runs"}). Start with a few cases.`, "Start the test"))) { startBtn.disabled = false; startBtn.replaceChildren("Start the test"); return; }
         try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); } catch {}
         const { id } = await api("api/runs", body); S.meta.active_run = id; gMark("ran"); toast(`Run ${id} started. You can leave this page; it keeps running.`); go(`#/run/${id}`); }
       catch (x) { toast(x.message); startBtn.disabled = false; startBtn.replaceChildren("Start the test"); } } },
@@ -2293,7 +2294,7 @@ function countBar(R, p, compact) {
     h("div", { class: `bar${f == null ? " ind" : ""}`, role: "progressbar", "aria-label": p.label, "aria-valuemin": 0, "aria-valuemax": p.total || undefined, "aria-valuenow": p.done }, h("i", { style: `width:${f == null ? 100 : f * 100}%` })),
     h("div", { class: "pr-ft" }, h("span", { class: "muted" }, p.note || ""), h("span", { class: "num muted" }, p.final || f === 1 ? `done in ${fmtDur(spent)}` : eta != null ? `about ${fmtDur(eta)} left` : `${fmtDur(spent)} so far`)));
 }
-const LLM_TAGS = { sut: "bot under test", critic: "critique", realizer: "rewording", extractor: "dual read", adversary: "adversary" };
+const LLM_TAGS = { sut: "bot's reading", "sut-word": "bot's wording", realizer: "rewording", extractor: "dual read", adversary: "adversary" };
 function llmPanel(R) {
   const p = (R.prog || {}).llm; if (!p) return null;
   const now = R.tEnd || Date.now() / 1000, n = p.done || 0, w = x => `${n ? (x / n) * 100 : 0}%`;
@@ -2423,39 +2424,37 @@ function compareView(r) {
       h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Per stage"), h("span", { class: "small muted" }, "on the shared cases")), h("div", { class: "bd" }, stages)))];
 }
 
-// ---------------------------------------------------------------- bot under test: the reference bot, or an LLM bot with your prompt and files
-function critWhere(t) {       // where the critique runs: "same" (the bot's model), "gateway" or "local" (bots.critic_where)
-  if (["same", "gateway", "local"].includes(t.critic_provider)) return t.critic_provider;
-  return t.critic_model && t.provider !== "local" ? "gateway" : "same";
+// ---------------------------------------------------------------- bot under test: the reference bot, or the LLM bot (a model reads and words, the graph decides)
+function wordWhere(t) {       // where the bot's words are made: "same" (the reading model), "gateway", "local" or "template" (bots.wording_where)
+  return ["same", "gateway", "local", "template"].includes(t.wording) ? t.wording : "same";
 }
-const SCOPES = { all: "every step", key: "account changes and replies", replies: "replies only" };
-const critScope = t => SCOPES[t.critique_scope] ? t.critique_scope : "key";
-function critName(t) {
-  const w = critWhere(t);
-  return w === "gateway" ? (t.critic_model || "gpt-41") : w === "local" ? `${(t.critic_local_path || "a local model").split("/").filter(Boolean).pop()} (local, vLLM)` : "the same model";
+const lastPart = p => (p || "").split("/").filter(Boolean).pop();
+function readName(t) { return t.provider === "local" ? `${lastPart(t.local_path) || "a local model"} (local, vLLM)` : (t.model || "gpt-41"); }
+function wordName(t) {
+  const w = wordWhere(t);
+  return w === "template" ? "the journey's templates" : w === "gateway" ? (t.wording_model || "gpt-41") : w === "local" ? `${lastPart(t.wording_local_path) || "a local model"} (local, vLLM)` : "the same model";
 }
 function botShort(job) {
   const s = (job || {}).sut || {};
-  return s.kind === "llm" ? `LLM bot, ${s.provider === "local" ? "local" : s.model || "gpt-41"}${s.critique === false ? "" : " + critique"}` : "Reference bot";
+  return s.kind === "llm" ? `LLM bot, ${s.provider === "local" ? "local" : s.model || "gpt-41"}${wordWhere(s) === "template" ? " + templates" : ""}` : "Reference bot";
 }
 function botLabel(job) {
   const s = (job || {}).sut || {};
-  return s.kind === "llm" ? `LLM bot ${s.model || "gpt-41"}${s.provider === "local" ? " (local, vLLM)" : ""}${s.mode === "replay" ? " (replay)" : ""}${s.critique === false ? ", no critique" : s.critique ? `, critique by ${critName(s)}` : ""}` : "reference bot (no LLM)";
+  return s.kind === "llm" ? `LLM bot: ${readName(s)} reads, the graph decides, ${wordName(s)} words${s.mode === "replay" ? " (replay)" : ""}` : "reference bot (no LLM)";
 }
 function sutState() {
   S.sut = S.sut || {};
   if (!S.sut[S.pack]) {
     let saved = {}; try { saved = JSON.parse(localStorage.getItem(`jc.sut.${S.pack}`) || "{}"); } catch {}
-    S.sut[S.pack] = Object.assign({ kind: "reference", provider: "gateway", model: "", mode: "live", temperature: 0, max_steps: 6, critique: S.meta.sut_critique !== false, instructions: null, references: [] }, saved, { suggested: null, check: null });
+    S.sut[S.pack] = Object.assign({ kind: "reference", provider: "gateway", model: "", mode: "live", temperature: 0, wording: "same", voice: "" }, saved, { suggested: null, check: null });
   }
   return S.sut[S.pack];
 }
 function sutSummary(t) {
   t = t || sutState();
   if (t.kind !== "llm") return { short: "Reference bot", long: "the reference bot: it follows the graph by rules and reads customers by keywords; no LLM is called" };
-  const m = t.provider === "local" ? `a local model (${(t.local_path || "no folder yet").split("/").filter(Boolean).pop() || "no folder yet"}, vLLM${t.vllm_url ? " server" : ""})` : (t.model || "gpt-41");
-  const crit = t.critique === false ? "no critique" : `critique by ${critName(t)} of ${SCOPES[critScope(t)]}`;
-  return { short: `LLM bot · ${t.provider === "local" ? (t.local_path || "local").split("/").filter(Boolean).pop() : (t.model || "gpt-41")}${t.critique === false ? "" : " + critique"}`, long: `an LLM bot on ${m}, ${crit}` };
+  return { short: `LLM bot · ${t.provider === "local" ? lastPart(t.local_path) || "local" : (t.model || "gpt-41")}`,
+           long: `the LLM bot: ${readName(t)} reads each customer turn, the journey's graph decides the tools and what must be said, ${wordName(t)} words it` };
 }
 function botPill() {
   const el = $("#bot-pill"); if (!el || !S.pack) return;
@@ -2468,75 +2467,63 @@ function botPill() {
 }
 function sutSave() {
   setTimeout(() => { botPill(); document.querySelectorAll(".inuse").forEach(el => { el.textContent = sutSummary().long; }); S.paintRunModels && S.paintRunModels(); }, 0);
-  const { suggested, check, lcheck, clcheck, ...keep } = sutState();
-  try { localStorage.setItem(`jc.sut.${S.pack}`, JSON.stringify(keep)); }
-  catch { try { localStorage.setItem(`jc.sut.${S.pack}`, JSON.stringify({ ...keep, references: [] })); } catch {} }
+  const { suggested, check, lcheck, wcheck, ...keep } = sutState();
+  try { localStorage.setItem(`jc.sut.${S.pack}`, JSON.stringify(keep)); } catch {}
 }
 function sutBody() {
   const t = sutState();
   if (t.kind !== "llm") return { kind: "reference" };
-  return { kind: "llm", provider: t.provider === "local" ? "local" : "gateway", model: t.model || "", mode: t.mode, temperature: Number(t.temperature) || 0, max_steps: Number(t.max_steps) || 6, critique: t.critique !== false,
-           critique_scope: critScope(t), critic_provider: critWhere(t), critic_model: t.critique !== false && critWhere(t) === "gateway" ? (t.critic_model || "") : "",
-           critic_local_path: t.critique !== false && critWhere(t) === "local" ? (t.critic_local_path || "") : "",
-           critic_vllm_url: t.critique !== false && critWhere(t) === "local" ? (t.critic_vllm_url || "") : "",
+  const w = wordWhere(t);
+  return { kind: "llm", provider: t.provider === "local" ? "local" : "gateway", model: t.model || "", mode: t.mode, temperature: Number(t.temperature) || 0,
            local_path: t.provider === "local" ? (t.local_path || "") : "", vllm_url: t.provider === "local" ? (t.vllm_url || "") : "",
-           instructions: t.instructions, custom_prompt: t.instructions != null, references: t.references };
-}
-function fileB64(f) {
-  return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1] || ""); r.onerror = () => rej(new Error(`could not read ${f.name}`)); r.readAsDataURL(f); });
+           wording: w, wording_model: w === "gateway" ? (t.wording_model || "") : "",
+           wording_local_path: w === "local" ? (t.wording_local_path || "") : "", wording_vllm_url: w === "local" ? (t.wording_vllm_url || "") : "",
+           voice: w === "template" ? "" : (t.voice || "").trim() };
 }
 function sutEditor(opts = {}) {
   const t = sutState();
   const box = h("div", { class: "stack", style: "gap:14px" });
   const paint = () => { box.replaceChildren(...parts().filter(x => x != null)); opts.onchange && opts.onchange(); };
-  async function attach(files) {
-    for (const f of files) {
-      try { const r = await api("api/attach", { name: f.name, data: await fileB64(f) });
-        t.references = t.references.filter(x => x.name !== r.name).concat([r]); sutSave(); toast(`${r.name}: ${r.chars.toLocaleString()} characters added as reference${r.truncated ? " (cut to the limit)" : ""}`); }
-      catch (e) { toast(e.message); }
-    }
-    paint();
-  }
-  function critiquePick() {          // the critique LLM: on or off, and its own model (the bot's, a gateway deployment or a local model)
-    const on = t.critique !== false, w = critWhere(t), inPg = opts.id === "pg";
-    const checkCrit = async () => { try { t.clcheck = await api("api/llm/check", { provider: "local", local_path: t.critic_local_path || "", vllm_url: t.critic_vllm_url || "" }); } catch (x) { t.clcheck = { ok: false, detail: x.message }; } paint(); };
+  function wordingPick() {           // the wording model, apart from the reading model: the same, a gateway deployment, a local model, or the templates
+    const w = wordWhere(t), inPg = opts.id === "pg";
+    const checkWord = async () => { try { t.wcheck = await api("api/llm/check", { provider: "local", local_path: t.wording_local_path || "", vllm_url: t.wording_vllm_url || "" }); } catch (x) { t.wcheck = { ok: false, detail: x.message }; } paint(); };
     const inp = (key, ph, aria, st, onchange) => h("input", { class: "input mono", id: `${opts.id}-${key}`, style: st, value: t[key] || "", placeholder: ph, autocomplete: "off", spellcheck: "false", "aria-label": aria,
-      oninput: e => { t[key] = e.target.value.trim(); t.clcheck = null; sutSave(); }, onchange });
+      oninput: e => { t[key] = e.target.value.trim(); t.wcheck = null; sutSave(); }, onchange });
     return h("div", { class: "stack", style: "gap:6px" },
-      h("label", { class: "row", style: "gap:8px;cursor:pointer" },
-        h("input", { type: "checkbox", id: `${opts.id}-crit`, checked: on ? true : null, onchange: e => { t.critique = e.target.checked; sutSave(); paint(); } }),
-        h("b", {}, "Use the critique LLM"),
-        h("span", { class: "small muted" }, on ? "a second call reviews the bot's steps and approves or corrects each before it runs" : "off: the bot's steps run as the model proposes them")),
-      on ? h("div", { class: "row", style: "gap:8px;flex-wrap:wrap;align-items:center" }, h("label", { class: "small muted", for: `${opts.id}-critscope` }, "Reviews"),
-        h("select", { class: "select", id: `${opts.id}-critscope`, style: "height:28px", onchange: e => { t.critique_scope = e.target.value; sutSave(); paint(); } },
-          h("option", { value: "key", selected: critScope(t) === "key" }, "Account changes and replies"), h("option", { value: "replies", selected: critScope(t) === "replies" }, "Replies only (fewest calls)"),
-          h("option", { value: "all", selected: critScope(t) === "all" }, "Every step (most calls)")),
-        h("span", { class: "small muted" }, { key: "lookups run unreviewed; the reply after them is reviewed", replies: "tool calls run unreviewed, including account changes", all: "every tool call and reply: about twice the bot's calls" }[critScope(t)])) : null,
-      on ? h("div", { class: "row", style: "gap:8px;flex-wrap:wrap;align-items:center" }, h("label", { class: "small muted", for: `${opts.id}-critwhere` }, "Critic's model"),
-        h("select", { class: "select", id: `${opts.id}-critwhere`, style: "height:28px", onchange: e => { t.critic_provider = e.target.value; t.clcheck = null; sutSave(); paint(); } },
-          h("option", { value: "same", selected: w === "same" }, "Same as the bot"), h("option", { value: "gateway", selected: w === "gateway" }, "Microsoft gateway"), h("option", { value: "local", selected: w === "local" }, "Local model (vLLM)")),
-        w === "gateway" ? inp("critic_model", "gpt-41", "Critic's gateway deployment", "width:150px;height:28px") : null,
-        w === "same" ? h("span", { class: "small muted" }, "The bot's own model reviews its steps.") : null) : null,
-      on && w === "local" ? h("div", { class: "row", style: "gap:6px;flex-wrap:wrap" },
-        inp("critic_local_path", "/models/gpt-oss-20b", "Critic's local model folder", "flex:1;min-width:150px;height:28px", checkCrit),
-        inp("critic_vllm_url", inPg ? "http://localhost:8000/v1 (needed here)" : "http://localhost:8000/v1 (optional)", "Critic's vLLM server URL", "flex:1;min-width:150px;height:28px", checkCrit),
-        h("button", { class: "btn s", type: "button", onclick: checkCrit }, "Check")) : null,
-      on && w === "local" && t.clcheck ? h("div", { class: `small ${t.clcheck.ok ? "mark ok" : "mark warn"}`, role: "status" }, (t.clcheck.ok ? "Usable: " : "Not usable yet: ") + (t.clcheck.detail || "")) : null);
+      h("div", { class: "row", style: "gap:8px;flex-wrap:wrap;align-items:center" }, h("label", { for: `${opts.id}-wordwhere`, style: "font-weight:600" }, "Wording model"),
+        h("select", { class: "select", id: `${opts.id}-wordwhere`, style: "height:28px", onchange: e => { t.wording = e.target.value; t.wcheck = null; sutSave(); paint(); } },
+          h("option", { value: "same", selected: w === "same" }, "Same as the reading model"), h("option", { value: "gateway", selected: w === "gateway" }, "Microsoft gateway"),
+          h("option", { value: "local", selected: w === "local" }, "Local model (vLLM)"), h("option", { value: "template", selected: w === "template" }, "Templates (no model)")),
+        w === "gateway" ? inp("wording_model", "gpt-41", "Wording gateway deployment", "width:150px;height:28px") : null),
+      h("span", { class: "small muted" }, w === "template" ? "The journey's own template for each act: one model call a turn (the reading), and nothing to check." :
+        "Words what the graph decided, one call a turn. Each line is checked against its facts; a line that adds or drops a fact, a figure, an option or a promise is not used, and the template is said instead."),
+      w === "local" ? h("div", { class: "row", style: "gap:6px;flex-wrap:wrap" },
+        inp("wording_local_path", "/models/gpt-oss-20b", "Wording local model folder", "flex:1;min-width:150px;height:28px", checkWord),
+        inp("wording_vllm_url", inPg ? "http://localhost:8000/v1 (needed here)" : "http://localhost:8000/v1 (optional)", "Wording vLLM server URL", "flex:1;min-width:150px;height:28px", checkWord),
+        h("button", { class: "btn s", type: "button", onclick: checkWord }, "Check")) : null,
+      w === "local" && t.wcheck ? h("div", { class: `small ${t.wcheck.ok ? "mark ok" : "mark warn"}`, role: "status" }, (t.wcheck.ok ? "Usable: " : "Not usable yet: ") + (t.wcheck.detail || "")) : null,
+      w === "template" ? null : h("div", { class: "row", style: "gap:8px;flex-wrap:wrap;align-items:center" }, h("label", { class: "small muted", for: `${opts.id}-voice` }, "Voice"),
+        h("input", { class: "input", id: `${opts.id}-voice`, style: "flex:1;min-width:200px;height:28px", value: t.voice || "", placeholder: "e.g. warm, brief and plain-spoken (tone only)", oninput: e => { t.voice = e.target.value; sutSave(); } })));
   }
   function parts() {
     const where = opts.id === "pg" ? "this conversation" : opts.id === "run" ? "this test run" : "the Playground and test runs";
     const choice = h("div", { class: "stack", style: "gap:8px" },
       h("div", { class: "sut-choice botpick", role: "radiogroup", "aria-label": "Bot under test" },
         ...[["reference", "Reference bot", "No LLM", ["Follows the journey's graph step by step, by rules", "Reads the customer by keywords only", "No model, no network: instant and free", "Use it to check the test suite, or as the baseline"]],
-            ["llm", "LLM bot", t.critique !== false ? "LLM + critique LLM" : "LLM, no critique", ["A language model with your prompt, files, the tools and the dialog acts", "Optionally a critique LLM that reviews every step before it runs (choose below)", "The model gateway, or a local model from a folder you give (vLLM)", "Use it to test the bot you would ship"]]]
+            ["llm", "LLM bot", "LLM reads and words", ["A model reads each customer turn: an answer, a question, a claim or small talk", "The journey's graph decides every tool call and what must be said", "A model words it, checked against the facts (or the journey's templates)", "The model gateway, or a local model on vLLM"]]]
           .map(([k, tt, tag, pts]) => h("label", {}, h("input", { type: "radio", name: `sut-${opts.id || "x"}`, value: k, checked: t.kind === k, onchange: () => { t.kind = k; sutSave(); paint(); } }),
             h("span", { class: "row", style: "justify-content:space-between;flex-wrap:nowrap" }, h("span", { class: "t" }, tt), h("span", { class: `bt ${k}` }, tag)),
             h("ul", { class: "p" }, ...pts.map(x => h("li", {}, x)))))),
       h("p", { class: "small", role: "status" }, h("b", {}, "In use: "), h("span", { class: "inuse" }, sutSummary(t).long), `. This choice is kept per journey and shared by the Playground and test runs; it applies to ${where}.`));
-    const extra = opts.extra ? opts.extra() : null;        // the Playground's judges, beside the bot's and the critic's model
+    const extra = opts.extra ? opts.extra() : null;        // the Playground's judges, beside the reading and the wording model
     if (t.kind !== "llm") return [choice, extra];
     const sg = t.suggested;
     if (!sg) { api(`api/journey/${S.pack}/sut`).then(x => { t.suggested = x; paint(); }).catch(e => toast(e.message)); }
+    if (sg && sg.graph === false) {                  // an older hand-written journey: no compact graph for the LLM bot to follow
+      const ok = (S.meta.packs || []).filter(x => x.compiled).map(x => x.name);
+      return [choice, h("div", { class: "notice warn" }, `The LLM bot follows the journey's policy graph, and ${S.pack} is an older journey written without one. `,
+        ok.length ? `Open one written as a graph in the top bar (${ok.join(", ")})${ok.includes(S.pack + "_graph") ? `: ${S.pack}_graph is the same policy` : ""}, or use the reference bot here.` : "Use the reference bot here."), extra];
+    }
     const ck = t.check;
     const loc = S.meta.sut_local || {};                  // the console's default (GMSJOURNEY_SUT_LOCAL_MODEL), if any
     const inPg = opts.id === "pg";                         // the Playground takes a local model only through a server
@@ -2544,65 +2531,38 @@ function sutEditor(opts = {}) {
     if (t.vllm_url == null) t.vllm_url = loc.url || "";
     const lck = t.lcheck;
     const checkLocal = async () => { try { t.lcheck = await api("api/llm/check", { provider: "local", local_path: t.local_path, vllm_url: t.vllm_url }); } catch (x) { t.lcheck = { ok: false, detail: x.message }; } paint(); };
-    const provider = h("div", { class: "form" }, h("span", { id: `${opts.id}-prov-l`, style: "font-size:12.5px;color:var(--ink-2)" }, "Bot runs on"),
+    const provider = h("div", { class: "form" }, h("span", { id: `${opts.id}-prov-l`, style: "font-size:12.5px;color:var(--ink-2)" }, "Reading model runs on"),
       h("div", { class: "stack", style: "gap:4px" }, h("div", { class: "devs", role: "radiogroup", "aria-labelledby": `${opts.id}-prov-l` },
         h("label", {}, h("input", { type: "radio", name: `${opts.id}-prov`, checked: t.provider !== "local", onchange: () => { t.provider = "gateway"; t.check = null; sutSave(); paint(); } }),
           h("span", { class: "dn" }, "Model gateway"), h("span", { class: "dd" }, "Microsoft, through the network")),
         h("label", {}, h("input", { type: "radio", name: `${opts.id}-prov`, checked: t.provider === "local", onchange: () => { t.provider = "local"; t.lcheck = null; sutSave(); paint(); if (t.local_path || t.vllm_url) checkLocal(); } }),
-          h("span", { class: "dn" }, "Local model (vLLM)"), h("span", { class: "dd" }, t.local_path ? t.local_path.split("/").filter(Boolean).pop() : "your model folder")))));
+          h("span", { class: "dn" }, "Local model (vLLM)"), h("span", { class: "dd" }, t.local_path ? lastPart(t.local_path) : "your model folder")))));
+    const replies = [h("label", { for: `${opts.id}-mode` }, "Replies"), h("select", { class: "select", id: `${opts.id}-mode`, style: "max-width:260px", onchange: e => { t.mode = e.target.value; sutSave(); } },
+        h("option", { value: "live", selected: t.mode === "live" }, "live (cached for re-runs)"), h("option", { value: "replay", selected: t.mode === "replay" }, "replay (cache only, no calls)"))];
     const model = t.provider === "local" ? h("div", { class: "form" },
-      h("label", { for: `${opts.id}-lpath` }, "Bot's model folder"), h("div", { class: "row", style: "flex-wrap:nowrap" },
-        h("input", { class: "input mono", id: `${opts.id}-lpath`, value: t.local_path, placeholder: "/models/Meta-Llama-3.1-8B-Instruct", autocomplete: "off", spellcheck: "false",
+      h("label", { for: `${opts.id}-lpath` }, "Reading model folder"), h("div", { class: "row", style: "flex-wrap:nowrap" },
+        h("input", { class: "input mono", id: `${opts.id}-lpath`, value: t.local_path, placeholder: "/models/gpt-oss-20b", autocomplete: "off", spellcheck: "false",
           oninput: e => { t.local_path = e.target.value.trim(); t.lcheck = null; sutSave(); }, onchange: checkLocal }),
         h("button", { class: "btn s", type: "button", onclick: checkLocal }, "Check")),
-      h("span", {}), h("span", { class: "small muted" }, "A folder on the machine running the console (the notebook's kernel), holding the model's config.json and weights, e.g. a Llama 3.1 8B Instruct download."),
+      h("span", {}), h("span", { class: "small muted" }, "A folder on the machine running the console (the notebook's kernel), holding the model's config.json and weights."),
       h("label", { for: `${opts.id}-lurl` }, "vLLM server"), h("input", { class: "input mono", id: `${opts.id}-lurl`, value: t.vllm_url, placeholder: inPg ? "http://localhost:8000/v1 (needed here)" : "optional: http://localhost:8000/v1", autocomplete: "off", spellcheck: "false",
           oninput: e => { t.vllm_url = e.target.value.trim(); t.lcheck = null; sutSave(); }, onchange: checkLocal }),
       h("span", {}), h("span", { class: "small muted" }, inPg ? "In the Playground the model must be served by a vLLM server (loading it here would take the console's process). With a server, the folder is the model name the server knows." : "Empty: the test run loads the folder with vLLM in its own process. With a server, the calls go there and the folder is the model name the server knows."),
       lck ? h("span", {}) : null, lck ? h("div", { class: `notice ${lck.ok ? "ok" : "bad"}`, role: "status" }, lck.ok ? `Usable: ${lck.detail}` : `Not usable yet: ${lck.detail}`) : null,
-      h("label", { for: `${opts.id}-mode` }, "Replies"), h("select", { class: "select", id: `${opts.id}-mode`, style: "max-width:260px", onchange: e => { t.mode = e.target.value; sutSave(); } },
-          h("option", { value: "live", selected: t.mode === "live" }, "live (cached for re-runs)"), h("option", { value: "replay", selected: t.mode === "replay" }, "replay (cache only)")),
-      h("span", {}), h("span", { class: "small muted" }, "Temperature 0, so a run can be repeated exactly. Set GMSJOURNEY_VLLM_GPU_UTIL lower if the knowledge store shares the GPU.")) : h("div", { class: "form" },
-      h("label", { for: `${opts.id}-model` }, "Bot's model"), h("div", { class: "row" },
+      ...replies) : h("div", { class: "form" },
+      h("label", { for: `${opts.id}-model` }, "Reading model"), h("div", { class: "row" },
         h("input", { class: "input mono", id: `${opts.id}-model`, style: "width:150px", value: t.model, placeholder: "gpt-41", autocomplete: "off", spellcheck: "false", oninput: e => { t.model = e.target.value.trim(); t.check = null; sutSave(); } }),
-        h("label", { class: "small muted", for: `${opts.id}-mode` }, "Replies"), h("select", { class: "select", id: `${opts.id}-mode`, onchange: e => { t.mode = e.target.value; sutSave(); } },
-          h("option", { value: "live", selected: t.mode === "live" }, "live (cached for re-runs)"), h("option", { value: "replay", selected: t.mode === "replay" }, "replay (cache only, no calls)")),
         h("button", { class: "btn s", type: "button", onclick: async e => { const b = e.currentTarget; b.disabled = true; b.replaceChildren(h("span", { class: "spin" }), "Checking…");
           try { t.check = await api("api/llm/check", { model: t.model }); } catch (x) { t.check = { ok: false, detail: x.message }; } paint(); } }, "Check gateway")),
       ck ? h("span", {}) : null, ck ? h("div", { class: `notice ${ck.ok ? "ok" : "bad"}`, role: "status" }, ck.ok ? `Gateway answered${ck.seconds != null ? ` in ${ck.seconds}s` : ""}: ${ck.detail}` : `Gateway not usable: ${ck.detail}`) : null,
-      h("label", { for: `${opts.id}-temp` }, "Temperature"), h("div", { class: "row" },
-        h("input", { class: "input num", id: `${opts.id}-temp`, type: "number", min: 0, max: 2, step: 0.1, style: "width:90px", value: t.temperature, oninput: e => { t.temperature = e.target.value; sutSave(); } }),
-        h("label", { class: "small muted", for: `${opts.id}-steps` }, "Tool calls per turn, at most"),
-        h("input", { class: "input num", id: `${opts.id}-steps`, type: "number", min: 1, max: 12, style: "width:80px", value: t.max_steps, oninput: e => { t.max_steps = e.target.value; sutSave(); } })),
-      h("span", {}), h("span", { class: "small muted" }, "0 gives the same reply to the same conversation, so a run can be repeated exactly."),
-      );
-    const edited = t.instructions != null;
-    const status = h("span", { class: `pill ${edited ? "proj" : "graph"}` }, edited ? "Your prompt" : "Suggested prompt");
-    const count = h("span", { class: "small muted num" });
-    const ta = h("textarea", { class: "input prompt", id: `${opts.id}-prompt`, rows: 16, spellcheck: "false", "aria-describedby": `${opts.id}-prompt-help`,
-      oninput: e => { const v = e.target.value; t.instructions = sg && v === sg.instructions ? null : v; sutSave();
-        status.className = `pill ${t.instructions != null ? "proj" : "graph"}`; status.textContent = t.instructions != null ? "Your prompt" : "Suggested prompt";
-        count.textContent = `${v.length.toLocaleString()} characters`; } });
-    ta.value = t.instructions != null ? t.instructions : (sg ? sg.instructions : "Loading the suggested prompt…");
-    if (!sg && t.instructions == null) ta.disabled = true;
-    count.textContent = `${ta.value.length.toLocaleString()} characters`;
-    const prompt = h("div", { class: "stack", style: "gap:6px" },
-      h("div", { class: "row", style: "justify-content:space-between" }, h("div", { class: "row" }, h("label", { for: `${opts.id}-prompt`, style: "font-weight:600" }, "Prompt"), status, count),
-        h("div", { class: "row" }, edited ? h("button", { class: "btn s", type: "button", onclick: () => { t.instructions = null; sutSave(); paint(); } }, "Reset to suggested") : null)),
-      h("p", { class: "small muted", id: `${opts.id}-prompt-help` }, "Who the bot is, how it must behave, and its operating procedure. The suggestion uses ", sg ? sg.policy_source : "the journey's policy",
-        ". Edit it freely: the tools, dialog acts and reply format below are always added, because the harness needs them to run the bot and read what it says."),
-      ta);
-    const drop = h("div", { class: "drop", ondragover: e => { e.preventDefault(); drop.classList.add("over"); }, ondragleave: () => drop.classList.remove("over"),
-        ondrop: e => { e.preventDefault(); drop.classList.remove("over"); attach([...e.dataTransfer.files]); } },
-      h("label", { class: "btn s", for: `${opts.id}-file` }, "Attach files…"),
-      h("input", { type: "file", id: `${opts.id}-file`, multiple: true, class: "sr-only", accept: ".txt,.md,.json,.yaml,.yml,.csv,.tsv,.html,.htm,.xml,.pdf,.docx,.xlsx", onchange: e => attach([...e.target.files]) }),
-      h("span", { class: "small muted" }, "or drop them here: text, Markdown, JSON, YAML, CSV, PDF, Word or Excel. Each is added after the prompt as reference material; the procedure wins where they disagree."));
-    const refs = t.references.length ? h("div", { class: "chips" }, ...t.references.map(r => h("span", { class: "chip proj", title: r.note || "" }, `${r.name} · ${Number(r.chars).toLocaleString()} chars${r.truncated ? " (cut)" : ""}`,
-      h("button", { class: "btn ghost s", type: "button", style: "height:20px;padding:0 4px", "aria-label": `Remove ${r.name}`, onclick: () => { t.references = t.references.filter(x => x !== r); sutSave(); paint(); } }, "×")))) : null;
-    const fixed = h("details", { class: "card" }, h("summary", {}, "Added by the harness (not editable)"),
-      h("p", { class: "small muted", style: "margin:0 14px 8px" }, "The journey's tools with their arguments and allowed values, the transfer reasons, the dialog acts the bot labels its turns with, and the JSON reply format."),
-      h("pre", { class: "fixed" }, sg ? sg.protocol : "Loading…"));
-    return [choice, provider, model, critiquePick(), extra, prompt, h("div", { class: "stack", style: "gap:6px" }, h("span", { style: "font-weight:600" }, "Reference files"), drop, refs), fixed,
+      ...replies);
+    const asked = h("details", { class: "card" }, h("summary", {}, "What the models are asked (fixed)"),
+      h("p", { class: "small muted", style: "margin:0 14px 8px" }, "The policy is never in a prompt: the reading model gets the bot's last words, the customer's words and the menu of the current state (", sg && sg.example_state ? `here, ${sg.example_state}` : "its intents, slots and values", "); the wording model gets the acts the graph decided, their facts and the template lines."),
+      h("pre", { class: "fixed" }, sg ? `READING\n\n${sg.reading}\n\nMENU AT ${sg.example_state || "the first question"}\n\n${JSON.stringify(sg.example_menu || {}, null, 1)}\n\nWORDING\n\n${sg.wording}` : "Loading…"));
+    const temp = wordWhere(t) === "template" ? null : h("div", { class: "row", style: "gap:8px;align-items:center" }, h("label", { class: "small muted", for: `${opts.id}-temp` }, "Wording temperature"),
+      h("input", { class: "input num", id: `${opts.id}-temp`, type: "number", min: 0, max: 2, step: 0.1, style: "width:90px", value: t.temperature, oninput: e => { t.temperature = e.target.value; sutSave(); } }),
+      h("span", { class: "small muted" }, "0 gives the same words to the same turn, so a run can be repeated exactly. Reading is always at 0."));
+    return [choice, provider, model, wordingPick(), temp, extra, asked,
       opts.campaign ? h("div", { class: "notice warn" }, "With the LLM bot, step 10 (planted defects) is skipped: it plants errors in copies of the reference bot. Everything else runs the same way.") : null];
   }
   paint();
@@ -2888,7 +2848,7 @@ async function sayPlay(mode, text) {
   const ta = $("#pg-say"); if (ta && mode === "free") ta.focus();
 }
 const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
-function pgJudgesPick() {     // the Playground's first page: the two judges' model, beside the bot's and the critic's
+function pgJudgesPick() {     // the Playground's first page: the two judges' model, beside the bot's reading and wording models
   return h("div", { class: "stack", style: "gap:6px" },
     h("label", { class: "row", style: "gap:8px;align-items:flex-start;cursor:pointer" }, h("input", { type: "checkbox", id: "pg-judges-on", checked: pgJudges() ? true : null, onchange: e => { try { localStorage.setItem("jc.pgjudges", e.target.checked ? "1" : "0"); } catch {} paintPlay(); } }),
       h("b", {}, "Two LLM judges"), h("span", { class: "small muted" }, "both read each bot turn beside the rules; the rules still decide")),
@@ -2945,19 +2905,22 @@ function exchange(t, Ses) {
       h("div", { class: "said" }, `“${c.text}”`),
       h("div", { class: "small" }, "Means ", h("span", { class: "chip proj" }, cardText(c.card)), c.state ? h("span", { class: "muted" }, ` at ${c.state}`) : null),
       c.state_reading ? h("div", { class: "small muted" }, `A bare ${c.card.act === "CONFIRM" ? "yes" : c.card.act === "DENY" ? "no" : "reply"}: in this state it could mean ${cardText(c.state_reading)}, but the graph is given the words as said and expects the bot to ask rather than guess.`) : null,
-      c.admissible === false ? h("div", { class: "small mark warn" }, `The state does not accept this meaning${c.why_not ? ": " + c.why_not : ""}. The graph handles it as it would any unexpected answer.`) : null,
+      c.card && c.card.act === "CHITCHAT" ? h("div", { class: "small muted" }, "Small talk: not an answer. The graph asks the same question again, with no clarification and no policy.")
+        : c.admissible === false ? h("div", { class: "small mark warn" }, `The state does not accept this meaning${c.why_not ? ": " + c.why_not : ""}. The graph handles it as it would any unexpected answer.`) : null,
       c.journey_would_say ? h("div", { class: "small muted" }, c.journey_would_say.same_meaning ? "Same meaning as the journey's line: " : "The journey's line, still next: ", `“${c.journey_would_say.text}”`, c.journey_would_say.same_meaning ? "" : ` (${c.journey_would_say.read})`) : null)
     : h("div", { class: "xside cust" }, h("div", { class: "xlbl" }, "Customer"), h("div", { class: "small muted" }, "The bot opens the call."));
   const botSide = h("div", { class: "xside bot" },
-    h("div", { class: "xlbl" }, "Agent", h("span", { class: `mode ${Ses.bot === "llm" ? "free" : ""}`, title: Ses.bot_name }, Ses.bot === "llm" ? (Ses.llm && Ses.llm.critique ? "LLM bot + critique LLM" : "LLM bot, no critique") : "reference bot, no LLM")),
+    h("div", { class: "xlbl" }, "Agent", h("span", { class: `mode ${Ses.bot === "llm" ? "free" : ""}`, title: Ses.bot_name }, Ses.bot === "llm" ? "LLM bot: reads, graph decides, words" : "reference bot, no LLM")),
     h("div", { class: "said" }, t.bot.text ? `“${t.bot.text}”` : h("i", { class: "muted" }, "(said nothing)")),
     h("div", { class: "cmp2" },
       h("div", {}, h("div", { class: "k" }, "The graph expects"), h("div", { class: "chips" }, ...[...t.expected.tools.map(x => h("span", { class: "chip graph" }, x)), ...t.expected.acts.map(a => h("span", { class: "chip graph" }, a))]),
         !t.expected.tools.length && !t.expected.acts.length ? h("span", { class: "small muted" }, "nothing (its conversation has ended)") : null),
       h("div", {}, h("div", { class: "k" }, "The bot did"), h("div", { class: "chips" }, ...[...t.tools.map(x => h("span", { class: `chip ${x.ok === false || /UNAVAILABLE|FAILED|unavailable|error/i.test(String(x.status)) ? "bad" : ""}` }, x.text)), ...t.bot.acts.map(a => h("span", { class: "chip" }, a))]))));
   const why = t.why && t.why.length ? h("ul", { class: "xwhy" }, ...t.why.map(w => h("li", {}, w))) : null;
-  const crit = (t.critique || []).length ? h("details", { class: "small crit" }, h("summary", {}, `The critique layer corrected ${plural(t.critique.length, "step")} in this turn`),
-    ...t.critique.map(x => h("div", { class: "crit-row" }, h("div", {}, x.reason || "corrected"), h("div", { class: "mono" }, "proposed: ", JSON.stringify(x.before)), h("div", { class: "mono" }, "carried out: ", JSON.stringify(x.after))))) : null;
+  const KIND_WORDS = { actionable: "an answer", question: "a policy question (answered from the graph)", claim: "a claim (answered from the graph, not agreed to as said)", social: "small talk (no policy; the question is asked again)", unclear: "unclear" };
+  const rd = t.reading;                  // how the LLM bot read the customer's turn
+  const crit = rd && c ? h("div", { class: `small ${rd.rejected ? "mark warn" : "muted"}` }, "The bot read this as ", h("b", {}, KIND_WORDS[rd.kind] || rd.kind || "?"),
+    rd.rejected ? `: its reading was not used (${rd.rejected}), so the turn counts as unclear` : "") : null;
   const sheet = h("details", { class: "xsheet", open: open, ontoggle: e => { (P.open = P.open || {})[key] = e.target.open; } },
     h("summary", {}, "Answer sheet for this turn"),
     h("div", { class: "xgrid" },
@@ -3044,7 +3007,7 @@ function verdictView(r) {
   const fp = h("dl", { class: "kv fp" }, ...[kv("Run", F.run), kv("Started", F.started ? `${F.started}${F.minutes != null ? ` · ${F.minutes} min` : ""}` : null), kv("Journey", F.journey),
     kv("Policy graph", F.graph ? `${F.graph}${F.graph_sha ? ` · sha ${F.graph_sha}` : ""}` : null),
     kv("Code", F.code ? `commit ${F.code.commit}${F.code.uncommitted_changes ? " + uncommitted changes" : ""}` : "not recorded (run started before this was added)"),
-    kv("Bot under test", F.bot), kv("Model", F.model), kv("Prompt", F.prompt_sha ? `sha ${F.prompt_sha}${F.custom_prompt ? " (edited)" : " (suggested)"}` : null), kv("Reference files", F.references),
+    kv("Bot under test", F.bot), kv("Model", F.model), kv("Model prompts", F.prompt_sha ? `sha ${F.prompt_sha}${F.custom_prompt ? " (edited)" : ""}` : null), kv("Wording voice", F.voice), kv("Reference files", F.references),
     kv("Seed · cases · runs", `${F.seed} · ${F.max_cases ?? "all"} · ${F.runs_per_case ?? 1} per case`), kv("Device", F.device_name ? `${F.device} (${F.device_name})` : F.device),
     kv("Knowledge store", F.store), kv("Packages", F.packages ? Object.entries(F.packages).map(([k, v]) => `${k} ${v}`).join(", ") : null)].filter(Boolean).flat());
   const page1 = h("section", { class: "card vpage" }, h("div", { class: "bd stack" },

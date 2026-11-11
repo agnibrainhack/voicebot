@@ -226,31 +226,25 @@ studio shares the setting. Its parts:
   the release gate), then links the report. Runs are kept under `output/console_runs/<id>/`.
 - **Bot under test** (Start a test run and the Playground, and the **Bot:** switch in the top bar, which always says
   which bot is in use and opens the same choice): the **reference bot** (no LLM: it follows the graph by rules and
-  reads the customer by keywords; instant, free, the baseline that checks the test suite) or the **LLM bot** (a
-  language model with your prompt and files, with or without a **critique LLM** that reviews every step;
-  `s06_bots/llm_bot.py`). The choice is kept per journey and shared by the Playground and test runs; runs, verdicts
-  and the case explorer name the bot each run used, with its critique model. For the LLM bot the page shows a suggested prompt (who the bot is,
-  how it behaves, the journey's operating procedure: its transcription, or the graph as text) that you edit
-  freely, and takes files (text, Markdown, JSON, YAML, CSV, PDF, Word, Excel; `s10_console/bots.py`) that are added
-  after it as reference material. The journey's tools with their allowed values, the transfer reasons, the
-  dialog acts and the JSON reply format are always appended (read-only on the page), because the harness needs
-  them to run the bot's tool calls and read what it says. Model, live or replay, temperature and the tool-call
-  budget per turn are set there; **Check gateway** makes one tiny call. The **Use the critique LLM** checkbox,
-  right under the bot choice and for any model (gateway or local), turns the critique layer on or off (on by
-  default; `GMSJOURNEY_SUT_CRITIQUE=0`, or `SUT_CRITIQUE = False` in the console notebook, starts it unchecked;
-  unchecked, the model runs on its own with half the calls). Checked, it makes
-  a second call before every step the bot proposes, each tool call and each reply: a reviewer given the same
-  instructions approves it or returns a corrected step, which is carried out instead (`LLMBot._review`; about twice
-  the calls). **Critic's model** picks the reviewer, apart from the bot's model: *Same as the bot*, a
-  *Microsoft gateway* deployment, or a *Local model (vLLM)* (folder, and a server URL; the Playground needs the
-  server), whatever the bot itself runs on (`critic_provider` = same | gateway | local, with `critic_model` or
-  `critic_local_path` / `critic_vllm_url` in the job). **Reviews** says which steps it checks: account changes and
-  replies (the default: lookups run unreviewed), replies only (fewest calls), or every step (`critique_scope` =
-  key | replies | all; `GMSJOURNEY_SUT_CRITIQUE_SCOPE`). The bot's name says which model critiques; `out/sut_llm.json` counts reviews, approvals and corrections and
-  keeps each correction (proposed step, step carried out, reason), `out/sut_critic_prompt.txt` holds the reviewer's
-  prompt, and the Playground shows under each turn what the reviewer changed. The prompt and files are stored beside the
-  run (`sut.json`, `out/sut_prompt.txt`), the model's call statistics in `out/sut_llm.json`. Step 10 is skipped
-  for an LLM bot (it plants errors in copies of the reference bot).
+  reads the customer by keywords; instant, free, the baseline that checks the test suite) or the **LLM bot**
+  (`s06_bots/llm_bot.py`): a model **reads** each customer turn (an answer, a policy question, a claim, small talk
+  or unclear; the intent and slots chosen from what the current state of the graph accepts, and used only when the
+  state accepts them), the journey's **policy graph decides** every tool call and what must be said, and a model
+  **words** it (each line checked against its facts; the journey's template is said when a check fails). Small talk
+  changes nothing and is answered by asking the pending question again; a customer's policy claim ("the fee is
+  waived, right?") is answered from the graph, never agreed to as said; a policy question gets exactly the fact
+  asked. The policy is never in a prompt, so a customer turn costs one reading call and at most one wording call,
+  each well under 2,000 tokens. The choice is kept per journey and shared by the Playground and test runs; runs,
+  verdicts and the case explorer name the bot each run used, with its models. The card sets the **Reading model**
+  (a gateway deployment, **Check gateway** makes one tiny call, or a local model on vLLM: its folder, and a server
+  URL, which the Playground needs), live or replay, and the **Wording model**, chosen apart from it: *Same as the
+  reading model*, a *Microsoft gateway* deployment, a *Local model (vLLM)*, or *Templates (no model)*
+  (`wording` = same | gateway | local | template, with `wording_model` or `wording_local_path` /
+  `wording_vllm_url`), with a **Voice** (tone only) and the wording temperature. *What the models are asked* shows the
+  two fixed prompts and the menu of the journey's first question. The Playground shows under each customer turn how
+  the bot read it. The settings are stored beside the run (`sut.json`), what the models are asked in
+  `out/sut_prompt.txt`, and how the bot read and worded every turn, with its calls, in `out/sut_llm.json`. Step 10
+  is skipped for an LLM bot (it plants errors in copies of the reference bot).
 - **Explore cases** (a finished run, from its results or step 11; `s10_console/runs.py`): every generated case with its
   customer turns in the original words next to each reworded version (the wording factors that changed, and per
   turn the meaning card it was read back as, equivalent or not, and its surface similarity), the expected run,
@@ -332,7 +326,7 @@ python tests/test_llm_sut.py                # the LLM bot under test, with a fak
 pip install -r requirements-llm.txt
 export GMSJOURNEY_LLM_URL="https://gaiapis.aexp.com/gcpapi/<path>/completions"   # exact endpoint
 python tools/check_llm.py                    # one call through the gateway: will it work here?
-python tools/check_llm.py --bot charge_review_graph   # one real bot step: the deployment's token quota, bot steps a minute
+python tools/check_llm.py --bot charge_review_graph   # the bot's two calls for one turn: the deployment's quota, turns a minute
 python run_campaign.py --llm --out output/campaign_llm
 python run_campaign.py --llm --llm-mode replay --out rerun      # re-run from the cache, no network
 ```
@@ -529,9 +523,10 @@ and its forbidden stances:
 | "I can only go up to 20 turns with you." | finding `disclosed`: max_turns is internal |
 | "Let me check that for you." | finding `unread` (advisory): no policy content |
 
-In an answer to a policy question, a figure about a sibling of what was asked (asked the standard fee, also told the
-expedited fee) is the finding `volunteered`. It is advisory by default, and the answer is graded on the figure tied
-to what was asked, in any word order. A second figure that names nothing is checked against every member, not pinned
+An answer to a policy question gives exactly the fact asked: any other fact in it (asked the standard fee, also told
+the expedited fee; asked a fee, also told the delivery days; a figure that names nothing and is not the asked one; a
+policy statement) is the finding `volunteered`, which fails the turn (`SPEECH_VOLUNTEERED`, moderate) unless the
+project lists it as advisory. The answer is graded on the figure tied to what was asked, in any word order. A second figure that names nothing is checked against every member, not pinned
 to the asked one. `speech.policy` in `project.yaml` sets:
 - `advisory`: the finding kinds that never fail a turn;
 - `never_volunteer`: limits or values that are a disclosure unless asked, on top of what the graph marks internal;
@@ -683,18 +678,20 @@ runtime monitor wraps the same tool client, so the gates watch your bot exactly 
 
 ### An LLM bot as the system under test
 
-`gmsjourney/s06_bots/llm_bot.py` is a second SUT: a tool-using agent on the same model gateway and replay cache as
-the LLM arm (cache tag `sut`). It is given the operating procedure (`policy/charge_review_policy.md`), the tool
-API with its transfer reason codes, and the dialog-act inventory - nothing the oracle computes. Each step the
-model returns one JSON object, a tool call (made on the harness backend, so faults, gates and the trace see it)
-or the acts it says; a malformed reply is sent back once, then surfaces as an `UNKNOWN` turn (a bot defect,
-never repaired by the harness). Notebook CELL 15b runs the full campaign with it:
+`gmsjourney/s06_bots/llm_bot.py` is a second SUT, built on the journey's policy graph: a model **reads** each
+customer turn into a kind (actionable, question, claim, social, unclear), an intent and slots chosen from the menu
+of the current state, and used only when the state accepts them; the graph's state machine (the reference bot's
+interpreter, with no planted defects) calls the allowed tools and decides the acts; a model **words** the acts, and
+each line is checked against its facts (the template is said when a check fails). The policy is never in a prompt.
+Notebook CELL 15b runs the full campaign with it, on `charge_review_graph`:
 
 ```python
-from gmsjourney.s05_rewording.llm_proof import LLMSettings
-from gmsjourney.s06_bots.llm_bot import make_llm_factory
-bot = make_llm_factory(store, settings=LLMSettings(model="gpt-41", temperature=0.0, max_tokens=900))
-run_campaign(CampaignConfig(out_dir="output/campaign_llm_sut", bot_factory=bot, bot_name="LLMBot", runs_per_base=2))
+from gmsjourney.llm import CachedLLM, LLMSettings
+from gmsjourney.s06_bots.llm_bot import make_structured_factory
+bot = make_structured_factory(reader_llm=CachedLLM(LLMSettings(model="gpt-41", max_tokens=200, json_mode=True), tag="sut"),
+                              wording_llm=CachedLLM(LLMSettings(model="gpt-41", max_tokens=400, json_mode=True), tag="sut-word"))
+run_campaign(CampaignConfig(domain="charge_review_graph", out_dir="output/campaign_llm_sut", bot_factory=bot,
+                            bot_name="LLM bot", runs_per_base=2))
 ```
 
 `max_cases=N` tests only N base cases (each with its enriched variants), picked in proportion to the base
@@ -712,11 +709,11 @@ next to it, the reasons a run failed, and every customer turn with EXPECTED (ora
 It is built from `dataset/case_results.jsonl` and the turn-by-turn files, so an existing campaign folder can be
 redone without re-running the bot: `python tools/case_comparison.py --campaign output/campaign_llm_sut`.
 
-Each customer turn costs 1-4 gateway calls; replies are cached (temperature 0), so repeated runs of the same
-conversation and `mode="replay"` cost nothing. `bot.stats` / `bot.llm.report()` give calls, cache hits,
-malformed replies and tool errors. `make_llm_factory(..., critique=True)` adds the critique layer (a second call
-reviews every step and may correct it; `critic_model="gpt-55"` or `critic_llm=` gives the reviewer another model).
-In the campaign notebook, `CRITIQUE = True/False` and `CRITIC_MODEL` in CELL 15b choose it. Tests: `python tests/test_llm_sut.py` (a scripted fake model, no network).
+Each customer turn costs one reading call and at most one wording call (`wording_llm=None`: the templates); replies
+are cached (temperature 0), so repeated runs of the same conversation and `mode="replay"` cost nothing.
+`bot.stats.as_dict()` gives how the turns were read (by kind, readings not used and why) and worded (lines worded,
+said from the template, wordings not used); `bot.llm.report()` / `bot.wording_llm.report()` the calls. Tests:
+`python tests/test_structured_bot.py` (scripted models, no network).
 
 ## Outputs (`output/campaign_out/`)
 
@@ -773,7 +770,7 @@ gmsjourney/
   s08_campaign/      pipeline.py (the 13 steps), outputs.py (taxonomy, SFT corpora, dataset/*.csv)
   s09_reports/       report.py (report.html), cases.py (narration, turn by turn, case comparison), s09_reports/verdict.py
   s10_console/       the journey console: __init__/__main__ (start it), s10_console/server.py (page + JSON API), studio.py,
-                     runs.py (one process per run), bots.py (attachments, bot under test, playground),
+                     runs.py (one process per run), bots.py (bot under test, playground, saved conversations),
                      graphs.py (sections, core segments, versions, the GMS sphere), ui.html, studio_ui.html
   policy/            the packs: charge_review/, charge_review_graph/, supplementary_card/ (graph, domain.yaml, project.yaml)
 run_campaign.py · tests/ · notebooks/ · DESIGN.md · NOTICE

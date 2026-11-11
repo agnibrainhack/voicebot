@@ -587,6 +587,9 @@ class GraphOracle:
                     ctx.trace.events.append(ev)
                     ctx.frame = frame
                     ctx.step_calls = {}
+                    if frame.act == "CHITCHAT" and not any(x.on == "CHITCHAT" for x in self.spec.out.get(state, [])):
+                        pending.append(self._act(state, ctx))   # small talk is no answer: ask again, no clarification
+                        continue
                     t = self._choose(state, frame.act, ctx)
                     if t is None:
                         raise FlowError(f"no transition out of {state} on {frame.act}")

@@ -552,6 +552,8 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     scoring.SPEECH_GATE = cfg.speech_gate
     ref_factory, mutants, runner_kw = _reference(dom, store)
     factory = cfg.bot_factory or ref_factory
+    if getattr(factory, "store", False) is None:     # a bot built before the store (the LLM bot): hand it over
+        factory.store = store
     rk = {"store": store, "realizer": realizer, "reader": reader, "customer": cfg.customer, "paths": validator}
     budget = ConstraintBudget(**(cfg.budgets or {}))
     arms = {"llm": llm_realizer} if llm_realizer is not None else None
@@ -1212,6 +1214,8 @@ def run_graph_campaign(cfg, log: Callable[[str], None] = print) -> dict[str, Any
     # 7 -------------------------------------------------------------- run the bot under test
     log("[7/12] running the system under test (runtime monitor on)" if gcfg else "[7/12] running the system under test")
     factory = cfg.bot_factory or make_graph_factory(store)
+    if getattr(factory, "store", False) is None:     # a bot built before the store (the LLM bot): hand it over
+        factory.store = store
     rk = {"store": store, "realizer": realizer, "reader": reader, "customer": cfg.customer, "paths": validator}
     budget = ConstraintBudget(**(cfg.budgets or {}))
     runner = GraphRunner(bot_factory=factory, governance=gcfg, budgets=budget, **rk)

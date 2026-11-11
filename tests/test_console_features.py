@@ -5,8 +5,6 @@ LLM bot runs on a scripted stand-in model (tests/fake_sut_model.py).
 """
 from __future__ import annotations
 
-import base64
-import io
 import json
 import os
 import socket
@@ -41,50 +39,25 @@ def _with_fake(fn):
     return run
 
 
-# ----------------------------------------------------------------------------- the LLM bot's prompt, any journey
-def test_llm_bot_prompt_is_built_from_the_active_journey():
-    from gmsjourney.s06_bots.llm_bot import (act_inventory, build_system_prompt, protocol_text, suggested_instructions, transfer_reasons)
+# ----------------------------------------------------------------------------- what the LLM bot's models are asked, any journey
+def test_the_llm_bots_menu_is_built_from_the_active_journeys_graph():
+    """The reading model is offered only what the current state of the active journey accepts; no policy text."""
+    from gmsjourney.s06_bots.llm_bot import READ_SYSTEM, LLMReader, StructuredStats
     try:
         domain.set_current("supplementary_card")
-        acts = act_inventory()
-        assert "ASK_RELATIONSHIP" in acts and "PRESENT_TXN" not in acts           # the pack's own dialog states
-        assert acts["CONFIRM_APPLICATION"][1] == ["relationship", "card_product"]   # fields from the graph's carries
-        reasons = transfer_reasons()
-        assert "manual_review" in reasons and "card_options_unavailable" not in reasons
-        assert "submit_card_action" not in reasons["submit_failed"]                 # no other journey's tool named
-        proto = protocol_text()
-        assert "submit_supplementary_application" in proto and "SPOUSE | DOMESTIC_PARTNER" in proto
-        assert "Supplementary" in suggested_instructions()
-        sp = build_system_prompt(instructions="You are a test bot.", references=[{"name": "faq.txt", "text": "Premium costs more."}])
-        assert sp.startswith("You are a test bot.") and "REFERENCE MATERIAL: faq.txt" in sp and "HOW TO REPLY" in sp
-        assert sp.index("faq.txt") < sp.index("BACKEND TOOLS")                       # references before the protocol
-        domain.set_current("charge_review")
-        assert "OPERATING PROCEDURE" in build_system_prompt() and "card_options_unavailable" in transfer_reasons()
+        g = domain.current().graph
+        r = LLMReader(g, None, StructuredStats())
+        m = r.menu("ASK_RELATIONSHIP")
+        assert set(m["intents"]) == {"INFORM_RELATIONSHIP", "REQUEST_HUMAN"}            # the state's own answers
+        assert set(m["intents"]["INFORM_RELATIONSHIP"]["slots"]["relationship"]["values"]) == set(g.members("relationship"))
+        assert any(k.startswith("value:annual_fee_usd:") for k in m["facts"]) and not any("max_turns" in k for k in m["facts"])
+        assert "PROVIDE_CREDENTIAL" not in m["intents"] and "code" in r.menu("ASK_AUTH")["intents"]["PROVIDE_CREDENTIAL"]["slots"]["credential"]
+        domain.set_current("charge_review_graph")
+        m = LLMReader(domain.current().graph, None, StructuredStats()).menu("PRESENT_TXN")
+        assert m["yes"] == "intent INFORM_DISPOSITION with disposition=RECOGNIZED"     # a plain yes, as the graph reads it
+        assert "transfer_card" not in READ_SYSTEM and "authenticate" not in READ_SYSTEM.lower()   # no journey in the prompt
     finally:
         domain.set_current("charge_review")
-
-
-# ----------------------------------------------------------------------------- attachments
-def test_attachments_are_read_as_text_and_refused_clearly():
-    from gmsjourney.s10_console.bots import MAX_CHARS, extract
-    r = extract("faq.md", "# FAQ\n\nStandard delivery is free.".encode())
-    assert r["kind"] == "md" and "free" in r["text"] and not r["truncated"]
-    assert "a | b" in extract("t.csv", b"a,b\n1,2\n")["text"]
-    assert '"fee": 15' in extract("x.json", b'{"fee":15}')["text"]
-    big = extract("big.txt", ("x" * (MAX_CHARS + 10)).encode())
-    assert big["truncated"] and big["chars"] == MAX_CHARS and big["note"]
-    import docx
-    d = docx.Document()
-    d.add_paragraph("Expedited delivery costs $15.")
-    buf = io.BytesIO()
-    d.save(buf)
-    assert "$15" in extract("sop.docx", buf.getvalue())["text"]
-    for name, data in (("pic.png", b"\x89PNG"), ("empty.txt", b"   ")):
-        try:
-            extract(name, data)
-            raise AssertionError(f"{name} should be refused")
-        except ValueError as e:
-            assert name in str(e)
 
 
 # ----------------------------------------------------------------------------- case explorer
@@ -256,15 +229,14 @@ def test_local_model_through_a_vllm_server_runs_the_llm_bot():
         PG.cases("project", None)
         case = PG.find_case("project", "default")
         fac, name, _ = make_factory({"kind": "llm", "provider": "local", "mode": "live"}, PG.bench().store)
-        assert "llama-8b-test" in name and "vLLM server" in name
+        assert "llama-8b-test" in name and "vLLM server" in name and "the same model words" in name
         env = ToolEnvironment(json.loads(json.dumps(case["fixture"])))
         bot = fac(env)
         assert bot.start().acts[-1]["act"] == "ASK_AUTH"
         turn = bot.respond("The last four digits of my card are 4821.")
         assert [c["tool"] for c in env.log][:2] == ["authenticate_customer", "get_review_transactions"] and turn.acts
-        assert fac.llm.report()["calls"] >= 3 and model.calls >= 3
-        assert fac.critique and model.critiques >= 2          # the critique reviewed the replies on the same server
-        assert fac.stats.critique_skipped >= 1                # the lookups ran unreviewed (scope "key", the default)
+        assert fac.llm.report()["calls"] == 1 and model.readings == 1        # one reading of the customer's turn
+        assert fac.wording_llm.report()["calls"] == 2 and model.wordings == 2  # the opening and this turn, worded
     finally:
         backend.CACHE = keep_cache
         srv.shutdown()
@@ -298,12 +270,15 @@ def test_playground_plays_a_case_with_the_reference_bot_and_the_llm_bot():
         pass
     domain.set_current("charge_review_graph")        # the stand-in model plays charge review
     PG.cases("project", None)
-    v = PG.start("project", "default", {"kind": "llm", "instructions": "Be brief.", "references": [{"name": "a.txt", "text": "x"}]})
+    v = PG.start("project", "default", {"kind": "llm", "voice": "Be brief."})
     assert v["bot"] == "llm" and "stand-in" in v["bot_name"] and v["llm"]["stats"]["turns"] == 1
+    assert "graph decides" in v["bot_name"]
     s = PG.get(v["id"])
     t = s.say("The last four digits of my card are 4821.")
     assert [x["tool"] for x in t["tools"]][:2] == ["authenticate_customer", "get_review_transactions"] and t["match"]
-    assert "Be brief." in s.llm.system_prompt and "a.txt" in s.llm.system_prompt
+    assert t["reading"]["kind"] == "actionable" and s.llm.voice == "Be brief."
+    t = s.say("Thanks so much, hope you're having a good day!")             # small talk: no policy, asked again
+    assert t["reading"]["kind"] == "social" and t["bot"]["act_names"] == ["PRESENT_TXN"] and t["match"], t
 
 
 # ----------------------------------------------------------------------------- the API
@@ -332,11 +307,7 @@ def test_console_api_for_the_bot_cases_and_playground():
             return e.code, json.loads(e.read() or b"{}")
     try:
         code, sg = call("api/journey/supplementary_card/sut")
-        assert code == 200 and "OPERATING PROCEDURE" in sg["instructions"] and "HOW TO REPLY" in sg["protocol"]
-        code, a = call("api/attach", {"name": "n.txt", "data": base64.b64encode(b"hello").decode()})
-        assert code == 200 and a["text"] == "hello"
-        code, e = call("api/attach", {"name": "n.exe", "data": ""})
-        assert code == 400 and "n.exe" in e["error"]
+        assert code == 200 and "MENU" in sg["reading"] and "LINES" in sg["wording"] and sg["example_menu"]["intents"]
         code, ck = call("api/llm/check", {"model": ""})
         assert code == 200 and ck["ok"] and ck["fake"]
         rid = "20990101-000000-charge_review_graph"            # a finished run with cases, for the explorer
@@ -357,7 +328,7 @@ def test_console_api_for_the_bot_cases_and_playground():
         assert code == 200 and r["turn"]["match"] and len(r["turns"]) == 2
         code, e = call("api/play/s/nope/say", {"text": "x"})
         assert code == 404
-        # a run with the LLM bot keeps its prompt and files beside the job, not in it
+        # a run with the LLM bot keeps its settings beside the job, and the job says which models it uses
         from gmsjourney.s10_console.runs import Runs
         R = Runs(runs)
         from gmsjourney.s10_console import runs as runs_mod
@@ -367,14 +338,13 @@ def test_console_api_for_the_bot_cases_and_playground():
         runs_mod.subprocess = SimpleNamespace(Popen=lambda *a, **k: type("P", (), {"poll": lambda self: 0, "pid": 0})(),
                                               run=subprocess.run, SubprocessError=subprocess.SubprocessError, STDOUT=subprocess.STDOUT)
         try:
-            rid2 = R.start({"pack": "charge_review_graph", "sut": {"kind": "llm", "instructions": "secret sauce",
-                                                                   "references": [{"name": "f.txt", "text": "abc"}]}})
+            rid2 = R.start({"pack": "charge_review_graph", "sut": {"kind": "llm", "wording": "template", "voice": "calm"}})
         finally:
             runs_mod.subprocess = real
         job = json.loads((runs / rid2 / "job.json").read_text())
         assert len(job.get("graph_sha") or "") == 12                     # provenance recorded at start
-        assert job["sut"]["references"] == [{"name": "f.txt", "chars": 3}] and "secret sauce" not in json.dumps(job)
-        assert json.loads((runs / rid2 / "sut.json").read_text())["instructions"] == "secret sauce"
+        assert job["sut"]["wording"] == "template" and job["sut"]["voice"] == "calm"
+        assert json.loads((runs / rid2 / "sut.json").read_text())["wording"] == "template"
     finally:
         srv.shutdown()
 
@@ -437,12 +407,19 @@ def test_a_playground_conversation_saved_as_a_test_case_is_replayed():
         r = PG.replay(rec)                                           # the reference bot: every turn as the graph says
         assert r.replay_of == rec["id"] and [t["customer"]["mode"] for t in r.turns if t["customer"]] == ["replay", "replay"]
         assert not r.deviations
-        res = PG.replay_all({"kind": "llm", "critique": False})       # the stand-in model deviates: flagged on replay
-        mine = next(x for x in res if x["id"] == rec["id"])
-        assert not mine["passed"] and mine["first_deviation"] is not None and mine["why"] and mine["sent"] == 2, mine
-        off = PG.replay(rec, {"kind": "llm", "critique": False})      # the same turns as a live conversation
-        on = PG.replay(rec, {"kind": "llm", "critique": True})
-        assert not off.turns[2]["tools_match"] and on.turns[2]["tools_match"]   # it records the wrong answer; critique fixes it
+        good = PG.replay(rec, {"kind": "llm"})                        # the LLM bot reads both turns right
+        assert not good.deviations, good.deviations
+        from gmsjourney.s03_knowledge import build as backend
+        keep_cache, backend.CACHE = backend.CACHE, Path(tempfile.mkdtemp(prefix="gms_llm_cache_"))   # its own replies
+        os.environ["GMSJOURNEY_SUT_FAKE_MODEL"] = "fake_sut_model:Misreads"   # a reading model that misreads "not mine"
+        try:
+            res = PG.replay_all({"kind": "llm"})                      # flagged on replay
+            mine = next(x for x in res if x["id"] == rec["id"])
+            assert not mine["passed"] and mine["first_deviation"] is not None and mine["why"] and mine["sent"] == 2, mine
+            bad = PG.replay(rec, {"kind": "llm"})
+            assert not bad.turns[2]["tools_match"]                    # it records the wrong answer
+        finally:
+            backend.CACHE = keep_cache
         PG.delete_saved(rec["id"])
         assert rec["id"] not in [x["id"] for x in PG.saved_list()]
         try:
@@ -1134,8 +1111,8 @@ def test_json_mode_is_asked_for_and_dropped_where_the_deployment_rejects_it():
         assert seen == [True, False] and "JSON mode (response_format) dropped" in c.adaptations
         assert L.gateway_quota()[c._url()]["tokens_per_minute"] == 30000
         from gmsjourney.s10_console.bots import settings_for
-        b = settings_for({"kind": "llm", "model": "gpt-41"})
-        assert b.json_mode and b.max_tokens == 500
+        b, w = settings_for({"kind": "llm", "model": "gpt-41"}), settings_for({"kind": "llm", "model": "gpt-41"}, "word")
+        assert b.json_mode and b.max_tokens == 200 and b.temperature == 0 and w.json_mode and w.max_tokens == 400
     finally:
         L._ADAPTED.clear()
         L._PACERS.clear()
@@ -1145,124 +1122,3 @@ def test_json_mode_is_asked_for_and_dropped_where_the_deployment_rejects_it():
             os.environ["AEXP_ACCESS_TOKEN"] = keep
         L._session().close()
         srv.shutdown()
-
-
-@_with_fake
-def test_the_critics_model_is_chosen_apart_from_the_bots():
-    """The critique runs on the bot's model, a gateway deployment or a local vLLM model, whatever the bot runs on."""
-    from gmsjourney.s10_console import bots as B
-    from gmsjourney.s06_bots.llm_bot import ENV
-    assert B.critic_where({"provider": "gateway", "critic_model": "gpt-55"}) == "gateway"      # an older job
-    assert B.critic_where({"provider": "local", "critic_model": "gpt-55"}) == "same"
-    assert B.critic_where({"critic_provider": "local"}) == "local"
-    base = {"kind": "llm", "model": "gpt-41", "critique": True}
-    fac, name, _ = B.make_factory({**base, "critic_provider": "same"})
-    assert fac.critic_llm is fac.llm and "critique by the same model" in name
-    fac, name, _ = B.make_factory({**base, "critic_provider": "gateway", "critic_model": "gpt-41"})
-    assert fac.critic_llm is fac.llm                                       # the bot's own deployment: one model
-    fac, name, _ = B.make_factory({**base, "critic_provider": "gateway", "critic_model": "gpt-55"})
-    assert fac.critic_llm is not fac.llm and fac.critic_llm.settings.model == "gpt-55" and "critique by gpt-55" in name
-    old = os.environ.pop(ENV, None)
-    try:
-        folder = Path(tempfile.mkdtemp()) / "gpt-oss-20b"
-        folder.mkdir()
-        (folder / "config.json").write_text("{}")
-        loc = {**base, "critic_provider": "local", "critic_local_path": str(folder), "critic_vllm_url": "http://127.0.0.1:9/v1"}
-        fac, name, _ = B.make_factory(loc)                                 # a gateway bot reviewed by a local model
-        assert fac.critic_llm is not fac.llm and "(local, vLLM)" in name and fac.critic_llm.tag == "critic"
-        try:
-            B.make_factory({**base, "critic_provider": "local", "critic_local_path": str(folder) + "-missing"})
-            raise AssertionError("an unusable local critic must be refused")
-        except RuntimeError as e:
-            assert "critic's local model" in str(e)
-        try:                                                               # the Playground needs a server for it
-            B.start("project", "default", {**loc, "critic_vllm_url": ""})
-            raise AssertionError("the playground must refuse a local critic without a vLLM server")
-        except ValueError as e:
-            assert "critic's local model needs a vLLM server" in str(e)
-        fac, name, _ = B.make_factory({**base, "critique": False, "critic_provider": "local"})
-        assert fac.critic_llm is None and "no critique" in name
-    finally:
-        if old is not None:
-            os.environ[ENV] = old
-
-
-@_with_fake
-def test_the_critique_reviews_only_the_steps_in_its_scope():
-    """Every step, the account changes and replies (the default), or the replies only: fewer calls with each."""
-    from gmsjourney.s10_console import bots as PG
-    from gmsjourney.s06_bots.tools import write_tools
-    domain.set_current("charge_review_graph")
-    case = PG.cases("project", None)["cases"][0]
-    seen = {}
-    for scope in ("all", "key", "replies"):
-        v = PG.start("project", "default", {"kind": "llm", "model": "gpt-41", "critique": True, "critique_scope": scope})
-        s = PG.get(v["id"])
-        for ln in case["lines"]:
-            if s.view()["ended"]:
-                break
-            s.say(ln["text"])
-        st = s.llm.stats.as_dict()
-        seen[scope] = (st["critiques"], st["critique_skipped"])
-        assert ("of every step" if scope == "all" else "of account changes and replies" if scope == "key" else "of replies only") in s.bot_name
-    assert seen["all"][1] == 0 and seen["all"][0] > seen["key"][0] >= seen["replies"][0] > 0, seen
-    assert sum(seen["all"]) == sum(seen["key"]) == sum(seen["replies"]), seen   # every step is reviewed or skipped
-    assert write_tools() and PG.critique_scope({}) == "key" and PG.critique_scope({"critique_scope": "all"}) == "all"
-
-
-def test_a_local_critic_is_called_through_its_own_server_and_no_critic_when_off():
-    """A gateway-free setup: the bot on one vLLM server, the critic on another; with the critique off the critic's
-    server is never called."""
-    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-    from fake_sut_model import HappyPath
-    from types import SimpleNamespace
-    from gmsjourney.s06_bots.llm_bot import ENV
-
-    def serve(model):
-        class H(BaseHTTPRequestHandler):
-            def log_message(self, *a):
-                pass
-
-            def do_POST(self):                                # noqa: N802
-                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-                text = model.invoke([SimpleNamespace(content=m["content"]) for m in body["messages"]]).content
-                out = json.dumps({"choices": [{"message": {"content": text}}], "usage": {"prompt_tokens": 5, "completion_tokens": 7}}).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(out)))
-                self.end_headers()
-                self.wfile.write(out)
-        srv = ThreadingHTTPServer(("127.0.0.1", _port()), H)
-        srv.daemon_threads = True
-        threading.Thread(target=srv.serve_forever, daemon=True).start()
-        return srv, f"http://127.0.0.1:{srv.server_address[1]}/v1"
-
-    bot_model, critic_model = HappyPath(), HappyPath()
-    (s1, u1), (s2, u2) = serve(bot_model), serve(critic_model)
-    old = {k: os.environ.pop(k, None) for k in (ENV, "GMSJOURNEY_VLLM_URL", "GMSJOURNEY_SUT_FAKE_MODEL")}
-    from gmsjourney.s03_knowledge import build as backend
-    keep_cache, backend.CACHE = backend.CACHE, Path(tempfile.mkdtemp(prefix="gms_llm_cache_"))
-    try:
-        domain.set_current("charge_review_graph")
-        from gmsjourney.s10_console import bots as PG
-        PG.cases("project", None)
-        sut = {"kind": "llm", "provider": "local", "local_path": "llama-8b-test", "vllm_url": u1, "critique": True,
-               "critique_scope": "all", "critic_provider": "local", "critic_local_path": "gpt-oss-20b", "critic_vllm_url": u2}
-        v = PG.start("project", "default", sut)
-        s = PG.get(v["id"])
-        s.say("The last four digits of my card are 4821.")
-        assert "critique by local-gpt-oss-20b (local, vLLM) of every step" in s.bot_name, s.bot_name
-        assert bot_model.calls >= 2 and critic_model.critiques >= 2 and bot_model.critiques == 0
-        before = critic_model.calls
-        v = PG.start("project", "default", {**sut, "critique": False})
-        PG.get(v["id"]).say("The last four digits of my card are 4821.")
-        assert critic_model.calls == before and "no critique" in PG.get(v["id"]).bot_name
-    finally:
-        backend.CACHE = keep_cache
-        s1.shutdown()
-        s2.shutdown()
-        for k, val in old.items():
-            os.environ.pop(k, None)
-            if val is not None:
-                os.environ[k] = val
-        domain.set_current("charge_review")

@@ -199,7 +199,9 @@ The compact machine becomes executable `leads_to` triples with expressions:
 * **call states** become quiet steps (the bot says nothing) that call the tool and branch on its status; a success
   that echoes another value than the one requested reads as a mismatch;
 * the **global behaviours** become transitions out of every prompt, in the interpreter's order of precedence: a
-  request for a person, a policy question, the state's own acts, an unclear answer;
+  request for a person, a policy question, the state's own acts, an unclear answer; small talk (CHITCHAT) is no
+  answer: the prompt is said again, with no clarification and nothing counted against the unclear limit (the
+  compact interpreter does the same);
 * the **turn limit** is checked before a prompt is said (`on: any` with `retract`: the prompt that was about to
   be said is withdrawn and the call transfers);
 * **loops** become a quiet `loop_step` that loads and filters the items the first time, then gives the next item

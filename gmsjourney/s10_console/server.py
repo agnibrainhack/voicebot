@@ -11,8 +11,7 @@
     GET  /runs/<id>/<file>                  a run's outputs (report.html, dataset/..., ...)
     GET  /api/runs/<id>/cases[/<case>]      a finished run's generated cases (runs.py): the index, or one case
     GET  /api/runs/<id>/verdict             the one-page verdict (s09_reports/verdict.py): gates, risks, fingerprint, case by case
-    GET  /api/journey/<pack>/sut            the suggested prompt for an LLM bot, and the fixed part the harness adds
-    POST /api/attach                        text from a file for the LLM bot's prompt (body: {name, data: base64})
+    GET  /api/journey/<pack>/sut            what the LLM bot's models are asked (the reading and wording prompts, a menu)
     POST /api/llm/settings                  one role's LLM (enrichment | testing): gateway or a local model (body: {role,
                                             backend, model, local_path, vllm_url}); kept in output/console_llm.json
     POST /api/llm/check                     one tiny call through the model gateway (body: {model}), or, with
@@ -235,8 +234,7 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                     from ..s06_bots.llm_bot import status as local_status
                     return self._json({"packs": packs(), "devices": devices(), "runs_dir": str(runs.root),
                                        "tools_llm": tools_llm(),
-                                       "active_run": runs.active(), "sut_local": local_status(),
-                                       "sut_critique": __import__("gmsjourney.s10_console.bots", fromlist=["x"]).critique_default()})
+                                       "active_run": runs.active(), "sut_local": local_status()})
                 if parts[:2] == ["api", "journey"] and len(parts) == 3:
                     st = _studio(parts[2], fresh=parse_qs(u.query).get("fresh") == ["1"])
                     with _on(parts[2]):
@@ -345,10 +343,6 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                     from .bots import reset as _pg_reset
                     _pg_reset(pack)
                     return self._json(out)
-                if parts == ["api", "attach"]:
-                    import base64
-                    from .bots import extract
-                    return self._json(extract(str(body.get("name") or ""), base64.b64decode(body.get("data") or "")))
                 if parts == ["api", "llm", "settings"]:
                     return self._json(save_tools_llm(body))
                 if parts == ["api", "llm", "check"]:

@@ -1,12 +1,11 @@
-"""Opening a graph by path, its sections and core segments, the editor's versions, the GMS sphere and the LLM bot's
-critique layer. No knowledge store, no gateway (the LLM bot runs on tests/fake_sut_model.py).
+"""Opening a graph by path, its sections and core segments, the editor's versions and the GMS sphere. No knowledge
+store, no gateway.
 
     python tests/test_graph_tools.py
 """
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import socket
 import sys
@@ -248,92 +247,6 @@ def test_tool_factors_say_what_varies():
 
 
 # ----------------------------------------------------------------------------- the critique layer
-def _llm_turns(critique: bool):
-    from gmsjourney.s10_console import bots as PG
-    domain.set_current("charge_review_graph")
-    PG.reset()
-    PG.cases("project", None)
-    s = PG.get(PG.start("project", "default", {"kind": "llm", "critique": critique})["id"])
-    s.say("The last four digits of my card are 4821.")
-    t = s.say("No, that's not mine, I never made that purchase.")
-    return s, t
-
-
-def test_the_critique_layer_reviews_every_step_and_corrects_a_wrong_one():
-    old = os.environ.get("GMSJOURNEY_SUT_FAKE_MODEL")
-    os.environ["GMSJOURNEY_SUT_FAKE_MODEL"] = "fake_sut_model:HappyPath"
-    try:
-        s, t = _llm_turns(False)
-        rec = [x for x in t["tools"] if x["tool"] == "record_charge_response"]
-        assert rec and rec[0]["args"]["disposition"] == "RECOGNIZED" and t["critique"] == []
-        assert "no critique" in s.bot_name and s.llm.stats.critiques == 0
-        s, t = _llm_turns(True)
-        rec = [x for x in t["tools"] if x["tool"] == "record_charge_response"]
-        assert rec and rec[0]["args"]["disposition"] == "UNRECOGNIZED"
-        assert len(t["critique"]) == 1 and t["critique"][0]["after"]["args"]["disposition"] == "UNRECOGNIZED"
-        st = s.llm.stats.as_dict()
-        assert "critique by the same model" in s.bot_name and st["critique_revised"] == 1
-        assert st["critiques"] == st["critique_approved"] + st["critique_revised"] + st["critique_unusable"] >= 3
-        assert "THE BOT'S INSTRUCTIONS" in s.llm.critic_prompt and s.llm.system_prompt in s.llm.critic_prompt
-    finally:
-        if old is None:
-            os.environ.pop("GMSJOURNEY_SUT_FAKE_MODEL", None)
-        else:
-            os.environ["GMSJOURNEY_SUT_FAKE_MODEL"] = old
-        domain.set_current("charge_review")
-
-
-def test_the_critique_llm_is_an_option_with_a_default_and_its_own_model():
-    from gmsjourney.s06_bots.llm_bot import make_llm_factory
-    from gmsjourney.s10_console import bots as PG
-    old = {k: os.environ.get(k) for k in ("GMSJOURNEY_SUT_FAKE_MODEL", "GMSJOURNEY_SUT_CRITIQUE")}
-    os.environ["GMSJOURNEY_SUT_FAKE_MODEL"] = "fake_sut_model:HappyPath"
-    try:
-        os.environ.pop("GMSJOURNEY_SUT_CRITIQUE", None)
-        assert PG.critique_default() and PG.critique_on({"kind": "llm"})          # on unless told otherwise
-        assert not PG.critique_on({"kind": "llm", "critique": False})
-        os.environ["GMSJOURNEY_SUT_CRITIQUE"] = "0"                               # the console's default turned off
-        assert not PG.critique_default() and not PG.critique_on({"kind": "llm"})
-        assert PG.critique_on({"kind": "llm", "critique": True})                 # an explicit choice still wins
-        fac, name, _ = PG.make_factory({"kind": "llm"})
-        assert not fac.critique and fac.critic_llm is None and name.endswith("no critique)")
-        off = make_llm_factory()                                                   # the Python API: off unless asked
-        assert not off.critique and off.critic_llm is None
-        same = make_llm_factory(critique=True)
-        assert same.critic_llm is same.llm
-        other = make_llm_factory(critique=True, critic_model="gpt-55")            # an independent reviewer
-        assert other.critic_llm is not other.llm and other.critic_llm.settings.model == "gpt-55"
-        assert other.critic_llm.tag == "critic"
-    finally:
-        for k, v in old.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
-
-
-def test_a_reviewer_that_answers_badly_never_blocks_the_bot():
-    from types import SimpleNamespace
-    from gmsjourney.s06_bots.llm_bot import LLMBot, LLMBotStats
-
-    class Bot:
-        def invoke(self, system, user, salt=""):
-            return json.dumps({"say": [{"act": "END", "text": "Bye."}], "end": True})
-
-    for answer in ("not json", json.dumps({"verdict": "revise", "step": {"nonsense": 1}}), RuntimeError("down")):
-        class Critic:
-            def invoke(self, system, user, salt=""):
-                if isinstance(answer, Exception):
-                    raise answer
-                return answer
-        st = LLMBotStats()
-        b = LLMBot(SimpleNamespace(call=None), Bot(), "sys", stats=st, act_names=frozenset({"END"}), act_fields={"END": []},
-                   critic=Critic(), critic_system="c")
-        turn = b.start()
-        assert turn.ended and turn.acts[0]["act"] == "END" and st.critique_unusable == 1
-
-
-# ----------------------------------------------------------------------------- the API
 def _port() -> int:
     with socket.socket() as so:
         so.bind(("127.0.0.1", 0))

@@ -227,7 +227,7 @@ way to compute the same answer), an optional geometric agreement test, and the f
 
 * for figures, `anchored_figures` uses the speech reader (chapter 7) to tie every figure in the answer to its subject;
   every figure tied to the asked subject must equal the truth (so a correct answer is correct in any order), and a
-  figure about a sibling of the asked subject is reported as *volunteered*;
+  figure about a sibling of the asked subject is reported as *volunteered* (which the speech check fails: chapter 7);
 * `extract_numbers` (digits, number words, "free" / "no charge" as 0) and `money_mentions` ($N, N dollars) are the
   fallbacks;
 * yes/no questions read the first clear yes or no cue;

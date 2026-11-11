@@ -182,7 +182,7 @@ voicebot/
 │   │   ├── __init__.py
 │   │   ├── tools.py             the mock bank, fault injection, the Trace of a run
 │   │   ├── reference.py         the reference bots and their planted defects (mutants)
-│   │   ├── llm_bot.py           an LLM bot (gateway or local model) with a critique layer
+│   │   ├── llm_bot.py           the LLM bot: a model reads and words, the graph decides
 │   │   └── harness.py           plays a case against a bot; adapters for your bot
 │   ├── s07_checks/                                                                              ch. 7
 │   │   ├── __init__.py
@@ -208,7 +208,7 @@ voicebot/
 │   │   ├── server.py            the HTTP server and JSON API
 │   │   ├── studio.py            the project studio (graph view, factor editor, preview)
 │   │   ├── runs.py              campaign runs in their own processes; step summaries
-│   │   ├── bots.py              attachments, the bot under test, the playground
+│   │   ├── bots.py              the bot under test, the playground, saved conversations
 │   │   ├── graphs.py            graph sections, core segments, editor, the GMS sphere
 │   │   ├── ui.html              the console page
 │   │   └── studio_ui.html       the standalone studio page

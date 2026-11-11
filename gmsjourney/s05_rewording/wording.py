@@ -632,6 +632,33 @@ def _osa(a: str, b: str, cap: int = 3) -> int:
     return prev[-1]
 
 
+# Small talk: a customer turn made only of social phrases (thanks, a greeting, an apology, the weather, "one second")
+# carries no journey meaning; it is read as CHITCHAT (asked again, no clarification), not as an unclear answer. Only
+# when nothing else is read and nothing is left once the social phrases and fillers are taken out: "sorry, I'm not
+# sure" keeps "not sure" and stays unclear. A journey adds its own phrases under lexicon acts.CHITCHAT.cues.
+SOCIAL_CUES = [r"thanks?(?: you)?(?: (?:so|very) much)?(?: for (?:that|your help|asking|waiting))?", r"cheers", r"appreciate it",
+               r"(?:i'?m |i am )?(?:so )?sorry(?: about that| for the wait)?", r"(?:hello|hi|hey)(?: there)?",
+               r"good (?:morning|afternoon|evening)", r"how are you(?: doing)?(?: today)?",
+               r"(?:i )?hope (?:you'?re|you are) having a (?:good|great|nice|lovely) day",
+               r"(?:by the way,? )?(?:it'?s )?(?:lovely|nice|beautiful|terrible|awful|crazy) weather(?: today| we'?re having)?",
+               r"have a (?:good|great|nice) (?:one|day)", r"one (?:sec|second|moment)", r"hold on", r"bear with me",
+               r"no worries", r"sorry,? my (?:dog|kid|kids|baby|son|daughter) (?:is|was) (?:barking|crying|being loud)"]
+_SOCIAL_FILLER = set("so much oh um uh well okay ok and just really today too again very the a by way please there"
+                     .split())
+
+
+def is_social(text: str, lexicon=None) -> bool:
+    """Is this customer turn only small talk (see SOCIAL_CUES)?"""
+    t = (text or "").lower().replace("’", "'")
+    extra = (((getattr(lexicon, "acts", None) or {}).get("CHITCHAT") or {}).get("cues") or []) if lexicon is not None else []
+    hit = False
+    for c in sorted(SOCIAL_CUES + list(extra), key=len, reverse=True):
+        t2 = re.sub(r"\b" + c + r"\b", " ", t)
+        hit, t = hit or t2 != t, t2
+    rest = [w for w in re.findall(r"[a-z0-9']+", t) if w not in _SOCIAL_FILLER]
+    return hit and not rest
+
+
 class FrameReader:
     """The rule reader: reads a customer line back into a meaning card (act and slots) using the lexicon's patterns,
     the store's aliases and the state's expectations.
@@ -803,6 +830,8 @@ class FrameReader:
         f = self._read_rest(cl, joined)
         if codes and f.act == "UNCLEAR":
             return F.make(self.code_act, **{self.code_spec["slot"]: codes[-1]})
+        if f.act == "UNCLEAR" and is_social(text, self.lx):
+            return F.make("CHITCHAT")                  # only small talk: no answer, and not a confused one either
         return f
 
     def _read_rest(self, cl, joined: str) -> F:

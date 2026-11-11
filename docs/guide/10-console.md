@@ -11,7 +11,7 @@ voicebot/
         ├── server.py         the HTTP server and its JSON API
         ├── studio.py         the project studio: graph view, factor editor, preview, save
         ├── runs.py           campaign runs in their own processes; step summaries; the case explorer; comparing runs
-        ├── bots.py           attachments, the bot under test, the playground, saved conversations
+        ├── bots.py           the bot under test, the playground, saved conversations
         ├── graphs.py         open a graph by path, sections, core segments, editor, the GMS sphere
         ├── ui.html           the console page
         └── studio_ui.html    the standalone studio page
@@ -84,10 +84,11 @@ every run beside the rules, which still decide (chapter 7); the run's Results sh
 rules, step 12 lists the runs they flag, the verdict shows both judges on every case and the case explorer on every
 version. Each LLM is chosen where it is used, separately (`llmPick`): **Rewording LLM** under *LLM rewording of
 customer turns* (role `enrichment`), **Judges' LLM** under *Two LLM judges*, on the Playground's first page (**Judges' model**, beside the bot's
-and the critic's model) and again in its side panel (role `testing`; the same setting everywhere), and the bot under
-test and its critic in the bot's card (**Bot's model**, **Critic's model**: same as the bot, a gateway deployment or
-a local vLLM model, chosen independently of the bot's). Above **Start the test**, *Models in this run* lists every model the run will call (bot under test,
-critic and what it reviews, the two judges with the policy judge and the case narration, the rewording) and where each
+reading and wording models) and again in its side panel (role `testing`; the same setting everywhere), and the LLM
+bot's two models in the bot's card (**Reading model**, a gateway deployment or a local vLLM model, and **Wording
+model**: the same as the reading model, a gateway deployment, a local vLLM model, or the journey's templates, chosen
+independently). Above **Start the test**, *Models in this run* lists every model the run will call (the bot's reading
+and wording models, the two judges with the policy judge and the case narration, the rewording) and where each
 is chosen, and says so when a role is switched off; the run's log repeats it at the start ("models in this run: ..."). Each is the Microsoft
 gateway (a deployment, **Use**) or a local model on vLLM (its folder, and a server URL when it is served elsewhere;
 **Use this model**). The choices are the console's (`POST /api/llm/settings` with the role, kept in
@@ -112,7 +113,7 @@ estimated from the last store built on the machine and a live count of optimizer
 knowlytix, so its steps are counted with torch's global optimizer hook); counted loops (cases played, reworded cases
 proved, runs under tool faults, planted defects, saved conversations) as a bar with the time left; and every LLM
 call of the run as a split of calls answered from the cache, calls to the model and failures, by caller (bot under
-test, critique, rewording ...), with the live call rate and tokens. The running step in the list shows a thin bar and
+test's reading and wording, rewording ...), with the live call rate and tokens. The running step in the list shows a thin bar and
 its percentage, as do the top bar's run pill and the tab title. A finished step keeps one line per bar (what was
 counted and how long it took).
 
@@ -145,7 +146,7 @@ serves; `stop()` stops them. `show()` also works out **where a browser can reach
 ## server.py — the HTTP server
 
 The standard library's threaded HTTP server serves one page (`ui.html`) and a small JSON API (listed at the top of
-the file: journeys, project check / preview / save, runs, cases, verdict, the bot's prompt, attachments, the gateway
+the file: journeys, project check / preview / save, runs, cases, verdict, what the bot's models are asked, the gateway
 check, the playground, graph open / sections / edit / check / save / use / sphere). `packs()` lists every journey
 under `gmsjourney/policy/`; `make_server(port)` builds the server.
 
@@ -211,17 +212,20 @@ s10_console/
 
 ```
 s10_console/
-└── bots.py   ◀   PART 1 extract (attachments)   PART 2 make_factory, suggested, check_gateway
-                  PART 3 the playground: Bench, cases, Session, start, get
-                  PART 4 saved conversations: save_conversation, saved_list, replay, replay_all
+└── bots.py   ◀   PART 1 make_factory, wording_where, suggested, check_gateway
+                  PART 2 the playground: Bench, cases, Session, start, get
+                  PART 3 saved conversations: save_conversation, saved_list, replay, replay_all
 ```
 
-* **Part 1** `extract(name, data)`: text from a file a tester attaches to the LLM bot's prompt (text, Markdown, JSON,
-  YAML, CSV, PDF, Word, Excel), capped in size.
-* **Part 2** `make_factory(job)`: the reference bot (no LLM), or an LLM bot through the gateway or a local model, with or without the critique layer (`critique` in the job; `critique_on`, whose default `critique_default()` is on unless `GMSJOURNEY_SUT_CRITIQUE` is 0) and reviewed by the critic's own model when one is chosen (`critic_where`: `critic_provider` same | gateway | local;
-`make_critic` builds a gateway deployment `critic_model` or a local vLLM model `critic_local_path` / `critic_vllm_url`,
-whatever the bot runs on; else the bot's own model reviews). The page shows it as a checkbox, **Use the critique LLM**, under the bot choice for a gateway or a local model, from a job's `sut` settings (`settings_for`). The console's **Bot:** switch in the top bar shows which bot is in use for the journey and opens the choice, which the Playground and test runs share. `suggested()` gives the suggested prompt and the fixed protocol the harness adds; `check_gateway` makes one tiny call.
-* **Part 3** the **playground**: talk to the bot yourself on one case of any journey. `Bench` holds the journey's
+* **Part 1** `make_factory(job)`: the reference bot (no LLM), or the LLM bot (chapter 6) from a job's `sut` settings:
+  its reading model through the gateway or a local vLLM model (`provider`, `model`, `local_path`, `vllm_url`) and its
+  wording model chosen apart from it (`wording_where`: `wording` = same | gateway | local | template, with
+  `wording_model` or `wording_local_path` / `wording_vllm_url`), with the tester's `voice` (tone only). Reading calls
+  reserve 200 output tokens at temperature 0, wording calls 400 at the job's temperature, both in JSON mode
+  (`settings_for`). The console's **Bot:** switch in the top bar shows which bot is in use for the journey and opens
+  the choice, which the Playground and test runs share. `suggested()` shows what the models are asked (the two fixed
+  prompts and the menu of the journey's first question); `check_gateway` makes one tiny call.
+* **Part 2** the **playground**: talk to the bot yourself on one case of any journey. `Bench` holds the journey's
   store, oracle, reader, realizer and speech verifier (built once per journey; `reset` forgets it when the graph
   changes). `cases` offers the cases of the latest finished test run, any test run (`run_cases` rebuilds them
   exactly), or the project's default case and one case per non-default level (`factor_cases`). A `Session` sets the
@@ -247,7 +251,7 @@ whatever the bot runs on; else the bot's own model reviews). The page shows it a
   answer sheet (`sheet`): the dialog state answered (`_state_sheet`: accepted acts, bare yes/no, rules, limits), the
   card as triples, and the graph transitions of the turn (`_hops`, cut from the oracle's own `flow_path`: a transition
   on a customer act starts a new turn) with condition, rules, triple and source.
-* **Part 4** **saved conversations**: *Save as a test case* keeps a conversation's customer lines, in order, with the
+* **Part 3** **saved conversations**: *Save as a test case* keeps a conversation's customer lines, in order, with the
   case it started from, a name and a note, in `<pack>/saved_conversations.json` (next to `project.yaml`, so it travels
   with the journey). Only the customer's side is kept: the bot's side is what is tested. `replay(rec, sut)` sends the
   same lines to a bot as `replay` turns and validates each turn exactly as the Playground does; the Playground lists

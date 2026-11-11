@@ -1,18 +1,16 @@
 """The bot under test as the console configures it, and the playground.
 
 Parts of this file:
-  1. ``extract``: text from a file a tester attaches to the LLM bot's prompt (text, Markdown, PDF, Word, Excel).
-  2. ``make_factory``: the reference bot, or an LLM bot (gateway or local model, critique layer on by default),
-     from a console job's ``sut`` settings; ``suggested`` gives the suggested prompt; ``check_gateway`` one call.
-  3. The playground (``start`` / ``Session.say``): talk to the bot on one case; every turn is compared with what the
+  1. ``make_factory``: the reference bot, or the LLM bot (its model reads the customer, the journey's graph decides,
+     a model words the acts) from a console job's ``sut`` settings; ``suggested`` shows what the models are asked;
+     ``check_gateway`` makes one call.
+  2. The playground (``start`` / ``Session.say``): talk to the bot on one case; every turn is compared with what the
      graph expects at that point and its words go through the speech check.
+  3. Saved conversations: a Playground conversation kept as a test case, replayed against any bot.
 """
 from __future__ import annotations
 
-import csv
-import io
 import json
-import os
 import time
 import uuid
 from collections import OrderedDict
@@ -22,216 +20,85 @@ from typing import Any
 
 
 # =====================================================================================================================
-# PART 1 - Text from a file a tester attaches to the LLM bot's prompt (an SOP, a policy PDF, an FAQ sheet).
-#
-# ``extract(name, data) -> {"name", "kind", "chars", "text", "truncated", "note"}``. Plain text formats are decoded;
-# PDF pages are read with pypdf (pdfplumber as a fallback); Word files with python-docx (paragraphs and tables);
-# spreadsheets with openpyxl (one line per row). Anything else is refused with the formats that work. The text is
-# capped (``MAX_CHARS``) so a large manual cannot crowd out the procedure in the prompt; the cap is reported.
-# =====================================================================================================================
-
-MAX_BYTES = 8 * 1024 * 1024
-MAX_CHARS = 120_000
-TEXT = {".txt", ".md", ".markdown", ".json", ".yaml", ".yml", ".csv", ".tsv", ".html", ".htm", ".xml", ".rst", ".log"}
-FORMATS = "text (.txt .md .json .yaml .csv .html), PDF, Word (.docx) or Excel (.xlsx)"
-
-
-def _decode(data: bytes) -> str:
-    for enc in ("utf-8-sig", "utf-16", "cp1252", "latin-1"):
-        try:
-            return data.decode(enc)
-        except UnicodeDecodeError:
-            continue
-    return data.decode("utf-8", "replace")
-
-
-def _pdf(data: bytes) -> str:
-    try:
-        from pypdf import PdfReader
-        pages = [p.extract_text() or "" for p in PdfReader(io.BytesIO(data)).pages]
-        if any(x.strip() for x in pages):
-            return "\n\n".join(f"[page {i + 1}]\n{x.strip()}" for i, x in enumerate(pages) if x.strip())
-    except ImportError:
-        pass
-    try:
-        import pdfplumber
-        with pdfplumber.open(io.BytesIO(data)) as pdf:
-            pages = [p.extract_text() or "" for p in pdf.pages]
-        return "\n\n".join(f"[page {i + 1}]\n{x.strip()}" for i, x in enumerate(pages) if x.strip())
-    except ImportError as e:
-        raise ValueError("reading PDF needs pypdf or pdfplumber (pip install pypdf)") from e
-
-
-def _docx(data: bytes) -> str:
-    try:
-        import docx
-    except ImportError as e:
-        raise ValueError("reading Word files needs python-docx (pip install python-docx)") from e
-    d = docx.Document(io.BytesIO(data))
-    out = [p.text for p in d.paragraphs if p.text.strip()]
-    for t in d.tables:
-        for row in t.rows:
-            out.append(" | ".join(c.text.strip() for c in row.cells))
-    return "\n".join(out)
-
-
-def _xlsx(data: bytes) -> str:
-    try:
-        import openpyxl
-    except ImportError as e:
-        raise ValueError("reading Excel files needs openpyxl (pip install openpyxl)") from e
-    wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-    out = []
-    for ws in wb.worksheets:
-        out.append(f"[sheet {ws.title}]")
-        for row in ws.iter_rows(values_only=True):
-            if any(c is not None and str(c).strip() for c in row):
-                out.append(" | ".join("" if c is None else str(c) for c in row))
-    return "\n".join(out)
-
-
-def extract(name: str, data: bytes) -> dict[str, Any]:
-    """Text from an attached file (text, Markdown, JSON, YAML, CSV, PDF, Word, Excel), capped in size, or an error
-    that says why the file cannot be used.
-    """
-    name = Path(name or "attachment").name
-    if len(data) > MAX_BYTES:
-        raise ValueError(f"{name} is {len(data) / 1e6:.1f} MB; attach a file under {MAX_BYTES // (1024 * 1024)} MB")
-    ext = Path(name).suffix.lower()
-    if ext in TEXT:
-        text, kind = _decode(data), ext.lstrip(".")
-        if ext == ".json":                          # pretty, so the model reads keys and values
-            try:
-                text = json.dumps(json.loads(text), indent=1, ensure_ascii=False)
-            except ValueError:
-                pass
-        elif ext in (".csv", ".tsv"):
-            rows = list(csv.reader(io.StringIO(text), delimiter="\t" if ext == ".tsv" else ","))
-            text = "\n".join(" | ".join(r) for r in rows)
-    elif ext == ".pdf":
-        text, kind = _pdf(data), "pdf"
-    elif ext == ".docx":
-        text, kind = _docx(data), "docx"
-    elif ext in (".xlsx", ".xlsm"):
-        text, kind = _xlsx(data), "xlsx"
-    else:
-        raise ValueError(f"{name}: this format cannot be read as text; attach {FORMATS}")
-    text = text.replace("\r\n", "\n").strip()
-    if not text:
-        raise ValueError(f"{name} has no readable text (a scanned PDF needs OCR first)")
-    cut = len(text) > MAX_CHARS
-    return {"name": name, "kind": kind, "chars": min(len(text), MAX_CHARS), "text": text[:MAX_CHARS],
-            "truncated": cut, "note": f"only the first {MAX_CHARS:,} of {len(text):,} characters are used" if cut else ""}
-
-
-# =====================================================================================================================
-# PART 2 - The bot under test, as the console configures it: the reference bot of the journey, or an LLM bot on the model
-#
-# gateway with the tester's prompt and attached files.
+# PART 1 - The bot under test, as the console configures it: the journey's reference bot, or the LLM bot.
 #
 # A console job carries ``sut``::
 #
 #     {"kind": "reference"}                                    the pack's reference bot (the default)
-#     {"kind": "llm", "provider": "gateway" | "local", "model": "gpt-41", "mode": "live" | "replay", "temperature": 0.0,
-#      "max_steps": 6, "critique": true, "critic_provider": "same" | "gateway" | "local", "critic_model": "",
-#      "critic_local_path": "", "critic_vllm_url": "", "instructions": "...", "references": [{"name": "faq.pdf", "text": "..."}]}
+#     {"kind": "llm", "provider": "gateway" | "local", "model": "gpt-41", "local_path": "", "vllm_url": "",
+#      "mode": "live" | "replay", "temperature": 0.0,
+#      "wording": "same" | "gateway" | "local" | "template", "wording_model": "", "wording_local_path": "",
+#      "wording_vllm_url": "", "voice": "warm and brief"}
 #
-# ``critique`` (default on) adds the critique layer: a second call reviews every step the bot proposes (each tool call
-# and each reply) against the procedure and approves it or replaces it with a corrected step. The critic's model is
-# chosen apart from the bot's (``critic_provider``): "same" (the bot's own model), "gateway" (the deployment
-# ``critic_model``) or "local" (a vLLM model: ``critic_local_path`` / ``critic_vllm_url``), whatever the bot runs on.
-#
-# ``provider`` "local" runs Llama (or any chat model) with vLLM from the folder the tester gives (``local_path``,
-# default GMSJOURNEY_SUT_LOCAL_MODEL), loaded in the test run's own process, or through a vLLM server (``vllm_url``,
-# default GMSJOURNEY_VLLM_URL). The Playground takes it only through a server.
-#
-# ``instructions`` is the editable part of the prompt (who the bot is, how it behaves, the operating procedure); the
-# references are added after it as reference material; the tools, dialog acts and reply format the harness needs are
-# always appended (``sut.llm_bot.protocol_text``) and are not editable.
+# The LLM bot (s06_bots/llm_bot.py) is structured: its model reads each customer turn (kind, intent, slots from what
+# the state accepts), the journey's graph decides the tools and the acts, and a model words the acts (each line
+# checked against its facts). ``provider`` / ``model`` / ``local_path`` / ``vllm_url`` choose the reading model:
+# a gateway deployment, or a local model on vLLM (from a folder, in the test run's own process, or through a vLLM
+# server; the Playground takes it only through a server). ``wording`` chooses the wording model apart from it:
+# "same" (the reading model), a gateway deployment ``wording_model``, a local model (``wording_local_path`` /
+# ``wording_vllm_url``), or "template" (no model: the journey's own templates). ``voice`` is the tone the wording
+# model is asked for; it never changes what is said.
 # =====================================================================================================================
 
+WORDING_CHOICES = ("same", "gateway", "local", "template")
+
+
 def suggested(store=None) -> dict[str, Any]:
-    """The suggested prompt for the active journey, and the fixed part the harness adds."""
+    """What the LLM bot's models are asked, for the active journey: the two fixed prompts and the menu of its first
+    question (what the reading model is offered there)."""
     from ..s01_packs.loading import current
-    from ..s06_bots.llm_bot import (SUT_PROMPT_VERSION, act_inventory, journey_title, protocol_text, suggested_instructions, transfer_reasons)
+    from ..s06_bots.llm_bot import READ_SYSTEM, STRUCTURED_VERSION, WORD_SYSTEM, journey_title, LLMReader, StructuredStats
     dom = current()
-    src = dom.transcription_path
-    return {"pack": dom.name, "title": journey_title(), "instructions": suggested_instructions(),
-            "protocol": protocol_text(act_inventory(store), transfer_reasons(store)), "version": SUT_PROMPT_VERSION,
-            "policy_source": (f"the policy transcription ({src.name})" if src is not None and src.exists()
-                              else f"the policy graph ({dom.graph_path.name}) as text")}
+    out = {"pack": dom.name, "title": journey_title(), "reading": READ_SYSTEM, "wording": WORD_SYSTEM,
+           "version": STRUCTURED_VERSION, "graph": dom.graph is not None}
+    if dom.graph is not None:
+        g = dom.graph
+        first = next((s for s in g.states if g.kind(s) == "ask"), None)
+        if first:
+            out["example_state"] = first
+            out["example_menu"] = LLMReader(g, None, StructuredStats()).menu(first)
+    return out
 
 
-def critique_default() -> bool:
-    """Whether a new LLM bot uses the critique LLM when nothing says: on, unless GMSJOURNEY_SUT_CRITIQUE is 0/off."""
-    return os.environ.get("GMSJOURNEY_SUT_CRITIQUE", "1").strip().lower() not in ("0", "off", "false", "no")
+def wording_where(sut: dict[str, Any]) -> str:
+    """Where the bot's words are made: "same" (the reading model), "gateway", "local" or "template" (no model)."""
+    w = str((sut or {}).get("wording") or "").strip().lower()
+    return w if w in WORDING_CHOICES else "same"
 
 
-def critique_on(sut: dict[str, Any]) -> bool:
-    """Whether the job's LLM bot uses the critique LLM (``critique`` in the job; the console's default otherwise)."""
-    v = (sut or {}).get("critique", critique_default())
-    return v not in (False, "off", "false", 0, "0", None)
+def _local_llm(path: Any, url: Any, s, tag: str, who: str):
+    """(CachedLLM on a local vLLM model, where it runs), or RuntimeError naming ``who`` when it cannot be used."""
+    from ..llm import CachedLLM
+    from ..s06_bots.llm_bot import LocalChat, fake_model, status
+    lp, lu = str(path or "").strip(), str(url or "").strip()
+    st = status(lp, lu)
+    if not st["usable"]:
+        raise RuntimeError(f"{who} local model cannot be used: {st['detail']}")
+    fake = fake_model()
+    chat = fake if fake is not None else LocalChat(lp or None, temperature=s.temperature, max_tokens=s.max_tokens, url=lu or None)
+    s.model = getattr(chat, "name", "") or f"fake-{type(chat).__name__}"
+    return CachedLLM(s, model=chat, tag=tag), "vLLM" + (" server" if st["url"] else ", this machine")
 
 
-SCOPE_WORDS = {"all": "every step", "key": "account changes and replies", "replies": "replies only"}
-
-
-def critique_scope(sut: dict[str, Any]) -> str:
-    """Which steps the critique reviews (llm_bot.CRITIQUE_SCOPES): the job's ``critique_scope``, else
-    GMSJOURNEY_SUT_CRITIQUE_SCOPE, else "key" (account changes and replies: lookups run unreviewed)."""
-    for v in ((sut or {}).get("critique_scope"), os.environ.get("GMSJOURNEY_SUT_CRITIQUE_SCOPE")):
-        v = str(v or "").strip().lower()
-        if v in SCOPE_WORDS:
-            return v
-    return "key"
-
-
-def critic_where(sut: dict[str, Any]) -> str:
-    """Where the critique runs: "same" (the bot's model), "gateway" (``critic_model``) or "local" (a vLLM model).
-    Older jobs name only ``critic_model``: a gateway critic when it is set for a gateway bot, else the bot's model."""
-    p = str((sut or {}).get("critic_provider") or "").strip().lower()
-    if p in ("same", "gateway", "local"):
-        return p
-    return "gateway" if str((sut or {}).get("critic_model") or "").strip() and (sut or {}).get("provider") != "local" else "same"
-
-
-def make_critic(sut: dict[str, Any], bot_settings):
-    """(the critique LLM, its display name), or (None, "") when the bot's own model reviews its steps."""
-    from ..llm import DEFAULT_MODEL, CachedLLM, LLMSettings
+def _gateway_llm(s, tag: str):
+    from ..llm import CachedLLM
     from ..s06_bots.llm_bot import fake_model
-    where = critic_where(sut)
-    s = bot_settings
-    if where == "gateway":
-        want = str(sut.get("critic_model") or "").strip() or DEFAULT_MODEL
-        if sut.get("provider") != "local" and want == (s.model or DEFAULT_MODEL):
-            return None, ""                                  # the bot's own deployment: the same model
-        cs = LLMSettings(model=want, temperature=0.0, max_tokens=s.max_tokens, mode=s.mode, backend="gateway",
-                         json_mode=True)
-        fake = fake_model()
-        return (CachedLLM(cs, model=fake, tag="critic") if fake is not None else CachedLLM(cs, tag="critic")), want
-    if where == "local":
-        from ..s06_bots.llm_bot import LocalChat, status
-        lp, lu = str(sut.get("critic_local_path") or "").strip(), str(sut.get("critic_vllm_url") or "").strip()
-        st = status(lp, lu)
-        if not st["usable"]:
-            raise RuntimeError(f"the critic's local model cannot be used: {st['detail']}")
-        fake = fake_model()
-        chat = fake if fake is not None else LocalChat(lp or None, temperature=0.0, max_tokens=s.max_tokens, url=lu or None)
-        cs = LLMSettings(model=getattr(chat, "name", "") or f"fake-{type(chat).__name__}", temperature=0.0,
-                         max_tokens=s.max_tokens, mode=s.mode, backend="gateway", json_mode=True)
-        return CachedLLM(cs, model=chat, tag="critic"), f"{cs.model} (local, vLLM)"
-    return None, ""
+    fake = fake_model()
+    return CachedLLM(s, model=fake, tag=tag) if fake is not None else CachedLLM(s, tag=tag)
 
 
-def settings_for(sut: dict[str, Any]):
-    """The model-client settings of a console job's ``sut`` block."""
+def settings_for(sut: dict[str, Any], part: str = "read"):
+    """The model-client settings of a console job's ``sut`` block: for reading a turn (a small JSON object: 200
+    tokens; temperature 0) or for wording a bot turn (400 tokens; the job's temperature). JSON mode either way, so a
+    reply is never prose that needs a second call. The gateway counts max_tokens against the deployment's quota."""
     from ..llm import LLMSettings
-    # max_tokens: a bot step's reply is one small JSON object (well under 300 tokens); the gateway counts max_tokens
-    # against the deployment's tokens-per-minute quota when it admits the call, so 500 instead of 900 leaves room
-    # for more steps a minute. json_mode: the reply is always a JSON object, so no second call to fix a non-JSON one
-    return LLMSettings(model=str(sut.get("model") or ""), temperature=float(sut.get("temperature") or 0.0),
-                       max_tokens=int(sut.get("max_tokens") or 500), mode=str(sut.get("mode") or "live"),
-                       backend="gateway", json_mode=True)  # the bot's own choice, not the rewording or judges' LLM
+    sut = sut or {}
+    if part == "word":
+        model = str(sut.get("wording_model") or "") if wording_where(sut) == "gateway" else str(sut.get("model") or "")
+        return LLMSettings(model=model, temperature=float(sut.get("temperature") or 0.0), max_tokens=400,
+                           mode=str(sut.get("mode") or "live"), backend="gateway", json_mode=True)
+    return LLMSettings(model=str(sut.get("model") or ""), temperature=0.0, max_tokens=200,
+                       mode=str(sut.get("mode") or "live"), backend="gateway", json_mode=True)
 
 
 def make_factory(sut: dict[str, Any] | None, store=None):
@@ -239,27 +106,34 @@ def make_factory(sut: dict[str, Any] | None, store=None):
     sut = sut or {}
     if sut.get("kind") != "llm":
         return None, None, None
-    from ..s06_bots.llm_bot import fake_model, make_llm_factory
-    s = settings_for(sut)
-    llm, where = None, "gateway"
-    if sut.get("provider") == "local":              # Llama on vLLM, on this machine (campaign runs only)
-        from ..llm import CachedLLM
-        from ..s06_bots.llm_bot import LocalChat, status
-        lp, lu = str(sut.get("local_path") or "").strip(), str(sut.get("vllm_url") or "").strip()
-        st = status(lp, lu)
-        if not st["usable"]:
-            raise RuntimeError(f"the local model cannot be used: {st['detail']}")
-        chat = LocalChat(lp or None, temperature=s.temperature, max_tokens=s.max_tokens, url=lu or None)
-        s.model = chat.name
-        llm, where = CachedLLM(s, model=chat, tag="sut"), "vLLM" + (" server" if st["url"] else ", this machine")
-    critic, cname = make_critic(sut, s) if critique_on(sut) else (None, "")   # its own model, or the bot's
-    fac = make_llm_factory(store, s, llm=llm, instructions=sut.get("instructions") or None,
-                           references=[r for r in (sut.get("references") or []) if r.get("text")],
-                           max_steps=int(sut.get("max_steps") or 6), critique=critique_on(sut), critic_llm=critic,
-                           critique_scope=critique_scope(sut))
-    name = f"LLM bot ({fac.llm.settings.model}" + (f", {where}" if llm is not None else "") + \
-        (", replay" if s.mode == "replay" else "") + (", stand-in model" if llm is None and fake_model() is not None else "") + \
-        ((f", critique by {cname or 'the same model'} of {SCOPE_WORDS[fac.critique_scope]}") if fac.critique else ", no critique") + ")"
+    from ..llm import DEFAULT_MODEL
+    from ..s06_bots.llm_bot import fake_model, make_structured_factory
+    s = settings_for(sut, "read")
+    if sut.get("provider") == "local":                 # gpt-oss / Llama on vLLM
+        reader, where = _local_llm(sut.get("local_path"), sut.get("vllm_url"), s, "sut", "the bot's")
+    else:
+        reader, where = _gateway_llm(s, "sut"), ""
+    w = wording_where(sut)
+    ws = settings_for(sut, "word")
+    if w == "template":
+        words, wname = None, "the journey's templates"
+    elif w == "local":
+        words, _ = _local_llm(sut.get("wording_local_path"), sut.get("wording_vllm_url"), ws, "sut-word", "the wording")
+        wname = f"{ws.model} (local, vLLM)"
+    elif w == "gateway":
+        words = _gateway_llm(ws, "sut-word")
+        same = sut.get("provider") != "local" and (ws.model or DEFAULT_MODEL) == (s.model or DEFAULT_MODEL)
+        wname = "the same model" if same else (ws.model or DEFAULT_MODEL)
+    else:                                              # the reading model words too (its own settings: 400 tokens)
+        if sut.get("provider") == "local":
+            words, _ = _local_llm(sut.get("local_path"), sut.get("vllm_url"), ws, "sut-word", "the bot's")
+        else:
+            words = _gateway_llm(ws, "sut-word")
+        wname = "the same model"
+    fac = make_structured_factory(store, reader_llm=reader, wording_llm=words, voice=str(sut.get("voice") or ""))
+    rname = (s.model or DEFAULT_MODEL) + (f", {where}" if where else "")
+    name = (f"LLM bot ({rname} reads; graph decides; {wname} words"
+            + (", replay" if s.mode == "replay" else "") + (", stand-in model" if fake_model() is not None else "") + ")")
     return fac, name, fac
 
 
@@ -290,7 +164,7 @@ def check_gateway(model: str = "", timeout: float = 30.0) -> dict[str, Any]:
 
 
 # =====================================================================================================================
-# PART 3 - The playground: talk to the bot under test yourself, one turn at a time, with every turn checked as you go.
+# PART 2 - The playground: talk to the bot under test yourself, one turn at a time, with every turn checked as you go.
 #
 # A session is one conversation on one case of any journey. The case sets the mock bank (the items, which tools fail or
 # decline) and its base journey (the customer's lines in the graph's own conversation of the case). At every turn the tester chooses how the customer answers:
@@ -769,7 +643,8 @@ class Session:
                                            and bool(e_acts) and str(e_acts[-1].get("act")) in ("END", "TRANSFER")},
                "match": match, "tools_match": tools_match, "after_divergence": after, "speech": speech,
                "deviated": deviated, "first_deviation": deviated and self.diverged_at == len(self.turns),
-               "why": why, "sheet": sheet, "critique": self._revisions_since()}
+               "why": why, "sheet": sheet,
+               "reading": _reading(getattr(getattr(self.bot, "reader", None), "last", None)) if self.bot_kind == "llm" else None}
         if self.judges:
             out["judges"] = self._judge(out, e_tools, e_acts, acts, tools)
         self.turns.append(out)
@@ -805,15 +680,6 @@ class Session:
             na = {"verdict": "unavailable", "reason": f"{type(e).__name__}: {str(e)[:160]}", "first_wrong_turn": None}
             from ..s07_checks.llm_judges import combine
             return {"a": na, "b": na, "combined": combine(not out["deviated"], na, na), "model": None}
-
-    def _revisions_since(self) -> list[dict]:
-        """The steps the critique layer corrected during this turn (LLM bot with critique on)."""
-        st = getattr(self.llm, "stats", None) if self.llm is not None else None
-        if st is None or not hasattr(st, "revisions"):
-            return []
-        revs = st.revisions()
-        new, self._rev0 = revs[getattr(self, "_rev0", 0):], len(revs)
-        return new
 
     def start(self) -> dict:
         n0 = len(self.env.log)
@@ -878,7 +744,8 @@ class Session:
                 "judges_model": judges().model if self.judges else None,
                 "gateway_quota": self._quota(),
                 "llm": ({"stats": self.llm.stats.as_dict(), "calls": self.llm.llm.report(),
-                         "critique": bool(getattr(self.llm, "critique", False))} if self.llm is not None else None)}
+                         "wording": self.llm.wording_llm.report() if getattr(self.llm, "wording_llm", None) is not None else None}
+                        if self.llm is not None else None)}
 
     def _next_line(self) -> int | None:
         """The scripted line that answers the bot's last question (the next turn of the case), if any."""
@@ -902,6 +769,13 @@ def judges():
     return _JUDGES[0]
 
 
+def _reading(last: dict | None) -> dict | None:
+    """How the LLM bot read the customer's last turn: its kind, and why a reading was not used."""
+    if not last:
+        return None
+    return {"kind": last.get("kind"), "rejected": last.get("why"), "read": last.get("read")}
+
+
 def reset_judges() -> None:
     """Forget the judges (the testing LLM changed)."""
     _JUDGES.clear()
@@ -922,10 +796,10 @@ def _open(source: str, case_id: str, sut: dict | None, fac=None, name: str | Non
         if not status(sut.get("local_path"), sut.get("vllm_url"))["url"]:   # a chat never loads a model into the console
             raise ValueError("in the Playground a local model needs a vLLM server URL (loading the model here would take "
                              "the console's process); give the server, or use it in a test run")
-    if fac is None and (sut or {}).get("kind") == "llm" and critique_on(sut) and critic_where(sut) == "local":
+    if fac is None and (sut or {}).get("kind") == "llm" and wording_where(sut) == "local":
         from ..s06_bots.llm_bot import status
-        if not status(sut.get("critic_local_path"), sut.get("critic_vllm_url"))["url"]:
-            raise ValueError("in the Playground the critic's local model needs a vLLM server URL; give the server, "
+        if not status(sut.get("wording_local_path"), sut.get("wording_vllm_url"))["url"]:
+            raise ValueError("in the Playground the wording's local model needs a vLLM server URL; give the server, "
                              "or use it in a test run")
     B = bench()
     case = find_case(source, case_id)
@@ -958,7 +832,7 @@ def get(sid: str) -> Session:
 
 
 # =====================================================================================================================
-# PART 4 - Saved conversations: a Playground conversation kept as a test case.
+# PART 3 - Saved conversations: a Playground conversation kept as a test case.
 #
 # A conversation that found something (or one worth keeping) is saved with the journey, in
 # ``<pack>/saved_conversations.json``: the case it started from and every customer line in order. Saving keeps the

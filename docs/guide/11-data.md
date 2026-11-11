@@ -118,7 +118,7 @@ source path and SHA-256).
 | `results_enriched_llm.csv`, `scenarios_llm.jsonl` | the LLM arm: one row per scenario; every LLM scenario with its gates and proof |
 | `dataset/llm_enrichment_turns.csv` | every LLM-written turn: base, template and LLM text, both readers' cards, each gate, attempts, factors requested and realised |
 | `dataset/llm_negative_controls_audit.csv`, `dataset/arm_pairs.csv` | controls the LLM gate accepted (for a person to audit); template against LLM pairs |
-| `sut_llm.json`, `sut_prompt.txt`, `sut_critic_prompt.txt` | (LLM bot) call statistics, reviews and corrections; the bot's prompt; the reviewer's prompt |
+| `sut_llm.json`, `sut_prompt.txt` | (LLM bot) how it read the customer turns (by kind, readings not used and why), lines worded or said from the template, the calls of its reading and wording models; what its two models are asked |
 
 ### A console run (`output/console_runs/<id>/`)
 
@@ -127,7 +127,7 @@ source path and SHA-256).
 | `job.json` | the run's settings (pack, device, sizes, bot, provenance) |
 | `events.jsonl` | start (with the worker's pid), step_start / step_done (with the step's summary), log lines, done (with the headline), error |
 | `console.log` | everything the worker printed |
-| `sut.json` | the LLM bot's prompt and attachments, when one was used |
+| `sut.json` | the LLM bot's settings (reading and wording models, voice), when one was used |
 | `out/` | the campaign's `out_dir` (above) |
 
 ### Caches (outside the repository)

@@ -35,7 +35,7 @@ from typing import Any
 #                       missing                 a required piece of information is not said (R6, R19, R26 ...)
 #                       not_allowed_here        the act does not follow from the dialog-state graph (flow)
 #                       disclosed               an internal figure, or one the project never volunteers (policy.py)
-#                       volunteered             in a policy answer, a figure about something not asked (advisory)
+#                       volunteered             in a policy answer, any fact besides the one asked (fails the turn)
 #                       unread                  a clause no check could read (advisory)
 #           policy clauses (policy.py) add claims: policy_figure, promise and policy, with the same verdicts
 #         ``TurnReport.ok`` is True when no claim is contradicted or unsupported and there is no
@@ -164,7 +164,7 @@ class TurnReport:
         """The ``not_allowed_here`` findings (flow is graded on its own, as ``c_flow``)."""
         return [f for f in self.findings if f.kind == "not_allowed_here"]
 
-    advisory: frozenset = frozenset({"unread", "volunteered"})   # finding kinds that never fail the turn
+    advisory: frozenset = frozenset({"unread"})                  # finding kinds that never fail the turn
 
     @property
     def ok(self) -> bool:
@@ -272,7 +272,7 @@ class UtteranceVerifier:
                         report.findings.append(Finding("disclosed", act, f"{cv.clause!r}: {why}"))
                 if answering is not None:                  # a policy answer: what else did it tell?
                     for v in mine:
-                        if v.status in ("supported", "contradicted") and self.policy.volunteered(v.claim.about, asked):
+                        if v.status in ("supported", "contradicted") and self.policy.volunteered(v.claim, answering):
                             report.findings.append(Finding("volunteered", act, f"asked about {', '.join(sorted(asked))}; "
                                                            f"also told {v.claim.field} of {v.claim.about}: {v.claim.words!r}"))
                 for v in mine:                             # a reader's figure about a never-volunteer subject

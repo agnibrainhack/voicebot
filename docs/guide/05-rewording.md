@@ -144,7 +144,10 @@ a depth may be a list of variants (the confused customer, `UNCLEAR`, has four wa
    sure what you mean" is not read as the answer UNSURE; a decision (e.g. a disposition, with any card request
    attached); a request on its own; an end or plainer confusion (`reading.then`: "I don't understand", "I don't
    know", "huh"), after any real answer so "not mine, I don't understand why it's there" stays an answer; the latest
-   confirm-or-deny cue; otherwise UNCLEAR. Curly apostrophes are read as plain ones.
+   confirm-or-deny cue; then **small talk**: a turn made only of social phrases (thanks, a greeting, an apology, the
+   weather, "one second"; `SOCIAL_CUES`, plus a journey's `acts.CHITCHAT.cues`) with nothing left once they and the
+   fillers are taken out is CHITCHAT (`is_social`; "sorry, I'm not sure" keeps "not sure" and is not); otherwise
+   UNCLEAR. Curly apostrophes are read as plain ones.
 
 It implements **policy rules**, not the realizer's templates:
 

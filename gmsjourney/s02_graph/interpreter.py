@@ -7,7 +7,8 @@ backend and simulated customer the bot will face, following the graph exactly:
                item, tool results, attributes and exact limits) and follow ``go``
   ask state    emit the act and take the customer's meaning card; the global behaviours apply
                in every ask state (a request for a person -> transfer, a policy question ->
-               answer then re-ask, an unclear answer -> one clarification then transfer, the
+               answer then re-ask, social talk (CHITCHAT) -> re-ask with no clarification and no policy,
+               an unclear answer -> one clarification then transfer, the
                turn limit -> transfer, or the end at the wrap-up); otherwise the act's slots are
                captured and its target followed
   call state   call the tool with the resolved arguments and follow the branch for its status
@@ -330,6 +331,8 @@ class GraphOracle:
             tr.rules_fired.add(G["question"]["rule"])
             self._pending.append(self._answer_kb(f))
             return None
+        if f.act == "CHITCHAT" and f.act not in s["on"]:
+            return None                    # social talk is not an answer: ask again, without a clarification
         if f.act in s["on"]:
             update = g.updates(f.act)
             for sl in g.slot_specs(f.act):

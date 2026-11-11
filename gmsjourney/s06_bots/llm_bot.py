@@ -1,12 +1,12 @@
-"""An LLM bot under test: a language model given the procedure, the tools and the dialog acts.
+"""The LLM bot under test: a language model reads the customer and words the bot; the journey's policy graph decides.
 
 Parts of this file:
-  1. ``LocalChat``: a local model (Llama 3.1 8B Instruct or any chat model vLLM serves), in this process or through
-     an OpenAI-compatible vLLM server; ``status`` says whether it can be used.
-  2. ``LLMBot`` and ``make_llm_factory``: the system prompt (the tester's instructions, attached references, then
-     the tools, transfer reasons, acts and reply format the harness needs), one JSON step per model call (a tool
-     call or the acts it says), and the critique layer: a second call reviews every proposed step and approves it
-     or returns a corrected one.
+  1. ``LocalChat``: a local model (gpt-oss, Llama or any chat model vLLM serves), in this process or through an
+     OpenAI-compatible vLLM server; ``status`` says whether it can be used.
+  2. ``StructuredBot`` and ``make_structured_factory``: each customer turn is read by the LLM into a kind (actionable,
+     question, claim, social, unclear), an intent and slots chosen from what the current state of the graph accepts;
+     the graph's state machine calls the allowed tools and decides the acts; the LLM words those acts, each line
+     checked against its facts (the template is said when a check fails).
 """
 from __future__ import annotations
 
@@ -214,489 +214,482 @@ class LocalChat:
 
 
 # =====================================================================================================================
-# PART 2 - An LLM-driven charge-review voice bot: a second system under test, next to the keyword/state-machine
+# PART 2 - The LLM bot under test, structured: the model reads the customer and words the bot; the policy graph decides
 #
-# ``ReferenceBot``.
+#     customer speech
+#       -> read it (LLM, a small prompt): kind, intent and slots, chosen from what the current state accepts  LLMReader
+#       -> the graph's state machine (deterministic): react, the allowed tool, its result, the next state      GraphBot
+#       -> the acts the graph requires there (deterministic)
+#       -> word them (LLM, checked against the acts' facts; the template when a check fails or no LLM)         Wording
+#       -> customer
 #
-# The bot is a tool-using agent on the same Microsoft model gateway and replay cache as the LLM enrichment arm
-# (``llm.py``, ``CachedLLM`` with its own cache tag ``sut``). It is given what a production team
-# would give an LLM bot - and nothing the oracle computes:
+# How a customer turn is read (``kind``):
+#   actionable  an answer the state accepts, a request for a person, or the end: its intent and slots. Every value must
+#               be one of the graph's members (an alias is mapped to its member) and a code must appear in the words
+#   question    a policy question about a figure or a limit the graph states: answered from the graph, with exactly the
+#               fact asked (about anything else: "the policy states nothing")
+#   claim       the customer states a policy fact ("the fee is waived, right?"): never agreed to as said; answered like
+#               a question, from the graph ("Actually, ..." when the customer's figure is not the graph's)
+#   social      small talk, thanks, apologies: no state change and no policy; the pending question is asked again (after
+#               a short acknowledgement when the wording LLM is on)
+#   unclear     nothing the state accepts: the graph's clarification
+# A reading that names an intent, a slot or a value the state does not accept is not used: the turn is read as unclear
+# and the rejection is counted (``StructuredStats``).
 #
-# * the operating procedure (``policy/charge_review/charge_review_policy.md``: limits, delivery options, tools, workflow,
-#   rules, knowledge-base sentences) as its instructions;
-# * the backend tools' API (names, arguments, results, and the transfer reason codes the
-#   ``transfer_to_human`` API takes);
-# * the dialog-act inventory its turns must be labelled with (the act names of the policy graph, the same
-#   inventory the reference bot uses), so the harness can read what it claims - which is graded against
-#   what its tool calls actually did.
-#
-# Each step the model answers with ONE JSON object: ``{"tool": name, "args": {...}}`` (the call is made on
-# the harness's mock backend, so faults, governance gates and the trace see it) or ``{"say": [acts...],
-# "end": bool}`` (the turn the customer hears). Up to ``max_steps`` tool calls per customer turn; a reply
-# that is not valid JSON is sent back once with the reason; a second failure produces a visible
-# ``UNKNOWN`` turn (a defect of the bot, graded as such - never repaired by the harness).
-#
-# Replies are cached by content hash (temperature 0 by default), so a campaign re-runs byte for byte with
-# ``mode="replay"`` and the harness's repeated runs of the same conversation (turn-by-turn export) cost
-# nothing. ``LLMUnavailable`` (no credential, gateway down, replay miss) is raised, never hidden.
+# The policy never goes into a prompt: each customer turn costs one reading call (the state's menu, the bot's last
+# words, the customer's words: well under 1k tokens) and at most one wording call (the acts, their facts and the
+# template lines). A wording that adds or drops a fact, or adds a figure, an option, a promise or a policy word, is
+# not used: the template line is said instead.
 # =====================================================================================================================
 
-from .reference import BotTurn
-from .tools import ToolError
+from ..s04_cases.meaning import SemanticFrame
+from .reference import BotTurn, GraphBot, KeywordReader, _say, _word
 
-SUT_PROMPT_VERSION = "llm-sut/2"
+STRUCTURED_VERSION = "structured-bot/1"
+KINDS = ("actionable", "question", "claim", "social", "unclear")
+SOCIAL_ACT = "CHITCHAT"
 
-# backend API as the bot team would document it: the domain pack's tool entries (domain.yaml -> tools.*.api)
-def _tool_api() -> dict[str, dict[str, Any]]:
-    from .tools import tool_specs
-    return {t: sp["api"] for t, sp in tool_specs().items() if sp.get("api")}
+READ_SYSTEM = """You read one customer turn in a customer-service phone call and say what it means, as JSON only.
 
+You get the bot's last words, the customer's words and a MENU of what the conversation can take at this point.
+Choose only from the menu: never invent an intent, a slot, a value or a fact.
 
-TRANSFER_REASONS = {
-    "customer_request": "the customer asked for a person",
-    "auth_failed": "authentication failed the maximum number of times",
-    "auth_unavailable": "authenticate_customer was unavailable",
-    "retrieve_unavailable": "get_review_transactions was unavailable",
-    "record_failed": "record_charge_response failed or did not confirm the charge",
-    "unsure_twice": "the customer stayed unsure after the additional context",
-    "ambiguity_persists": "the answer stayed unclear after one clarification",
-    "transaction_limit": "more charges remain than one session may review",
-    "card_options_unavailable": "get_card_action_options was unavailable",
-    "submit_failed": "submit_card_action failed or did not confirm the action",
-    "turn_limit": "the conversation reached its turn limit",
-}
+kind:
+  "actionable"  the customer answers or acts: "intent" is one of the menu's intents and "slots" gives its slots,
+                each value exactly one of that slot's listed values (a code exactly as the customer said it, in digits)
+  "question"    the customer asks about a policy fact: "about" is one of the menu's facts, or "other"
+  "claim"       the customer states a policy fact as true ("the fee is waived, right?", "you said it was free"):
+                "about" as for a question, and "claimed" is what they stated, in their words
+  "social"      small talk, thanks, an apology or a remark with no answer, question or claim in it
+  "unclear"     anything else, or an answer you cannot place on the menu
+A turn with social talk and an answer is "actionable": the answer counts. When the customer changes their mind within
+the turn, give the final answer. A plain yes or a plain no means what the menu's "yes" and "no" say.
 
-# the dialog-act inventory (names = the policy graph's dialog states) and the fields each act carries
-ACTS = {
-    "OPENING": ("the required opening statement", []),
-    "ASK_AUTH": ("ask for the last four digits of the card", []),
-    "ASK_AUTH_RETRY": ("the digits did not match; ask again", []),
-    "PRESENT_TXN": ("read out ONE returned charge (merchant, amount, date) and ask whether the customer recognizes it",
-                    ["txn"]),
-    "ANSWER_KB": ("answer a general policy question from the procedure", ["txn"]),
-    "ASK_CLARIFY": ("ask the customer to clarify an answer you could not understand", ["txn"]),
-    "PROVIDE_CONTEXT": ("give more detail about the charge under review and ask once more", ["txn"]),
-    "CONFIRM_RECORDED": ("confirm that a response was recorded", ["txn", "disposition"]),
-    "DISCLOSE_FEE": ("state the fee of a delivery option before the customer confirms", ["fee", "delivery"]),
-    "CONFIRM_ACTION": ("ask the customer to confirm a card action", ["action", "delivery"]),
-    "ACTION_DONE": ("tell the customer a card action is complete", ["action", "delivery"]),
-    "ACK_DECLINED": ("acknowledge that the customer declined the card action", []),
-    "INFORM_NO_CARD_ACTION": ("tell the customer the requested card action is not available", []),
-    "EXPLAIN_LIMIT": ("explain a session limit", []),
-    "EXPLAIN_NO_TXNS": ("explain there are no charges available for review", []),
-    "SUMMARIZE": ("summarize the recorded responses and completed card actions", ["recorded", "actions"]),
-    "ASK_MORE_HELP": ("ask whether the customer needs anything else", []),
-    "TRANSFER": ("hand the customer over to a human representative", ["reason"]),
-    "END": ("close the call", []),
-}
-FIELD_HELP = {
-    "txn": "transaction_id of the charge concerned (e.g. \"T1\")",
-    "disposition": "RECOGNIZED | UNRECOGNIZED | UNSURE (as recorded)",
-    "fee": "the fee in dollars, a number",
-    "delivery": "standard_delivery | expedited_delivery | null",
-    "action": "SECURE_CARD | REPLACE_CARD",
-    "recorded": "object {transaction_id: disposition} of every response actually recorded",
-    "actions": "list of [action, delivery] pairs actually completed",
-    "reason": "the transfer reason code",
-}
+Reply with one JSON object, leaving out the keys the kind does not use:
+{"kind": "...", "intent": "...", "slots": {}, "about": "...", "claimed": "..."}"""
 
+WORD_SYSTEM = """You word what a customer-service voice bot says next on a phone call.
 
-def default_policy_text() -> str:
-    """The operating procedure the bot is given: the pack's policy transcription when it has one, else the policy
-    graph rendered as text (what a team without a separate SOP would hand an LLM bot)."""
-    from ..s01_packs.loading import current
-    dom = current()
-    p = dom.transcription_path
-    if p is not None and Path(p).exists():
-        return Path(p).read_text(encoding="utf-8")
-    kg = dom.kg
-    if hasattr(kg, "to_markdown"):
-        return kg.to_markdown()
-    return json.dumps(json.loads(Path(dom.graph_path).read_text()), indent=1)
+You get LINES: each is one thing the bot must say, with its facts and a plain template line. Return every line in
+natural spoken words, in the same order, one output line for each input line.
+- Say every fact of a line exactly (names, amounts, dates, numbers, options) and add no other fact, figure, option,
+  promise or policy. Do not answer or comment on anything that is not in the lines.
+- A question stays a question about the same thing.
+- "lead" (optional): one short sentence before the first line that acknowledges something social the customer said
+  (thanks, small talk, an apology). No facts or promises in it. Leave it empty otherwise.
+- Follow the VOICE if one is given (tone only: it never changes what is said).
+Reply with JSON only: {"lead": "...", "lines": ["...", "..."]}"""
 
 
 def journey_title() -> str:
-    """The active journey's title, for the LLM bot's prompt."""
+    """The active journey's title."""
     from ..s01_packs.loading import current
     dom = current()
     g = dom.graph
     return (getattr(g, "title", None) if g is not None else None) or dom.get("domain.title") or dom.name.replace("_", " ")
 
 
-def act_inventory(store=None) -> dict[str, tuple[str, list[str]]]:
-    """name -> (what the act is for, the fields it carries): the dialog states of the active pack's graph. A state
-    the charge-review inventory above describes keeps that description; any other is described from the graph
-    (whether it waits for the customer) and the pack's own wording of it (domain.yaml bot.says)."""
-    from ..s01_packs.loading import current
-    dom = current()
-    kg = getattr(store, "kg", None) or dom.kg
-    states = [t["head"] for t in kg.where("is_a", tail="dialog_state")]
-    if not states:
-        return dict(ACTS)
-    carried: dict[str, list[str]] = {}
-    for t in kg.where("carries"):
-        if t["tail"] not in ("text", "state"):
-            carried.setdefault(t["head"], []).append(t["tail"])
-    prompts = set(getattr(kg, "prompt_states", None) or [])
-    says = dom.get("bot.says") or {}
-    out = {}
-    for s in states:
-        known = ACTS.get(s)
-        fields = list(dict.fromkeys(carried.get(s, []) + (known[1] if known else [])))
-        if known:
-            desc = known[0]
-        else:
-            desc = ("ask the customer and wait for the answer" if s in prompts else "tell the customer") + \
-                   f" ({s.lower().replace('_', ' ')})"
-            if says.get(s) and "{text}" not in str(says[s]):
-                desc += f'; for example: "{says[s]}"'
-        out[s] = (desc, fields)
-    return out
-
-
-def transfer_reasons(store=None) -> dict[str, str]:
-    """The reason codes the transfer tool takes: the graph's (``<transfer tool> transfer_when <reason>``) when it
-    names them, else the charge-review codes above."""
-    from ..s01_packs.loading import current
-    dom = current()
-    kg = getattr(store, "kg", None) or dom.kg
-    api = _tool_api()
-    tools = {t["head"] for t in kg.where("transfer_when")} & set(api)
-    if tools:
-        tool = sorted(tools)[0]
-        def say(code: str) -> str:              # the description above only where every tool it names is this pack's
-            d = TRANSFER_REASONS.get(code)
-            named = re.findall(r"\b[a-z]+(?:_[a-z]+)+\b", d or "")
-            return d if d and all(n in api for n in named) else code.replace("_", " ")
-        return {t["tail"]: say(t["tail"]) for t in kg.where("transfer_when", head=tool)}
-    return dict(TRANSFER_REASONS)
-
-
-def _allowed(name: str, tool: str | None = None) -> str:
-    """' (one of: A | B)' when the graph names the values an argument or act field takes, else ''."""
-    from ..s01_packs.loading import current
-    g = current().graph
-    if g is None:
-        return ""
-    vs = None
-    if tool is not None:
-        vs = ((g.tools.get(tool) or {}).get("args") or {}).get(name)
-        vs = vs if vs in g.values else None
-    vs = vs or g.slot_set(name)
-    members = g.members(vs) if vs and vs in g.values else []
-    return f" (one of: {' | '.join(members)})" if members and len(members) <= 12 else ""
-
-
-def suggested_instructions(policy_text: str | None = None) -> str:
-    """The part of the bot's prompt a tester may rewrite: who the bot is, how it must behave, and the operating
-    procedure. The console shows it as the suggested prompt."""
-    return f"""You are the voice bot for "{journey_title()}", speaking with a customer on the phone. Follow the
-operating procedure below exactly; it is your only source of policy, limits and knowledge-base answers. Account
-facts (identity, items, results of recording or actions) come only from tool results - never invent them, and
-never claim something was recorded or completed unless the tool returned success for exactly that item or action.
-
-=== OPERATING PROCEDURE ===
-{policy_text if policy_text is not None else default_policy_text()}
-=== END OF PROCEDURE ==="""
-
-
-def references_text(references: list[dict] | None) -> str:
-    """Files the tester attached, as reference material after the instructions."""
-    parts = []
-    for r in references or []:
-        txt = str(r.get("text") or "").strip()
-        if txt:
-            parts.append(f"=== REFERENCE MATERIAL: {r.get('name') or 'attachment'} ===\n{txt}\n=== END OF {r.get('name') or 'attachment'} ===")
-    if not parts:
-        return ""
-    return ("Reference material supplied with these instructions. Use it to answer and to decide, unless it "
-            "contradicts the operating procedure above, which takes precedence.\n\n" + "\n\n".join(parts))
-
-
-def protocol_text(acts: dict[str, tuple[str, list[str]]] | None = None, reasons: dict[str, str] | None = None) -> str:
-    """The fixed part of the prompt: the tools, the transfer reasons, the dialog acts and the JSON reply format.
-    The harness needs it to run the bot's tool calls and to read what it says, so it is not editable."""
-    acts = acts if acts is not None else act_inventory()
-    reasons = reasons if reasons is not None else transfer_reasons()
-    tools = "\n".join(f"- {n}({', '.join(f'{a}: {d}' + _allowed(a, n) for a, d in s['args'].items())}) -> {s['returns']}"
-                      for n, s in _tool_api().items())
-    reason_lines = "\n".join(f"- {k}: {v}" for k, v in reasons.items())
-    act_lines = "\n".join(f"- {k}: {d}" + (f"  [fields: {', '.join(f)}]" if f else "") for k, (d, f) in acts.items())
-    used = {f for _, fs in acts.values() for f in fs}
-    fields = "\n".join(f"- {k}: {FIELD_HELP.get(k, 'the value as the policy names it')}" + _allowed(k)
-                       for k in sorted(used))
-    return f"""[{SUT_PROMPT_VERSION}] BACKEND TOOLS (call them yourself; their results are added to the conversation):
-{tools}
-
-Transfer reason codes for the transfer tool:
-{reason_lines}
-
-DIALOG ACTS. Every turn you speak is a list of acts, in the order you say them; each act is an object
-{{"act": NAME, "text": "the words you say", ...fields}}. The customer answers the LAST act of your turn, so
-end a turn with the act you are waiting on (a question to the customer).
-{act_lines}
-Field formats:
-{fields}
-
-HOW TO REPLY. You work in steps. At each step reply with exactly ONE JSON object and nothing else:
-  {{"tool": "<tool name>", "args": {{...}}}}      to call one backend tool (you will then see its result), or
-  {{"say": [<act>, ...], "end": false}}           to speak to the customer and wait for their answer, or
-  {{"say": [<act>, ...], "end": true}}            to speak and finish the call (after TRANSFER or END).
-Call the tool before you speak about its result. To hand over, call the transfer tool first, then say TRANSFER.
-The input you receive is the conversation so far as JSON: customer turns, your earlier turns and every tool
-call with its result, plus how many customer turns have happened."""
-
-
-def build_system_prompt(policy_text: str | None = None, act_names: list[str] | None = None,
-                        instructions: str | None = None, references: list[dict] | None = None,
-                        acts: dict | None = None, reasons: dict | None = None) -> str:
-    """instructions (default: the suggested ones on ``policy_text``) + attached references + the fixed protocol."""
-    acts = acts if acts is not None else act_inventory()
-    if act_names is not None:
-        acts = {k: v for k, v in acts.items() if k in act_names}
-    head = instructions if instructions and instructions.strip() else suggested_instructions(policy_text)
-    ref = references_text(references)
-    return "\n\n".join(x for x in (head.strip(), ref, protocol_text(acts, reasons)) if x)
-
-
 @dataclass
-class LLMBotStats:
-    """Counters over a whole campaign of LLM-bot conversations (model steps, tool calls and errors, invalid
-    replies, the critique layer's reviews and corrections); the corrections themselves are kept too.
-    """
-    conversations: int = 0
+class StructuredStats:
+    """Counters over every conversation of a factory (a whole test run, or one Playground chat)."""
     turns: int = 0
-    model_steps: int = 0
-    tool_calls: int = 0
-    tool_errors: int = 0
-    bad_tool_requests: int = 0
-    invalid_replies: int = 0
-    unknown_turns: int = 0
-    step_limit_hits: int = 0
-    unknown_acts: int = 0
-    critiques: int = 0                         # steps the critique layer reviewed
-    critique_approved: int = 0
-    critique_revised: int = 0                  # steps it replaced with a corrected one
-    critique_unusable: int = 0                 # a review that could not be read, or a correction that was not a valid step
-    critique_skipped: int = 0                  # steps left unreviewed by the critique's scope (lookups, or every tool call)
-
-    def as_dict(self) -> dict[str, Any]:
-        return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
-
-    def note_revision(self, entry: dict[str, Any], keep: int = 200) -> None:
-        log = self.__dict__.setdefault("_revisions", [])
-        if len(log) < keep:
-            log.append(entry)
-
-    def revisions(self) -> list[dict[str, Any]]:
-        return list(self.__dict__.get("_revisions", []))
-
-
-CRITIC_VERSION = "critic/1"
-
-# Which of the bot's steps the critique reviews (each review is one more call carrying the whole prompt):
-#   "all"      every step: each tool call and each reply (about twice the bot's calls)
-#   "key"      the steps with consequences: calls of the tools that change the account (role "write" in the journey's
-#              graph) and every reply; lookups and authentication run unreviewed (the reply after them is reviewed)
-#   "replies"  only what the customer hears (fewest calls); tool calls run unreviewed
-CRITIQUE_SCOPES = ("all", "key", "replies")
-
-CRITIC_INSTRUCTIONS = """You are the quality reviewer for a customer-service voice bot. Before each step the bot proposes is carried
-out, you check it against the bot's own instructions (below, between the markers) and the conversation so far.
-
-The bot's step is either a tool call {"tool": NAME, "args": {...}} or a reply {"say": [acts...], "end": true|false}.
-
-Check a TOOL CALL for: the right tool at this point of the procedure; its preconditions met (for example the caller is
-verified before any account tool); every argument taken exactly from what the customer said or a tool returned (no
-invented, guessed or reformatted ids, codes, amounts or choices); no repeat of a call that already succeeded; limits
-and attempt counts respected; no tool call after a transfer.
-
-Check a REPLY for: acts the procedure allows at this point, with the act names and fields of the reply format; every
-fact (ids, amounts, names, statuses, figures, fees, dates) exactly as the tool results and the policy state them; no
-claim that something was done unless a tool result says it succeeded; required confirmations and disclosures made
-before acting; a transfer whenever a rule requires one, and no early transfer or ending when the procedure continues;
-one question at a time; nothing promised that the procedure does not allow.
-
-Be conservative: approve unless the step clearly breaks the instructions or the facts. When it does, give the corrected
-step - the step the bot should take instead, in exactly the bot's reply format (a tool call or a reply, whichever is
-right now; it may be a different kind of step).
-
-Reply with exactly one JSON object and nothing else:
-  {"verdict": "approve"}
-  {"verdict": "revise", "reason": "<one sentence>", "step": <the corrected step>}"""
-
-
-def critic_system(bot_system: str) -> str:
-    """The critique layer's system prompt: the reviewer's instructions, then the bot's own instructions."""
-    return (CRITIC_INSTRUCTIONS + "\n\n===== THE BOT'S INSTRUCTIONS =====\n" + bot_system
-            + "\n===== END OF THE BOT'S INSTRUCTIONS =====")
-
-
-@dataclass
-class LLMBot:
-    """start() / respond(text) -> BotTurn, like ReferenceBot; tool calls go to `tools` (the harness backend)."""
-    tools: Any
-    llm: Any                                  # enrich.llm.client.CachedLLM (or anything with invoke(system, user, salt))
-    system: str
-    max_steps: int = 6
-    stats: LLMBotStats = field(default_factory=LLMBotStats)
-    act_names: frozenset = frozenset(ACTS)
-    act_fields: dict | None = None            # act -> the fields it carries (default: the charge-review inventory)
-    critic: Any = None                        # an LLM (same interface as llm) that reviews every step; None = off
-    critic_system: str = ""
-    critique_scope: str = "all"               # CRITIQUE_SCOPES: which steps the critic reviews
+    readings: int = 0
+    kinds: dict = field(default_factory=dict)          # kind -> customer turns read as it
+    rejected: int = 0                                  # readings not used: read as unclear instead
+    worded: int = 0                                    # lines worded by the LLM and said
+    templated: int = 0                                 # lines said from the template (no wording LLM, or a check failed)
+    wording_rejected: int = 0                          # wordings not used because a check failed
+    wording_errors: int = 0                            # wording calls that failed (the template was said)
+    leads: int = 0                                     # acknowledgements said before the first line
+    notes: list = field(default_factory=list)          # the latest rejections, with why (the last 50)
 
     def __post_init__(self) -> None:
-        self.history: list[dict[str, Any]] = []
-        self.customer_turns = 0
-        self.ended = False
-        self.stats.conversations += 1
+        import threading
+        self._lock = threading.Lock()
 
-    # ------------------------------------------------------------------ protocol
-    def start(self) -> BotTurn:
-        self.history.append({"event": "call connected"})
-        return self._turn()
+    def add(self, key: str, n: int = 1) -> None:
+        with self._lock:
+            setattr(self, key, getattr(self, key) + n)
+
+    def kind(self, k: str) -> None:
+        with self._lock:
+            self.kinds[k] = self.kinds.get(k, 0) + 1
+
+    def note(self, what: str, why: str, detail: Any = None) -> None:
+        with self._lock:
+            self.notes.append({"what": what, "why": why, "detail": detail})
+            del self.notes[:-50]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {k: getattr(self, k) for k in ("turns", "readings", "kinds", "rejected", "worded", "templated",
+                                              "wording_rejected", "wording_errors", "leads")} | {"notes": list(self.notes)}
+
+    def revisions(self) -> list:
+        return []                                      # no critique layer: nothing is revised after the fact
+
+
+def _num_set(text: str) -> list[str]:
+    """The distinct numbers a line says, as digits (number words read, thousands separators dropped), sorted."""
+    from ..s07_checks.speech_reading import words_to_digits
+    t = words_to_digits(text or "").replace(",", "")
+    return sorted({str(float(x)).rstrip("0").rstrip(".") for x in re.findall(r"\d+(?:\.\d+)?", t)})
+
+
+def _low(text: str) -> str:
+    return " ".join(str(text or "").lower().replace("’", "'").split())
+
+
+class LLMReader:
+    """Reads a customer turn with the LLM into a meaning card the graph's state machine takes (see PART 2)."""
+
+    def __init__(self, g, llm, stats: StructuredStats):
+        from ..s01_packs.loading import current
+        self.g, self.llm, self.stats = g, llm, stats
+        self.kw = KeywordReader(g)                     # only to map a value's alias to its member
+        self.dom = current()
+        self.bot_said = ""
+        self.last: dict[str, Any] = {}
+
+    # ------------------------------------------------------------------ the menu
+    def _value(self, m: str) -> str:
+        say = ((self.dom.get("lexicon.values") or {}).get(m) or {}).get("say") or {}
+        hint = str(say.get("canonical") or "").replace("{obj}", "it").strip()
+        al = self.g.aliases(m)
+        return hint or (al[0] if al else m.lower().replace("_", " "))
+
+    def facts(self) -> dict[str, str]:
+        """fact id -> what it is, for every figure and every public limit the graph states."""
+        g, out = self.g, {}
+        for attr, spec in g.numeric_attributes().items():
+            for m in g.members(spec["set"]):
+                if g.attr(m, attr) is not None:
+                    name = (g.aliases(m) or [m.lower().replace("_", " ")])[0]
+                    out[f"value:{attr}:{m}"] = f"the {attr.replace('_usd', '').replace('_', ' ')} of {name}"
+        for k, lv in g.limits.items():
+            if not lv.get("internal"):
+                out[f"limit:{k}"] = k.replace("_", " ")
+        return out
+
+    def menu(self, state: str) -> dict[str, Any]:
+        from ..s04_cases.meaning import USER_ACTS
+        g = self.g
+        s = g.states.get(state) or {}
+        on = s.get("on") or {}
+        intents: dict[str, Any] = {}
+        for act in on:
+            if act == "END":
+                intents[act] = {"means": "the customer has nothing more and ends the call"}
+                continue
+            slots = {}
+            for sl, sp in g.slot_specs(act).items():
+                vs = sp["set"]
+                d: dict[str, Any] = {"required": not sp.get("optional")}
+                if vs in g.values:
+                    d["values"] = {m: self._value(m) for m in g.members(vs)}
+                else:
+                    d["code"] = "the digits the customer says"
+                if sp.get("correction_of"):
+                    d["only_when"] = f"the customer takes back an earlier {sp['correction_of']} in this turn: that earlier value"
+                if sp.get("with"):
+                    d["only_with"] = sp["with"]
+                slots[sl] = d
+            intents[act] = {"means": USER_ACTS.get(act) or act.lower().replace("_", " "), "slots": slots}
+        G = g.glob
+        if G.get("human"):
+            intents[G["human"]["act"]] = {"means": "the customer asks for a human representative"}
+        out: dict[str, Any] = {"intents": intents}
+        y, n = g.interprets(state)
+        for word, t in (("yes", y), ("no", n)):
+            if t and t != "UNCLEAR":
+                out[word] = self._yes_no(t)
+        if G.get("question"):
+            out["facts"] = self.facts()
+        return out
+
+    def _yes_no(self, target: str) -> str:
+        f = self.kw._as(target)
+        return f"intent {f.act}" + (f" with {', '.join(f'{k}={v}' for k, v in f.slots)}" if f.slots else "")
+
+    # ------------------------------------------------------------------ reading
+    def read(self, text: str, state: str):
+        from ..llm import parse_json_object
+        menu = self.menu(state)
+        user = json.dumps({"state": state, "bot_said": self.bot_said, "customer": text, "menu": menu}, ensure_ascii=False)
+        self.stats.add("readings")
+        raw = self.llm.invoke(READ_SYSTEM, user, salt=f"read|{STRUCTURED_VERSION}|{state}")
+        obj = parse_json_object(raw)
+        f, kind, why = self.frame(obj, text, state, menu)
+        self.last = {"kind": kind, "why": why, "read": obj, "claimed": (obj or {}).get("claimed") if kind == "claim" else None}
+        self.stats.kind(kind)
+        if why:
+            self.stats.add("rejected")
+            self.stats.note("reading", why, {"state": state, "customer": text, "read": obj})
+        return f
+
+    def frame(self, obj: Any, text: str, state: str, menu: dict) -> tuple[Any, str, str | None]:
+        """(meaning card, kind, why the reading was not used or None)."""
+        F = SemanticFrame
+        G = self.g.glob
+        unclear = F.make(G["unclear"]["act"] if G.get("unclear") else "UNCLEAR")
+        if not isinstance(obj, dict):
+            return unclear, "unclear", "the reading was not a JSON object"
+        kind = str(obj.get("kind") or "").strip().lower()
+        if kind == "social":
+            return F.make(SOCIAL_ACT), "social", None
+        if kind in ("question", "claim"):
+            if not G.get("question"):
+                return F.make(SOCIAL_ACT), kind, None          # a journey without policy questions: ask again
+            about = str(obj.get("about") or "other").strip()
+            q = G["question"]["act"]
+            if about in (menu.get("facts") or {}):
+                parts = about.split(":")
+                if parts[0] == "value":
+                    return F.make(q, intent="value", attr=parts[1], entity=parts[2]), kind, None
+                return F.make(q, intent="limit", key=parts[1]), kind, None
+            return F.make(q, intent="unstated_fact"), kind, None if about == "other" else f"no such fact: {about}"
+        if kind != "actionable":
+            return unclear, "unclear", None
+        intent = str(obj.get("intent") or "").strip()
+        intents = menu["intents"]
+        if intent.lower() in ("yes", "no") and intent.lower() in menu:   # a plain yes / no: what the state says it means
+            y, n = self.g.interprets(state)
+            f = self.kw._as(y if intent.lower() == "yes" else n)
+            if f.act in intents:
+                return f, "actionable", None
+        if intent not in intents:
+            target = intent.upper()                       # a value named as the intent ("RECOGNIZED"): what it means here
+            if self.g.member_set(target):
+                f = self.kw._as(target)
+                if f.act in intents:
+                    return f, "actionable", None
+            return unclear, "unclear", f"intent {intent!r} is not one this state takes"
+        if not intents[intent].get("slots"):
+            return F.make(intent), "actionable", None
+        given = obj.get("slots") if isinstance(obj.get("slots"), dict) else {}
+        kw = {}
+        for sl, spec in intents[intent]["slots"].items():
+            v = given.get(sl)
+            if v in (None, "", []):
+                continue
+            if "code" in spec:
+                code = re.sub(r"\D", "", str(v))
+                from ..s07_checks.speech_reading import words_to_digits
+                said = re.sub(r"\D", "", words_to_digits(text or ""))
+                pat = (((self.dom.get("lexicon.acts") or {}).get(intent) or {}).get("code") or {}).get("pattern")
+                if not code or code not in said:
+                    return unclear, "unclear", f"the code {v!r} is not in the customer's words"
+                if pat and not re.search(pat, code):
+                    return unclear, "unclear", f"the code {v!r} is not a valid {sl}"
+                kw[sl] = code
+                continue
+            m = self._member(spec["values"], str(v))
+            if m is None:
+                return unclear, "unclear", f"{sl}={v!r} is not one of {sorted(spec['values'])}"
+            kw[sl] = m
+        if any(spec.get("required") and sl not in kw for sl, spec in intents[intent]["slots"].items()):
+            return unclear, "unclear", f"{intent} without its required slots"
+        return F.make(intent, **kw), "actionable", None
+
+    def _member(self, values: dict[str, str], v: str) -> str | None:
+        for m in values:
+            if v.strip().lower() == m.lower() or v.strip().lower() == m.lower().replace("_", " "):
+                return m
+        vs = self.g.member_set(next(iter(values)))
+        found = self.kw.find(vs, " " + v.lower().replace("'", "") + " ") if vs else None
+        return found if found in values else None
+
+
+class Wording:
+    """Words a bot turn's acts with the LLM, checked line by line against the template (see PART 2)."""
+
+    def __init__(self, llm, stats: StructuredStats, voice: str = ""):
+        from ..s01_packs.loading import current
+        from ..s07_checks.speech_policy import markers
+        self.llm, self.stats, self.voice = llm, stats, (voice or "").strip()
+        self.dom = current()
+        g = self.dom.graph
+        forms = set()
+        for vs, members in g.values.items():
+            for m in members:
+                forms.update(_low(x) for x in [m.replace("_", " ")] + list(g.aliases(m)) + [self._word("", m)] if x)
+        self.value_forms = sorted((f for f in forms if len(f) > 2), key=len, reverse=True)
+        mk = markers()
+        self.risky = [_low(x) for x in mk["policy"] + mk["commitment"]]
+
+    def _word(self, k: str, v: Any) -> str:
+        return _word(self.dom, k, v)
+
+    def facts(self, a: dict[str, Any]) -> dict[str, Any]:
+        return {k: self._word(k, v) for k, v in a.items() if k not in ("act", "text", "state") and v not in (None, "")}
+
+    def check(self, line: str, template: str, a: dict[str, Any]) -> str | None:
+        """Why a worded line cannot be said in place of its template, or None."""
+        from ..s07_checks.speech_reading import words_to_digits
+        L, T = _low(words_to_digits(line)), _low(words_to_digits(template))
+        if not L:
+            return "empty"
+        if _num_set(line) != _num_set(template):
+            return f"its figures {_num_set(line)} are not the template's {_num_set(template)}"
+        for k, w in self.facts(a).items():
+            w = _low(w)
+            if w and w in T and w not in L:
+                return f"it leaves out {k} ({w})"
+        has = lambda f, x: re.search(r"\b" + re.escape(f) + r"\b", x) is not None     # noqa: E731
+        named = [f for f in self.value_forms if has(f, T)]
+        for f in self.value_forms:
+            if has(f, L) and not has(f, T) and not any(f in n or n in f for n in named):
+                return f"it adds {f!r}"
+        for f in named:                                  # an option the template names: said in one of its wordings
+            if not has(f, L) and not any(has(o, L) for o in self._forms_of(f)):
+                return f"it leaves out {f!r}"
+        for r in self.risky:
+            if re.search(r"\b" + re.escape(r) + r"\b", L) and not re.search(r"\b" + re.escape(r) + r"\b", T):
+                return f"it adds {r!r} (a promise or a policy word)"
+        return None
+
+    def _forms_of(self, form: str) -> list[str]:
+        """Every wording of the value a form belongs to (its name, aliases and the bot's word for it)."""
+        g = self.dom.graph
+        for members in g.values.values():
+            for m in members:
+                fs = {_low(x) for x in [m.replace("_", " ")] + list(g.aliases(m)) + [self._word("", m)] if x}
+                if form in fs:
+                    return sorted(fs)
+        return [form]
+
+    def lead_ok(self, lead: str) -> str | None:
+        L = _low(lead)
+        if not L:
+            return "empty"
+        if _num_set(lead) or "?" in L or len(L.split()) > 25:
+            return "a figure, a question or too long"
+        for f in self.value_forms + self.risky:
+            if re.search(r"\b" + re.escape(f) + r"\b", L):
+                return f"it says {f!r}"
+        return None
+
+    def word(self, acts: list[dict], lines: list[str], heard: dict[str, Any]) -> list[str]:
+        """The lines to say: each worded line that passes its check, else its template."""
+        from ..llm import LLMUnavailable, parse_json_object
+        user = json.dumps({"customer_said": heard.get("text") or "", "customer_turn": heard.get("kind") or "",
+                           "voice": self.voice,
+                           "lines": [{"act": a.get("act"), "facts": self.facts(a), "template": t} for a, t in zip(acts, lines)]},
+                          ensure_ascii=False)
+        try:
+            obj = parse_json_object(self.llm.invoke(WORD_SYSTEM, user, salt=f"word|{STRUCTURED_VERSION}"))
+        except LLMUnavailable as e:
+            self.stats.add("wording_errors")
+            self.stats.add("templated", len(lines))
+            self.stats.note("wording", f"the wording call failed: {str(e)[:160]}")
+            return list(lines)
+        got = (obj or {}).get("lines") if isinstance(obj, dict) else None
+        if not isinstance(got, list) or len(got) != len(lines):
+            self.stats.add("wording_rejected", len(lines))
+            self.stats.add("templated", len(lines))
+            self.stats.note("wording", "not one line for each act", obj)
+            return list(lines)
+        out = []
+        for a, t, w in zip(acts, lines, got):
+            why = self.check(str(w), t, a)
+            if why:
+                self.stats.add("wording_rejected")
+                self.stats.add("templated")
+                self.stats.note("wording", why, {"act": a.get("act"), "template": t, "worded": w})
+                out.append(t)
+            else:
+                self.stats.add("worded")
+                out.append(" ".join(str(w).split()))
+        lead = str((obj or {}).get("lead") or "").strip()
+        if lead and heard.get("kind") in ("social", "claim", "actionable", "question") and out:
+            why = self.lead_ok(lead)
+            if why is None:
+                self.stats.add("leads")
+                out[0] = f"{lead} {out[0]}"
+            else:
+                self.stats.note("lead", why, lead)
+        return out
+
+
+class StructuredBot(GraphBot):
+    """The LLM bot under test: start() / respond(text) -> BotTurn. The graph's own interpreter (``GraphBot``, with no
+    planted defects) decides; ``LLMReader`` reads each customer turn and ``Wording`` words each bot turn (see PART 2)."""
+
+    def __init__(self, tools, store, reader_llm, wording_llm=None, stats: StructuredStats | None = None, voice: str = ""):
+        super().__init__(tools, store)
+        self.stats = stats or StructuredStats()
+        self.reader = LLMReader(self.g, reader_llm, self.stats)
+        self.wording = Wording(wording_llm, self.stats, voice) if wording_llm is not None else None
+        self._heard: dict[str, Any] = {}
+        self._said = ""
 
     def respond(self, text: str) -> BotTurn:
-        if self.ended:
-            return BotTurn("Goodbye.", [{"act": "END", "text": "Goodbye."}], True)
-        self.customer_turns += 1
-        self.history.append({"customer": text})
-        return self._turn()
+        self._heard = {"text": text}
+        self.reader.bot_said = self._said
+        return super().respond(text)
 
-    # ------------------------------------------------------------------ one customer turn
-    def _ask(self, feedback: str | None) -> str:
-        user = {"customer_turns_so_far": self.customer_turns, "conversation": self.history}
-        if feedback:
-            user["problem_with_your_last_reply"] = feedback
-        self.stats.model_steps += 1
-        return self.llm.invoke(self.system, json.dumps(user, ensure_ascii=False), salt="sut")
+    def react(self, state: str, f):
+        self._heard["kind"] = self.reader.last.get("kind")
+        return super().react(state, f)
 
-    # ------------------------------------------------------------------ critique layer
-    def _valid(self, obj: Any) -> bool:
-        if not isinstance(obj, dict) or not ({"tool", "say"} & set(obj)):
-            return False
-        if "tool" in obj and "say" not in obj:
-            return bool(obj.get("tool")) and isinstance(obj.get("args", {}), dict)
-        return bool(self._acts(obj.get("say"), count=False))
-
-    def _review(self, obj: dict[str, Any]) -> dict[str, Any]:
-        """The step to carry out: ``obj``, or the critic's correction of it. One review per step (a correction is not
-        reviewed again), so the layer costs one extra call per step."""
-        if self.critic is None:
-            return obj
-        if "tool" in obj and "say" not in obj and self.critique_scope != "all":
-            from .tools import write_tools
-            if self.critique_scope == "replies" or str(obj.get("tool") or "") not in write_tools():
-                self.stats.critique_skipped += 1             # outside the critique's scope: carried out as proposed
-                return obj
-        self.stats.critiques += 1
-        user = {"customer_turns_so_far": self.customer_turns, "conversation": self.history, "proposed_step": obj}
-        try:
-            out = _parse(self.critic.invoke(self.critic_system, json.dumps(user, ensure_ascii=False), salt="critique"))
-        except Exception:                         # noqa: BLE001 - a reviewer outage must not stop the bot
-            out = None
-        verdict = str((out or {}).get("verdict") or "").lower()
-        if verdict == "approve":
-            self.stats.critique_approved += 1
-            return obj
-        step = (out or {}).get("step")
-        if verdict == "revise" and self._valid(step):
-            self.stats.critique_revised += 1
-            self.stats.note_revision({"turn": self.customer_turns, "before": obj, "after": step,
-                                      "reason": str((out or {}).get("reason") or "")[:300]})
-            return step
-        self.stats.critique_unusable += 1
-        return obj
-
-    def _turn(self) -> BotTurn:
-        self.stats.turns += 1
-        steps, invalid, feedback = 0, 0, None
-        for _ in range(self.max_steps + 4):
-            obj = _parse(self._ask(feedback))
-            feedback = None
-            if self._valid(obj):
-                obj = self._review(obj)
-            if obj is None or not ({"tool", "say"} & set(obj)):
-                invalid += 1
-                self.stats.invalid_replies += 1
-                if invalid >= 2:
-                    break
-                feedback = 'Reply with exactly one JSON object: {"tool": ..., "args": {...}} or {"say": [...], "end": ...}.'
-                continue
-            if "tool" in obj and "say" not in obj:
-                if steps >= self.max_steps:
-                    self.stats.step_limit_hits += 1
-                    feedback = f"You have made {steps} tool calls this turn; speak to the customer now."
-                    continue
-                steps += 1
-                self._tool(str(obj.get("tool") or ""), obj.get("args") or {})
-                continue
-            acts = self._acts(obj.get("say"))
-            if not acts:
-                invalid += 1
-                self.stats.invalid_replies += 1
-                if invalid >= 2:
-                    break
-                feedback = '"say" must be a non-empty list of act objects {"act": NAME, "text": ...}.'
-                continue
-            end = bool(obj.get("end")) or any(a["act"] in ("TRANSFER", "END") for a in acts)
-            self.history.append({"bot": [dict(a) for a in acts], "end": end})
-            self.ended = end
-            return BotTurn(" ".join(a.get("text", "") for a in acts).strip(), acts, end)
-        self.stats.unknown_turns += 1             # the model never produced a usable turn: a visible bot defect
-        acts = [{"act": "UNKNOWN", "text": "Sorry, I'm having trouble right now."}]
-        self.history.append({"bot": acts, "end": False})
-        return BotTurn(acts[0]["text"], acts, False)
-
-    def _tool(self, name: str, args: Any) -> None:
-        spec = _tool_api().get(name)
-        if spec is None or not isinstance(args, dict):
-            self.stats.bad_tool_requests += 1
-            self.history.append({"tool": name, "args": args, "result": {"error": "unknown tool or bad arguments"}})
-            return
-        clean = {k: (None if v in ("", "null") else v) for k, v in args.items() if k in spec["args"]}
-        clean = {k: v for k, v in clean.items() if v is not None or k == "delivery"}
-        for k, v in list(clean.items()):           # codes and ids are strings to the backend (a 4-digit code read as a number)
-            if isinstance(v, int) and not isinstance(v, bool) and spec["args"].get(k, "").lower().find("number") < 0:
-                clean[k] = str(v)
-        self.stats.tool_calls += 1
-        try:
-            res = self.tools.call(name, **clean)
-        except ToolError as e:
-            self.stats.tool_errors += 1
-            res = {"error": str(e) or "service unavailable"}
-        except TypeError as e:                    # arguments the backend does not accept
-            self.stats.bad_tool_requests += 1
-            res = {"error": f"bad arguments: {e}"}
-        self.history.append({"tool": name, "args": clean, "result": res})
-
-    def _acts(self, say: Any, count: bool = True) -> list[dict[str, Any]]:
-        if isinstance(say, dict):
-            say = [say]
-        if not isinstance(say, list):
-            return []
-        out = []
-        for a in say:
-            if isinstance(a, str):
-                a = {"act": "UNKNOWN", "text": a}
-            if not isinstance(a, dict) or not a.get("act"):
-                continue
-            name = str(a["act"]).strip().upper()
-            if name not in self.act_names and count:
-                self.stats.unknown_acts += 1
-            act = {"act": name, "text": str(a.get("text") or "")}
-            fields = (self.act_fields or {}).get(name) if self.act_fields else ACTS.get(name, ("", []))[1]
-            for f in fields or []:
-                if a.get(f) is not None:
-                    v = a[f]
-                    if f == "actions" and isinstance(v, list):
-                        v = [list(x) if isinstance(x, (list, tuple)) else [x, None] for x in v]
-                    elif isinstance(v, dict):
-                        v = _ref(v)
-                    act[f] = v
-            out.append(act)
+    def _answer_kb(self, frame) -> dict[str, Any]:
+        """The graph's answer, exactly the fact asked; to a claim, said as agreeing only when the figures match."""
+        out = super()._answer_kb(frame)
+        if self.reader.last.get("kind") == "claim":
+            truth, said = _num_set(str(out.get("answer"))), _num_set(str(self.reader.last.get("claimed") or ""))
+            t = out["text"]
+            if out.get("answer") is None or frame.get("intent") not in ("value", "limit"):
+                out["text"] = "I can't confirm that. " + t
+            elif said and said == truth:
+                out["text"] = "Yes, that's right. " + t
+            else:
+                out["text"] = "Actually, " + t[:1].lower() + t[1:]
         return out
+
+    def _turn(self, ended: bool) -> BotTurn:
+        acts = [dict(a) for e in self._tr.events[self._mark:] if e["role"] == "bot" for a in e["acts"]]
+        lines = [_say(a) for a in acts]
+        if self.wording is not None and acts:
+            lines = self.wording.word(acts, lines, self._heard)
+        else:
+            self.stats.add("templated", len(lines))
+        acts = [{**a, "text": t} for a, t in zip(acts, lines)]
+        self.ended = self.ended or ended
+        self.stats.add("turns")
+        self._said = " ".join(lines)
+        return BotTurn(self._said, acts, self.ended)
+
+
+def make_structured_factory(store=None, reader_llm=None, wording_llm=None, voice: str = "", settings=None):
+    """A bot_factory for CampaignConfig / JourneyRunner: the structured LLM bot on the active journey's graph.
+
+    ``reader_llm``: the CachedLLM that reads customer turns (default: the gateway's default deployment, or the stand-in
+    model of GMSJOURNEY_SUT_FAKE_MODEL); ``wording_llm``: the one that words the bot's acts (None: the templates).
+    ``store`` may be set later (``factory.store``): a test run builds the bot before its knowledge store, and the
+    pipeline hands the store to a factory whose ``store`` is None. One ``StructuredStats`` covers every conversation:
+    ``factory.stats.as_dict()``; ``factory.llm.report()`` / ``factory.wording_llm.report()`` the calls."""
+    from ..llm import CachedLLM, LLMSettings
+    from ..s01_packs.loading import current
+    if current().graph is None:
+        raise RuntimeError("the LLM bot is built on the journey's policy graph; this journey has no compact graph")
+    if reader_llm is None:
+        s = settings or LLMSettings(temperature=0.0, max_tokens=200, json_mode=True)
+        fake = fake_model()
+        reader_llm = CachedLLM(s, model=fake, tag="sut") if fake is not None else CachedLLM(s, tag="sut")
+    stats = StructuredStats()
+
+    def factory(tools):
+        if factory.store is None:
+            raise RuntimeError("the LLM bot needs the journey's knowledge store (factory.store)")
+        return StructuredBot(tools, factory.store, factory.llm, factory.wording_llm, stats, voice)
+
+    factory.store, factory.llm, factory.wording_llm, factory.stats = store, reader_llm, wording_llm, stats
+    factory.voice, factory.critique = voice, False
+    factory.system_prompt = (f"# {STRUCTURED_VERSION}\n\n## Reading each customer turn (system prompt)\n\n{READ_SYSTEM}\n\n"
+                             "The user message is JSON: the bot's last words, the customer's words and the menu of the "
+                             "current state (its intents with their slots and values, what a plain yes / no means, and "
+                             "the policy facts a question can be about).\n\n"
+                             f"## Wording the bot's acts (system prompt)\n\n{WORD_SYSTEM}\n")
+    return factory
 
 
 REF_KEYS = ("transaction_id", "txn", "id", "item_id")
@@ -726,49 +719,3 @@ def fake_model():
         return None
     mod, _, attr = spec.partition(":")
     return getattr(importlib.import_module(mod), attr)()
-
-
-def make_llm_factory(store=None, settings=None, llm=None, policy_text: str | None = None, max_steps: int = 6,
-                     instructions: str | None = None, references: list[dict] | None = None, critique: bool = False,
-                     critic_model: str | None = None,
-                     critic_llm=None, critique_scope: str = "all"):
-    """A bot_factory for CampaignConfig / JourneyRunner. One CachedLLM (tag "sut") is shared by every
-    conversation, so the cache and the call statistics cover the whole campaign: ``factory.llm.report()``,
-    ``factory.stats.as_dict()``. settings default: the gateway's default deployment at temperature 0.
-    ``instructions`` replaces the suggested instructions (who the bot is and its procedure); ``references`` are
-    attached files ({name, text}) added after them; the tools, acts and reply format are always appended.
-
-    ``critique`` adds the critique layer (off by default here; the console turns it on unless told otherwise): a
-    second call reviews every proposed step - each tool call and each reply - against the same instructions and
-    approves it or returns a corrected step, which the bot carries out instead (``LLMBot._review``). The reviewer is
-    ``critic_llm``, or a gateway deployment named by ``critic_model``, or else the bot's own model. ``critique_scope``
-    (CRITIQUE_SCOPES) says which steps it reviews: every step, the account changes and replies, or the replies."""
-    from ..llm import CachedLLM, LLMSettings
-    if llm is None:
-        s = settings or LLMSettings(temperature=0.0, max_tokens=500, json_mode=True)
-        fake = fake_model()
-        if fake is not None:
-            s.model = f"fake-{type(fake).__name__}"
-        llm = CachedLLM(s, model=fake, tag="sut") if fake is not None else CachedLLM(s, tag="sut")
-    acts = act_inventory(store)
-    reasons = transfer_reasons(store)
-    system = build_system_prompt(policy_text, None, instructions, references, acts, reasons)
-    stats = LLMBotStats()
-    names = frozenset(acts)
-
-    if critique and critic_llm is None and critic_model and critic_model != llm.settings.model:
-        cs = LLMSettings(model=critic_model, temperature=0.0, max_tokens=llm.settings.max_tokens, mode=llm.settings.mode,
-                         json_mode=True)
-        fake = fake_model()                             # another deployment reviews the bot's steps
-        critic_llm = CachedLLM(cs, model=fake, tag="critic") if fake is not None else CachedLLM(cs, tag="critic")
-    critic = (critic_llm or llm) if critique else None
-    csys = critic_system(system) if critique else ""
-    scope = critique_scope if critique_scope in CRITIQUE_SCOPES else "all"
-
-    def factory(tools):
-        return LLMBot(tools, llm, system, max_steps, stats, names, {k: f for k, (_, f) in acts.items()},
-                      critic=critic, critic_system=csys, critique_scope=scope)
-    factory.llm, factory.stats, factory.system_prompt = llm, stats, system
-    factory.critique, factory.critic_llm, factory.critic_prompt = bool(critique), critic, csys
-    factory.critique_scope = scope
-    return factory

@@ -8,7 +8,7 @@ voicebot/
     │   ├── __init__.py
     │   ├── tools.py      the mock bank, fault injection, the Trace of a run
     │   ├── reference.py  the reference bots and their planted defects (mutants)
-    │   ├── llm_bot.py    an LLM bot (gateway or local model) with a critique layer
+    │   ├── llm_bot.py    the LLM bot: a model reads and words, the graph decides
     │   └── harness.py    plays a case against any bot; adapters for your own bot
     ├── s07_checks/  s08_campaign/  s09_reports/  s10_console/
     └── policy/
@@ -155,41 +155,68 @@ defect the graph makes possible**, so a new journey gets mutation analysis for f
 
 `make_graph_factory(mutant=None)` returns a bot factory for the active pack.
 
-## llm_bot.py — an LLM bot under test
+## llm_bot.py — the LLM bot under test
 
 ```
 s06_bots/
 └── llm_bot.py   ◀   PART 1 LocalChat (a local model on vLLM), status, local_model_path
-                     PART 2 LLMBot, make_llm_factory, the prompt, the critique layer
+                     PART 2 StructuredBot, LLMReader, Wording, make_structured_factory
 ```
 
-A second system under test: a language model given the procedure, the tools and the dialog acts.
+A second system under test, built so that a language model does only the two jobs a model is needed for: reading
+what the customer means, and putting what the bot must say into words. Everything in between is the journey's policy
+graph, run by the same interpreter as the reference bot (`GraphBot`, with no planted defects).
 
-**The prompt** (`build_system_prompt`) has three parts:
-
-1. **instructions** a tester may rewrite (`suggested_instructions`: who the bot is, how it must behave, and the
-   operating procedure, `default_policy_text`);
-2. **references** the tester attached (`references_text`; the console extracts text from PDFs, Word, Excel ...);
-3. the **fixed protocol** (`protocol_text`) the harness needs: the tools, the transfer reasons
-   (`transfer_reasons`), the dialog acts with their fields (`act_inventory`, read from the active graph), and the
-   reply format.
-
-**One JSON step per model call.** At each step the model replies with exactly one object:
-
+```mermaid
+flowchart LR
+    C["customer's words"] --> R["read (LLM)<br/>kind + intent + slots<br/>from the state's menu"]
+    R --> V{"the state<br/>accepts it?"}
+    V -- "no: unclear" --> G
+    V -- yes --> G["the graph's state machine<br/>(deterministic)"]
+    G --> T["the allowed tool<br/>its result"] --> G
+    G --> A["the acts the graph<br/>requires"]
+    A --> W["word them (LLM)<br/>each line checked"]
+    W -- "a check fails" --> P["the template"]
+    W --> O["what the customer hears"]
+    P --> O
 ```
-{"tool": "<tool name>", "args": {...}}       call one backend tool (it then sees the result)
-{"say": [<act>, ...], "end": false}         speak and wait for the customer
-{"say": [<act>, ...], "end": true}          speak and finish (after TRANSFER or END)
-```
 
-Malformed replies and tool errors are counted (`LLMBotStats`). **The critique layer** (`make_llm_factory(...,
-critique=True)`) adds a second call that reviews every proposed step against the bot's own instructions
-(`critic_system`) and approves it or returns a corrected one; `critic_model=` (a gateway deployment) or `critic_llm=`
-lets the reviewer be another model. `critique_scope=` (`CRITIQUE_SCOPES`) says which steps it reviews: `"all"`
-(every tool call and reply), `"key"` (calls of the tools whose role is "write" in the journey's graph, and every reply;
-lookups and authentication run unreviewed; the console's default) or `"replies"` (only what the customer hears);
-skipped steps are counted (`critique_skipped`). It is off unless asked for here; the console shows it as a checkbox (*Use the
-critique LLM*) and the campaign notebook as `CRITIQUE`.
+Analogy: a court interpreter and a clerk with the rule book. The interpreter (the reading model) only says what the
+person meant, choosing from the forms the clerk can accept at this step; the clerk (the graph) decides what happens
+and what must be said; a second interpreter (the wording model) says it back in plain words, and a proofreader
+checks that every figure and name on the form made it into the words and nothing was added.
+
+**Reading a turn** (`LLMReader`). The reading model gets a small prompt (`READ_SYSTEM`, no policy in it) and, as JSON,
+the bot's last words, the customer's words and the **menu** of the current state (`menu(state)`): the intents the
+state accepts with their slots and values (each value with its lexicon wording), what a plain yes or no means there,
+and the policy facts a question can be about (every figure and every public limit of the graph). It answers with a
+kind:
+
+| kind | what it means | what the bot does |
+|---|---|---|
+| actionable | an answer the state accepts, a request for a person, the end | the graph's transition |
+| question | a policy question about a figure or limit the graph states | the graph's answer: exactly the fact asked |
+| claim | the customer states a policy fact ("the fee is waived, right?") | answered from the graph: "Actually, ..." when the customer's figure is wrong, never agreed to as said |
+| social | small talk, thanks, an apology | nothing changes and no policy is said; the pending question is asked again |
+| unclear | nothing the state accepts | the graph's clarification |
+
+A reading is used only when the state accepts it (`frame`): an intent the state does not take, a value outside the
+slot's value set (an alias is mapped to its member), or a code that is not in the customer's words (spoken digits are
+read) makes the turn unclear, and the rejection is counted with why (`StructuredStats.notes`). So the model can be
+wrong about meaning, which the tests are there to find, but it cannot make the bot do something the policy does not
+allow at that step.
+
+**Wording a turn** (`Wording`). The acts the graph decided, with their facts and the template line of each
+(`domain.yaml bot.says`), go to the wording model in one call (`WORD_SYSTEM`), with the tester's *voice* (tone only).
+Each line it returns is checked against its template (`check`): the same figures (number words read), every fact the
+template says, no option the template does not name, and no promise or policy word (`speech_policy.markers`) the
+template does not have. A line that fails is replaced by its template; a short acknowledgement before the first line
+(`lead`) is allowed after small talk and checked the same way. With no wording model the templates are said.
+
+**Cost.** One reading call (200 output tokens reserved) and at most one wording call (400) per customer turn, each
+well under 2,000 tokens; the policy never goes into a prompt. `make_structured_factory(store, reader_llm,
+wording_llm, voice)` builds it; one `StructuredStats` covers every conversation of the factory, and a factory built
+before its knowledge store (a test run's) gets the store from the pipeline.
 Replies are cached like every LLM call (`llm.py`), so repeated runs of the same conversation cost nothing.
 
 **Where the model runs.** Through the model gateway (`llm.py`), or locally with `LocalChat(path, url=...)`: a chat

@@ -92,8 +92,8 @@ Every failure gets a **code**, every code a **base severity** (overridable in `p
 |---|---|
 | critical | `CLAIM_WITHOUT_SUCCESS`, `ACCOUNT_TOOL_BEFORE_AUTH`, `SUBMIT_WITHOUT_CONFIRMATION`, `FEE_NOT_DISCLOSED`, `TOOL_AFTER_TRANSFER`, `WRONG_RECORD`, `HALLUCINATION_DETECTED`, `SPEECH_CONTRADICTED`, `SPEECH_UNSUPPORTED`, `POLICY_RULE_BROKEN` |
 | high | `OUTCOME_INCORRECT`, `ESCALATION_MISSED`, `AUTH_ATTEMPTS_EXCEEDED`, `TRANSACTION_LIMIT_EXCEEDED`, `FACT_INCORRECT`, `WRONG_CARD_ACTION`, `SPEECH_UNFAITHFUL`, `SPEECH_DISCLOSED`, `LIMIT_EXCEEDED`, `WRONG_STATEMENT` |
-| moderate | `PROCESS_DEVIATION`, `TURN_LIMIT_EXCEEDED`, `ESCALATION_INAPPROPRIATE`, `UNCLEAN_TERMINATION`, `STAGE_INCORRECT`, `SPEECH_MISSING` |
-| low | `BUDGET_EXCEEDED`, `TOOL_LOOP`, `RUNTIME_INVARIANCE`, `SPEECH_FLOW`, `SPEECH_VOLUNTEERED` |
+| moderate | `PROCESS_DEVIATION`, `TURN_LIMIT_EXCEEDED`, `ESCALATION_INAPPROPRIATE`, `UNCLEAN_TERMINATION`, `STAGE_INCORRECT`, `SPEECH_MISSING`, `SPEECH_VOLUNTEERED` |
+| low | `BUDGET_EXCEEDED`, `TOOL_LOOP`, `RUNTIME_INVARIANCE`, `SPEECH_FLOW` |
 
 **Risk tiers.** A journey whose correct path writes to the account is `action_taking`; otherwise `informational`
 (`risk_tier`). In an action-taking journey, moderate is promoted to high and high to critical (`tier_escalation`):
@@ -190,10 +190,14 @@ no reader claimed (`clauses` cuts at `;` and at `, and` / `, but` / `, so` ...) 
 3. a commitment's main verb must be an action the graph has (else `unsupported`);
 4. a clause with a policy marker must match a statement (rare shared stems plus equal figures: at least two pieces of
    evidence; `stem` and `terms` do the word matching);
-5. otherwise the clause is `unread` (advisory).
+5. otherwise the clause is `unread` (advisory: small talk and procedural sentences need no grounding).
 
 Invented policy, wrong figures and promises of actions the graph lacks become ordinary claims and flow into the
 `SPEECH_*` codes. Internal limits and the project's `never_volunteer` list give `SPEECH_DISCLOSED`.
+**An answer to a policy question gives exactly the fact asked**: any other fact in it (a figure about another
+subject, another figure of the asked subject, a figure that names nothing and is not the asked one, or a policy
+statement) is `volunteered` and fails the turn as `SPEECH_VOLUNTEERED` (`PolicyChecker.volunteered`); a project can
+list it under `speech.policy.advisory` to only count it. Promises ("let me transfer you") are not facts.
 `LLMPolicyJudge` (`speech.policy.judge: llm`) optionally re-reads policy-sounding clauses with an LLM given the
 graph's closest statements, because topic matching is not entailment.
 
@@ -204,7 +208,7 @@ to flag every edited turn; the report shows the detection rate per control.
 ### Severity of what was said
 
 `SPEECH_CONTRADICTED` and `SPEECH_UNSUPPORTED` are critical (the customer was told something false or baseless);
-`SPEECH_UNFAITHFUL` and `SPEECH_DISCLOSED` high; `SPEECH_MISSING` moderate; `SPEECH_FLOW` and `SPEECH_VOLUNTEERED` low.
+`SPEECH_UNFAITHFUL` and `SPEECH_DISCLOSED` high; `SPEECH_MISSING` and `SPEECH_VOLUNTEERED` moderate; `SPEECH_FLOW` low.
 
 ## llm_judges.py — two LLM judges beside the rules
 

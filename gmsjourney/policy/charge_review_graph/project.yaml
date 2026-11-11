@@ -480,7 +480,7 @@ evaluation:
     AUTH_ATTEMPTS_EXCEEDED: high, TRANSACTION_LIMIT_EXCEEDED: high, FACT_INCORRECT: high, WRONG_CARD_ACTION: high, PROCESS_DEVIATION: moderate,
     TURN_LIMIT_EXCEEDED: moderate, ESCALATION_INAPPROPRIATE: moderate, UNCLEAN_TERMINATION: moderate, STAGE_INCORRECT: moderate,
     BUDGET_EXCEEDED: low, TOOL_LOOP: low, RUNTIME_INVARIANCE: low, SPEECH_CONTRADICTED: critical, SPEECH_UNSUPPORTED: critical,
-    SPEECH_UNFAITHFUL: high, SPEECH_MISSING: moderate, SPEECH_FLOW: low, SPEECH_DISCLOSED: high, SPEECH_VOLUNTEERED: low, POLICY_RULE_BROKEN: critical, LIMIT_EXCEEDED: high,
+    SPEECH_UNFAITHFUL: high, SPEECH_MISSING: moderate, SPEECH_FLOW: low, SPEECH_DISCLOSED: high, SPEECH_VOLUNTEERED: moderate, POLICY_RULE_BROKEN: critical, LIMIT_EXCEEDED: high,
     WRONG_STATEMENT: high}
   tier_escalation:
     action_taking: {moderate: high, high: critical}
@@ -502,7 +502,7 @@ speech:
   # Policy in what the bot says (s07_checks/speech_policy.py): clauses no reader reads are checked against the graph's rules,
   # limits and knowledge lines; promises against its tools. Advisory kinds are counted and listed, never a failure.
   policy:
-    advisory: [unread, volunteered]
+    advisory: [unread]                  # volunteered fails: a policy answer gives exactly the fact asked
     never_volunteer: []
     judge: graph                        # graph | llm (an LLM re-reads policy-sounding clauses; cached)
   also_allowed:

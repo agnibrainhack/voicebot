@@ -8,7 +8,7 @@ The full explanation, with the theory and diagrams, is chapter 6 of the guide: [
 gmsjourney/s06_bots/
 ├── __init__.py   The bots under test and the harness that drives them
 ├── harness.py    Driving a bot through a case and observing it
-├── llm_bot.py    An LLM bot under test: a language model given the procedure, the tools and the dialog acts
+├── llm_bot.py    The LLM bot under test: a model reads and words, the policy graph decides
 ├── reference.py  The reference bots: well-behaved bots under test that follow the policy
 └── tools.py      The mock bank the bot talks to, and the record of one conversation
 ```
@@ -38,31 +38,26 @@ Parts:
 
 ## `llm_bot.py`
 
-An LLM bot under test: a language model given the procedure, the tools and the dialog acts.
+The LLM bot under test: a language model reads the customer and words the bot; the journey's policy graph decides.
 
 Parts:
 
-* PART 1 - A local model behind the LLM bot under test: Llama 3.1 8B Instruct (or any chat model vLLM serves) loaded with vLLM
-* PART 2 - An LLM-driven charge-review voice bot: a second system under test, next to the keyword/state-machine
+* PART 1 - A local model behind the LLM bot under test: gpt-oss, Llama or any chat model vLLM serves, loaded with vLLM
+* PART 2 - The LLM bot under test, structured: the model reads the customer and words the bot; the policy graph decides
 
 | name | kind | what it is |
 |---|---|---|
 | `local_model_path` | def | The local model folder from GMSJOURNEY_SUT_LOCAL_MODEL (empty when not set). |
 | `status` | def | What the console shows about the local model, without loading it. |
 | `LocalChat` | class | A chat model on vLLM: in-process from a folder, or through an OpenAI-compatible vLLM server. |
-| `default_policy_text` | def | The operating procedure the bot is given: the pack's policy transcription when it has one, else the policy graph rendered as text (what a team without a separate SOP would hand an LLM bot). |
-| `journey_title` | def | The active journey's title, for the LLM bot's prompt. |
-| `act_inventory` | def | name -> (what the act is for, the fields it carries): the dialog states of the active pack's graph. A state the charge-review inventory above describes keeps that description; any other is described from the graph (whether it waits for the customer) and the pack's own wording of it (domain.yaml bot.says). |
-| `transfer_reasons` | def | The reason codes the transfer tool takes: the graph's (``<transfer tool> transfer_when <reason>``) when it names them, else the charge-review codes above. |
-| `suggested_instructions` | def | The part of the bot's prompt a tester may rewrite: who the bot is, how it must behave, and the operating procedure. The console shows it as the suggested prompt. |
-| `references_text` | def | Files the tester attached, as reference material after the instructions. |
-| `protocol_text` | def | The fixed part of the prompt: the tools, the transfer reasons, the dialog acts and the JSON reply format. The harness needs it to run the bot's tool calls and to read what it says, so it is not editable. |
-| `build_system_prompt` | def | instructions (default: the suggested ones on ``policy_text``) + attached references + the fixed protocol. |
-| `LLMBotStats` | class | Counters over a whole campaign of LLM-bot conversations (model steps, tool calls and errors, invalid replies, the critique layer's reviews and corrections); the corrections themselves are kept too. |
-| `critic_system` | def | The critique layer's system prompt: the reviewer's instructions, then the bot's own instructions. |
-| `LLMBot` | class | start() / respond(text) -> BotTurn, like ReferenceBot; tool calls go to `tools` (the harness backend). |
+| `READ_SYSTEM`, `WORD_SYSTEM` | const | The two fixed prompts: reading a customer turn, wording the bot's acts. Neither holds any policy. |
+| `journey_title` | def | The active journey's title. |
+| `StructuredStats` | class | Counters over every conversation of a factory: turns, readings by kind, readings not used, lines worded or said from the template, wordings not used and why (the last 50). |
+| `LLMReader` | class | Reads a customer turn with the LLM into a meaning card: ``menu(state)`` (the state's intents, their slots and values, what a plain yes / no means, the facts a question can be about), ``read(text, state)``, and ``frame(...)``, which uses a reading only when the state accepts it (an alias is mapped to its member, a code must be in the words) and otherwise reads the turn as unclear. Kinds: actionable, question, claim, social, unclear. |
+| `Wording` | class | Words a bot turn's acts with the LLM, one call a turn; ``check(line, template, act)`` keeps a line only when it says the template's figures and facts and adds no figure, option, promise or policy word; a lead (an acknowledgement of small talk) is checked the same way. |
+| `StructuredBot` | class | The LLM bot: ``GraphBot`` (the graph's interpreter, no planted defects) with ``LLMReader`` reading and ``Wording`` speaking; a policy claim is answered from the graph ("Actually, ..." when the customer's figure is wrong). |
+| `make_structured_factory` | def | A bot_factory for CampaignConfig / JourneyRunner: ``reader_llm`` reads, ``wording_llm`` words (None: the templates), ``voice`` is the tone asked for. ``factory.store`` may be set later (the pipeline hands its store to a factory whose store is None). |
 | `fake_model` | def | A stand-in chat model named by ``GMSJOURNEY_SUT_FAKE_MODEL=module:Class`` (tests and demos without the gateway), else None. |
-| `make_llm_factory` | def | A bot_factory for CampaignConfig / JourneyRunner. One CachedLLM (tag "sut") is shared by every conversation, so the cache and the call statistics cover the whole campaign: ``factory.llm.report()``, ``factory.stats.as_dict()``. settings default: the gateway's default deployment at temperature 0. ``instructions`` replaces the suggested instructions (who the bot is and its procedure); ``references`` are attached files ({name, text}) added after them; the tools, acts and reply format are always appended. |
 
 ## `reference.py`
 

@@ -40,16 +40,15 @@ The bot under test as the console configures it, and the playground.
 
 Parts:
 
-* PART 1 - Text from a file a tester attaches to the LLM bot's prompt (an SOP, a policy PDF, an FAQ sheet).
-* PART 2 - The bot under test, as the console configures it: the reference bot of the journey, or an LLM bot on the model
-* PART 3 - The playground: talk to the bot under test yourself, one turn at a time, with every turn checked as you go.
+* PART 1 - The bot under test, as the console configures it: the journey's reference bot, or the LLM bot.
+* PART 2 - The playground: talk to the bot under test yourself, one turn at a time, with every turn checked as you go.
+* PART 3 - Saved conversations: a Playground conversation kept as a test case.
 
 | name | kind | what it is |
 |---|---|---|
-| `extract` | def | Text from an attached file (text, Markdown, JSON, YAML, CSV, PDF, Word, Excel), capped in size, or an error that says why the file cannot be used. |
-| `suggested` | def | The suggested prompt for the active journey, and the fixed part the harness adds. |
-| `critique_on` | def | The critique layer is on unless the job turns it off. |
-| `settings_for` | def | The model-client settings of a console job's ``sut`` block. |
+| `suggested` | def | What the LLM bot's models are asked, for the active journey: the reading and wording prompts and the menu of its first question. |
+| `wording_where` | def | Where the bot's words are made: "same" (the reading model), "gateway", "local" or "template" (no model). |
+| `settings_for` | def | The model-client settings of a console job's ``sut`` block, for reading (200 tokens, temperature 0) or wording (400 tokens); JSON mode. |
 | `make_factory` | def | (bot_factory or None for the reference bot, display name, the LLM factory or None). |
 | `check_gateway` | def | One tiny call through the gateway (tools/check_llm.py in one function): ok, endpoint, seconds, the reply or the exact error. A configured stand-in model (GMSJOURNEY_SUT_FAKE_MODEL) is reported instead of calling out. |
 | `Bench` | class | The active journey's store, oracle, reader, realizer and speech verifier (built once per journey). |

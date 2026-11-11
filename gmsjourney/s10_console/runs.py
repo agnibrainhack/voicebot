@@ -585,18 +585,22 @@ class Runs:
             if not st["usable"]:
                 raise ValueError(f"the local model cannot be used: {st['detail']}")
         js = job.get("sut") or {}
-        if js.get("kind") == "llm" and js.get("critique", True) is not False:
-            from .bots import critic_where
-            if critic_where(js) == "local":
+        if js.get("kind") == "llm":
+            from .bots import wording_where
+            from ..s01_packs.loading import load
+            if load(job["pack"]).graph is None:
+                raise ValueError(f"the LLM bot follows the journey's policy graph, and {job['pack']} has none: run it on a "
+                                 "journey written as a graph (or use the reference bot)")
+            if wording_where(js) == "local":
                 from ..s06_bots.llm_bot import status as local_status
-                st = local_status(js.get("critic_local_path"), js.get("critic_vllm_url"))
+                st = local_status(js.get("wording_local_path"), js.get("wording_vllm_url"))
                 if not st["usable"]:
-                    raise ValueError(f"the critic's local model cannot be used: {st['detail']}")
+                    raise ValueError(f"the wording's local model cannot be used: {st['detail']}")
         rid = time.strftime("%Y%m%d-%H%M%S") + "-" + re.sub(r"[^a-z0-9_]+", "-", job["pack"].lower())
         run = self.root / rid
         run.mkdir(parents=True)
         sut = dict(job.get("sut") or {})
-        if sut.get("kind") == "llm":                # the prompt and attachments live beside the job, not in it
+        if sut.get("kind") == "llm":                # the bot's full settings live beside the job
             (run / "sut.json").write_text(json.dumps(sut, indent=1, ensure_ascii=False), encoding="utf-8")
             if sut.get("provider") == "local":
                 from ..s06_bots.llm_bot import status as local_status
@@ -606,15 +610,11 @@ class Runs:
                                   "mode": sut.get("mode") or "live",
                                   "local_path": str(sut.get("local_path") or "") if sut.get("provider") == "local" else "",
                                   "vllm_url": str(sut.get("vllm_url") or "") if sut.get("provider") == "local" else "",
-                                  "critique": __import__("gmsjourney.s10_console.bots", fromlist=["x"]).critique_on(sut),
-                                  "critic_model": str(sut.get("critic_model") or ""),
-                                  "critic_provider": __import__("gmsjourney.s10_console.bots", fromlist=["x"]).critic_where(sut),
-                                  "critique_scope": __import__("gmsjourney.s10_console.bots", fromlist=["x"]).critique_scope(sut),
-                                  "critic_local_path": str(sut.get("critic_local_path") or ""),
-                                  "critic_vllm_url": str(sut.get("critic_vllm_url") or ""),
-                                  "custom_prompt": bool(sut.get("custom_prompt")),
-                                  "references": [{"name": r.get("name"), "chars": len(r.get("text") or "")}
-                                                 for r in sut.get("references") or []]}}
+                                  "wording": __import__("gmsjourney.s10_console.bots", fromlist=["x"]).wording_where(sut),
+                                  "wording_model": str(sut.get("wording_model") or ""),
+                                  "wording_local_path": str(sut.get("wording_local_path") or ""),
+                                  "wording_vllm_url": str(sut.get("wording_vllm_url") or ""),
+                                  "voice": str(sut.get("voice") or "")}}
         job = {**job, **_provenance(job["pack"])}
         (run / "job.json").write_text(json.dumps({**job, "id": rid, "created": time.time()}, indent=1))
         env = {**os.environ, "PYTHONPATH": str(ROOT) + os.pathsep + os.environ.get("PYTHONPATH", "")}
@@ -950,19 +950,13 @@ def main(run_dir: str) -> int:
         fac = None
         if sut.get("kind") == "llm":               # the tester's LLM bot instead of the journey's reference bot
             from ..s01_packs.loading import set_current
-            from ..s06_bots.llm_bot import CRITIC_VERSION
             from .bots import make_factory
             set_current(job["pack"])
-            fac, name, _ = make_factory(sut)
+            fac, name, _ = make_factory(sut)            # its knowledge store is handed over by the pipeline
             (run / "out").mkdir(parents=True, exist_ok=True)
             (run / "out" / "sut_prompt.txt").write_text(fac.system_prompt, encoding="utf-8")
             opts.update(bot_factory=fac, bot_name=name)
-            refs = [r.get("name") for r in sut.get("references") or [] if r.get("text")]
-            log(f"bot under test: {name}; prompt {len(fac.system_prompt):,} characters"
-                + (f", with {', '.join(refs)} attached" if refs else "") + " (out/sut_prompt.txt); "
-                + (f"critique layer on: a second call reviews {fac.critique_scope == 'all' and 'every step' or fac.critique_scope == 'key' and 'the account changes and replies' or 'the replies'} "
-                   "and may correct them (out/sut_critic_prompt.txt); " if fac.critique else "")
-                + 
+            log(f"bot under test: {name}; what its models are asked: out/sut_prompt.txt; "
                 "planted defects (step 10) need the reference bot and are skipped")
         def where(backend, model, path, url) -> str:
             return (f"local model {Path(str(path or '(no folder)')).name}" + (f" via {url}" if url else "") + " (vLLM)"
@@ -980,11 +974,9 @@ def main(run_dir: str) -> int:
         finally:
             if fac is not None:                    # what the model was asked and answered, even when the run stops
                 (run / "out" / "sut_llm.json").write_text(json.dumps(
-                    {"bot": fac.stats.as_dict(), "llm": fac.llm.report(),
-                     "critique": {"on": fac.critique, "version": CRITIC_VERSION, "revisions": fac.stats.revisions()}},
+                    {"bot": fac.stats.as_dict(), "reading": fac.llm.report(),
+                     "wording": fac.wording_llm.report() if fac.wording_llm is not None else None},
                     indent=1, default=str))
-                if fac.critique:
-                    (run / "out" / "sut_critic_prompt.txt").write_text(fac.critic_prompt, encoding="utf-8")
         finished(R)
         saved = _replay_saved(job, fac, (opts.get("bot_name") if fac is not None else None), run, log)
         if saved is not None:

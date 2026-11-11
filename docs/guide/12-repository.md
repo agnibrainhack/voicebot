@@ -54,8 +54,8 @@ choice (Bot under test): its settings pin the gateway unless the tester picks a 
 
 `make_chat_model(settings)` returns the client or raises `LLMUnavailable` with the reason.
 
-**Fewer round trips.** Every client in a process shares what can be shared, so a run with the LLM bot, its critique,
-two judges and the rewording arm does not pay the set-up once per role:
+**Fewer round trips.** Every client in a process shares what can be shared, so a run with the LLM bot's reading and
+wording models, two judges and the rewording arm does not pay the set-up once per role:
 
 * **one token** (`_token`): fetched once per process with `gcloud` and reused by every client for 40 minutes; a
   401/403 refreshes it for everyone (a client that sees a token another one already refreshed takes that one);
@@ -66,33 +66,26 @@ two judges and the rewording arm does not pay the set-up once per role:
   form from its next call, instead of spending a failed call each.
 
 **Pacing by the deployment's token quota.** Azure OpenAI admits a call against the deployment's tokens-per-minute
-quota by its prompt tokens **plus its max_tokens**. A rewording call is a few hundred tokens; a step of the LLM bot
-under test sends its whole system prompt (about 20,000 characters: tools, acts, policy) and costs about 6,300 tokens,
-and the critique as much again. So a deployment that serves the rewording comfortably can admit only a few bot steps
-a minute, and calls sent faster are refused (429) and retried. Each deployment therefore has one pacer
-(`_pacer(url)`, shared by the bot, its critique, the Playground, the rewording and the judges on that model) with a
-**token budget**: a bucket refilled at the quota's rate, from which every call takes its estimated cost
-(`estimate_tokens`: prompt characters / 3.5 + max_tokens) before it is sent, so calls are spaced to be admitted.
-The quota is `GMSJOURNEY_LLM_TPM` when set, else learnt from the `x-ratelimit-limit-tokens` /
-`x-ratelimit-remaining-tokens` headers Azure sends with every reply (logged once:
-"the deployment's quota: N tokens a minute"). `python tools/check_llm.py --bot <journey>` sends one real bot step
-and prints the quota and how many bot steps and customer turns fit in a minute. The bot and its critique also ask for
-**JSON mode** (`LLMSettings.json_mode`: `response_format` json_object, dropped where a deployment rejects it), so a
-reply is never prose that costs a second call to correct, and reserve 500 output tokens instead of 900 (a step's
-reply is one small JSON object). The Playground's side panel shows the bot's deployment quota.
+quota by its prompt tokens **plus its max_tokens**, so a deployment admits only so many tokens a minute and calls sent
+faster are refused (429) and retried. Each deployment has one pacer (`_pacer(url)`, shared by every client of that
+deployment: the bot's reading and wording, the Playground, the rewording and the judges) with a **token budget**: a
+bucket refilled at the quota's rate, from which every call takes its estimated cost (`estimate_tokens`: prompt
+characters / 3.5 + max_tokens) before it is sent, so calls are spaced to be admitted. The quota is
+`GMSJOURNEY_LLM_TPM` when set, else learnt from the `x-ratelimit-limit-tokens` / `x-ratelimit-remaining-tokens`
+headers Azure sends with every reply (logged once: "the deployment's quota: N tokens a minute").
+`python tools/check_llm.py --bot <journey>` sends the bot's two real calls for one customer turn (a reading and a
+wording) and prints the quota and how many customer turns fit in a minute. The bot's calls ask for **JSON mode**
+(`LLMSettings.json_mode`: `response_format` json_object, dropped where a deployment rejects it), so a reply is
+never prose that needs a second call. The Playground's side panel shows the bot's deployment quota. A call's retry
+window (`retry_seconds`) starts when it is first sent, so time spent queueing for the quota never counts against it.
 
-Batching (the Azure OpenAI Batch API) does not fit the bot: a batch is asynchronous (minutes to hours, within 24 h)
-and each step of a conversation needs the previous reply, so a conversation would take one batch round trip per
-step; and the Playground is interactive. What the bot needs is calls the quota admits, which the pacer provides.
-A call's retry window (`retry_seconds`) starts when it is first sent, so time spent queueing for the quota never
-counts against it.
-
-**Reducing the bot's load.** Every bot step and every review carries the whole prompt (the policy is about three
-quarters of it), so the number of calls per customer turn is the lever. On a charge-review conversation (measured
-with the stand-in model) the tokens per customer turn were about 21,900 with the critique reviewing every step,
-18,700 reviewing the account changes and replies (*Reviews* in the bot card, `critique_scope="key"`, the default),
-17,000 reviewing replies only and 10,500 with no critique. A critic on another deployment (*Critic's model*) takes its
-calls off the bot's quota entirely.
+**The bot's load.** The LLM bot (chapter 6) never sends the policy: a customer turn is one reading call (the state's
+menu, the bot's last words, the customer's words; 200 output tokens reserved) and at most one wording call (the acts
+and their template lines; 400). On a charge-review conversation (measured with the stand-in model) that is about 925
+prompt tokens per customer turn, or 595 with the journey's templates instead of a wording model, where the earlier
+design (a model given the whole policy at every step, and a critique of each step) took 10,500 to 21,900. Batching
+(the Azure OpenAI Batch API) does not fit a conversation: a batch is asynchronous (minutes to hours) and each turn
+needs the previous reply.
 
 **Pacing and patience.** All gateway calls of a deployment share its pacer: at most
 `GMSJOURNEY_LLM_MAX_INFLIGHT` calls at once (default 4). When the gateway throttles (HTTP 429) or strains (5xx, a
@@ -102,8 +95,8 @@ for up to `retry_seconds` (`GMSJOURNEY_LLM_RETRY_SECONDS`, 300 s) before it fail
 not open the circuit breaker: busy is not down. An unreachable endpoint (DNS, TLS, proxy, refused) still fails after
 `max_retries`, and eight such failures in a row stop the client.
 
-The calls themselves are what the work needs: the LLM bot makes one call per step (a tool call or its reply) and the
-critique one review per step; the two judges one call each per run (or per Playground turn, both at once); every
+The calls themselves are what the work needs: the LLM bot makes one reading call and at most one wording call per
+customer turn; the two judges one call each per run (or per Playground turn, both at once); every
 reply is cached by content, so the turn-by-turn export's re-run of every conversation, repeated runs and the
 judges' reading of the same conversation twice cost no call. `CampaignConfig.bot_workers` (the console sets 4 for an
 LLM bot) plays several conversations at once, which cuts the wall time without changing the calls or the results.
@@ -152,7 +145,7 @@ without it; the rest run anywhere.
 | `test_pack_compile.py` | a compact graph compiled into the full graph walks the same journeys as its own interpreter (85 and 276 journeys, 0 different) |
 | `test_graph_engine.py` | the graph-agnostic engine: compact graphs, mining, the store, rule and contradiction calibration from the graph |
 | `test_loops.py` | loops over a returned list in journey generation (item count, window edges, per-item answers) |
-| `test_graph_tools.py` | opening a graph by path, its sections and core segments, the editor's versions, the GMS sphere, the LLM bot's tool factors |
+| `test_graph_tools.py` | opening a graph by path, its sections and core segments, the editor's versions, the GMS sphere, the tool factors |
 | `test_app.py` | the console's API: journeys, devices, check, preview, save, a run that outlives the server that started it |
 | `test_console_features.py` | the console's bot-under-test choice, the case explorer and the playground; progress reports from bars, phases and LLM calls; saved Playground conversations replayed and flagged; two runs compared case by case; the graph path preview |
 | `test_flow_parity.py` | the graph-walking oracle reproduces the hand-written one it replaced (needs the store) |
@@ -161,11 +154,12 @@ without it; the rest run anywhere.
 | `test_speech.py` | the speech reader, session facts, verifier and controls |
 | `test_policy_speech.py` | amounts and policy in what the bot says, on every journey |
 | `test_bot_validation.py` | the bot validation page and the response cards it reads |
-| `test_llm_sut.py` | the LLM bot with a scripted fake model (no network) |
+| `test_structured_bot.py` | the LLM bot with scripted models (no network): a reading the state does not accept is unclear, small talk and claims, KB answers give the fact asked, a wording that changes a fact is not said, the wording model chosen apart from the reading model |
+| `test_llm_sut.py` | campaign plumbing around the bot under test: case sampling, failure reasons, the case comparison page |
 | `test_pack_llm_arm.py` | the LLM rewording arm on a compiled pack, with a scripted stand-in model |
 | `test_parity_and_llm_arm.py` | hallucination probes, the LLM arm's separate proof, gmsh-parity additions |
 
-Helpers: `_store.py` (the store every test runs on), `fake_sut_model.py` (a scripted stand-in model for the LLM bot),
+Helpers: `_store.py` (the store every test runs on), `fake_sut_model.py` (a stand-in for the LLM bot's models: `HappyPath` reads with the reference bot's keyword reader and says the templates; `Misreads` reads every charge as recognized),
 `legacy_oracle.py` and `legacy_journey.py` (the hand-written oracle and journey code the graph-driven versions
 replaced, kept only for the parity tests).
 
@@ -179,7 +173,7 @@ replaced, kept only for the parity tests).
 | `case_comparison.py` | rebuilds `case_comparison.html` for an existing campaign folder |
 | `graph_showcase.py` | the state-transition graph of a policy graph file as one HTML page |
 | `geode_before_after.py` | measures what GEODE itself learned, on held-out inputs |
-| `check_llm.py` | one tiny call through the model gateway: "will it work here?"; `--bot <journey>` sends one real bot step and prints the deployment's token quota and how many bot steps fit in a minute |
+| `check_llm.py` | one tiny call through the model gateway: "will it work here?"; `--bot <journey>` sends the LLM bot's two calls for one customer turn (reading and wording) and prints the deployment's token quota and how many customer turns fit in a minute |
 | `llm_rejections.py` | why LLM-written turns were rejected, from an LLM-arm export |
 | `convert_charge_review_v2.py` | converts the charge-review full graph into a compact graph (how `charge_review_graph` was made) |
 | `templates/` | `EXPLAINER.html`, `INVARIANCE.html` (filled with a run's numbers by `build_docs.py`), `annotated_trace.txt` |

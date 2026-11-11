@@ -273,7 +273,7 @@ evaluation:
     SPEECH_MISSING: moderate              # it left out what the policy requires it to say
     SPEECH_FLOW: low                      # an act where the dialog-state graph does not allow it
     SPEECH_DISCLOSED: high                # an internal figure, or one never volunteered, told to the customer
-    SPEECH_VOLUNTEERED: low               # a policy answer that also told about something else (when not advisory)
+    SPEECH_VOLUNTEERED: moderate          # a policy answer that also told about something else (when not advisory)
     POLICY_RULE_BROKEN: critical          # a machine-checkable rule of the graph broken (compiled call checks)
     LIMIT_EXCEEDED: high                  # a limit of the graph exceeded
     WRONG_STATEMENT: high                 # a stated value that does not match what the tools returned
@@ -298,7 +298,7 @@ speech:
   # Policy in what the bot says (s07_checks/speech_policy.py): clauses no reader reads are checked against the graph's rules,
   # limits and knowledge lines; promises against its tools. Advisory kinds are counted and listed, never a failure.
   policy:
-    advisory: [unread, volunteered]
+    advisory: [unread]                  # volunteered fails: a policy answer gives exactly the fact asked
     never_volunteer: [max_turns, max_clarification_retries, max_unsure_retries]
     judge: graph                        # graph | llm (an LLM re-reads policy-sounding clauses; cached)
   # The flow check accepts, after any customer turn in any prompt state, whatever an act handled in every prompt

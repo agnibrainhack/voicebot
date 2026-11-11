@@ -44,8 +44,11 @@ from typing import Any, Callable
 #
 # and, in an answer to a policy question:
 #
-#   volunteered  a figure about something of the same kind as what was asked, but not it (asked the standard fee,
-#                told the expedited fee too): advisory by default (project.yaml ``speech.policy.advisory``)
+#   volunteered  any fact besides the one asked: a figure about another subject (asked the standard fee, told the
+#                expedited fee too), another figure of the asked subject (asked its fee, told its delivery days),
+#                a figure naming nothing that is not the asked one, or a policy statement; a policy answer gives
+#                exactly the fact asked, so this fails the turn unless the project lists it as advisory
+#                (project.yaml ``speech.policy.advisory``)
 #   disclosed    anything the graph marks internal, or the project lists under ``speech.policy.never_volunteer``:
 #                a failure whether asked or not
 #
@@ -114,7 +117,7 @@ def settings() -> dict[str, Any]:
         sp = ((project().raw.get("speech") or {}).get("policy") or {})
     except Exception:                                   # noqa: BLE001
         sp = {}
-    return {"advisory": list(sp.get("advisory", ["unread", "volunteered"])),
+    return {"advisory": list(sp.get("advisory", ["unread"])),
             "never_volunteer": list(sp.get("never_volunteer") or []),
             "judge": str(sp.get("judge") or "graph"), "llm_model": sp.get("llm_model")}
 
@@ -547,12 +550,28 @@ class PolicyChecker:
             return set()
         return {x for x in (question.get("entity"), question.get("key")) if x}
 
-    def volunteered(self, about: str | None, asked: set[str]) -> bool:
-        """A subject of the same kind as an asked one, but not it (asked standard delivery, told expedited)."""
-        if not about or about == ANY or not asked or about in asked:
+    def volunteered(self, claim, question: Any) -> bool:
+        """In an answer to a policy question, a fact besides the one asked: another subject, another figure of the
+        asked subject, a figure naming nothing that is not the asked one, or a policy statement (not a promise)."""
+        if question is None or claim.field in ("promise", "opening"):
             return False
-        k = self.corpus.kinds.get(about)
-        return k is not None and any(self.corpus.kinds.get(a) == k for a in asked)
+        ent, attr, key = question.get("entity"), question.get("attr"), question.get("key")
+        asked = {x for x in (ent, key) if x}
+        if not asked:
+            return False
+        want = [f for f in self.corpus.figures if (f.subject == ent and attr and f.attr == attr)
+                or (key and f.subject == key)]
+        same = lambda a, b: _num(a) == _num(b)                     # noqa: E731
+        is_asked = any(same(claim.value, f.value) for f in want)
+        about = claim.about
+        if about in asked:
+            if claim.field == "policy" or is_asked or not want:
+                return False
+            # another figure of the asked subject: one the graph states for it under another attribute
+            return any(f.subject == about and f.attr != attr and same(claim.value, f.value) for f in self.corpus.figures)
+        if not about or about == ANY:
+            return not is_asked
+        return True
 
     def never(self, subjects: tuple | list, internal: bool) -> str | None:
         """Why saying this is a disclosure: an internal limit, or a subject the project never volunteers."""
@@ -561,6 +580,16 @@ class PolicyChecker:
         lst = set(self.cfg["never_volunteer"])
         hit = next((s for s in subjects if s in lst), None)
         return f"{hit} is on the project's never_volunteer list" if hit else None
+
+
+def _num(v: Any) -> Any:
+    """A figure's value for comparing (ranges as pairs of floats, numbers as floats)."""
+    if isinstance(v, (tuple, list)):
+        return tuple(_num(x) for x in v)
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return v
 
 
 def _fmt(v: Any) -> str:
