@@ -1144,3 +1144,43 @@ def test_json_mode_is_asked_for_and_dropped_where_the_deployment_rejects_it():
             os.environ["AEXP_ACCESS_TOKEN"] = keep
         L._session().close()
         srv.shutdown()
+
+
+@_with_fake
+def test_the_critics_model_is_chosen_apart_from_the_bots():
+    """The critique runs on the bot's model, a gateway deployment or a local vLLM model, whatever the bot runs on."""
+    from gmsjourney.s10_console import bots as B
+    from gmsjourney.s06_bots.llm_bot import ENV
+    assert B.critic_where({"provider": "gateway", "critic_model": "gpt-55"}) == "gateway"      # an older job
+    assert B.critic_where({"provider": "local", "critic_model": "gpt-55"}) == "same"
+    assert B.critic_where({"critic_provider": "local"}) == "local"
+    base = {"kind": "llm", "model": "gpt-41", "critique": True}
+    fac, name, _ = B.make_factory({**base, "critic_provider": "same"})
+    assert fac.critic_llm is fac.llm and "critique by the same model" in name
+    fac, name, _ = B.make_factory({**base, "critic_provider": "gateway", "critic_model": "gpt-41"})
+    assert fac.critic_llm is fac.llm                                       # the bot's own deployment: one model
+    fac, name, _ = B.make_factory({**base, "critic_provider": "gateway", "critic_model": "gpt-55"})
+    assert fac.critic_llm is not fac.llm and fac.critic_llm.settings.model == "gpt-55" and "critique by gpt-55" in name
+    old = os.environ.pop(ENV, None)
+    try:
+        folder = Path(tempfile.mkdtemp()) / "gpt-oss-20b"
+        folder.mkdir()
+        (folder / "config.json").write_text("{}")
+        loc = {**base, "critic_provider": "local", "critic_local_path": str(folder), "critic_vllm_url": "http://127.0.0.1:9/v1"}
+        fac, name, _ = B.make_factory(loc)                                 # a gateway bot reviewed by a local model
+        assert fac.critic_llm is not fac.llm and "(local, vLLM)" in name and fac.critic_llm.tag == "critic"
+        try:
+            B.make_factory({**base, "critic_provider": "local", "critic_local_path": str(folder) + "-missing"})
+            raise AssertionError("an unusable local critic must be refused")
+        except RuntimeError as e:
+            assert "critic's local model" in str(e)
+        try:                                                               # the Playground needs a server for it
+            B.start("project", "default", {**loc, "critic_vllm_url": ""})
+            raise AssertionError("the playground must refuse a local critic without a vLLM server")
+        except ValueError as e:
+            assert "critic's local model needs a vLLM server" in str(e)
+        fac, name, _ = B.make_factory({**base, "critique": False, "critic_provider": "local"})
+        assert fac.critic_llm is None and "no critique" in name
+    finally:
+        if old is not None:
+            os.environ[ENV] = old

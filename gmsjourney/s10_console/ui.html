@@ -2401,13 +2401,21 @@ function compareView(r) {
 }
 
 // ---------------------------------------------------------------- bot under test: the reference bot, or an LLM bot with your prompt and files
+function critWhere(t) {       // where the critique runs: "same" (the bot's model), "gateway" or "local" (bots.critic_where)
+  if (["same", "gateway", "local"].includes(t.critic_provider)) return t.critic_provider;
+  return t.critic_model && t.provider !== "local" ? "gateway" : "same";
+}
+function critName(t) {
+  const w = critWhere(t);
+  return w === "gateway" ? (t.critic_model || "gpt-41") : w === "local" ? `${(t.critic_local_path || "a local model").split("/").filter(Boolean).pop()} (local, vLLM)` : "the same model";
+}
 function botShort(job) {
   const s = (job || {}).sut || {};
   return s.kind === "llm" ? `LLM bot, ${s.provider === "local" ? "local" : s.model || "gpt-41"}${s.critique === false ? "" : " + critique"}` : "Reference bot";
 }
 function botLabel(job) {
   const s = (job || {}).sut || {};
-  return s.kind === "llm" ? `LLM bot ${s.model || "gpt-41"}${s.provider === "local" ? " (local, vLLM)" : ""}${s.mode === "replay" ? " (replay)" : ""}${s.critique === false ? ", no critique" : s.critique ? `, critique by ${s.critic_model || "the same model"}` : ""}` : "reference bot (no LLM)";
+  return s.kind === "llm" ? `LLM bot ${s.model || "gpt-41"}${s.provider === "local" ? " (local, vLLM)" : ""}${s.mode === "replay" ? " (replay)" : ""}${s.critique === false ? ", no critique" : s.critique ? `, critique by ${critName(s)}` : ""}` : "reference bot (no LLM)";
 }
 function sutState() {
   S.sut = S.sut || {};
@@ -2421,7 +2429,7 @@ function sutSummary(t) {
   t = t || sutState();
   if (t.kind !== "llm") return { short: "Reference bot", long: "the reference bot: it follows the graph by rules and reads customers by keywords; no LLM is called" };
   const m = t.provider === "local" ? `a local model (${(t.local_path || "no folder yet").split("/").filter(Boolean).pop() || "no folder yet"}, vLLM${t.vllm_url ? " server" : ""})` : (t.model || "gpt-41");
-  const crit = t.critique === false ? "no critique" : `critique by ${t.critic_model && t.provider !== "local" ? t.critic_model : "the same model"}`;
+  const crit = t.critique === false ? "no critique" : `critique by ${critName(t)}`;
   return { short: `LLM bot · ${t.provider === "local" ? (t.local_path || "local").split("/").filter(Boolean).pop() : (t.model || "gpt-41")}${t.critique === false ? "" : " + critique"}`, long: `an LLM bot on ${m}, ${crit}` };
 }
 function botPill() {
@@ -2435,7 +2443,7 @@ function botPill() {
 }
 function sutSave() {
   setTimeout(() => { botPill(); document.querySelectorAll(".inuse").forEach(el => { el.textContent = sutSummary().long; }); }, 0);
-  const { suggested, check, lcheck, ...keep } = sutState();
+  const { suggested, check, lcheck, clcheck, ...keep } = sutState();
   try { localStorage.setItem(`jc.sut.${S.pack}`, JSON.stringify(keep)); }
   catch { try { localStorage.setItem(`jc.sut.${S.pack}`, JSON.stringify({ ...keep, references: [] })); } catch {} }
 }
@@ -2443,7 +2451,9 @@ function sutBody() {
   const t = sutState();
   if (t.kind !== "llm") return { kind: "reference" };
   return { kind: "llm", provider: t.provider === "local" ? "local" : "gateway", model: t.model || "", mode: t.mode, temperature: Number(t.temperature) || 0, max_steps: Number(t.max_steps) || 6, critique: t.critique !== false,
-           critic_model: t.critique !== false && t.provider !== "local" ? (t.critic_model || "") : "",
+           critic_provider: critWhere(t), critic_model: t.critique !== false && critWhere(t) === "gateway" ? (t.critic_model || "") : "",
+           critic_local_path: t.critique !== false && critWhere(t) === "local" ? (t.critic_local_path || "") : "",
+           critic_vllm_url: t.critique !== false && critWhere(t) === "local" ? (t.critic_vllm_url || "") : "",
            local_path: t.provider === "local" ? (t.local_path || "") : "", vllm_url: t.provider === "local" ? (t.vllm_url || "") : "",
            instructions: t.instructions, custom_prompt: t.instructions != null, references: t.references };
 }
@@ -2453,7 +2463,7 @@ function fileB64(f) {
 function sutEditor(opts = {}) {
   const t = sutState();
   const box = h("div", { class: "stack", style: "gap:14px" });
-  const paint = () => { box.replaceChildren(...parts()); opts.onchange && opts.onchange(); };
+  const paint = () => { box.replaceChildren(...parts().filter(x => x != null)); opts.onchange && opts.onchange(); };
   async function attach(files) {
     for (const f of files) {
       try { const r = await api("api/attach", { name: f.name, data: await fileB64(f) });
@@ -2462,17 +2472,26 @@ function sutEditor(opts = {}) {
     }
     paint();
   }
-  function critiquePick() {          // a plain checkbox: use the critique LLM or not (gateway or local model)
-    const on = t.critique !== false;
+  function critiquePick() {          // the critique LLM: on or off, and its own model (the bot's, a gateway deployment or a local model)
+    const on = t.critique !== false, w = critWhere(t), inPg = opts.id === "pg";
+    const checkCrit = async () => { try { t.clcheck = await api("api/llm/check", { provider: "local", local_path: t.critic_local_path || "", vllm_url: t.critic_vllm_url || "" }); } catch (x) { t.clcheck = { ok: false, detail: x.message }; } paint(); };
+    const inp = (key, ph, aria, st, onchange) => h("input", { class: "input mono", id: `${opts.id}-${key}`, style: st, value: t[key] || "", placeholder: ph, autocomplete: "off", spellcheck: "false", "aria-label": aria,
+      oninput: e => { t[key] = e.target.value.trim(); t.clcheck = null; sutSave(); }, onchange });
     return h("div", { class: "stack", style: "gap:6px" },
       h("label", { class: "row", style: "gap:8px;cursor:pointer" },
         h("input", { type: "checkbox", id: `${opts.id}-crit`, checked: on ? true : null, onchange: e => { t.critique = e.target.checked; sutSave(); paint(); } }),
         h("b", {}, "Use the critique LLM"),
         h("span", { class: "small muted" }, on ? "a second call reviews every step and approves or corrects it before it runs (about twice the calls)" : "off: the bot's steps run as the model proposes them")),
-      on && t.provider !== "local" ? h("div", { class: "row", style: "gap:8px" }, h("label", { class: "small muted", for: `${opts.id}-critic` }, "Critique model"),
-        h("input", { class: "input mono", id: `${opts.id}-critic`, style: "width:150px", value: t.critic_model || "", placeholder: t.model || "gpt-41", autocomplete: "off", spellcheck: "false",
-          oninput: e => { t.critic_model = e.target.value.trim(); sutSave(); } }),
-        h("span", { class: "small muted" }, "Empty: the bot's own model reviews its steps.")) : null);
+      on ? h("div", { class: "row", style: "gap:8px;flex-wrap:wrap;align-items:center" }, h("label", { class: "small muted", for: `${opts.id}-critwhere` }, "Critic's model"),
+        h("select", { class: "select", id: `${opts.id}-critwhere`, style: "height:28px", onchange: e => { t.critic_provider = e.target.value; t.clcheck = null; sutSave(); paint(); } },
+          h("option", { value: "same", selected: w === "same" }, "Same as the bot"), h("option", { value: "gateway", selected: w === "gateway" }, "Microsoft gateway"), h("option", { value: "local", selected: w === "local" }, "Local model (vLLM)")),
+        w === "gateway" ? inp("critic_model", "gpt-41", "Critic's gateway deployment", "width:150px;height:28px") : null,
+        w === "same" ? h("span", { class: "small muted" }, "The bot's own model reviews its steps.") : null) : null,
+      on && w === "local" ? h("div", { class: "row", style: "gap:6px;flex-wrap:wrap" },
+        inp("critic_local_path", "/models/gpt-oss-20b", "Critic's local model folder", "flex:1;min-width:150px;height:28px", checkCrit),
+        inp("critic_vllm_url", inPg ? "http://localhost:8000/v1 (needed here)" : "http://localhost:8000/v1 (optional)", "Critic's vLLM server URL", "flex:1;min-width:150px;height:28px", checkCrit),
+        h("button", { class: "btn s", type: "button", onclick: checkCrit }, "Check")) : null,
+      on && w === "local" && t.clcheck ? h("div", { class: `small ${t.clcheck.ok ? "mark ok" : "mark warn"}`, role: "status" }, (t.clcheck.ok ? "Usable: " : "Not usable yet: ") + (t.clcheck.detail || "")) : null);
   }
   function parts() {
     const where = opts.id === "pg" ? "this conversation" : opts.id === "run" ? "this test run" : "the Playground and test runs";
@@ -2483,9 +2502,9 @@ function sutEditor(opts = {}) {
           .map(([k, tt, tag, pts]) => h("label", {}, h("input", { type: "radio", name: `sut-${opts.id || "x"}`, value: k, checked: t.kind === k, onchange: () => { t.kind = k; sutSave(); paint(); } }),
             h("span", { class: "row", style: "justify-content:space-between;flex-wrap:nowrap" }, h("span", { class: "t" }, tt), h("span", { class: `bt ${k}` }, tag)),
             h("ul", { class: "p" }, ...pts.map(x => h("li", {}, x)))))),
-      t.kind === "llm" ? critiquePick() : null,
       h("p", { class: "small", role: "status" }, h("b", {}, "In use: "), h("span", { class: "inuse" }, sutSummary(t).long), `. This choice is kept per journey and shared by the Playground and test runs; it applies to ${where}.`));
-    if (t.kind !== "llm") return [choice];
+    const extra = opts.extra ? opts.extra() : null;        // the Playground's judges, beside the bot's and the critic's model
+    if (t.kind !== "llm") return [choice, extra];
     const sg = t.suggested;
     if (!sg) { api(`api/journey/${S.pack}/sut`).then(x => { t.suggested = x; paint(); }).catch(e => toast(e.message)); }
     const ck = t.check;
@@ -2495,14 +2514,14 @@ function sutEditor(opts = {}) {
     if (t.vllm_url == null) t.vllm_url = loc.url || "";
     const lck = t.lcheck;
     const checkLocal = async () => { try { t.lcheck = await api("api/llm/check", { provider: "local", local_path: t.local_path, vllm_url: t.vllm_url }); } catch (x) { t.lcheck = { ok: false, detail: x.message }; } paint(); };
-    const provider = h("div", { class: "form" }, h("span", { id: `${opts.id}-prov-l`, style: "font-size:12.5px;color:var(--ink-2)" }, "Model runs on"),
+    const provider = h("div", { class: "form" }, h("span", { id: `${opts.id}-prov-l`, style: "font-size:12.5px;color:var(--ink-2)" }, "Bot runs on"),
       h("div", { class: "stack", style: "gap:4px" }, h("div", { class: "devs", role: "radiogroup", "aria-labelledby": `${opts.id}-prov-l` },
         h("label", {}, h("input", { type: "radio", name: `${opts.id}-prov`, checked: t.provider !== "local", onchange: () => { t.provider = "gateway"; t.check = null; sutSave(); paint(); } }),
           h("span", { class: "dn" }, "Model gateway"), h("span", { class: "dd" }, "Microsoft, through the network")),
         h("label", {}, h("input", { type: "radio", name: `${opts.id}-prov`, checked: t.provider === "local", onchange: () => { t.provider = "local"; t.lcheck = null; sutSave(); paint(); if (t.local_path || t.vllm_url) checkLocal(); } }),
           h("span", { class: "dn" }, "Local model (vLLM)"), h("span", { class: "dd" }, t.local_path ? t.local_path.split("/").filter(Boolean).pop() : "your model folder")))));
     const model = t.provider === "local" ? h("div", { class: "form" },
-      h("label", { for: `${opts.id}-lpath` }, "Model folder"), h("div", { class: "row", style: "flex-wrap:nowrap" },
+      h("label", { for: `${opts.id}-lpath` }, "Bot's model folder"), h("div", { class: "row", style: "flex-wrap:nowrap" },
         h("input", { class: "input mono", id: `${opts.id}-lpath`, value: t.local_path, placeholder: "/models/Meta-Llama-3.1-8B-Instruct", autocomplete: "off", spellcheck: "false",
           oninput: e => { t.local_path = e.target.value.trim(); t.lcheck = null; sutSave(); }, onchange: checkLocal }),
         h("button", { class: "btn s", type: "button", onclick: checkLocal }, "Check")),
@@ -2514,7 +2533,7 @@ function sutEditor(opts = {}) {
       h("label", { for: `${opts.id}-mode` }, "Replies"), h("select", { class: "select", id: `${opts.id}-mode`, style: "max-width:260px", onchange: e => { t.mode = e.target.value; sutSave(); } },
           h("option", { value: "live", selected: t.mode === "live" }, "live (cached for re-runs)"), h("option", { value: "replay", selected: t.mode === "replay" }, "replay (cache only)")),
       h("span", {}), h("span", { class: "small muted" }, "Temperature 0, so a run can be repeated exactly. Set GMSJOURNEY_VLLM_GPU_UTIL lower if the knowledge store shares the GPU.")) : h("div", { class: "form" },
-      h("label", { for: `${opts.id}-model` }, "Model"), h("div", { class: "row" },
+      h("label", { for: `${opts.id}-model` }, "Bot's model"), h("div", { class: "row" },
         h("input", { class: "input mono", id: `${opts.id}-model`, style: "width:150px", value: t.model, placeholder: "gpt-41", autocomplete: "off", spellcheck: "false", oninput: e => { t.model = e.target.value.trim(); t.check = null; sutSave(); } }),
         h("label", { class: "small muted", for: `${opts.id}-mode` }, "Replies"), h("select", { class: "select", id: `${opts.id}-mode`, onchange: e => { t.mode = e.target.value; sutSave(); } },
           h("option", { value: "live", selected: t.mode === "live" }, "live (cached for re-runs)"), h("option", { value: "replay", selected: t.mode === "replay" }, "replay (cache only, no calls)")),
@@ -2553,7 +2572,7 @@ function sutEditor(opts = {}) {
     const fixed = h("details", { class: "card" }, h("summary", {}, "Added by the harness (not editable)"),
       h("p", { class: "small muted", style: "margin:0 14px 8px" }, "The journey's tools with their arguments and allowed values, the transfer reasons, the dialog acts the bot labels its turns with, and the JSON reply format."),
       h("pre", { class: "fixed" }, sg ? sg.protocol : "Loading…"));
-    return [choice, provider, model, prompt, h("div", { class: "stack", style: "gap:6px" }, h("span", { style: "font-weight:600" }, "Reference files"), drop, refs), fixed,
+    return [choice, provider, model, critiquePick(), extra, prompt, h("div", { class: "stack", style: "gap:6px" }, h("span", { style: "font-weight:600" }, "Reference files"), drop, refs), fixed,
       opts.campaign ? h("div", { class: "notice warn" }, "With the LLM bot, step 10 (planted defects) is skipped: it plants errors in copies of the reference bot. Everything else runs the same way.") : null];
   }
   paint();
@@ -2786,7 +2805,7 @@ function playSetup() {
           L.source !== "project" ? h("p", { class: "small muted" }, `From test run ${L.source}: each case rebuilt exactly as that run generated it${L.dropped ? `; ${L.dropped} could not be rebuilt with the current project and are left out` : ""}.`) : h("p", { class: "small muted" }, "No finished test run of this journey (or you chose the project): the default case and one case per factor level."),
           h("input", { type: "search", class: "input", placeholder: "Filter cases", value: P.q, "aria-label": "Filter playground cases", oninput: e => { P.q = e.target.value; const pos = e.target.selectionStart; paintPlay(); const el = document.querySelector('input[aria-label="Filter playground cases"]'); if (el) { el.focus(); el.setSelectionRange(pos, pos); } } }),
           list, summary))),
-    h("div", { class: "stack" }, h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Bot")), h("div", { class: "bd stack", style: "gap:12px" }, sutEditor({ id: "pg" }),
+    h("div", { class: "stack" }, h("section", { class: "card" }, h("div", { class: "hd" }, h("h2", {}, "Bot")), h("div", { class: "bd stack", style: "gap:12px" }, sutEditor({ id: "pg", extra: pgJudgesPick }),
       h("div", { class: "row", style: "justify-content:flex-end" }, startBtn))), savedCard()))];
 }
 async function startPlay() {
@@ -2839,6 +2858,12 @@ async function sayPlay(mode, text) {
   const ta = $("#pg-say"); if (ta && mode === "free") ta.focus();
 }
 const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+function pgJudgesPick() {     // the Playground's first page: the two judges' model, beside the bot's and the critic's
+  return h("div", { class: "stack", style: "gap:6px" },
+    h("label", { class: "row", style: "gap:8px;align-items:flex-start;cursor:pointer" }, h("input", { type: "checkbox", id: "pg-judges-on", checked: pgJudges() ? true : null, onchange: e => { try { localStorage.setItem("jc.pgjudges", e.target.checked ? "1" : "0"); } catch {} paintPlay(); } }),
+      h("b", {}, "Two LLM judges"), h("span", { class: "small muted" }, "both read each bot turn beside the rules; the rules still decide")),
+    pgJudges() ? llmPick("testing", "pg-jdg0", "Judges' model") : null);
+}
 function pgJudges() { try { return localStorage.getItem("jc.pgjudges") !== "0"; } catch { return true; } }
 function judgesRow(j) {        // the two LLM judges beside the rules' verdict (s07_checks/llm_judges.py)
   if (!j) return null;

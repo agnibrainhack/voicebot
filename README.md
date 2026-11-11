@@ -241,8 +241,10 @@ studio shares the setting. Its parts:
   unchecked, the model runs on its own with half the calls). Checked, it makes
   a second call before every step the bot proposes, each tool call and each reply: a reviewer given the same
   instructions approves it or returns a corrected step, which is carried out instead (`LLMBot._review`; about twice
-  the calls). **Critique model** picks the reviewer: empty for the bot's own model, or another gateway deployment
-  for an independent reviewer (`critic_model` in the job). The bot's name says which model critiques; `out/sut_llm.json` counts reviews, approvals and corrections and
+  the calls). **Critic's model** picks the reviewer, apart from the bot's model: *Same as the bot*, a
+  *Microsoft gateway* deployment, or a *Local model (vLLM)* (folder, and a server URL; the Playground needs the
+  server), whatever the bot itself runs on (`critic_provider` = same | gateway | local, with `critic_model` or
+  `critic_local_path` / `critic_vllm_url` in the job). The bot's name says which model critiques; `out/sut_llm.json` counts reviews, approvals and corrections and
   keeps each correction (proposed step, step carried out, reason), `out/sut_critic_prompt.txt` holds the reviewer's
   prompt, and the Playground shows under each turn what the reviewer changed. The prompt and files are stored beside the
   run (`sut.json`, `out/sut_prompt.txt`), the model's call statistics in `out/sut_llm.json`. Step 10 is skipped

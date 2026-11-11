@@ -133,10 +133,13 @@ def extract(name: str, data: bytes) -> dict[str, Any]:
 #
 #     {"kind": "reference"}                                    the pack's reference bot (the default)
 #     {"kind": "llm", "provider": "gateway" | "local", "model": "gpt-41", "mode": "live" | "replay", "temperature": 0.0,
-#      "max_steps": 6, "critique": true, "critic_model": "", "instructions": "...", "references": [{"name": "faq.pdf", "text": "..."}]}
+#      "max_steps": 6, "critique": true, "critic_provider": "same" | "gateway" | "local", "critic_model": "",
+#      "critic_local_path": "", "critic_vllm_url": "", "instructions": "...", "references": [{"name": "faq.pdf", "text": "..."}]}
 #
-# ``critique`` (default on) adds the critique layer: a second call (of ``critic_model``, default the same model) reviews every step the bot
-# proposes (each tool call and each reply) against the procedure and approves it or replaces it with a corrected step.
+# ``critique`` (default on) adds the critique layer: a second call reviews every step the bot proposes (each tool call
+# and each reply) against the procedure and approves it or replaces it with a corrected step. The critic's model is
+# chosen apart from the bot's (``critic_provider``): "same" (the bot's own model), "gateway" (the deployment
+# ``critic_model``) or "local" (a vLLM model: ``critic_local_path`` / ``critic_vllm_url``), whatever the bot runs on.
 #
 # ``provider`` "local" runs Llama (or any chat model) with vLLM from the folder the tester gives (``local_path``,
 # default GMSJOURNEY_SUT_LOCAL_MODEL), loaded in the test run's own process, or through a vLLM server (``vllm_url``,
@@ -170,6 +173,43 @@ def critique_on(sut: dict[str, Any]) -> bool:
     return v not in (False, "off", "false", 0, "0", None)
 
 
+def critic_where(sut: dict[str, Any]) -> str:
+    """Where the critique runs: "same" (the bot's model), "gateway" (``critic_model``) or "local" (a vLLM model).
+    Older jobs name only ``critic_model``: a gateway critic when it is set for a gateway bot, else the bot's model."""
+    p = str((sut or {}).get("critic_provider") or "").strip().lower()
+    if p in ("same", "gateway", "local"):
+        return p
+    return "gateway" if str((sut or {}).get("critic_model") or "").strip() and (sut or {}).get("provider") != "local" else "same"
+
+
+def make_critic(sut: dict[str, Any], bot_settings):
+    """(the critique LLM, its display name), or (None, "") when the bot's own model reviews its steps."""
+    from ..llm import DEFAULT_MODEL, CachedLLM, LLMSettings
+    from ..s06_bots.llm_bot import fake_model
+    where = critic_where(sut)
+    s = bot_settings
+    if where == "gateway":
+        want = str(sut.get("critic_model") or "").strip() or DEFAULT_MODEL
+        if sut.get("provider") != "local" and want == (s.model or DEFAULT_MODEL):
+            return None, ""                                  # the bot's own deployment: the same model
+        cs = LLMSettings(model=want, temperature=0.0, max_tokens=s.max_tokens, mode=s.mode, backend="gateway",
+                         json_mode=True)
+        fake = fake_model()
+        return (CachedLLM(cs, model=fake, tag="critic") if fake is not None else CachedLLM(cs, tag="critic")), want
+    if where == "local":
+        from ..s06_bots.llm_bot import LocalChat, status
+        lp, lu = str(sut.get("critic_local_path") or "").strip(), str(sut.get("critic_vllm_url") or "").strip()
+        st = status(lp, lu)
+        if not st["usable"]:
+            raise RuntimeError(f"the critic's local model cannot be used: {st['detail']}")
+        fake = fake_model()
+        chat = fake if fake is not None else LocalChat(lp or None, temperature=0.0, max_tokens=s.max_tokens, url=lu or None)
+        cs = LLMSettings(model=getattr(chat, "name", "") or f"fake-{type(chat).__name__}", temperature=0.0,
+                         max_tokens=s.max_tokens, mode=s.mode, backend="gateway", json_mode=True)
+        return CachedLLM(cs, model=chat, tag="critic"), f"{cs.model} (local, vLLM)"
+    return None, ""
+
+
 def settings_for(sut: dict[str, Any]):
     """The model-client settings of a console job's ``sut`` block."""
     from ..llm import LLMSettings
@@ -199,14 +239,7 @@ def make_factory(sut: dict[str, Any] | None, store=None):
         chat = LocalChat(lp or None, temperature=s.temperature, max_tokens=s.max_tokens, url=lu or None)
         s.model = chat.name
         llm, where = CachedLLM(s, model=chat, tag="sut"), "vLLM" + (" server" if st["url"] else ", this machine")
-    critic, cname = None, ""
-    want = str(sut.get("critic_model") or "").strip()
-    if critique_on(sut) and want and want != (s.model or "") and sut.get("provider") != "local":
-        from ..llm import CachedLLM, LLMSettings           # a different model reviews the bot's steps
-        cs = LLMSettings(model=want, temperature=0.0, max_tokens=s.max_tokens, mode=s.mode, backend="gateway",
-                         json_mode=True)
-        fake = fake_model()
-        critic, cname = CachedLLM(cs, model=fake, tag="critic") if fake is not None else CachedLLM(cs, tag="critic"), want
+    critic, cname = make_critic(sut, s) if critique_on(sut) else (None, "")   # its own model, or the bot's
     fac = make_llm_factory(store, s, llm=llm, instructions=sut.get("instructions") or None,
                            references=[r for r in (sut.get("references") or []) if r.get("text")],
                            max_steps=int(sut.get("max_steps") or 6), critique=critique_on(sut), critic_llm=critic)
@@ -875,6 +908,11 @@ def _open(source: str, case_id: str, sut: dict | None, fac=None, name: str | Non
         if not status(sut.get("local_path"), sut.get("vllm_url"))["url"]:   # a chat never loads a model into the console
             raise ValueError("in the Playground a local model needs a vLLM server URL (loading the model here would take "
                              "the console's process); give the server, or use it in a test run")
+    if fac is None and (sut or {}).get("kind") == "llm" and critique_on(sut) and critic_where(sut) == "local":
+        from ..s06_bots.llm_bot import status
+        if not status(sut.get("critic_local_path"), sut.get("critic_vllm_url"))["url"]:
+            raise ValueError("in the Playground the critic's local model needs a vLLM server URL; give the server, "
+                             "or use it in a test run")
     B = bench()
     case = find_case(source, case_id)
     env = ToolEnvironment(json.loads(json.dumps(case["fixture"])))

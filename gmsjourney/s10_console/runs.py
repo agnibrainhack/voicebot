@@ -584,6 +584,14 @@ class Runs:
             st = local_status(job["sut"].get("local_path"), job["sut"].get("vllm_url"))
             if not st["usable"]:
                 raise ValueError(f"the local model cannot be used: {st['detail']}")
+        js = job.get("sut") or {}
+        if js.get("kind") == "llm" and js.get("critique", True) is not False:
+            from .bots import critic_where
+            if critic_where(js) == "local":
+                from ..s06_bots.llm_bot import status as local_status
+                st = local_status(js.get("critic_local_path"), js.get("critic_vllm_url"))
+                if not st["usable"]:
+                    raise ValueError(f"the critic's local model cannot be used: {st['detail']}")
         rid = time.strftime("%Y%m%d-%H%M%S") + "-" + re.sub(r"[^a-z0-9_]+", "-", job["pack"].lower())
         run = self.root / rid
         run.mkdir(parents=True)
@@ -600,6 +608,9 @@ class Runs:
                                   "vllm_url": str(sut.get("vllm_url") or "") if sut.get("provider") == "local" else "",
                                   "critique": __import__("gmsjourney.s10_console.bots", fromlist=["x"]).critique_on(sut),
                                   "critic_model": str(sut.get("critic_model") or ""),
+                                  "critic_provider": __import__("gmsjourney.s10_console.bots", fromlist=["x"]).critic_where(sut),
+                                  "critic_local_path": str(sut.get("critic_local_path") or ""),
+                                  "critic_vllm_url": str(sut.get("critic_vllm_url") or ""),
                                   "custom_prompt": bool(sut.get("custom_prompt")),
                                   "references": [{"name": r.get("name"), "chars": len(r.get("text") or "")}
                                                  for r in sut.get("references") or []]}}

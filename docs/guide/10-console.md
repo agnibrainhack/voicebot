@@ -83,8 +83,10 @@ code are unchanged (chapter 5, `proof_cache.py`), and its panel says how many we
 every run beside the rules, which still decide (chapter 7); the run's Results show how often they agree with the
 rules, step 12 lists the runs they flag, the verdict shows both judges on every case and the case explorer on every
 version. Each LLM is chosen where it is used, separately (`llmPick`): **Rewording LLM** under *LLM rewording of
-customer turns* (role `enrichment`), **Judges' LLM** under *Two LLM judges* and again in the Playground's side panel
-(role `testing`; the same setting in both places), and the bot under test in its own card. Each is the Microsoft
+customer turns* (role `enrichment`), **Judges' LLM** under *Two LLM judges*, on the Playground's first page (**Judges' model**, beside the bot's
+and the critic's model) and again in its side panel (role `testing`; the same setting everywhere), and the bot under
+test and its critic in the bot's card (**Bot's model**, **Critic's model**: same as the bot, a gateway deployment or
+a local vLLM model, chosen independently of the bot's). Each is the Microsoft
 gateway (a deployment, **Use**) or a local model on vLLM (its folder, and a server URL when it is served elsewhere;
 **Use this model**). The choices are the console's (`POST /api/llm/settings` with the role, kept in
 `output/console_llm.json`, applied again at start) and are sent with every run (`llm_backend`, `llm_model`,
@@ -214,7 +216,9 @@ s10_console/
 
 * **Part 1** `extract(name, data)`: text from a file a tester attaches to the LLM bot's prompt (text, Markdown, JSON,
   YAML, CSV, PDF, Word, Excel), capped in size.
-* **Part 2** `make_factory(job)`: the reference bot (no LLM), or an LLM bot through the gateway or a local model, with or without the critique layer (`critique` in the job; `critique_on`, whose default `critique_default()` is on unless `GMSJOURNEY_SUT_CRITIQUE` is 0) and reviewed by `critic_model` when one is given (else by the bot's own model). The page shows it as a checkbox, **Use the critique LLM**, under the bot choice for a gateway or a local model, from a job's `sut` settings (`settings_for`). The console's **Bot:** switch in the top bar shows which bot is in use for the journey and opens the choice, which the Playground and test runs share. `suggested()` gives the suggested prompt and the fixed protocol the harness adds; `check_gateway` makes one tiny call.
+* **Part 2** `make_factory(job)`: the reference bot (no LLM), or an LLM bot through the gateway or a local model, with or without the critique layer (`critique` in the job; `critique_on`, whose default `critique_default()` is on unless `GMSJOURNEY_SUT_CRITIQUE` is 0) and reviewed by the critic's own model when one is chosen (`critic_where`: `critic_provider` same | gateway | local;
+`make_critic` builds a gateway deployment `critic_model` or a local vLLM model `critic_local_path` / `critic_vllm_url`,
+whatever the bot runs on; else the bot's own model reviews). The page shows it as a checkbox, **Use the critique LLM**, under the bot choice for a gateway or a local model, from a job's `sut` settings (`settings_for`). The console's **Bot:** switch in the top bar shows which bot is in use for the journey and opens the choice, which the Playground and test runs share. `suggested()` gives the suggested prompt and the fixed protocol the harness adds; `check_gateway` makes one tiny call.
 * **Part 3** the **playground**: talk to the bot yourself on one case of any journey. `Bench` holds the journey's
   store, oracle, reader, realizer and speech verifier (built once per journey; `reset` forgets it when the graph
   changes). `cases` offers the cases of the latest finished test run, any test run (`run_cases` rebuilds them
