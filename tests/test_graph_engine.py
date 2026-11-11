@@ -119,7 +119,8 @@ def test_the_scripted_customer_says_the_base_journey_whatever_the_bot_does():
     from gmsjourney.s04_cases.factors import to_item
     from gmsjourney.s06_bots.harness import GraphRunner
     dom, store, oracle, paths, pert = env(_pack())
-    bases = [to_item(sp, oracle, f"G{i:03d}") for i, sp in enumerate([p for p, _ in paths][:25])]
+    # 25 bases spread over the first 50 mined journeys (early hang-up defects need journeys past the first few)
+    bases = [to_item(sp, oracle, f"G{i:03d}") for i, sp in enumerate([p for p, _ in paths][:50:2])]
     R, rd = Realizer(), FrameReader(store)
     val = GraphInvarianceValidator(store, oracle, rd, R)
     kw = dict(store=store, realizer=R, reader=rd, paths=val)

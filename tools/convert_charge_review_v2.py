@@ -119,7 +119,7 @@ STATES = {
                                                           "value": "disposition"}},
                   "rules": ["R19"], "go": "ASK_MORE_HELP"},
     "ASK_MORE_HELP": {"stage": "finish", "yes": "UNCLEAR", "no": "END",
-                      "on": {"END": "END", "CONFIRM": "END", "DENY": "END", "UNCLEAR": "END"}},
+                      "on": {"END": "END", "DENY": "END"}},
     "END": {"stage": "end", "end": True},
 }
 

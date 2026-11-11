@@ -209,11 +209,6 @@ factors:
   relevant_when: reached
   levels:
     end: {}
-    confirm:
-      customer:
-      - script: ask_more_help
-        say: [CONFIRM(), END()]
-        position: replace
     deny:
       customer:
       - script: ask_more_help

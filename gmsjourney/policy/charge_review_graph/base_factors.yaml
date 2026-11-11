@@ -238,9 +238,6 @@ factors:
     description: what the customer does at ASK_MORE_HELP
     levels:
       end: {}
-      confirm:
-        says:
-          ASK_MORE_HELP: [CONFIRM]
       deny:
         says:
           ASK_MORE_HELP: [DENY]
