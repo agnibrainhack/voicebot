@@ -185,7 +185,10 @@ A second system under test: a language model given the procedure, the tools and 
 Malformed replies and tool errors are counted (`LLMBotStats`). **The critique layer** (`make_llm_factory(...,
 critique=True)`) adds a second call that reviews every proposed step against the bot's own instructions
 (`critic_system`) and approves it or returns a corrected one; `critic_model=` (a gateway deployment) or `critic_llm=`
-lets the reviewer be another model. It is off unless asked for here; the console shows it as a checkbox (*Use the
+lets the reviewer be another model. `critique_scope=` (`CRITIQUE_SCOPES`) says which steps it reviews: `"all"`
+(every tool call and reply), `"key"` (calls of the tools whose role is "write" in the journey's graph, and every reply;
+lookups and authentication run unreviewed; the console's default) or `"replies"` (only what the customer hears);
+skipped steps are counted (`critique_skipped`). It is off unless asked for here; the console shows it as a checkbox (*Use the
 critique LLM*) and the campaign notebook as `CRITIQUE`.
 Replies are cached like every LLM call (`llm.py`), so repeated runs of the same conversation cost nothing.
 

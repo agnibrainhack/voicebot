@@ -478,6 +478,7 @@ class LLMBotStats:
     critique_approved: int = 0
     critique_revised: int = 0                  # steps it replaced with a corrected one
     critique_unusable: int = 0                 # a review that could not be read, or a correction that was not a valid step
+    critique_skipped: int = 0                  # steps left unreviewed by the critique's scope (lookups, or every tool call)
 
     def as_dict(self) -> dict[str, Any]:
         return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
@@ -492,6 +493,13 @@ class LLMBotStats:
 
 
 CRITIC_VERSION = "critic/1"
+
+# Which of the bot's steps the critique reviews (each review is one more call carrying the whole prompt):
+#   "all"      every step: each tool call and each reply (about twice the bot's calls)
+#   "key"      the steps with consequences: calls of the tools that change the account (role "write" in the journey's
+#              graph) and every reply; lookups and authentication run unreviewed (the reply after them is reviewed)
+#   "replies"  only what the customer hears (fewest calls); tool calls run unreviewed
+CRITIQUE_SCOPES = ("all", "key", "replies")
 
 CRITIC_INSTRUCTIONS = """You are the quality reviewer for a customer-service voice bot. Before each step the bot proposes is carried
 out, you check it against the bot's own instructions (below, between the markers) and the conversation so far.
@@ -536,6 +544,7 @@ class LLMBot:
     act_fields: dict | None = None            # act -> the fields it carries (default: the charge-review inventory)
     critic: Any = None                        # an LLM (same interface as llm) that reviews every step; None = off
     critic_system: str = ""
+    critique_scope: str = "all"               # CRITIQUE_SCOPES: which steps the critic reviews
 
     def __post_init__(self) -> None:
         self.history: list[dict[str, Any]] = []
@@ -576,6 +585,11 @@ class LLMBot:
         reviewed again), so the layer costs one extra call per step."""
         if self.critic is None:
             return obj
+        if "tool" in obj and "say" not in obj and self.critique_scope != "all":
+            from .tools import write_tools
+            if self.critique_scope == "replies" or str(obj.get("tool") or "") not in write_tools():
+                self.stats.critique_skipped += 1             # outside the critique's scope: carried out as proposed
+                return obj
         self.stats.critiques += 1
         user = {"customer_turns_so_far": self.customer_turns, "conversation": self.history, "proposed_step": obj}
         try:
@@ -717,7 +731,7 @@ def fake_model():
 def make_llm_factory(store=None, settings=None, llm=None, policy_text: str | None = None, max_steps: int = 6,
                      instructions: str | None = None, references: list[dict] | None = None, critique: bool = False,
                      critic_model: str | None = None,
-                     critic_llm=None):
+                     critic_llm=None, critique_scope: str = "all"):
     """A bot_factory for CampaignConfig / JourneyRunner. One CachedLLM (tag "sut") is shared by every
     conversation, so the cache and the call statistics cover the whole campaign: ``factory.llm.report()``,
     ``factory.stats.as_dict()``. settings default: the gateway's default deployment at temperature 0.
@@ -727,7 +741,8 @@ def make_llm_factory(store=None, settings=None, llm=None, policy_text: str | Non
     ``critique`` adds the critique layer (off by default here; the console turns it on unless told otherwise): a
     second call reviews every proposed step - each tool call and each reply - against the same instructions and
     approves it or returns a corrected step, which the bot carries out instead (``LLMBot._review``). The reviewer is
-    ``critic_llm``, or a gateway deployment named by ``critic_model``, or else the bot's own model."""
+    ``critic_llm``, or a gateway deployment named by ``critic_model``, or else the bot's own model. ``critique_scope``
+    (CRITIQUE_SCOPES) says which steps it reviews: every step, the account changes and replies, or the replies."""
     from ..llm import CachedLLM, LLMSettings
     if llm is None:
         s = settings or LLMSettings(temperature=0.0, max_tokens=500, json_mode=True)
@@ -748,10 +763,12 @@ def make_llm_factory(store=None, settings=None, llm=None, policy_text: str | Non
         critic_llm = CachedLLM(cs, model=fake, tag="critic") if fake is not None else CachedLLM(cs, tag="critic")
     critic = (critic_llm or llm) if critique else None
     csys = critic_system(system) if critique else ""
+    scope = critique_scope if critique_scope in CRITIQUE_SCOPES else "all"
 
     def factory(tools):
         return LLMBot(tools, llm, system, max_steps, stats, names, {k: f for k, (_, f) in acts.items()},
-                      critic=critic, critic_system=csys)
+                      critic=critic, critic_system=csys, critique_scope=scope)
     factory.llm, factory.stats, factory.system_prompt = llm, stats, system
     factory.critique, factory.critic_llm, factory.critic_prompt = bool(critique), critic, csys
+    factory.critique_scope = scope
     return factory

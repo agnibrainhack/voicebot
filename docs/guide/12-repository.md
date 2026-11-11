@@ -84,6 +84,15 @@ reply is one small JSON object). The Playground's side panel shows the bot's dep
 Batching (the Azure OpenAI Batch API) does not fit the bot: a batch is asynchronous (minutes to hours, within 24 h)
 and each step of a conversation needs the previous reply, so a conversation would take one batch round trip per
 step; and the Playground is interactive. What the bot needs is calls the quota admits, which the pacer provides.
+A call's retry window (`retry_seconds`) starts when it is first sent, so time spent queueing for the quota never
+counts against it.
+
+**Reducing the bot's load.** Every bot step and every review carries the whole prompt (the policy is about three
+quarters of it), so the number of calls per customer turn is the lever. On a charge-review conversation (measured
+with the stand-in model) the tokens per customer turn were about 21,900 with the critique reviewing every step,
+18,700 reviewing the account changes and replies (*Reviews* in the bot card, `critique_scope="key"`, the default),
+17,000 reviewing replies only and 10,500 with no critique. A critic on another deployment (*Critic's model*) takes its
+calls off the bot's quota entirely.
 
 **Pacing and patience.** All gateway calls of a deployment share its pacer: at most
 `GMSJOURNEY_LLM_MAX_INFLIGHT` calls at once (default 4). When the gateway throttles (HTTP 429) or strains (5xx, a

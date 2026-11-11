@@ -2405,6 +2405,8 @@ function critWhere(t) {       // where the critique runs: "same" (the bot's mode
   if (["same", "gateway", "local"].includes(t.critic_provider)) return t.critic_provider;
   return t.critic_model && t.provider !== "local" ? "gateway" : "same";
 }
+const SCOPES = { all: "every step", key: "account changes and replies", replies: "replies only" };
+const critScope = t => SCOPES[t.critique_scope] ? t.critique_scope : "key";
 function critName(t) {
   const w = critWhere(t);
   return w === "gateway" ? (t.critic_model || "gpt-41") : w === "local" ? `${(t.critic_local_path || "a local model").split("/").filter(Boolean).pop()} (local, vLLM)` : "the same model";
@@ -2429,7 +2431,7 @@ function sutSummary(t) {
   t = t || sutState();
   if (t.kind !== "llm") return { short: "Reference bot", long: "the reference bot: it follows the graph by rules and reads customers by keywords; no LLM is called" };
   const m = t.provider === "local" ? `a local model (${(t.local_path || "no folder yet").split("/").filter(Boolean).pop() || "no folder yet"}, vLLM${t.vllm_url ? " server" : ""})` : (t.model || "gpt-41");
-  const crit = t.critique === false ? "no critique" : `critique by ${critName(t)}`;
+  const crit = t.critique === false ? "no critique" : `critique by ${critName(t)} of ${SCOPES[critScope(t)]}`;
   return { short: `LLM bot · ${t.provider === "local" ? (t.local_path || "local").split("/").filter(Boolean).pop() : (t.model || "gpt-41")}${t.critique === false ? "" : " + critique"}`, long: `an LLM bot on ${m}, ${crit}` };
 }
 function botPill() {
@@ -2451,7 +2453,7 @@ function sutBody() {
   const t = sutState();
   if (t.kind !== "llm") return { kind: "reference" };
   return { kind: "llm", provider: t.provider === "local" ? "local" : "gateway", model: t.model || "", mode: t.mode, temperature: Number(t.temperature) || 0, max_steps: Number(t.max_steps) || 6, critique: t.critique !== false,
-           critic_provider: critWhere(t), critic_model: t.critique !== false && critWhere(t) === "gateway" ? (t.critic_model || "") : "",
+           critique_scope: critScope(t), critic_provider: critWhere(t), critic_model: t.critique !== false && critWhere(t) === "gateway" ? (t.critic_model || "") : "",
            critic_local_path: t.critique !== false && critWhere(t) === "local" ? (t.critic_local_path || "") : "",
            critic_vllm_url: t.critique !== false && critWhere(t) === "local" ? (t.critic_vllm_url || "") : "",
            local_path: t.provider === "local" ? (t.local_path || "") : "", vllm_url: t.provider === "local" ? (t.vllm_url || "") : "",
@@ -2481,7 +2483,12 @@ function sutEditor(opts = {}) {
       h("label", { class: "row", style: "gap:8px;cursor:pointer" },
         h("input", { type: "checkbox", id: `${opts.id}-crit`, checked: on ? true : null, onchange: e => { t.critique = e.target.checked; sutSave(); paint(); } }),
         h("b", {}, "Use the critique LLM"),
-        h("span", { class: "small muted" }, on ? "a second call reviews every step and approves or corrects it before it runs (about twice the calls)" : "off: the bot's steps run as the model proposes them")),
+        h("span", { class: "small muted" }, on ? "a second call reviews the bot's steps and approves or corrects each before it runs" : "off: the bot's steps run as the model proposes them")),
+      on ? h("div", { class: "row", style: "gap:8px;flex-wrap:wrap;align-items:center" }, h("label", { class: "small muted", for: `${opts.id}-critscope` }, "Reviews"),
+        h("select", { class: "select", id: `${opts.id}-critscope`, style: "height:28px", onchange: e => { t.critique_scope = e.target.value; sutSave(); paint(); } },
+          h("option", { value: "key", selected: critScope(t) === "key" }, "Account changes and replies"), h("option", { value: "replies", selected: critScope(t) === "replies" }, "Replies only (fewest calls)"),
+          h("option", { value: "all", selected: critScope(t) === "all" }, "Every step (most calls)")),
+        h("span", { class: "small muted" }, { key: "lookups run unreviewed; the reply after them is reviewed", replies: "tool calls run unreviewed, including account changes", all: "every tool call and reply: about twice the bot's calls" }[critScope(t)])) : null,
       on ? h("div", { class: "row", style: "gap:8px;flex-wrap:wrap;align-items:center" }, h("label", { class: "small muted", for: `${opts.id}-critwhere` }, "Critic's model"),
         h("select", { class: "select", id: `${opts.id}-critwhere`, style: "height:28px", onchange: e => { t.critic_provider = e.target.value; t.clcheck = null; sutSave(); paint(); } },
           h("option", { value: "same", selected: w === "same" }, "Same as the bot"), h("option", { value: "gateway", selected: w === "gateway" }, "Microsoft gateway"), h("option", { value: "local", selected: w === "local" }, "Local model (vLLM)")),

@@ -263,7 +263,8 @@ def test_local_model_through_a_vllm_server_runs_the_llm_bot():
         turn = bot.respond("The last four digits of my card are 4821.")
         assert [c["tool"] for c in env.log][:2] == ["authenticate_customer", "get_review_transactions"] and turn.acts
         assert fac.llm.report()["calls"] >= 3 and model.calls >= 3
-        assert fac.critique and model.critiques >= 3          # the critique layer reviewed every step on the same server
+        assert fac.critique and model.critiques >= 2          # the critique reviewed the replies on the same server
+        assert fac.stats.critique_skipped >= 1                # the lookups ran unreviewed (scope "key", the default)
     finally:
         backend.CACHE = keep_cache
         srv.shutdown()
@@ -1184,3 +1185,26 @@ def test_the_critics_model_is_chosen_apart_from_the_bots():
     finally:
         if old is not None:
             os.environ[ENV] = old
+
+
+@_with_fake
+def test_the_critique_reviews_only_the_steps_in_its_scope():
+    """Every step, the account changes and replies (the default), or the replies only: fewer calls with each."""
+    from gmsjourney.s10_console import bots as PG
+    from gmsjourney.s06_bots.tools import write_tools
+    domain.set_current("charge_review_graph")
+    case = PG.cases("project", None)["cases"][0]
+    seen = {}
+    for scope in ("all", "key", "replies"):
+        v = PG.start("project", "default", {"kind": "llm", "model": "gpt-41", "critique": True, "critique_scope": scope})
+        s = PG.get(v["id"])
+        for ln in case["lines"]:
+            if s.view()["ended"]:
+                break
+            s.say(ln["text"])
+        st = s.llm.stats.as_dict()
+        seen[scope] = (st["critiques"], st["critique_skipped"])
+        assert ("of every step" if scope == "all" else "of account changes and replies" if scope == "key" else "of replies only") in s.bot_name
+    assert seen["all"][1] == 0 and seen["all"][0] > seen["key"][0] >= seen["replies"][0] > 0, seen
+    assert sum(seen["all"]) == sum(seen["key"]) == sum(seen["replies"]), seen   # every step is reviewed or skipped
+    assert write_tools() and PG.critique_scope({}) == "key" and PG.critique_scope({"critique_scope": "all"}) == "all"

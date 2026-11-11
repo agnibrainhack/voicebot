@@ -609,6 +609,7 @@ class Runs:
                                   "critique": __import__("gmsjourney.s10_console.bots", fromlist=["x"]).critique_on(sut),
                                   "critic_model": str(sut.get("critic_model") or ""),
                                   "critic_provider": __import__("gmsjourney.s10_console.bots", fromlist=["x"]).critic_where(sut),
+                                  "critique_scope": __import__("gmsjourney.s10_console.bots", fromlist=["x"]).critique_scope(sut),
                                   "critic_local_path": str(sut.get("critic_local_path") or ""),
                                   "critic_vllm_url": str(sut.get("critic_vllm_url") or ""),
                                   "custom_prompt": bool(sut.get("custom_prompt")),

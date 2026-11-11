@@ -463,10 +463,12 @@ class GatewayChat:
         pacer = _pacer(self._url())
         cost = estimate_tokens(self._payload(messages)["messages"], self.s.max_tokens)
         window = float(os.environ.get("GMSJOURNEY_LLM_RETRY_SECONDS", "") or self.s.retry_seconds)
-        deadline = time.time() + window
+        deadline = None                                    # set at the first send: queueing for the quota is not giving up
         refreshed, adapted, unreachable, busy = False, 0, 0, 0
         while True:
             pacer.acquire(cost)
+            if deadline is None:
+                deadline = time.time() + window
             pushed_back, pause = False, 0.0
             try:
                 r = _session().post(self._url(), headers=self._headers(), json=self._payload(messages),

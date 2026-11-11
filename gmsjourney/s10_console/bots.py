@@ -173,6 +173,19 @@ def critique_on(sut: dict[str, Any]) -> bool:
     return v not in (False, "off", "false", 0, "0", None)
 
 
+SCOPE_WORDS = {"all": "every step", "key": "account changes and replies", "replies": "replies only"}
+
+
+def critique_scope(sut: dict[str, Any]) -> str:
+    """Which steps the critique reviews (llm_bot.CRITIQUE_SCOPES): the job's ``critique_scope``, else
+    GMSJOURNEY_SUT_CRITIQUE_SCOPE, else "key" (account changes and replies: lookups run unreviewed)."""
+    for v in ((sut or {}).get("critique_scope"), os.environ.get("GMSJOURNEY_SUT_CRITIQUE_SCOPE")):
+        v = str(v or "").strip().lower()
+        if v in SCOPE_WORDS:
+            return v
+    return "key"
+
+
 def critic_where(sut: dict[str, Any]) -> str:
     """Where the critique runs: "same" (the bot's model), "gateway" (``critic_model``) or "local" (a vLLM model).
     Older jobs name only ``critic_model``: a gateway critic when it is set for a gateway bot, else the bot's model."""
@@ -242,10 +255,11 @@ def make_factory(sut: dict[str, Any] | None, store=None):
     critic, cname = make_critic(sut, s) if critique_on(sut) else (None, "")   # its own model, or the bot's
     fac = make_llm_factory(store, s, llm=llm, instructions=sut.get("instructions") or None,
                            references=[r for r in (sut.get("references") or []) if r.get("text")],
-                           max_steps=int(sut.get("max_steps") or 6), critique=critique_on(sut), critic_llm=critic)
+                           max_steps=int(sut.get("max_steps") or 6), critique=critique_on(sut), critic_llm=critic,
+                           critique_scope=critique_scope(sut))
     name = f"LLM bot ({fac.llm.settings.model}" + (f", {where}" if llm is not None else "") + \
         (", replay" if s.mode == "replay" else "") + (", stand-in model" if llm is None and fake_model() is not None else "") + \
-        ((f", critique by {cname}" if cname else ", critique by the same model") if fac.critique else ", no critique") + ")"
+        ((f", critique by {cname or 'the same model'} of {SCOPE_WORDS[fac.critique_scope]}") if fac.critique else ", no critique") + ")"
     return fac, name, fac
 
 
