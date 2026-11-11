@@ -1122,3 +1122,25 @@ def test_json_mode_is_asked_for_and_dropped_where_the_deployment_rejects_it():
             os.environ["AEXP_ACCESS_TOKEN"] = keep
         L._session().close()
         srv.shutdown()
+
+
+def test_journeys_say_their_graph_format_and_an_older_full_graph_points_to_its_policy_graph():
+    """Two folders of one policy (a compact graph converted from a full one) are told apart and linked, and a
+    journey's drafted categories never call a loop's data a failure (every charge-review case was "recovery")."""
+    import collections
+    from gmsjourney.s10_console import bots as PG
+    from gmsjourney.s10_console.server import packs
+    from gmsjourney.s01_packs.drafting import draft
+    P = {m["name"]: m for m in packs()}
+    assert P["charge_review"]["format"] == "full" and P["charge_review"]["superseded_by"] == "charge_review_graph"
+    assert P["charge_review_graph"]["format"] == "compact" and P["charge_review_graph"]["converted_from_pack"] == "charge_review"
+    assert P["supplementary_card"]["format"] == "compact" and not P["supplementary_card"].get("superseded_by")
+    assert P["charge_review_graph"]["recommended"] and not P["charge_review"]["recommended"]
+    try:
+        dom = domain.set_current("charge_review_graph")
+        rec = next(c for c in draft(dom)["categories"] if c["name"] == "recovery")["when"]
+        assert "transactions_count" not in rec and "transactions_window" not in rec and "'ok'" in rec, rec
+        cats = collections.Counter(c["category"] for c in PG.cases("project", None)["cases"])
+        assert len(cats) >= 3 and cats["recovery"] < sum(cats.values()), cats
+    finally:
+        domain.set_current("charge_review")

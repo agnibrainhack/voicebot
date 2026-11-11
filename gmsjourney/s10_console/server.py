@@ -66,6 +66,15 @@ def packs() -> list[dict[str, Any]]:
         return _packs()
 
 
+def _graph_source(path: Path) -> dict[str, Any]:
+    """The ``source`` block of a graph file (which document it was written from, what it was converted from)."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return dict((json.load(f) or {}).get("source") or {})
+    except (OSError, ValueError, AttributeError):
+        return {}
+
+
 def _packs() -> list[dict[str, Any]]:
     from ..s01_packs.loading import current, load, set_current
     keep = current().name
@@ -84,6 +93,23 @@ def _packs() -> list[dict[str, Any]]:
         except Exception as e:                     # noqa: BLE001
             out.append({"name": d.name, "title": d.name, "error": f"{type(e).__name__}: {e}"})
     set_current(keep)
+    # Two journeys of one policy: a compact graph converted from another journey's full graph (its source names that
+    # file and the same document). The full one is then the older form: the compact one is what the pipeline, the LLM
+    # bot and the graph-derived factors are built for.
+    for m in out:
+        m["format"] = "compact" if m.get("compiled") else "full"
+        src = _graph_source(ROOT / m["path"]) if m.get("path") else {}
+        m["document"] = src.get("document") or ""
+        m["converted_from"] = src.get("converted_from") or ""
+    for new in out:
+        if new.get("format") != "compact" or not new.get("converted_from"):
+            continue
+        for old in out:
+            if old is not new and old.get("format") == "full" and old.get("graph") == new["converted_from"] \
+                    and (not new["document"] or old.get("document") == new["document"]):
+                old["superseded_by"], new["converted_from_pack"] = new["name"], old["name"]
+    for m in out:
+        m["recommended"] = m.get("format") == "compact" and not m.get("error")
     return out
 
 

@@ -114,6 +114,7 @@ p { margin: 0; max-width: 74ch; }
 .pill.warn { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
 .pill.run { background: var(--run-bg); color: var(--run); border-color: transparent; }
 .pill.graph { background: var(--graph-bg); color: var(--graph); border-color: transparent; font-family: var(--mono); font-size: 11.5px; }
+.pill.graph.old { background: var(--warn-bg); color: var(--warn); }
 .pill.proj { background: var(--proj-bg); color: var(--proj); border-color: transparent; }
 a.pill { text-decoration: none; }
 #device-pill .pill:not(.ok), .botpill:not(.llm) { background: transparent; border-color: transparent; }
@@ -813,14 +814,20 @@ async function boot() {
   render();
   pollActive();
 }
-const DEFAULT_GRAPH = "gmsjourney/policy/charge_review/charge_review_kg.json";
+const DEFAULT_GRAPH = "gmsjourney/policy/charge_review_graph/charge_review_kg.json";   // the policy graph: what the full test is built for
 function recentPaths() { try { return JSON.parse(localStorage.getItem("jc.gpaths") || "[]"); } catch { return []; } }
 function gpaths() {
   const seen = new Set(), opts = [];
   for (const p of [...recentPaths(), ...S.meta.packs.map(p => p.path).filter(Boolean)]) if (!seen.has(p)) { seen.add(p); opts.push(p); }
-  $("#gpaths").replaceChildren(...opts.map(p => { const m = S.meta.packs.find(x => x.path === p); return h("option", { value: p }, m ? `${m.title} · ${m.name}` : "recent"); }));
+  $("#gpaths").replaceChildren(...opts.map(p => { const m = S.meta.packs.find(x => x.path === p); return h("option", { value: p }, m ? `${m.name}: ${m.title} (${journeyWord(m)})` : "recent"); }));
 }
-function gpackPill() { const m = S.meta.packs.find(p => p.name === S.pack); $("#gpack").textContent = m ? m.name : ""; $("#gpack").title = m ? `Journey ${m.name}: ${m.title}` : ""; }
+function gpackPill() {
+  const m = S.meta.packs.find(p => p.name === S.pack), el = $("#gpack"), gp = $("#gpath");
+  if (gp) gp.title = gp.value ? `${gp.value}${m ? ` (journey ${m.name}, ${journeyWord(m)})` : ""}` : "";   // the field is cut short: the whole path on hover
+  el.textContent = m ? m.name : "";
+  el.title = m ? `Journey ${m.name}: ${m.title}, ${journeyWord(m)} (${m.path})` : "";
+  el.classList.toggle("old", !!(m && m.format !== "compact"));
+}
 // Open a graph by path: the journey that holds it (switched to that file), or a new journey made from it (graphs.py)
 // what opening the typed path would do, shown under the field as you type (api/graph/peek; nothing is opened)
 function peekSoon(path) { clearTimeout(S.peekT); S.peekT = setTimeout(() => peekShow(path), 280); }
@@ -2061,6 +2068,27 @@ function runModels(F) {
     line("Two judges", F.llm_judges === false ? "off" : roleModel(TT), F.llm_judges === false ? "Two LLM judges unchecked" : "Judges' LLM; also the policy judge and the case narration", F.llm_judges === false ? null : warn(TT)),
     line("Rewording", F.llm_arm ? `${roleModel(TE)}, ${F.llm_mode === "live" ? "live" : "replay (cache only)"}` : "not used", F.llm_arm ? "Rewording LLM" : "LLM rewording of customer turns unchecked", F.llm_arm ? warn(TE) : null))];
 }
+// The journey a full test generates its cases from: every journey, each named with its graph's format, the open one
+// selected. Choosing another opens it (the whole console follows); the note under it says which graph file is used
+// and points from an older full graph to its compact form (server.py packs: format, superseded_by).
+function journeyWord(m) {
+  return m.format === "compact" ? "policy graph" : m.superseded_by ? `older full graph of ${m.superseded_by}` : "full graph";
+}
+function journeyPick(id) {
+  const cur = (S.meta.packs || []).find(m => m.name === S.pack) || {};
+  const sel = h("select", { class: "select", id, style: "max-width:100%", onchange: async e => {
+      const m = S.meta.packs.find(x => x.name === e.target.value);
+      if (!m || m.name === S.pack) return;
+      if (await openGraph(m.path, true)) { await loadJourney(); render(); toast(`${m.name} is open: the test will generate its cases from ${m.graph}`); }
+      else e.target.value = S.pack; } },
+    ...(S.meta.packs || []).filter(m => !m.error).map(m => h("option", { value: m.name, selected: m.name === S.pack }, `${m.name}: ${m.title} (${journeyWord(m)})`)));
+  const better = cur.superseded_by && (S.meta.packs || []).find(m => m.name === cur.superseded_by);
+  return h("div", { class: "stack", style: "gap:6px" }, sel,
+    h("span", { class: "small muted" }, "Cases are generated from ", h("code", {}, cur.path || "?"), cur.format === "compact" ? ": a compact policy graph, the format the case factors, the reference bot, its planted defects, the policy questions and the LLM bot are all built from." : ": a full graph (triples) in the older format."),
+    better ? h("div", { class: "notice warn" }, h("b", {}, `${cur.name} is the older form of ${better.name}`), `: the same policy (${cur.document || "the same source"}), written as a full graph. `,
+      `The full test is built for ${better.name}: the case factors come from its graph, its planted defects are mined from it, and the LLM bot can run only on a policy graph. `,
+      h("button", { class: "btn s", type: "button", onclick: async () => { if (await openGraph(better.path, true)) { await loadJourney(); render(); } } }, `Open ${better.name}`)) : null);
+}
 function runView(r) {
   if (r.arg) return runDetail(r.arg, r.q.get("step"));
   const devs = S.meta.devices.options;
@@ -2068,7 +2096,8 @@ function runView(r) {
   let saved = {}; try { saved = JSON.parse(localStorage.getItem("jc.runform") || "{}"); } catch {}
   const F = Object.assign({ pack: S.pack, device: "auto", max_cases: "", runs_per_base: 1, seed: 42, run_resilience: true, run_mutation: true, speech_controls: true, run_power: false, run_governance: true, scripted_customer: true, llm_judges: true, reuse_proofs: true, rebuild_store: false, llm_arm: false, llm_mode: "replay", llm_model: "" }, saved, { pack: S.pack });
   if (!devs.some(o => o.id === F.device && o.available)) F.device = "auto";
-  const set = (k, v) => { F[k] = v; try { localStorage.setItem("jc.runform", JSON.stringify(F)); } catch {} paintModels(); };
+  F.pack = S.pack;                 // always the journey open now: a saved form never sends another one
+  const set = (k, v) => { F[k] = v; try { const { pack, ...keep } = F; localStorage.setItem("jc.runform", JSON.stringify(keep)); } catch {} paintModels(); };
   const paintModels = () => { const el = document.getElementById("rf-models"); if (el) el.replaceChildren(...runModels(F)); };
   S.paintRunModels = paintModels;
   const chk = (k, label, hint) => h("label", { class: "row", style: "gap:8px;align-items:flex-start;min-height:28px" }, h("input", { type: "checkbox", checked: !!F[k], onchange: e => set(k, e.target.checked) }), h("span", {}, label, hint ? h("span", { class: "small muted", style: "display:block" }, hint) : null));
@@ -2088,7 +2117,7 @@ function runView(r) {
     h("div", { class: "hd" }, h("h2", {}, "Run settings"), h("span", { class: "small muted" }, "The run uses the saved project of the journey.")),
     h("div", { class: "bd stack" },
       h("div", { class: "form" },
-        h("label", { for: "rf-pack" }, "Journey"), h("select", { class: "input", id: "rf-pack", disabled: true }, h("option", {}, S.pack)),
+        h("label", { for: "rf-pack" }, "Journey"), journeyPick("rf-pack"),
         h("span", { id: "rf-dev-l", style: "font-size:12.5px;color:var(--ink-2)" }, "Device"), h("div", { class: "stack", style: "gap:6px" }, h("div", { class: "devs", role: "radiogroup", "aria-labelledby": "rf-dev-l" },
           ...devs.map(o => h("label", { title: o.label }, h("input", { type: "radio", name: "device", value: o.id, disabled: !o.available, checked: F.device === o.id, onchange: () => set("device", o.id) }),
             h("span", { class: "dn" }, o.id === "auto" ? "Auto" : o.id === "cpu" ? "CPU" : o.id), h("span", { class: "dd" }, o.id === "auto" ? "GPU when available" : o.id === "cpu" ? "always" : o.available ? o.label.split(" · ").slice(1).join(" · ") : "not visible")))),

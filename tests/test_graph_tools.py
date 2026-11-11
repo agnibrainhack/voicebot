@@ -147,7 +147,9 @@ def test_opening_refuses_what_is_not_a_compact_graph_from_outside():
             raise AssertionError(name)
         except ValueError as e:
             assert words in str(e), (name, e)
-    r = GR.open_graph(GR.DEFAULT_GRAPH)                                          # the default: the PDF graph's journey
+    r = GR.open_graph(GR.DEFAULT_GRAPH)                     # the default: charge review as a policy graph
+    assert r["pack"] == "charge_review_graph" and not r["created"]
+    r = GR.open_graph("gmsjourney/policy/charge_review/charge_review_kg.json")   # the older full graph: its own journey
     assert r["pack"] == "charge_review" and not r["created"]
 
 

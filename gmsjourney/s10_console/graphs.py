@@ -43,7 +43,7 @@ import numpy as np
 from .runs import ROOT
 
 POLICY_ROOT = ROOT / "gmsjourney" / "policy"
-DEFAULT_GRAPH = "gmsjourney/policy/charge_review/charge_review_kg.json"
+DEFAULT_GRAPH = "gmsjourney/policy/charge_review_graph/charge_review_kg.json"   # the policy graph the full test is built for
 TEMPLATE_PACK = "supplementary_card"           # the enrichment catalog a new journey starts from
 
 SECTIONS = [

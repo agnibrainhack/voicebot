@@ -453,8 +453,7 @@ constraints: [level('get_review_transactions') == 'ok' or level('transactions_co
     == 'ok' or level('transactions_window') == 'inside']
 categories:
 - {name: recovery, when: level('authenticate_customer') != 'ok' or level('get_review_transactions') != 'ok' or level('record_charge_response')
-    != 'ok' or level('get_card_action_options') != 'ok' or level('submit_card_action') != 'ok' or level('transactions_count')
-    != 'ok' or level('transactions_window') != 'ok' or level('unclear_answer') != 'none'}
+    != 'ok' or level('get_card_action_options') != 'ok' or level('submit_card_action') != 'ok' or level('unclear_answer') != 'none'}
 - {name: boundary, when: 'level(''turn_pressure'') != ''normal'' or level(''transactions_count'') in (''at_cap_4'', ''over_cap_5'')
     or level(''transactions_window'') in (''last_at_30'', ''one_more_at_31'')'}
 - {name: governance_policy, when: level('human_request') != 'none'}
@@ -462,8 +461,7 @@ categories:
 tags:
 - {name: procedural_ordering, when: 'True'}
 - {name: recovery, when: level('authenticate_customer') != 'ok' or level('get_review_transactions') != 'ok' or level('record_charge_response')
-    != 'ok' or level('get_card_action_options') != 'ok' or level('submit_card_action') != 'ok' or level('transactions_count')
-    != 'ok' or level('transactions_window') != 'ok' or level('unclear_answer') != 'none'}
+    != 'ok' or level('get_card_action_options') != 'ok' or level('submit_card_action') != 'ok' or level('unclear_answer') != 'none'}
 - {name: boundary, when: 'level(''turn_pressure'') != ''normal'' or level(''transactions_count'') in (''at_cap_4'', ''over_cap_5'')
     or level(''transactions_window'') in (''last_at_30'', ''one_more_at_31'')'}
 - {name: governance_policy, when: level('human_request') != 'none'}

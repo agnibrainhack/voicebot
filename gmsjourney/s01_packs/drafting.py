@@ -683,8 +683,10 @@ def draft(dom=None) -> dict[str, Any]:
 
     # ---------------------------------------------------------------- categories, tags
     names = [f["name"] for f in factors]
-    tool_f = [f for f in factors if f.get("anchor", {}).get("tool")]
-    failing = " or ".join(f"level('{f['name']}') != 'ok'" for f in tool_f) or "False"
+    # a tool that does not answer as its default: recovery. A loop's factors (how many items, where the last one falls)
+    # describe the data, not a failure: their edge levels are boundaries below
+    tool_f = [f for f in factors if f.get("anchor", {}).get("tool") and f.get("role") != "loop"]
+    failing = " or ".join(f"level('{f['name']}') != {f.get('default', 'ok')!r}" for f in tool_f) or "False"
     interrupts = " or ".join(x for x in (
         "level('unclear_answer') != 'none'" if "unclear_answer" in names else "",) if x) or "False"
     gov = " or ".join(x for x in ("level('human_request') != 'none'" if "human_request" in names else "",) if x) or "False"

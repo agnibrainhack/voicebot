@@ -134,7 +134,15 @@ theme switch in the top bar picks Day (blue on white), Night (blue on black) or 
 studio shares the setting. Its parts:
 
 - **Graph path** (top bar; `s10_console/graphs.py`): the journey is chosen by the path of its policy graph, by default
-  `gmsjourney/policy/charge_review/charge_review_kg.json` (charge review, built from the PDF). A graph inside a
+  `gmsjourney/policy/charge_review_graph/charge_review_kg.json`: charge review as a compact policy graph, the format
+  the full test is built for (its case factors, reference bot, planted defects, policy questions and the LLM bot).
+  `gmsjourney/policy/charge_review/charge_review_kg.json` is the same policy as the older full graph (triples built
+  from the PDF); the two files share a name, so the pill beside the field names the journey (amber for the older
+  graph) and the list names each graph's journey and format. On the same seed the policy graph generates more cases
+  (66 journey cases against 54) over more than three times the factor pairs (1,782 against 523), and covers one rule
+  more. Start a test run's **Journey** lists every journey with its format, sends the one open (a form saved earlier
+  never sends another), names the graph file the cases are generated from, and from the older graph offers to open
+  its policy graph. A graph inside a
   journey folder opens that journey (and switches it to that file if it is one of its versions). A compact graph
   (`gmsjourney.policy_graph/2`) from anywhere else becomes a **new journey**: copied into
   `gmsjourney/policy/<its id>/` with a `domain.yaml` whose customer lexicon is drafted from the graph's values and

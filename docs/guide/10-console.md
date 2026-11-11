@@ -65,6 +65,14 @@ each control's tooltip).
 unsaved-changes bar. A burst of edits (typing in one field) is one step; up to 100 steps are kept, and Discard is
 itself a step, so it can be undone too. Inside a text field the field's own undo handles the typing.
 
+**Which graph.** The console opens `charge_review_graph` (charge review as a compact policy graph) unless you opened
+another. `charge_review` holds the same policy as the older full graph, in a file of the same name; the server links
+the two from the files alone (`packs()`: the compact graph's `source.converted_from` names the older file and both name
+the same document, giving `format`, `superseded_by` and `converted_from_pack`). The top bar's pill names the journey
+(amber for an older full graph), its list names each graph's journey and format, and **Start a test run** has a real
+**Journey** choice (choosing one opens it) with the graph file the cases come from and, on an older full graph, a
+notice that opens its policy graph. The run always sends the journey that is open.
+
 **Opening a graph.** As you type a path in the top bar, a preview under the field says what opening it would do,
 without opening anything (`GET /api/graph/peek`): the graph's title, format, size, states, tools and rules, and
 whether it opens a journey already here, switches a journey to this version, or makes a new journey. A partial path
