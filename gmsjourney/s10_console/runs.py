@@ -960,10 +960,19 @@ def main(run_dir: str) -> int:
             refs = [r.get("name") for r in sut.get("references") or [] if r.get("text")]
             log(f"bot under test: {name}; prompt {len(fac.system_prompt):,} characters"
                 + (f", with {', '.join(refs)} attached" if refs else "") + " (out/sut_prompt.txt); "
-                + ("critique layer on: a second call reviews every step and may correct it (out/sut_critic_prompt.txt); "
-                   if fac.critique else "")
+                + (f"critique layer on: a second call reviews {fac.critique_scope == 'all' and 'every step' or fac.critique_scope == 'key' and 'the account changes and replies' or 'the replies'} "
+                   "and may correct them (out/sut_critic_prompt.txt); " if fac.critique else "")
                 + 
                 "planted defects (step 10) need the reference bot and are skipped")
+        def where(backend, model, path, url) -> str:
+            return (f"local model {Path(str(path or '(no folder)')).name}" + (f" via {url}" if url else "") + " (vLLM)"
+                    if backend == "local" else f"Microsoft gateway, {model or 'gpt-41'}")
+        log("models in this run: bot under test " + (opts.get("bot_name") or "the reference bot (no LLM)")
+            + "; two judges, policy judge and case narration: "
+            + (where(job.get("judges_backend"), job.get("judges_model"), job.get("judges_local_path"), job.get("judges_vllm_url"))
+               if job.get("llm_judges", True) is not False else "judges off")
+            + "; rewording: " + (where(job.get("llm_backend"), job.get("llm_model"), job.get("llm_local_path"), job.get("llm_vllm_url"))
+                                 if job.get("llm_arm") else "not used"))
         cfg = CampaignConfig(domain=job["pack"], out_dir=str(run / "out"), device=job.get("device") or None,
                              on_step=on_step, progress=False, **opts)
         try:

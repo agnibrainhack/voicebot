@@ -86,7 +86,9 @@ version. Each LLM is chosen where it is used, separately (`llmPick`): **Rewordin
 customer turns* (role `enrichment`), **Judges' LLM** under *Two LLM judges*, on the Playground's first page (**Judges' model**, beside the bot's
 and the critic's model) and again in its side panel (role `testing`; the same setting everywhere), and the bot under
 test and its critic in the bot's card (**Bot's model**, **Critic's model**: same as the bot, a gateway deployment or
-a local vLLM model, chosen independently of the bot's). Each is the Microsoft
+a local vLLM model, chosen independently of the bot's). Above **Start the test**, *Models in this run* lists every model the run will call (bot under test,
+critic and what it reviews, the two judges with the policy judge and the case narration, the rewording) and where each
+is chosen, and says so when a role is switched off; the run's log repeats it at the start ("models in this run: ..."). Each is the Microsoft
 gateway (a deployment, **Use**) or a local model on vLLM (its folder, and a server URL when it is served elsewhere;
 **Use this model**). The choices are the console's (`POST /api/llm/settings` with the role, kept in
 `output/console_llm.json`, applied again at start) and are sent with every run (`llm_backend`, `llm_model`,

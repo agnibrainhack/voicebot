@@ -2040,6 +2040,26 @@ function llmPick(role, id, label) {
       h("button", { class: "btn s", type: "button", onclick: () => save({ backend: "local", local_path: path.value.trim(), vllm_url: url.value.trim() }) }, "Use this model")) : null,
     TL.backend === "local" ? h("div", { class: `small ${TL.usable ? "mark ok" : "mark warn"}` }, (TL.usable ? "Ready: " : "Not usable yet: ") + (TL.detail || "")) : null);
 }
+// Every model a test run will call, in one place above Start: the bot and its critic (Bot under test), the two judges
+// with the policy judge and the case narration (Judges' LLM, role testing) and the rewording (Rewording LLM, role
+// enrichment); each line says where it is chosen, and a role that is switched off says so.
+function roleModel(T) {
+  return T.backend === "local" ? `local model ${(T.local_path || "(no folder)").split("/").filter(Boolean).pop()}${T.vllm_url ? ` via ${T.vllm_url}` : ""} (vLLM)` : `Microsoft gateway, ${T.model || "gpt-41"}`;
+}
+function runModels(F) {
+  const t = sutState(), TT = (S.meta.tools_llm || {}).testing || {}, TE = (S.meta.tools_llm || {}).enrichment || {};
+  const warn = T => T.backend === "local" && T.usable === false ? h("span", { class: "mark warn" }, ` not usable yet: ${T.detail || "check the folder or server"}`) : null;
+  const line = (who, what, where, extra) => h("li", {}, h("b", {}, `${who}: `), what, where ? h("span", { class: "muted" }, ` (${where})`) : null, extra || null);
+  const llm = t.kind === "llm";
+  const bot = llm ? (t.provider === "local" ? `local model ${(t.local_path || "(no folder)").split("/").filter(Boolean).pop()}${t.vllm_url ? ` via ${t.vllm_url}` : ""} (vLLM)` : `Microsoft gateway, ${t.model || "gpt-41"}`) : "the reference bot, no LLM";
+  const crit = !llm ? "none (the reference bot has no critique)" : t.critique === false ? "off" :
+    `${critWhere(t) === "same" ? `the bot's own model` : critWhere(t) === "gateway" ? `Microsoft gateway, ${t.critic_model || "gpt-41"}` : `local model ${(t.critic_local_path || "(no folder)").split("/").filter(Boolean).pop()}${t.critic_vllm_url ? ` via ${t.critic_vllm_url}` : ""} (vLLM)`}; reviews ${SCOPES[critScope(t)]}`;
+  return [h("b", {}, "Models in this run"), h("ul", { class: "small", style: "margin:4px 0 0 18px;padding:0" },
+    line("Bot under test", bot, "Bot under test, above"),
+    line("Critic", crit, llm ? "Bot under test, above" : null),
+    line("Two judges", F.llm_judges === false ? "off" : roleModel(TT), F.llm_judges === false ? "Two LLM judges unchecked" : "Judges' LLM; also the policy judge and the case narration", F.llm_judges === false ? null : warn(TT)),
+    line("Rewording", F.llm_arm ? `${roleModel(TE)}, ${F.llm_mode === "live" ? "live" : "replay (cache only)"}` : "not used", F.llm_arm ? "Rewording LLM" : "LLM rewording of customer turns unchecked", F.llm_arm ? warn(TE) : null))];
+}
 function runView(r) {
   if (r.arg) return runDetail(r.arg, r.q.get("step"));
   const devs = S.meta.devices.options;
@@ -2047,7 +2067,9 @@ function runView(r) {
   let saved = {}; try { saved = JSON.parse(localStorage.getItem("jc.runform") || "{}"); } catch {}
   const F = Object.assign({ pack: S.pack, device: "auto", max_cases: "", runs_per_base: 1, seed: 42, run_resilience: true, run_mutation: true, speech_controls: true, run_power: false, run_governance: true, scripted_customer: true, llm_judges: true, reuse_proofs: true, rebuild_store: false, llm_arm: false, llm_mode: "replay", llm_model: "" }, saved, { pack: S.pack });
   if (!devs.some(o => o.id === F.device && o.available)) F.device = "auto";
-  const set = (k, v) => { F[k] = v; try { localStorage.setItem("jc.runform", JSON.stringify(F)); } catch {} };
+  const set = (k, v) => { F[k] = v; try { localStorage.setItem("jc.runform", JSON.stringify(F)); } catch {} paintModels(); };
+  const paintModels = () => { const el = document.getElementById("rf-models"); if (el) el.replaceChildren(...runModels(F)); };
+  S.paintRunModels = paintModels;
   const chk = (k, label, hint) => h("label", { class: "row", style: "gap:8px;align-items:flex-start;min-height:28px" }, h("input", { type: "checkbox", checked: !!F[k], onchange: e => set(k, e.target.checked) }), h("span", {}, label, hint ? h("span", { class: "small muted", style: "display:block" }, hint) : null));
   const startBtn = h("button", { class: "btn primary", type: "submit", disabled: !!active }, "Start the test");
   const form = h("form", { class: "card", onsubmit: async e => { e.preventDefault(); startBtn.disabled = true; startBtn.replaceChildren(h("span", { class: "spin" }), "Starting…");
@@ -2083,6 +2105,7 @@ function runView(r) {
           h("div", { class: "stack", style: "padding-left:26px;gap:6px" }, h("div", { class: "row" }, h("label", { for: "rf-llm", class: "small muted" }, "mode"), h("select", { class: "select", id: "rf-llm", style: "height:28px", onchange: e => set("llm_mode", e.target.value) }, ...["replay", "live"].map(m => h("option", { selected: F.llm_mode === m }, m)))),
             llmPick("enrichment", "rf-enr", "Rewording LLM")))),
       active ? h("div", { class: "notice warn" }, "A run is in progress, and one runs at a time. ", h("a", { href: `#/run/${active}` }, "View it"), " or cancel it before starting another.") : null,
+      h("div", { class: "notice info", id: "rf-models", role: "status", "aria-live": "polite" }, ...runModels(F)),
       h("div", { class: "row", style: "justify-content:space-between;gap:12px" }, h("div", { id: "pastnote", style: "flex:1;min-width:0" }), startBtn)));
   const past = (S.runsList || []).filter(x => x.job.pack === S.pack && x.status === "finished" && x.elapsed).slice(0, 4);
   const pastNote = past.length ? h("p", { class: "small muted" }, "Earlier runs of this journey here: ",
@@ -2444,7 +2467,7 @@ function botPill() {
     h("span", { class: "dot" }), h("span", { class: "vx" }, "Bot: "), h("b", {}, s.short)));
 }
 function sutSave() {
-  setTimeout(() => { botPill(); document.querySelectorAll(".inuse").forEach(el => { el.textContent = sutSummary().long; }); }, 0);
+  setTimeout(() => { botPill(); document.querySelectorAll(".inuse").forEach(el => { el.textContent = sutSummary().long; }); S.paintRunModels && S.paintRunModels(); }, 0);
   const { suggested, check, lcheck, clcheck, ...keep } = sutState();
   try { localStorage.setItem(`jc.sut.${S.pack}`, JSON.stringify(keep)); }
   catch { try { localStorage.setItem(`jc.sut.${S.pack}`, JSON.stringify({ ...keep, references: [] })); } catch {} }

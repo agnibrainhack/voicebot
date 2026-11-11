@@ -1208,3 +1208,61 @@ def test_the_critique_reviews_only_the_steps_in_its_scope():
     assert seen["all"][1] == 0 and seen["all"][0] > seen["key"][0] >= seen["replies"][0] > 0, seen
     assert sum(seen["all"]) == sum(seen["key"]) == sum(seen["replies"]), seen   # every step is reviewed or skipped
     assert write_tools() and PG.critique_scope({}) == "key" and PG.critique_scope({"critique_scope": "all"}) == "all"
+
+
+def test_a_local_critic_is_called_through_its_own_server_and_no_critic_when_off():
+    """A gateway-free setup: the bot on one vLLM server, the critic on another; with the critique off the critic's
+    server is never called."""
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from fake_sut_model import HappyPath
+    from types import SimpleNamespace
+    from gmsjourney.s06_bots.llm_bot import ENV
+
+    def serve(model):
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):                                # noqa: N802
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                text = model.invoke([SimpleNamespace(content=m["content"]) for m in body["messages"]]).content
+                out = json.dumps({"choices": [{"message": {"content": text}}], "usage": {"prompt_tokens": 5, "completion_tokens": 7}}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+        srv = ThreadingHTTPServer(("127.0.0.1", _port()), H)
+        srv.daemon_threads = True
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        return srv, f"http://127.0.0.1:{srv.server_address[1]}/v1"
+
+    bot_model, critic_model = HappyPath(), HappyPath()
+    (s1, u1), (s2, u2) = serve(bot_model), serve(critic_model)
+    old = {k: os.environ.pop(k, None) for k in (ENV, "GMSJOURNEY_VLLM_URL", "GMSJOURNEY_SUT_FAKE_MODEL")}
+    from gmsjourney.s03_knowledge import build as backend
+    keep_cache, backend.CACHE = backend.CACHE, Path(tempfile.mkdtemp(prefix="gms_llm_cache_"))
+    try:
+        domain.set_current("charge_review_graph")
+        from gmsjourney.s10_console import bots as PG
+        PG.cases("project", None)
+        sut = {"kind": "llm", "provider": "local", "local_path": "llama-8b-test", "vllm_url": u1, "critique": True,
+               "critique_scope": "all", "critic_provider": "local", "critic_local_path": "gpt-oss-20b", "critic_vllm_url": u2}
+        v = PG.start("project", "default", sut)
+        s = PG.get(v["id"])
+        s.say("The last four digits of my card are 4821.")
+        assert "critique by local-gpt-oss-20b (local, vLLM) of every step" in s.bot_name, s.bot_name
+        assert bot_model.calls >= 2 and critic_model.critiques >= 2 and bot_model.critiques == 0
+        before = critic_model.calls
+        v = PG.start("project", "default", {**sut, "critique": False})
+        PG.get(v["id"]).say("The last four digits of my card are 4821.")
+        assert critic_model.calls == before and "no critique" in PG.get(v["id"]).bot_name
+    finally:
+        backend.CACHE = keep_cache
+        s1.shutdown()
+        s2.shutdown()
+        for k, val in old.items():
+            os.environ.pop(k, None)
+            if val is not None:
+                os.environ[k] = val
+        domain.set_current("charge_review")
