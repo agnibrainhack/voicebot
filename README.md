@@ -722,7 +722,10 @@ the case only when the case is that policy question); *incorrect action* (the ri
 argument, charge or reason); *off the journey* (a different step; asking again what was just answered is one, and the
 customer then says the line again, once). Incorrect actions and steps off the journey are material: one followed by a
 turn back on the journey is tolerated; two in a row, or one that ends the call, stop the run, the lines never said
-are shown as *not played*, and the case is incorrect (see guide chapter 6). Incorrect runs are shown by default; buttons show the correct ones, all, or one arm.
+are shown as *not played*, and the case is incorrect (`JOURNEY_STOPPED`, see guide chapter 6). A stopped case has a
+*Why the run stopped* box with the rule that fired and, for each turn that triggered it, what the customer said, what
+the policy required and what the agent did; a case that was not stopped says whether the stop rule was on, and why
+not when it was off (tool faults injected, an adaptive customer). Incorrect runs are shown by default; buttons show the correct ones, all, or one arm.
 It is built from `dataset/case_results.jsonl` and the turn-by-turn files, so an existing campaign folder can be
 redone without re-running the bot: `python tools/case_comparison.py --campaign output/campaign_llm_sut`.
 

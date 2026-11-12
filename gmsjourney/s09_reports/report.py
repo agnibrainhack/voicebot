@@ -716,9 +716,18 @@ def failure_reasons(fc: dict[str, Any]) -> list[str]:
     """Plain-English reasons a run failed, read off its graded row (nothing re-judged here)."""
     out = []
     if fc.get("stopped_at_line") not in (None, ""):
-        out.append(f"The run stopped at customer line {esc(fc['stopped_at_line'])}: "
-                   f"{esc(fc.get('stopped_why') or 'two material deviations in a row')}, so the rest of the base "
-                   "journey was not played and the case is incorrect.")
+        sd = fc.get("stopped_detail") if isinstance(fc.get("stopped_detail"), dict) else {}
+        kinds = {"wrong_action": "incorrect action", "differs": "off the journey",
+                 "asked_again": "off the journey (asked the same question again)"}
+        which = "; ".join(f"turn {x.get('turn')} (customer line {x.get('line')}): {kinds.get(x.get('status'), x.get('status'))}"
+                          for x in sd.get("turns") or [])
+        ended = sd.get("ended_with") or {}
+        how = (f", ending the call with <code>{esc(ended.get('act'))}"
+               + (f"({esc(ended.get('reason'))})" if ended.get("reason") else "") + "</code>") if ended.get("act") else ""
+        out.append(f"The run stopped after the agent's reply to customer line {esc(fc['stopped_at_line'])}: "
+                   f"{esc(fc.get('stopped_why') or 'two material deviations in a row')}"
+                   + (f" - {esc(which)}" if which else "") + how
+                   + ". The rest of the base journey was not played, and a stopped run is incorrect (JOURNEY_STOPPED).")
     why = fc.get("why") or {}
     exp, act = why.get("expected") or {}, why.get("actual") or {}
     if isinstance(exp, dict) and isinstance(act, dict):

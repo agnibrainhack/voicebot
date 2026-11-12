@@ -102,7 +102,14 @@ page): *same as expected*; *non-material deviation (side step)* (amber, the run 
 is wrong or missing); *incorrect action* (purple: the right steps, one done wrongly); *off the journey* (red: a
 different step, or the same question asked again); and *not played* (after the run stopped). The verdict table adds *Journey played to its end*; a
 policy answer is part of the verdict only for a policy-question case. The case's meta line says how many turns were
-flagged without ending the run and, if it stopped, after which turn and why.
+flagged without ending the run and, if it stopped, after which turn and why. A stopped case also has a **Why the
+run stopped** box: the rule that fired in words, and for each turn that triggered it (linked to the turn) what the
+customer said, what the policy required and what the agent did, the act it ended the call with, and which lines were
+not played. Each turn's header gives its customer line, the turns that triggered the stop are marked *counted toward
+the stop (1 of 2)*, and a banner marks where the conversation was cut. A case that was not stopped says whether the
+stop rule was on (and, if it had material deviations, that they were never two in a row) or off and why. The
+same reason, with the turns, heads the failure list of `report.html` and the console's case view, and the LLM judges
+are told the run was stopped (they no longer see the unplayed lines as turns the bot ignored).
 
 ### Part 4: inside one case
 

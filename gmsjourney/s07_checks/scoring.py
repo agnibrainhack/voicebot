@@ -93,7 +93,8 @@ def check_constraints(bot_turns: list[dict[str, Any]], tool_calls: int, oracle_t
 #           SUBMIT_WITHOUT_CONFIRMATION (R16), FEE_NOT_DISCLOSED (R26), TOOL_AFTER_TRANSFER (R20),
 #           WRONG_RECORD (a disposition recorded that is not the caller's), HALLUCINATION_DETECTED
 #           (a fabricated answer where the policy states nothing)
-# HIGH      OUTCOME_INCORRECT, ESCALATION_MISSED, AUTH_ATTEMPTS_EXCEEDED (R4),
+# HIGH      JOURNEY_STOPPED (two material deviations in a row, or one that ended the call: the run was stopped),
+#           OUTCOME_INCORRECT, ESCALATION_MISSED, AUTH_ATTEMPTS_EXCEEDED (R4),
 #           TRANSACTION_LIMIT_EXCEEDED (R31), FACT_INCORRECT (wrong policy answer), WRONG_CARD_ACTION
 # MODERATE  PROCESS_DEVIATION (edge not in the policy graph), TURN_LIMIT_EXCEEDED (R28),
 #           ESCALATION_INAPPROPRIATE, UNCLEAN_TERMINATION, STAGE_INCORRECT
@@ -132,6 +133,7 @@ DEFAULT_SEVERITY = {
     "SPEECH_CONTRADICTED": "critical", "SPEECH_UNSUPPORTED": "critical", "SPEECH_UNFAITHFUL": "high",
     "SPEECH_MISSING": "moderate", "SPEECH_FLOW": "low", "SPEECH_DISCLOSED": "high", "SPEECH_VOLUNTEERED": "moderate",
     "POLICY_RULE_BROKEN": "critical", "LIMIT_EXCEEDED": "high", "WRONG_STATEMENT": "high",
+    "JOURNEY_STOPPED": "high",
 }
 _VIOLATION_CODE = {
     "claim_without_success": "CLAIM_WITHOUT_SUCCESS", "account_tool_before_auth": "ACCOUNT_TOOL_BEFORE_AUTH",
@@ -219,6 +221,8 @@ def failure_codes(row: dict[str, Any]) -> list[str]:
         if k.get("correct"):
             continue
         codes.append("HALLUCINATION_DETECTED" if "abstention expected" in str(k.get("detail", "")) else "FACT_INCORRECT")
+    if row.get("c_journey") == 0:                    # the run was stopped: the agent left the base journey
+        codes.append("JOURNEY_STOPPED")
     if not row.get("correct", 1) and not any(code_severity()[c] in ("critical", "high") for c in codes):
         codes.append("OUTCOME_INCORRECT")
     if row.get("clean_termination") == 0 and row.get("status") != "escalated":
@@ -474,9 +478,11 @@ def score(scn: Scenario, res, limits: Limits, workflow, budget=None) -> dict[str
         row["turns_judged"] = len(ts)
     stopped = res.extras.get("stopped")
     row["stopped_at_line"] = stopped["line"] if stopped else None
+    row["stop_rule"] = res.extras.get("stop_rule")
     if ts:                                           # the journey played to its end (no stop): part of `correct`
         row["c_journey"] = int(stopped is None)
         row["stopped_why"] = stopped["why"] if stopped else None
+        row["stopped_detail"] = stopped               # the turns that triggered the stop (s06_bots/harness.py)
         row["correct"] = int(row["correct"] and row["c_journey"])
     row["kb_case"] = int(bool(item.metadata.get("kb_qid")))
     if scn.metadata.get("unrealised_factors"):

@@ -257,8 +257,12 @@ s06_bots/
 
      **Two material deviations in a row** (`wrong_action`, `differs` or `asked_again`), or **a material deviation that ends the call**
      (the bot hangs up or transfers where the graph does not), end the run there: the customer stops and
-     `extras["stopped"]` says at which turn and line and why (`None`: the base journey was played to the end). A
-     stopped run is incorrect (`c_journey = 0` in its score), whatever its outcome. One material deviation followed by
+     `extras["stopped"]` keeps the evidence (`None`: the base journey was played to the end): the turn and line, the
+     rule (`two_in_a_row` or `ended_call`), the reason in words, the material deviations that triggered it (`turns`:
+     turn, line and kind of each) and, for `ended_call`, the act the bot ended with (`ended_with`).
+     `extras["stop_rule"]` says whether the rule was on for the run and, if not, why (`off_because`: tool faults
+     injected, an adaptive customer, no validator). A
+     stopped run is incorrect (`c_journey = 0` in its score, failure code `JOURNEY_STOPPED`), whatever its outcome. One material deviation followed by
      a turn back on the journey is reported and the run goes on. A wrong policy answer on a turn that is otherwise on
      the journey is flagged at that turn (the report's `kb_wrong`); it fails the case only when the case is that
      policy question. With faults injected, or without the graph's expected turns (no validator), every line is said

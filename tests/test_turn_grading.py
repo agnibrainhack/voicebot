@@ -153,7 +153,10 @@ def test_one_turn_off_is_tolerated_two_in_a_row_end_the_run():
     st = res.extras["turn_status"]
     # line 1 answers PRESENT_TXN, so saying it again there is a re-ask: a material deviation all the same
     assert [(s["line"], s["status"]) for s in st] == [(0, "differs"), (1, "asked_again")]
-    assert res.extras["stopped"] == {"turn": 1, "line": 1, "why": "two material deviations in a row"}
+    assert res.extras["stopped"] == {"turn": 1, "line": 1, "rule": "two_in_a_row", "why": "two material deviations in a row",
+                                     "turns": [{"turn": 0, "line": 0, "status": "differs"},
+                                               {"turn": 1, "line": 1, "status": "asked_again"}]}
+    assert res.extras["stop_rule"] == {"active": True, "off_because": None}
     script = res.extras["script_lines"]
     assert sum(1 for e in res.extras["trace"].events if e.get("role") == "user") == 2 < script
 
@@ -202,6 +205,42 @@ class HangsUp:
         return BotTurn(t.text, t.acts + [{"act": "END"}], True, None)
 
 
+def test_a_stopped_case_says_why_on_its_page_in_the_report_and_to_the_judges():
+    from gmsjourney.s07_checks.llm_judges import Judges
+    from gmsjourney.s07_checks.scoring import failure_codes, score
+    from gmsjourney.s08_campaign.pipeline import failed_case_records
+    from gmsjourney.s09_reports.cases import _case, turn_by_turn
+    from gmsjourney.s09_reports.report import failure_reasons
+    PG, B = _bench()
+    runner = _runner(lambda tools: Fixed(tools, ["PRESENT_TXN"]))
+    scn = _scenario()
+    df, summ = turn_by_turn(runner, B.oracle, scn, validator=runner.paths)
+    res = runner.run(scn)
+    row = score(scn, res, B.oracle.limits, B.oracle.store.workflow)
+    assert "JOURNEY_STOPPED" in failure_codes(row) and row["correct"] == 0
+    rec = failed_case_records([row])[0]               # what the main report's failure list is built from
+    reason = failure_reasons(rec)[0]
+    assert "customer line 1" in reason and "turn 0 (customer line 0): off the journey" in reason \
+        and "JOURNEY_STOPPED" in reason, reason
+    page = _case(row, summ, df.to_dict(orient="records"))
+    for want in ("Why the run stopped", "counted toward the stop (1 of 2)", "counted toward the stop (2 of 2)",
+                 "The run stopped here", "Not played:"):
+        assert want in page, want
+    from gmsjourney.s10_console import runs
+    assert runs._result(row)["stopped"].startswith("The run stopped after the agent's reply to customer line 1")
+    text = Judges._case_a({"turns": df.to_dict(orient="records"), "stopped": summ["stopped_detail"]})
+    assert "NOT PLAYED" in text and "The test stopped the call after turn 1" in text
+
+
+def test_a_run_with_tool_faults_says_the_stop_rule_was_off():
+    from gmsjourney.s06_bots.reference import make_graph_factory
+    from gmsjourney.s06_bots.tools import FaultProfile
+    _, B = _bench()
+    res = _runner(make_graph_factory(B.store)).run(_scenario(), faults=[FaultProfile("record_charge_response", "error")])
+    assert res.extras["stop_rule"] == {"active": False, "off_because": "tool faults are injected"}
+    assert res.extras["stopped"] is None
+
+
 def test_an_agent_that_ends_the_call_where_the_graph_does_not_stops_the_run_and_fails_the_case():
     from gmsjourney.s07_checks.scoring import score
     PG, B = _bench()
@@ -210,6 +249,7 @@ def test_an_agent_that_ends_the_call_where_the_graph_does_not_stops_the_run_and_
     res = runner.run(scn)
     assert [s["status"] for s in res.extras["turn_status"]] == ["differs"]
     assert res.extras["stopped"]["why"] == "the agent ended the call where the graph does not"
+    assert res.extras["stopped"]["rule"] == "ended_call" and res.extras["stopped"]["ended_with"] == {"act": "END"}
     row = score(scn, res, B.oracle.limits, B.oracle.store.workflow)
     assert row["c_journey"] == 0 and row["correct"] == 0
 

@@ -264,6 +264,7 @@ evaluation:
     ESCALATION_INAPPROPRIATE: moderate
     UNCLEAN_TERMINATION: moderate
     STAGE_INCORRECT: moderate
+    JOURNEY_STOPPED: high                 # two material deviations in a row, or one that ended the call
     BUDGET_EXCEEDED: low                  # latency / length / tool calls
     TOOL_LOOP: low
     RUNTIME_INVARIANCE: low

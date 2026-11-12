@@ -46,6 +46,7 @@ PLAIN = {
     "TURN_LIMIT_EXCEEDED": "ran past the conversation's turn limit",
     "ESCALATION_INAPPROPRIATE": "handed over to a person when it did not need to",
     "UNCLEAN_TERMINATION": "did not end the call properly",
+    "JOURNEY_STOPPED": "left the policy's journey (two wrong steps in a row, or ended the call early), so the test stopped",
     "STAGE_INCORRECT": "got a stage of the process wrong",
     "BUDGET_EXCEEDED": "too slow, too long-winded or too many tool calls",
     "TOOL_LOOP": "called the same tool over and over",

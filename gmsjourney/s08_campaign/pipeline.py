@@ -780,7 +780,8 @@ def sample_bases(bases: list, n: int | None) -> list:
 _FAILED_KEYS = ("sid", "seed", "base", "arm", "correct", "workflow_adherent", "status", "transfer_reason",
                 "expected_transfer_reason", "severity", "risk_tier", "failure_codes", "violations", "why",
                 "kb_detail", "invariance_ok", "budget_violations", "gate_rules", "turns", "tool_sequence",
-                "tags", "transcript", "outcome_correct", "c_speech", "speech_problems")
+                "tags", "transcript", "outcome_correct", "c_speech", "speech_problems",
+                "c_journey", "stopped_at_line", "stopped_why", "stopped_detail", "stop_rule", "kb_case")
 
 
 def failed_case_records(failed: list[dict], limit: int | None = 400) -> list[dict]:

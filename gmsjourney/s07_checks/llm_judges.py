@@ -150,7 +150,12 @@ class Judges:
         lines = ["The case:"]                      # no case id: the same conversation is judged once (cache)
         if c.get("expected_opening") or c.get("actual_opening"):
             lines.append(f"Call opening - required: {c.get('expected_opening') or '-'} | bot: {c.get('actual_opening') or '-'}")
+        stop = c.get("stopped") or None
         for t in c.get("turns") or []:
+            if t.get("turn_status") == "not_played":       # the test stopped the call before this line
+                lines.append(f"\nTurn {t.get('turn')} (state {t.get('state')}): NOT PLAYED - the test stopped the call "
+                             "before this line; the bot never heard it")
+                continue
             lines.append(f"\nTurn {t.get('turn')} (state {t.get('state')})")
             lines.append(f"  customer said: {t.get('customer_text')}   meaning: {t.get('customer_card')}")
             lines.append(f"  REQUIRED tool calls: {t.get('expected_tools')}")
@@ -158,6 +163,8 @@ class Judges:
             lines.append(f"  bot tool calls: {t.get('actual_tools')}")
             lines.append(f"  bot acts: {t.get('actual_bot_acts')}")
             lines.append(f"  bot said: {t.get('actual_bot_text') or '-'}")
+        if stop:
+            lines.append(f"\nThe test stopped the call after turn {stop.get('turn')}: {stop.get('why')}.")
         lines.append(f"\nHow the call had to end: {json.dumps(c.get('expected_outcome'), default=str)}")
         lines.append(f"How the call ended: {json.dumps(c.get('actual_outcome'), default=str)}")
         return "\n".join(lines)
@@ -168,13 +175,15 @@ class Judges:
         if c.get("actual_opening"):
             lines.append(f"  (bot opens) {c.get('actual_opening')}")
         for t in c.get("turns") or []:
-            if str(t.get("customer_text") or "").startswith("(expected path)"):
-                continue                                  # the bot had already ended the call
+            if str(t.get("customer_text") or "").startswith("(expected path)") or t.get("turn_status") == "not_played":
+                continue                                  # the bot had already ended the call, or the test stopped it
             lines.append(f"  customer: {t.get('customer_text')}")
             tools = t.get("actual_tools")
             if tools and tools not in ("-", "(no turn)"):
                 lines.append(f"  bot calls: {tools}")
             lines.append(f"  bot: {t.get('actual_bot_text') or '(' + str(t.get('actual_bot_acts') or '-') + ')'}")
+        if c.get("stopped"):
+            lines.append(f"  (the test stopped the call here: {c['stopped'].get('why')})")
         rules = c.get("rules") or {}
         if rules:
             lines.append("\nPolicy rules of the dialog states this call went through:")

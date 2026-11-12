@@ -350,7 +350,7 @@ evaluation:
     TURN_LIMIT_EXCEEDED: moderate, ESCALATION_INAPPROPRIATE: moderate, UNCLEAN_TERMINATION: moderate, STAGE_INCORRECT: moderate,
     BUDGET_EXCEEDED: low, TOOL_LOOP: low, RUNTIME_INVARIANCE: low, SPEECH_CONTRADICTED: critical, SPEECH_UNSUPPORTED: critical,
     SPEECH_UNFAITHFUL: high, SPEECH_MISSING: moderate, SPEECH_FLOW: low, SPEECH_DISCLOSED: high, SPEECH_VOLUNTEERED: moderate, POLICY_RULE_BROKEN: critical, LIMIT_EXCEEDED: high,
-    WRONG_STATEMENT: high}
+    WRONG_STATEMENT: high, JOURNEY_STOPPED: high}
   tier_escalation:
     action_taking: {moderate: high, high: critical}
     informational: {}

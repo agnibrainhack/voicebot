@@ -384,7 +384,17 @@ def _result(r: dict | None) -> dict | None:
             "severity": r.get("severity"), "codes": r.get("failure_codes") or [],
             "transfer_reason": r.get("transfer_reason"), "expected_transfer_reason": r.get("expected_transfer_reason"),
             "outcome_correct": bool(r.get("outcome_correct")), "workflow_adherent": bool(r.get("workflow_adherent")),
-            "speech_ok": bool(r.get("c_speech", 1)), "turns": r.get("turns"), "tools": r.get("tool_sequence") or ""}
+            "speech_ok": bool(r.get("c_speech", 1)), "turns": r.get("turns"), "tools": r.get("tool_sequence") or "",
+            "stopped": _stopped_words(r)}
+
+
+def _stopped_words(r: dict) -> str | None:
+    """Why the run was stopped, in one sentence (the same reason as the reports), or None."""
+    if r.get("stopped_at_line") in (None, ""):
+        return None
+    from ..s09_reports.report import failure_reasons
+    import re as _re
+    return _re.sub(r"<[^>]+>", "", failure_reasons(r)[0])
 
 
 def index(out: str | Path) -> dict[str, Any]:
@@ -471,7 +481,8 @@ def detail(out: str | Path, base_id: str) -> dict[str, Any]:
         res = D["results"].get(c["case_id"])
         fail = D["failures"].get(c["case_id"]) or {}
         tbt = [{k: r.get(k) for k in ("turn", "state", "customer_text", "expected_tools", "actual_tools", "expected_bot",
-                                      "actual_bot_acts", "actual_bot_text", "speech_check", "turn_match", "after_divergence")}
+                                      "actual_bot_acts", "actual_bot_text", "speech_check", "turn_match", "after_divergence",
+                                      "turn_status")}
                for r in D["tbt"].get(c["case_id"], [])]
         return {"id": c["case_id"], "type": c["case_type"], "arm": c["arm"], "enrichment": c.get("enrichment") or {},
                 "changed": [x.split("=")[0] for x in (c.get("enrichment_changed") or "").split("; ") if "=" in x],

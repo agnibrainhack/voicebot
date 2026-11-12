@@ -128,10 +128,15 @@ class JourneyRunner:
       the same line again (once per line), as a person would;
     * "differs": off the journey; the next line follows, and the bot may get back on the journey there.
 
-    Two bot turns in a row off the journey (differs or asked again) end the run there: the customer stops, and
-    ``extras["stopped"]`` says at which turn and line (None: the run went to the end of the base journey). When the
-    bot ends the call early (hangs up, transfers) ``extras["bot_ended_at"]`` is the line before which it did.
-    Without the graph's expected turns (faults injected, no validator) every line is said in order, as before.
+    * "wrong_action": the same steps done wrongly (another argument, charge or reason): a material deviation.
+
+    Two material deviations in a row (wrong_action, differs or asked again), or one that ends the call, stop the run
+    there: the customer stops, and ``extras["stopped"]`` is the evidence (None: the run went to the end of the base
+    journey): ``{"turn", "line", "rule": "two_in_a_row" | "ended_call", "why", "turns": [{"turn", "line",
+    "status"}], "ended_with": {"act", "reason"}}``, the turns being the material deviations that triggered the stop.
+    ``extras["stop_rule"]`` says whether the rule was on for the run, and if not why (``off_because``: tool faults
+    injected, an adaptive customer, no validator): then every line is said in order, as before. When the bot ends
+    the call early (hangs up, transfers) ``extras["bot_ended_at"]`` is the line before which it did.
     Adaptive, the customer answers whatever the bot actually asked (``UserSimulator.respond``) and stops when the bot
     ends. Every bot event in the trace carries ``at``: for each act, the tool calls made before it (from the bot's
     ``BotTurn.calls_before``; without it, after all of the turn's calls), so the reports show a turn in order.
@@ -202,6 +207,11 @@ class JourneyRunner:
         prev_line, prev_repeat, turn_tools, turn_base = None, False, [], 0
         statuses: list[dict[str, Any]] = []
         stopped = None
+        streak: list[dict[str, Any]] = []            # the material deviations in a row so far (the stop's evidence)
+        stop_rule = {"active": expected is not None,  # whether a run can be stopped, and if not why not
+                     "off_because": None if expected is not None else
+                     "tool faults are injected" if faults else "the customer is adaptive" if script is None
+                     else "the graph's expected turns are not known (no validator)"}
         turn: BotTurn = _clean(bot.start())
         bot_stats.append(_turn_stats(turn.text, t0))
         for i in range(MAX_USER_TURNS + 1):
@@ -233,12 +243,16 @@ class JourneyRunner:
                 statuses.append({"turn": i - 1, "line": prev_line, "status": status, "repeat": prev_repeat})
                 if status is not None:
                     off = 0 if status in ("same", "side") else off + 1
+                    streak = [] if not off else streak + [{"turn": i - 1, "line": prev_line, "status": status}]
+                    last = {k: v for k, v in (acts[-1] if acts else {}).items() if k in ("act", "reason")}
                     if off >= 2:                     # two material deviations in a row: the run ends here
-                        stopped = {"turn": i - 1, "line": prev_line, "why": "two material deviations in a row"}
+                        stopped = {"turn": i - 1, "line": prev_line, "rule": "two_in_a_row",
+                                   "why": "two material deviations in a row", "turns": streak[-2:]}
                         break
                     if turn.ended and off:           # the agent ended the call where the graph does not
-                        stopped = {"turn": i - 1, "line": prev_line,
-                                   "why": "the agent ended the call where the graph does not"}
+                        stopped = {"turn": i - 1, "line": prev_line, "rule": "ended_call",
+                                   "why": "the agent ended the call where the graph does not", "turns": streak[-1:],
+                                   "ended_with": last}
                         break
                 if status == "asked_again":
                     repeated.add(prev_line)
@@ -316,7 +330,7 @@ class JourneyRunner:
             extras={"trace": tr, "transcript": transcript, "invariance_violations": violations,
                     "customer": "scripted" if script is not None else "adaptive",
                     "script_lines": len(script) if script is not None else None,
-                    "bot_ended_at": ended_at, "turn_status": statuses, "stopped": stopped,
+                    "bot_ended_at": ended_at, "turn_status": statuses, "stopped": stopped, "stop_rule": stop_rule,
                     "bot_turn_stats": bot_stats, "arm": scn.metadata.get("arm", "template"),
                     "injected": list(getattr(tools, "injected", [])),
                     "governance": monitor.finish() if monitor is not None else None,

@@ -2695,12 +2695,17 @@ function botResult(v) {
   const pill = h("span", { class: `pill ${r.correct ? "ok" : "bad"}` }, r.correct ? "correct" : "failed");
   const facts = h("p", { class: "small muted" }, `${v.type === "base" ? "Original wording" : "Reworded " + v.id} · status ${r.status}${r.transfer_reason ? " (" + r.transfer_reason + ")" : ""}${r.expected_transfer_reason && r.expected_transfer_reason !== r.transfer_reason ? ", expected " + r.expected_transfer_reason : ""} · ${r.turns} turns · severity ${r.severity}`);
   const codes = r.codes.length ? h("div", { class: "chips" }, ...r.codes.map(c => h("span", { class: "chip bad" }, c))) : null;
+  // the turn kinds of case_comparison.html (runs from before they were recorded: same / differs)
+  const TK = { same: ["ok", "✓ same"], side: ["warn", "non-material deviation"], kb_wrong: ["warn", "non-material: policy answer wrong"],
+    wrong_action: ["bad", "✗ incorrect action"], differs: ["bad", "✗ off the journey"], asked_again: ["bad", "✗ off the journey: asked again"],
+    not_played: ["warn", "– not played (run stopped)"] };
+  const stopped = r.stopped ? h("div", { class: "notice bad" }, r.stopped) : null;
   const tbt = v.turn_by_turn.length ? table(["Turn", "Same as the graph?", "Customer said", "Graph expected", "Bot did", "Speech check"],
-    v.turn_by_turn.map(x => [x.turn, h("span", { class: `mark ${x.turn_match === "True" ? "ok" : x.after_divergence === "True" ? "warn" : "bad"}`, title: x.after_divergence === "True" ? "after the first difference: the conversations may differ from here" : null },
+    v.turn_by_turn.map(x => [x.turn, TK[x.turn_status] ? h("span", { class: `mark ${TK[x.turn_status][0]}` }, TK[x.turn_status][1]) : h("span", { class: `mark ${x.turn_match === "True" ? "ok" : x.after_divergence === "True" ? "warn" : "bad"}`, title: x.after_divergence === "True" ? "after the first difference: the conversations may differ from here" : null },
         x.turn_match === "True" ? "✓ same" : x.after_divergence === "True" ? "after a difference" : "✗ differs"),
       x.customer_text, `${x.expected_tools !== "-" ? x.expected_tools + " ; " : ""}${x.expected_bot}`, `${x.actual_tools !== "-" ? x.actual_tools + " ; " : ""}${x.actual_bot_acts}`,
       x.speech_check || "–"]), { max: 420 }) : null;
-  return h("div", { class: "level" }, h("div", { class: "lh" }, pill, h("b", { class: "mono" }, v.id), facts), h("div", { class: "lb" }, codes, judgesRow(v.judges),
+  return h("div", { class: "level" }, h("div", { class: "lh" }, pill, h("b", { class: "mono" }, v.id), facts), h("div", { class: "lb" }, codes, stopped, judgesRow(v.judges),
     tbt || h("p", { class: "small muted" }, "No turn-by-turn record for this version."),
     v.transcript ? h("details", {}, h("summary", { style: "padding:4px 0" }, "Full transcript"), h("div", { class: "conv" }, ...v.transcript.map(m => h("div", { class: `turn ${m.role === "bot" ? "bot" : "customer"}` }, h("div", { class: "who" }, m.role === "bot" ? "Bot" : "Customer"), h("div", { class: "what" }, m.text))))) : null));
 }
