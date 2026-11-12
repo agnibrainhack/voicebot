@@ -112,10 +112,7 @@ wrong turn and reason (`s07_checks/diagnosis.py: judges_section`).
 **The customer in a test run.** Under Checks on the run page, *Customer follows the base journey* (on by default)
 sends `customer: "scripted"` in the job: every case's customer says its base journey's lines in order, whatever the bot
 answers, so a bot mistake cannot steer the rest of the case (chapter 6). Unchecked it sends `"adaptive"`, a customer
-that answers the bot's last question. *Count speech flow in correct* (off by default) sends `speech_gate: "strict"`:
-a case where the bot says an act the dialog does not allow at that point is then incorrect, and
-`case_comparison.html` lists the speech-flow row inside the verdict. Off, it sends `"fail"`: the flow is reported
-beside the verdict and counts only through its severity in the release gate.
+that answers the bot's last question.
 
 **Progress.** Every long part of a test run reports how far it has got (`gmsjourney/progress.py`), and the run page
 draws it inside the running step: the knowledge store's training as one segment per phase (compile, GEODE loop,
@@ -217,9 +214,7 @@ s10_console/
 * **Part 2** the case explorer: `load` reads a finished run's cases, proofs and results (cached by file time),
   `index` lists every base case with its reworded versions, `detail` shows one case in full (each version's turns in
   original and reworded words, the meaning read back, the proof's verdict, the bot's result with its turn-by-turn
-  comparison: each turn's calls and acts numbered in the order they happen, and its status as in
-  `case_comparison.html`: same, side step only, policy answer wrong, asked again, off the journey, not played).
-  A run made before the order was recorded shows the calls first, and `case_comparison.html` says so on those turns.
+  comparison).
 
 ## bots.py — the bot under test and the playground
 

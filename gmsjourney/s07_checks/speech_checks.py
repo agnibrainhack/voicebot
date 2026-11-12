@@ -189,11 +189,6 @@ class TurnReport:
         """Every act of the turn is a transition the dialog-state graph allows."""
         return not self.flow_findings
 
-    @property
-    def core_flow_ok(self) -> bool:
-        """``flow_ok``, leaving out a side step placed where the graph has none (a clarification it did not ask)."""
-        return not [f for i, f in enumerate(self.findings) if f.kind == "not_allowed_here" and i not in self.side["findings"]]
-
     def as_dict(self) -> dict[str, Any]:
         """A JSON-ready view (stored per turn in ``extras["speech"]["turns"]``)."""
         return {"turn": self.turn, "text": self.text, "acts": self.acts, "heard": self.heard, "ok": self.ok,
@@ -657,8 +652,8 @@ class ConversationChecker:
         """Counts for the run's result row: claims by verdict, unfaithful / missing / flow findings, how many
         policy figures knowlytix's AnswerVerifier also read (and agreed on), and the grades ``c_speech`` (every turn
         ok, leaving out the failures of side steps: a policy answer, a clarification), ``c_speech_strict`` (every
-        turn ok) and ``c_flow`` (every turn in flow, side steps left out; ``c_flow_strict`` with them). The counts
-        leave the side failures out; ``speech_side`` counts them."""
+        turn ok) and ``c_flow`` (every turn in flow). The counts leave the side failures out; ``speech_side``
+        counts them."""
         vs = [v for r in self.reports for i, v in enumerate(r.verdicts) if i not in r.side["verdicts"]]
         fs = [f for r in self.reports for i, f in enumerate(r.findings) if i not in r.side["findings"]]
         side_n = sum(1 for r in self.reports for i, v in enumerate(r.verdicts) if i in r.side["verdicts"] and v.failed) + \
@@ -683,8 +678,7 @@ class ConversationChecker:
                 "speech_side": side_n,
                 "c_speech": int(all(r.core_ok for r in self.reports)),
                 "c_speech_strict": int(all(r.ok for r in self.reports)),
-                "c_flow": int(all(r.core_flow_ok for r in self.reports)),
-                "c_flow_strict": int(all(r.flow_ok for r in self.reports))}
+                "c_flow": int(all(r.flow_ok for r in self.reports))}
 
     def problems(self, limit: int = 12) -> list[dict[str, Any]]:
         """Every failing claim and finding, with the turn and words, for failure reports."""

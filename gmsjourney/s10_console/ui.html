@@ -2104,9 +2104,8 @@ function runView(r) {
   const startBtn = h("button", { class: "btn primary", type: "submit", disabled: !!active }, "Start the test");
   const form = h("form", { class: "card", onsubmit: async e => { e.preventDefault(); startBtn.disabled = true; startBtn.replaceChildren(h("span", { class: "spin" }), "Starting…");
       if (S.dirty && !(await confirmBox("Save before running?", "The run reads the saved project. Your unsaved edits would not be used.", "Run without them"))) { startBtn.disabled = false; startBtn.replaceChildren("Start the test"); return; }
-      try { const body = { ...F, max_cases: F.max_cases === "" ? null : Number(F.max_cases), runs_per_base: Number(F.runs_per_base) || 1, seed: Number(F.seed) || 42, customer: F.scripted_customer === false ? "adaptive" : "scripted", sut: sutBody(),
-          speech_gate: F.flow_in_correct ? "strict" : "fail" };
-        delete body.scripted_customer; delete body.flow_in_correct;
+      try { const body = { ...F, max_cases: F.max_cases === "" ? null : Number(F.max_cases), runs_per_base: Number(F.runs_per_base) || 1, seed: Number(F.seed) || 42, customer: F.scripted_customer === false ? "adaptive" : "scripted", sut: sutBody() };
+        delete body.scripted_customer;
         const TE = (S.meta.tools_llm || {}).enrichment || {}, TT = (S.meta.tools_llm || {}).testing || {};
         Object.assign(body, { llm_backend: TE.backend || "gateway", llm_model: TE.backend === "local" ? "" : (TE.model || ""), llm_local_path: TE.local_path || "", llm_vllm_url: TE.vllm_url || "",
           bot_workers: body.sut.kind === "llm" ? 4 : 1,
@@ -2127,7 +2126,6 @@ function runView(r) {
         h("label", { for: "rf-rpb" }, "Runs per case"), h("input", { class: "input num", id: "rf-rpb", type: "number", min: 1, inputmode: "numeric", style: "width:140px", value: F.runs_per_base, oninput: e => set("runs_per_base", e.target.value) }),
         h("label", { for: "rf-seed" }, "Seed"), h("input", { class: "input num", id: "rf-seed", type: "number", inputmode: "numeric", style: "width:140px", value: F.seed, oninput: e => set("seed", e.target.value) })),
       h("div", { class: "grid2" }, h("div", { class: "stack", style: "gap:4px" }, h("h3", {}, "Checks"), chk("scripted_customer", "Customer follows the base journey", "Says the case's own lines whatever the bot answers, so a wrong turn cannot steer the case. Off: answers the bot's last question."), chk("speech_controls", "Speech controls", "Prove the speech check flags planted wording errors"), chk("run_governance", "Runtime gates", "Calibrate and run the runtime monitor"),
-          chk("flow_in_correct", "Count speech flow in correct", "A case where the bot says an act the dialog does not allow at that point is marked incorrect (otherwise it is reported, and only its severity counts)"),
           chk("run_resilience", "Tool faults", "Errors and plausible wrong answers from each tool"), chk("run_mutation", "Planted defects", "Mutant bots each suite must catch"), chk("run_power", "Power analysis", "Slower; sizes the design"),
           chk("llm_judges", "Two LLM judges", "Two LLM judges read every run beside the rules (which still decide); disagreements are flagged"),
           h("div", { style: "padding-left:26px" }, llmPick("testing", "rf-jdg", "Judges' LLM"))),
@@ -2696,24 +2694,11 @@ function botResult(v) {
   const pill = h("span", { class: `pill ${r.correct ? "ok" : "bad"}` }, r.correct ? "correct" : "failed");
   const facts = h("p", { class: "small muted" }, `${v.type === "base" ? "Original wording" : "Reworded " + v.id} · status ${r.status}${r.transfer_reason ? " (" + r.transfer_reason + ")" : ""}${r.expected_transfer_reason && r.expected_transfer_reason !== r.transfer_reason ? ", expected " + r.expected_transfer_reason : ""} · ${r.turns} turns · severity ${r.severity}`);
   const codes = r.codes.length ? h("div", { class: "chips" }, ...r.codes.map(c => h("span", { class: "chip bad" }, c))) : null;
-  // calls and acts in the order they happen (runs from before the order was recorded: calls first)
-  const steps = (st, tools, acts) => st ? h("div", {}, ...st.map((s, n) => h("div", {}, `${n + 1}. ${s.k} ${s.d}`)))
-    : `${tools && tools !== "-" ? tools + " ; " : ""}${acts}`;
-  const TS = { same: ["ok", "✓ same"], side: ["warn", "~ side step only"], kb_wrong: ["warn", "~ policy answer wrong"],
-    asked_again: ["warn", "↺ asked again"], differs: ["bad", "✗ off the journey"], not_played: ["warn", "– not played"] };
-  const TT = { side: "only a policy answer or a clarification differs: the turn is flagged, the run went on",
-    kb_wrong: "on the journey, but the policy answer is not the policy's", asked_again: "the bot asked again what was just answered: the customer said it again",
-    differs: "not what the graph does here", not_played: "the run stopped (two turns in a row off the journey) before this line" };
   const tbt = v.turn_by_turn.length ? table(["Turn", "Same as the graph?", "Customer said", "Graph expected", "Bot did", "Speech check"],
-    v.turn_by_turn.map(x => {
-      const ts = x.turn_status && TS[x.turn_status];
-      const [cls, word] = ts || (x.turn_match === "True" ? ["ok", "✓ same"] : x.after_divergence === "True" ? ["warn", "after a difference"] : ["bad", "✗ differs"]);
-      const tip = ts ? TT[x.turn_status] || null : x.after_divergence === "True" ? "after the first difference: the conversations may differ from here" : null;
-      return [x.repeat === "True" ? `${x.turn} (said again)` : x.turn, h("span", { class: `mark ${cls}`, title: tip }, word),
-        x.customer_text, steps(x.expected_steps, x.expected_tools, x.expected_bot),
-        x.turn_status === "not_played" ? "–" : steps(x.actual_steps, x.actual_tools, x.actual_bot_acts),
-        x.speech_check || "–"];
-    }), { max: 420 }) : null;
+    v.turn_by_turn.map(x => [x.turn, h("span", { class: `mark ${x.turn_match === "True" ? "ok" : x.after_divergence === "True" ? "warn" : "bad"}`, title: x.after_divergence === "True" ? "after the first difference: the conversations may differ from here" : null },
+        x.turn_match === "True" ? "✓ same" : x.after_divergence === "True" ? "after a difference" : "✗ differs"),
+      x.customer_text, `${x.expected_tools !== "-" ? x.expected_tools + " ; " : ""}${x.expected_bot}`, `${x.actual_tools !== "-" ? x.actual_tools + " ; " : ""}${x.actual_bot_acts}`,
+      x.speech_check || "–"]), { max: 420 }) : null;
   return h("div", { class: "level" }, h("div", { class: "lh" }, pill, h("b", { class: "mono" }, v.id), facts), h("div", { class: "lb" }, codes, judgesRow(v.judges),
     tbt || h("p", { class: "small muted" }, "No turn-by-turn record for this version."),
     v.transcript ? h("details", {}, h("summary", { style: "padding:4px 0" }, "Full transcript"), h("div", { class: "conv" }, ...v.transcript.map(m => h("div", { class: `turn ${m.role === "bot" ? "bot" : "customer"}` }, h("div", { class: "who" }, m.role === "bot" ? "Bot" : "Customer"), h("div", { class: "what" }, m.text))))) : null));

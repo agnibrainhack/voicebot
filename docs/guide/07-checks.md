@@ -70,12 +70,8 @@ s07_checks/
   where the graph allows it). A failure inside a **side step** (the words of a policy answer or a clarification,
   or a finding about one of those acts) is marked `side` at its turn and left out of `c_speech`; it is still
   counted in `speech_side` and in `c_speech_strict` (every turn ok, side steps included). A policy-question case
-  (`kb_qid`) is graded on `c_speech_strict`, because the answer is the case. In the same way `c_flow` leaves out a
-  side step placed where the graph has none (a clarification it did not ask for) and `c_flow_strict` keeps it.
-  With the default `--speech-gate fail`, `c_speech` is folded into `correct`; with `--speech-gate strict` (the
-  console's *Count speech flow in correct*) `c_flow` is too. `outcome_correct` keeps the verdict without them, so
-  the gate's effect is visible. The failure code `SPEECH_FLOW` and its severity (`evaluation.severity` in
-  `project.yaml`) feed the release gate whatever the speech gate is; they never decide `correct`.
+  (`kb_qid`) is graded on `c_speech_strict`, because the answer is the case. With the default `--speech-gate fail`, `c_speech` is folded into `correct`;
+  `outcome_correct` keeps the verdict without it, so the gate's effect is visible.
 
 `run(...)` runs and scores every scenario (with a progress bar); `summary(rows)` gives the headline rates (accuracy,
 workflow adherence, clean termination, runtime invariance); `weak_link(rows)` charges each failed run to the **first
