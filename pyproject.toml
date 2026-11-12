@@ -24,4 +24,4 @@ include = ["gmsjourney*"]
 
 [tool.setuptools.package-data]
 gmsjourney = ["policy/*/*.md", "policy/*/*.json", "policy/*/*.yaml", "s05_rewording/catalogs/official/*.yaml",
-              "s05_rewording/catalogs/official/*.md", "s10_console/*.html"]
+              "s05_rewording/catalogs/official/*.md", "s10_console/*.html", "s09_reports/*.html"]

@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Speech check playground</title>
+<!--
+  Speech check playground: every agent response a run checked, its whole sentence beside the claim cards read from
+  it, and the check replayed step by step (the words, the acts, the claims, where the truth comes from, said vs
+  truth, the response as a whole, the verdict).
+
+  Data: a run's dataset/case_results.jsonl (each graded run's ``speech_turns``: the response cards written by
+  gmsjourney/s07_checks/scoring.response_cards). The page reads it from where it is:
+    * served over http next to the run (the pipeline copies this file into every run folder as
+      speech_playground.html): it fetches dataset/case_results.jsonl, or the path given as ?data=...;
+    * opened from disk: choose the run folder, or the case_results.jsonl file, or drop either onto the page.
+  Nothing leaves the browser.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{--bg:#eef1f4;--surface:#fff;--ink:#131c26;--muted:#5a6b7d;--line:#d3dbe3;--line-soft:#e3e9ee;
+--accent:#a8500a;--accent-soft:#f7e9db;--pass:#1c7a4a;--pass-soft:#e2f2e9;--code-bg:#f2f5f8;
+--fail:#b3261e;--fail-soft:#fbe9e7;--wrong:#7a2e8e;--wrong-soft:#f3e7f6;--unk:#5a6b7d;--unk-soft:#e8edf2;
+--display:"IBM Plex Sans Condensed",system-ui,sans-serif;--body:"IBM Plex Sans",system-ui,sans-serif;
+--mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10161d;--surface:#161e27;--ink:#e6edf3;
+--muted:#93a3b3;--line:#2b3743;--line-soft:#222c36;--accent:#f0a35e;--accent-soft:#33261a;--pass:#5cc98d;
+--pass-soft:#16281f;--code-bg:#131a22;--fail:#f2837a;--fail-soft:#2e1a19;--wrong:#d69be6;--wrong-soft:#2a1d2f;
+--unk:#93a3b3;--unk-soft:#1e2731;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#10161d;--surface:#161e27;--ink:#e6edf3;--muted:#93a3b3;--line:#2b3743;
+--line-soft:#222c36;--accent:#f0a35e;--accent-soft:#33261a;--pass:#5cc98d;--pass-soft:#16281f;--code-bg:#131a22;
+--fail:#f2837a;--fail-soft:#2e1a19;--wrong:#d69be6;--wrong-soft:#2a1d2f;--unk:#93a3b3;--unk-soft:#1e2731;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55}
+h1,h2,h3{font-family:var(--display);line-height:1.15;margin:0}
+code,.mono{font-family:var(--mono);font-size:.86em}
+code{background:var(--code-bg);border:1px solid var(--line-soft);border-radius:4px;padding:.05em .3em;word-break:break-word}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.muted{color:var(--muted)}.small{font-size:.85rem}
+
+/* top bar */
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem 1.2rem;padding:14px 16px;border-bottom:1px solid var(--line);background:var(--surface)}
+.top h1{font-size:1.35rem}
+.top .src{font-size:.85rem;color:var(--muted);flex:1 1 260px;min-width:0;overflow-wrap:anywhere}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:.32rem .7rem;font-size:.88rem}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+:root[data-theme="dark"] .btn.primary{color:#10161d}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .btn.primary{color:#10161d}}
+.totals{display:flex;flex-wrap:wrap;gap:.3rem 1rem;font-size:.85rem}
+.totals b{font-family:var(--display);font-size:1.05rem}
+
+/* layout */
+.wrap{display:grid;grid-template-columns:minmax(260px,330px) 1fr;min-height:calc(100vh - 64px)}
+@media (max-width:860px){.wrap{grid-template-columns:1fr}.list{max-height:40vh}}
+.side{border-right:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;min-width:0}
+.filters{display:grid;gap:.45rem;padding:12px;border-bottom:1px solid var(--line-soft)}
+.filters input,.filters select{width:100%;border:1px solid var(--line);border-radius:7px;background:var(--bg);padding:.32rem .55rem;font-size:.88rem}
+.filters .row{display:grid;grid-template-columns:1fr 1fr;gap:.45rem}
+.list{overflow:auto;flex:1;padding:6px 0}
+.grp{padding:.5rem 12px .15rem;font-size:.75rem;color:var(--muted);font-family:var(--mono);overflow-wrap:anywhere}
+.item{display:grid;grid-template-columns:auto 1fr;gap:.1rem .55rem;width:100%;text-align:left;border:0;background:none;padding:.42rem 12px;border-left:3px solid transparent}
+.item:hover{background:var(--bg)}
+.item[aria-current="true"]{background:var(--accent-soft);border-left-color:var(--accent)}
+.item .snip{grid-column:2;font-size:.8rem;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.dot{width:.62rem;height:.62rem;border-radius:50%;margin-top:.42rem;background:var(--pass)}
+.dot.bad{background:var(--fail)}.dot.side{background:var(--accent)}
+.empty{padding:24px 16px;color:var(--muted)}
+
+/* detail */
+.main{min-width:0;padding:16px;display:grid;gap:14px;align-content:start}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.ctx{display:flex;flex-wrap:wrap;gap:.3rem 1rem;font-size:.83rem;color:var(--muted)}
+.who{font-family:var(--mono);font-size:.72rem;color:var(--muted);display:block;margin-bottom:.15rem}
+.cust{margin:.35rem 0 .7rem;padding-left:.7rem;border-left:3px solid var(--line)}
+.sentence{font-size:1.15rem;line-height:1.9;margin:0}
+.sent{border-radius:4px;padding:.05em .1em;transition:background .25s}
+.sentence.split .sent:nth-child(odd){background:var(--code-bg)}
+.sentence.split .sent{box-shadow:inset 0 -2px 0 var(--line)}
+mark{background:none;color:inherit;border-radius:3px;padding:0 .08em;box-shadow:inset 0 -.18em 0 var(--line);cursor:pointer;transition:background .25s,box-shadow .25s}
+mark.st-supported{box-shadow:inset 0 -.2em 0 var(--pass)}mark.st-contradicted{box-shadow:inset 0 -.2em 0 var(--fail)}
+mark.st-unsupported{box-shadow:inset 0 -.2em 0 var(--wrong)}mark.st-unverifiable{box-shadow:inset 0 -.2em 0 var(--unk)}
+mark.neutral{box-shadow:inset 0 -.2em 0 var(--accent)}
+mark.focus{background:var(--accent-soft)}
+mark.st-contradicted.focus{background:var(--fail-soft)}mark.st-supported.focus{background:var(--pass-soft)}
+mark.st-unsupported.focus{background:var(--wrong-soft)}
+sup.n{font-family:var(--mono);font-size:.62rem;color:var(--muted);margin-left:.05rem}
+
+/* stepper */
+.steps{display:flex;flex-wrap:wrap;gap:.35rem;margin:0;padding:0;list-style:none}
+.steps button{display:flex;align-items:center;gap:.4rem;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:.22rem .7rem .22rem .3rem;font-size:.82rem}
+.steps button .k{display:inline-grid;place-items:center;width:1.35rem;height:1.35rem;border-radius:50%;background:var(--code-bg);font-family:var(--mono);font-size:.72rem}
+.steps button[aria-current="step"]{border-color:var(--accent);background:var(--accent-soft)}
+.steps button[aria-current="step"] .k{background:var(--accent);color:#fff}
+.steps button.done .k{background:var(--pass-soft);color:var(--pass)}
+.nav{display:flex;gap:.5rem;align-items:center;margin-left:auto}
+.stephead{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem;margin-bottom:.6rem}
+.stephead h2{font-size:1.15rem}
+.explain{margin:.2rem 0 .8rem;color:var(--muted);font-size:.9rem;max-width:75ch}
+
+/* claim cards */
+.claims{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.claim{border:1px solid var(--line);border-radius:9px;padding:10px 12px;background:var(--surface);text-align:left;width:100%;border-top:4px solid var(--accent)}
+.claim.st-supported{border-top-color:var(--pass)}.claim.st-contradicted{border-top-color:var(--fail)}
+.claim.st-unsupported{border-top-color:var(--wrong)}.claim.st-unverifiable{border-top-color:var(--unk)}
+.claim.focus{outline:2px solid var(--accent);outline-offset:1px}
+.claim h3{font-size:.95rem;display:flex;justify-content:space-between;gap:.5rem}
+.claim dl{display:grid;grid-template-columns:auto 1fr;gap:.12rem .7rem;margin:.45rem 0 0;font-size:.84rem}
+.claim dt{color:var(--muted)}.claim dd{margin:0;overflow-wrap:anywhere}
+.claim .new{animation:in .35s ease-out}
+@keyframes in{from{background:var(--accent-soft)}to{background:transparent}}
+@media (prefers-reduced-motion:reduce){.claim .new,mark,.sent{animation:none;transition:none}}
+.pill{display:inline-block;border-radius:999px;padding:.02rem .55rem;font-size:.75rem;font-weight:600;white-space:nowrap}
+.pill.supported,.pill.ok{background:var(--pass-soft);color:var(--pass)}
+.pill.contradicted,.pill.bad{background:var(--fail-soft);color:var(--fail)}
+.pill.unsupported{background:var(--wrong-soft);color:var(--wrong)}
+.pill.unverifiable,.pill.adv{background:var(--unk-soft);color:var(--unk)}
+.pill.side{background:var(--accent-soft);color:var(--accent)}
+.arrow{font-family:var(--mono);color:var(--muted);text-align:center;margin:.2rem 0}
+
+/* acts + findings */
+.acts{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:600px){.acts{grid-template-columns:1fr}}
+.chips{display:flex;flex-wrap:wrap;gap:.35rem}
+.chip{border:1px solid var(--line);border-radius:6px;padding:.08rem .45rem;font-family:var(--mono);font-size:.78rem;background:var(--code-bg)}
+.chip.miss{border-color:var(--fail);color:var(--fail);background:var(--fail-soft)}
+.chip.extra{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.finds{display:grid;gap:8px}
+.find{border:1px solid var(--line);border-left:4px solid var(--fail);border-radius:8px;padding:8px 12px}
+.find.adv{border-left-color:var(--unk)}.find.flow{border-left-color:var(--accent)}.find.side{border-left-color:var(--accent)}
+.find b{font-size:.88rem}.find p{margin:.2rem 0 0;font-size:.85rem}
+.verdict{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;font-size:1.05rem}
+.big{font-family:var(--display);font-size:1.5rem}
+ul.why{margin:.5rem 0 0 1.1rem;padding:0}ul.why li{margin:.2rem 0}
+
+/* loader */
+.loader{max-width:640px;margin:8vh auto;padding:24px;border:2px dashed var(--line);border-radius:14px;background:var(--surface);text-align:left}
+.loader.drag{border-color:var(--accent);background:var(--accent-soft)}
+.loader h2{font-size:1.3rem;margin-bottom:.4rem}
+.loader .btns{display:flex;flex-wrap:wrap;gap:.5rem;margin:.9rem 0}
+.err{color:var(--fail);font-size:.88rem}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>Speech check playground</h1>
+  <div class="src" id="src">No run loaded</div>
+  <div class="totals" id="totals"></div>
+  <button class="btn" id="reload" type="button" hidden>Load another run</button>
+</div>
+<div id="app"></div>
+<input type="file" id="pickDir" class="sr" webkitdirectory directory multiple>
+<input type="file" id="pickFile" class="sr" accept=".jsonl,.json,.txt">
+
+<script>
+"use strict";
+// ---------------------------------------------------------------- vocabulary (what the check's words mean)
+const STATUS = {
+  supported: "the truth agrees with what was said",
+  contradicted: "the truth says otherwise",
+  unsupported: "nothing in the call or the policy backs it",
+  unverifiable: "it could not be checked here",
+};
+const BASIS = {
+  "tool result": "what a tool returned in this call",
+  "successful write": "a write the bank confirmed (record, card action)",
+  "what the customer said": "the customer's own words in this call",
+  "GMS exact register": "the exact figure in the policy store",
+  "GMS stance check": "the policy store's reading of a rule",
+  "policy text": "the policy's own wording",
+  "nothing to check": "a statement with nothing to compare",
+};
+const FINDING = {
+  text_contradicts_label: ["The words say another act", "the words express a different act from the one the agent labelled", "bad"],
+  label_not_said: ["A labelled act is not in the words", "the agent labelled an act its words never express", "bad"],
+  missing: ["Required information missing", "the policy requires this information with this act, and it was not said", "bad"],
+  disclosed: ["Disclosed what it must not", "the words disclose something the policy keeps back", "bad"],
+  not_allowed_here: ["Act not allowed at this point", "the dialog does not allow this act here (speech flow)", "flow"],
+  volunteered: ["Volunteered a fact", "a fact the customer did not ask for (advisory unless the policy forbids it)", "adv"],
+  unread: ["Words not read as policy", "words the reader could not tie to a policy fact (advisory, not graded)", "adv"],
+};
+const STEPS = [
+  ["The words", "What the customer heard, as one response, cut into the sentences the reader works on. The customer's line before it is the context."],
+  ["The acts", "The acts the agent says it performed (its labels) beside the acts its words express. A label the words never express, or words that express another act, make the response unfaithful."],
+  ["Claims read", "Each fact the words state becomes a claim card: what is claimed (field), the value the words give, what it is about, and the exact words. Click a card to find its words in the sentence."],
+  ["Where the truth is", "For every claim the checker picks where the truth lives: a tool result, a confirmed write, the customer's own words, the policy store or the policy text."],
+  ["Said vs truth", "The value the words give is compared with the truth. Supported, contradicted (the truth says otherwise), unsupported (nothing backs it) or unverifiable."],
+  ["The response as a whole", "Problems no single claim shows: required information missing, an act not allowed at this point, words that do not match the labels. Advisory notes are listed but not graded."],
+  ["Verdict", "The response passes only if no claim is contradicted or unsupported and there is no blocking problem. Side-step problems (a policy answer or a clarification) are flagged here and left out of the journey's grade."],
+];
+const BAD_STATUS = new Set(["contradicted", "unsupported"]);
+
+// ---------------------------------------------------------------- state
+const S = { rows: [], resp: [], view: [], cur: 0, step: 0, focus: null, timer: null, source: "" };
+const $ = (s, el = document) => el.querySelector(s);
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v; else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const k of kids.flat()) if (k != null && k !== false) el.append(k instanceof Node ? k : document.createTextNode(String(k)));
+  return el;
+}
+const fmt = v => v == null ? "–" : Array.isArray(v) ? v.join(" – ") : typeof v === "object" ? JSON.stringify(v) : String(v);
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+                set(k, v) { try { localStorage.setItem(k, v); } catch { /* private window */ } } };
+
+// ---------------------------------------------------------------- loading
+function parse(text, source) {
+  const rows = [];
+  const t = text.trim();
+  if (t.startsWith("[")) { for (const r of JSON.parse(t)) rows.push(r); }
+  else for (const line of t.split(/\r?\n/)) { if (line.trim()) rows.push(JSON.parse(line)); }
+  const resp = [];
+  for (const r of rows) for (const c of r.speech_turns || []) resp.push({ row: r, card: c });
+  if (!resp.length) throw new Error("no speech checks in this file: it needs a run's dataset/case_results.jsonl");
+  S.rows = rows; S.resp = resp; S.source = source; S.cur = 0; S.step = 0; S.focus = null;
+  render();
+}
+async function autoload() {
+  const q = new URLSearchParams(location.search).get("data");
+  for (const p of q ? [q] : ["dataset/case_results.jsonl", "case_results.jsonl"]) {
+    try { const r = await fetch(p, { cache: "no-store" }); if (r.ok) { parse(await r.text(), p); return; } } catch { /* opened from disk */ }
+  }
+  loader();
+}
+function readFile(f) { return new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = bad; r.readAsText(f); }); }
+async function fromFiles(files, how) {
+  const list = [...files];
+  const pick = list.find(f => /(^|\/)dataset\/case_results\.jsonl$/.test(f.webkitRelativePath || f.name))
+    || list.find(f => /case_results\.jsonl$/.test(f.webkitRelativePath || f.name)) || (list.length === 1 ? list[0] : null);
+  if (!pick) return loader("That folder has no dataset/case_results.jsonl. Choose a run's output folder.");
+  try { parse(await readFile(pick), `${how}: ${pick.webkitRelativePath || pick.name}`); }
+  catch (e) { loader(String(e.message || e)); }
+}
+async function fromDrop(dt) {
+  const entries = [...dt.items].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+  const files = [];
+  const walk = (e, path) => new Promise(done => {
+    if (e.isFile) e.file(f => { Object.defineProperty(f, "webkitRelativePath", { value: path + f.name }); files.push(f); done(); });
+    else { const rd = e.createReader(); const all = [];
+      const next = () => rd.readEntries(async es => { if (!es.length) { for (const x of all) await walk(x, path + e.name + "/"); done(); }
+        else { all.push(...es); next(); } });
+      next(); }
+  });
+  if (entries.length) { for (const e of entries) await walk(e, ""); return fromFiles(files, "dropped"); }
+  return fromFiles(dt.files, "dropped");
+}
+$("#pickDir").addEventListener("change", e => fromFiles(e.target.files, "folder"));
+$("#pickFile").addEventListener("change", e => fromFiles(e.target.files, "file"));
+$("#reload").addEventListener("click", () => loader());
+document.addEventListener("dragover", e => { e.preventDefault(); const l = $(".loader"); if (l) l.classList.add("drag"); });
+document.addEventListener("dragleave", () => { const l = $(".loader"); if (l) l.classList.remove("drag"); });
+document.addEventListener("drop", e => { e.preventDefault(); fromDrop(e.dataTransfer); });
+
+function loader(err) {
+  stop();
+  $("#reload").hidden = true;
+  $("#totals").replaceChildren();
+  $("#src").textContent = S.source ? `Loaded: ${S.source}` : "No run loaded";
+  $("#app").replaceChildren(h("div", { class: "loader" },
+    h("h2", {}, "Open a run"),
+    h("p", { class: "muted" }, "This page replays the speech check on every agent response of a test run. It reads the run's ",
+      h("code", {}, "dataset/case_results.jsonl"), ". Served next to a run it loads it by itself; opened from disk, choose the run's output folder or the file, or drop either here."),
+    h("div", { class: "btns" },
+      h("button", { class: "btn primary", type: "button", onclick: () => $("#pickDir").click() }, "Choose run folder"),
+      h("button", { class: "btn", type: "button", onclick: () => $("#pickFile").click() }, "Choose case_results.jsonl")),
+    h("p", { class: "small muted" }, "Or open it with ", h("code", {}, "?data=path/to/case_results.jsonl"), " when served. Nothing leaves your browser."),
+    err ? h("p", { class: "err" }, err) : null));
+}
+
+// ---------------------------------------------------------------- filtering
+function respBad(c) { return c.ok === false; }
+function respSide(c) { return c.ok === false && c.core_ok === true; }
+function filtered() {
+  const q = ($("#q")?.value || "").toLowerCase().trim();
+  const show = $("#show")?.value || "all", arm = $("#arm")?.value || "all", field = $("#field")?.value || "all";
+  return S.resp.filter(({ row, card }) => {
+    if (arm !== "all" && (row.arm || "base") !== arm) return false;
+    if (field !== "all" && !card.claims.some(c => c.field === field)) return false;
+    if (show === "failing" && !respBad(card)) return false;
+    if (show === "passing" && respBad(card)) return false;
+    if (["contradicted", "unsupported", "unverifiable"].includes(show) && !card.claims.some(c => c.status === show)) return false;
+    if (show === "findings" && !card.findings.some(f => (FINDING[f.kind] || [, , "bad"])[2] !== "adv")) return false;
+    if (q && !(`${row.sid} ${card.text} ${card.customer || ""}`.toLowerCase().includes(q))) return false;
+    return true;
+  });
+}
+
+// ---------------------------------------------------------------- the sentence with its claims
+function spans(card) {
+  // where each claim's words sit in the whole text: inside its own sentence when the run kept it, else the next
+  // occurrence after the previous claim with the same words
+  const text = card.text || "", low = text.toLowerCase(), out = [], used = {};
+  card.claims.forEach((c, i) => {
+    const w = String(c.words || "").toLowerCase();
+    if (!w) return;
+    let from = 0;
+    if (c.sentence) { const s = low.indexOf(String(c.sentence).toLowerCase()); if (s >= 0) from = s; }
+    else from = used[w] || 0;
+    let at = low.indexOf(w, from);
+    if (at < 0) at = low.indexOf(w);
+    if (at < 0) return;
+    used[w] = at + w.length;
+    out.push({ i, a: at, b: at + w.length });
+  });
+  return out;
+}
+function sentences(text) {
+  const out = []; const re = /[^.!?]+[.!?]*\s*/g; let m;
+  while ((m = re.exec(text)) && m[0]) out.push({ a: m.index, b: m.index + m[0].length });
+  return out.length ? out : [{ a: 0, b: text.length }];
+}
+function sentenceView(card) {
+  const text = card.text || "", st = S.step;
+  const sp = st >= 2 ? spans(card) : [];
+  const owner = new Array(text.length).fill(-1);
+  for (const s of sp) for (let k = s.a; k < s.b; k++) if (owner[k] < 0) owner[k] = s.i;
+  const p = h("p", { class: "sentence" + (st === 0 ? " split" : "") });
+  for (const s of sentences(text)) {
+    const sent = h("span", { class: "sent" });
+    let k = s.a;
+    while (k < s.b) {
+      const o = owner[k]; let e = k;
+      while (e < s.b && owner[e] === o) e++;
+      const part = text.slice(k, e);
+      if (o < 0) sent.append(part);
+      else {
+        const c = card.claims[o];
+        const cls = st >= 4 ? `st-${c.status}` : "neutral";
+        sent.append(h("mark", { class: `${cls}${S.focus === o ? " focus" : ""}`, title: `claim ${o + 1}: ${c.field} = ${fmt(c.value)}`,
+          onclick: () => { S.focus = o; renderDetail(); } }, part, h("sup", { class: "n" }, o + 1)));
+      }
+      k = e;
+    }
+    p.append(sent);
+  }
+  return p;
+}
+
+// ---------------------------------------------------------------- the steps
+function claimCard(c, i, st) {
+  const dl = h("dl", {},
+    h("dt", {}, "words"), h("dd", {}, "“", c.words, "”"),
+    h("dt", {}, "says"), h("dd", {}, h("code", {}, fmt(c.value))),
+    c.about ? [h("dt", {}, "about"), h("dd", {}, h("code", {}, c.about))] : null,
+    c.mode && c.mode !== "states" ? [h("dt", {}, "as"), h("dd", {}, c.mode)] : null);
+  if (st >= 3) dl.append(h("dt", { class: "new" }, "truth from"), h("dd", { class: "new" }, c.basis || "–",
+    BASIS[c.basis] ? h("div", { class: "small muted" }, BASIS[c.basis]) : null,
+    c.source && c.source !== c.basis ? h("div", { class: "small muted" }, "source: ", c.source) : null));
+  if (st >= 3) dl.append(h("dt", { class: "new" }, "truth"), h("dd", { class: "new" }, h("code", {}, fmt(c.truth))));
+  if (st >= 4) dl.append(h("dt", { class: "new" }, "result"), h("dd", { class: "new" },
+    h("span", { class: `pill ${c.status}` }, c.status), c.side ? [" ", h("span", { class: "pill side" }, "side step")] : null,
+    h("div", { class: "small muted" }, c.why || STATUS[c.status] || "")));
+  return h("button", { class: `claim${st >= 4 ? " st-" + c.status : ""}${S.focus === i ? " focus" : ""}`, type: "button",
+    onclick: () => { S.focus = i; renderDetail(); } },
+    h("h3", {}, h("span", {}, `Claim ${i + 1}: `, c.field), st >= 4 ? h("span", { class: `pill ${c.status}` }, c.status) : null), dl);
+}
+function stepBody(card) {
+  const st = S.step, ex = h("p", { class: "explain" }, STEPS[st][1]);
+  if (st === 0) {
+    const n = sentences(card.text || "").length;
+    return [ex, h("p", {}, `${n} sentence${n === 1 ? "" : "s"}, ${(card.text || "").split(/\s+/).filter(Boolean).length} words. `,
+      card.claims.length ? `The reader will find ${card.claims.length} claim${card.claims.length === 1 ? "" : "s"} in them.` : "The reader finds no checkable claim in them.")];
+  }
+  if (st === 1) {
+    const labels = card.acts || [], heard = card.heard;
+    // only what the checker itself flagged is marked: the reader recognises some acts in words, not all
+    const notSaid = new Set(card.findings.filter(f => f.kind === "label_not_said").map(f => f.act));
+    const otherAct = new Set(card.findings.filter(f => f.kind === "text_contradicts_label").map(f => f.act));
+    const lab = h("div", {}, h("span", { class: "who" }, "Labelled by the agent"),
+      h("div", { class: "chips" }, labels.length ? labels.map(a => h("span", { class: "chip" + (notSaid.has(a) || otherAct.has(a) ? " miss" : ""),
+        title: notSaid.has(a) ? "labelled, but the words never express it" : otherAct.has(a) ? "the words express another act" : null }, a))
+        : h("span", { class: "muted small" }, "(no labels: a text-only agent)")));
+    const hr = h("div", {}, h("span", { class: "who" }, "Recognised in the words"),
+      heard ? h("div", { class: "chips" }, heard.length ? heard.map(a => h("span", { class: "chip" }, a)) : h("span", { class: "muted small" }, "(none recognised)"))
+        : h("p", { class: "small muted" }, "Not recorded in this run (runs from before it was kept)."));
+    const notes = [];
+    for (const f of card.findings.filter(f => f.kind === "label_not_said" || f.kind === "text_contradicts_label"))
+      notes.push(h("li", {}, h("b", {}, (FINDING[f.kind] || [f.kind])[0]), f.act ? ` (${f.act})` : "", `: ${f.detail}`));
+    if (!notes.length) notes.push(h("li", {}, "No mismatch: nothing the agent labelled is contradicted by its words. ",
+      h("span", { class: "muted" }, "The reader recognises only some acts in words (confirmations, offers, summaries of records...); an act it does not look for is not a mismatch.")));
+    return [ex, h("div", { class: "acts" }, lab, hr), h("ul", { class: "why" }, notes)];
+  }
+  if (st >= 2 && st <= 4) {
+    if (!card.claims.length) return [ex, h("p", { class: "muted" }, "No claim was read from this response.")];
+    return [ex, h("div", { class: "claims" }, card.claims.map((c, i) => claimCard(c, i, st)))];
+  }
+  if (st === 5) {
+    if (!card.findings.length) return [ex, h("p", {}, "Nothing to report about the response as a whole.")];
+    return [ex, h("div", { class: "finds" }, card.findings.map(f => {
+      const [title, what, kind] = FINDING[f.kind] || [f.kind, "", "bad"];
+      return h("div", { class: `find ${f.side ? "side" : kind}` },
+        h("b", {}, title), " ", f.act ? h("code", {}, f.act) : null, " ",
+        h("span", { class: `pill ${f.side ? "side" : kind === "adv" ? "adv" : kind === "flow" ? "side" : "bad"}` },
+          f.side ? "side step" : kind === "adv" ? "advisory" : kind === "flow" ? "speech flow" : "blocking"),
+        h("p", {}, f.detail), h("p", { class: "small muted" }, what, f.rule ? ` (${f.rule})` : ""));
+    }))];
+  }
+  // verdict
+  const bad = card.claims.map((c, i) => ({ c, i })).filter(x => BAD_STATUS.has(x.c.status));
+  const blocking = card.findings.filter(f => (FINDING[f.kind] || [, , "bad"])[2] === "bad");
+  const flow = card.findings.filter(f => f.kind === "not_allowed_here");
+  const why = [];
+  for (const { c, i } of bad) why.push(h("li", {}, `claim ${i + 1} (${c.field}) is ${c.status}`, c.why ? `: ${c.why}` : "", c.side ? " - in a side step" : ""));
+  for (const f of blocking) why.push(h("li", {}, (FINDING[f.kind] || [f.kind])[0].toLowerCase(), f.act ? ` (${f.act})` : "", `: ${f.detail}`, f.side ? " - in a side step" : ""));
+  const ok = card.ok !== false;
+  return [ex, h("div", { class: "verdict" },
+      h("span", { class: "big" }, ok ? "Passes" : card.core_ok ? "Fails only in a side step" : "Fails"),
+      h("span", { class: `pill ${ok ? "ok" : card.core_ok ? "side" : "bad"}` }, ok ? "grounded" : card.core_ok ? "flagged at its turn" : "counts against the journey"),
+      flow.length ? h("span", { class: "pill side" }, "speech flow: " + flow.length) : null),
+    why.length ? h("ul", { class: "why" }, why) : h("p", {}, `Every claim is supported${card.claims.length ? "" : " (there were none)"}, and nothing blocking was found.`),
+    h("p", { class: "small muted" }, card.core_ok && !ok
+      ? "Every problem is inside a policy answer or a clarification: it is flagged at this turn and left out of the journey's grade (c_speech), unless the case is that policy question."
+      : "A failing response makes the case's speech check (c_speech) fail; with the default speech gate that makes the case incorrect.")];
+}
+
+// ---------------------------------------------------------------- rendering
+function render() {
+  $("#reload").hidden = false;
+  $("#src").textContent = `Loaded: ${S.source}`;
+  const all = S.resp.flatMap(r => r.card.claims);
+  const cnt = s => all.filter(c => c.status === s).length;
+  $("#totals").replaceChildren(
+    h("span", {}, h("b", {}, S.rows.length), " runs"), h("span", {}, h("b", {}, S.resp.length), " responses"),
+    h("span", {}, h("b", {}, all.length), " claims"),
+    ...["supported", "contradicted", "unsupported", "unverifiable"].filter(cnt).map(s => h("span", {}, h("span", { class: `pill ${s}` }, `${cnt(s)} ${s}`))));
+  const fields = [...new Set(all.map(c => c.field))].sort();
+  const arms = [...new Set(S.rows.map(r => r.arm || "base"))];
+  const remembered = store.get("speechpg.show") || "all";
+  $("#app").replaceChildren(h("div", { class: "wrap" },
+    h("aside", { class: "side" },
+      h("div", { class: "filters" },
+        h("label", {}, h("span", { class: "sr" }, "Search"), h("input", { id: "q", type: "search", placeholder: "Search case or words", oninput: renderList })),
+        h("div", { class: "row" },
+          h("label", {}, h("span", { class: "sr" }, "Show"), h("select", { id: "show", onchange: e => { store.set("speechpg.show", e.target.value); renderList(); } },
+            [["all", "All responses"], ["failing", "Failing"], ["passing", "Passing"], ["contradicted", "With contradicted"], ["unsupported", "With unsupported"],
+             ["unverifiable", "With unverifiable"], ["findings", "With a blocking finding"]].map(([v, t]) => h("option", { value: v, selected: v === remembered }, t)))),
+          h("label", {}, h("span", { class: "sr" }, "Field"), h("select", { id: "field", onchange: renderList },
+            h("option", { value: "all" }, "Any field"), fields.map(f => h("option", { value: f }, f))))),
+        arms.length > 1 ? h("label", {}, h("span", { class: "sr" }, "Wording"), h("select", { id: "arm", onchange: renderList },
+          h("option", { value: "all" }, "Any wording"), arms.map(a => h("option", { value: a }, a === "base" ? "original wording" : a + " rewording")))) : null),
+      h("nav", { class: "list", id: "list", "aria-label": "Responses" })),
+    h("main", { class: "main", id: "detail" })));
+  renderList();
+}
+function renderList() {
+  S.view = filtered();
+  const list = $("#list");
+  list.replaceChildren();
+  if (!S.view.length) { list.append(h("div", { class: "empty" }, "No response matches.")); $("#detail").replaceChildren(); return; }
+  if (S.cur >= S.view.length) S.cur = 0;
+  let last = null;
+  S.view.forEach(({ row, card }, k) => {
+    if (row.sid !== last) { list.append(h("div", { class: "grp" }, row.sid, row.correct === 0 ? " · incorrect" : "")); last = row.sid; }
+    list.append(h("button", { class: "item", type: "button", "aria-current": k === S.cur ? "true" : "false",
+      onclick: () => { S.cur = k; S.step = 0; S.focus = null; stop(); renderList(); } },
+      h("span", { class: `dot${respSide(card) ? " side" : respBad(card) ? " bad" : ""}` }),
+      h("span", {}, card.where || `turn ${card.turn}`), h("span", { class: "snip" }, card.text)));
+  });
+  list.querySelector('[aria-current="true"]')?.scrollIntoView({ block: "nearest" });
+  renderDetail();
+}
+function renderDetail() {
+  const v = S.view[S.cur]; if (!v) return;
+  const { row, card } = v;
+  const steps = h("ol", { class: "steps", "aria-label": "Steps of the check" }, STEPS.map(([t], k) => h("li", {},
+    h("button", { type: "button", class: k < S.step ? "done" : "", "aria-current": k === S.step ? "step" : null,
+      onclick: () => { S.step = k; stop(); renderDetail(); } }, h("span", { class: "k" }, k + 1), t))));
+  const nav = h("div", { class: "nav" },
+    h("button", { class: "btn", type: "button", disabled: S.step === 0, onclick: () => go(-1) }, "Back"),
+    h("button", { class: "btn", type: "button", onclick: () => (S.timer ? stop() : play()) }, S.timer ? "Pause" : "Play"),
+    h("button", { class: "btn primary", type: "button", disabled: S.step === STEPS.length - 1, onclick: () => go(1) }, "Next step"));
+  $("#detail").replaceChildren(
+    h("section", { class: "card" },
+      h("div", { class: "ctx" }, h("span", { class: "mono" }, row.sid), h("span", {}, card.where || `turn ${card.turn}`),
+        h("span", {}, (row.arm || "base") === "base" ? "original wording" : `${row.arm} rewording`),
+        row.correct != null ? h("span", { class: `pill ${row.correct ? "ok" : "bad"}` }, row.correct ? "case correct" : "case incorrect") : null),
+      card.customer ? h("div", { class: "cust" }, h("span", { class: "who" }, "Customer said"), "“", card.customer, "”") : null,
+      h("span", { class: "who" }, "Agent said"), sentenceView(card)),
+    h("section", { class: "card" },
+      h("div", { class: "stephead" }, steps, nav),
+      h("div", { class: "stephead" }, h("h2", {}, `Step ${S.step + 1}. ${STEPS[S.step][0]}`)),
+      ...stepBody(card)));
+}
+function go(d) { S.step = Math.max(0, Math.min(STEPS.length - 1, S.step + d)); renderDetail(); }
+function play() {
+  if (S.step === STEPS.length - 1) S.step = 0;
+  S.timer = setInterval(() => { if (S.step >= STEPS.length - 1) { stop(); renderDetail(); return; } go(1); }, 1700);
+  renderDetail();
+}
+function stop() { if (S.timer) clearInterval(S.timer); S.timer = null; }
+document.addEventListener("keydown", e => {
+  if (!S.view.length || /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName || "")) return;
+  if (e.key === "ArrowRight") { stop(); go(1); }
+  else if (e.key === "ArrowLeft") { stop(); go(-1); }
+  else if (e.key === "j" || e.key === "ArrowDown") { e.preventDefault(); S.cur = Math.min(S.view.length - 1, S.cur + 1); S.step = 0; S.focus = null; stop(); renderList(); }
+  else if (e.key === "k" || e.key === "ArrowUp") { e.preventDefault(); S.cur = Math.max(0, S.cur - 1); S.step = 0; S.focus = null; stop(); renderList(); }
+});
+autoload();
+</script>
+</body>
+</html>

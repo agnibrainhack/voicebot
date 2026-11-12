@@ -719,8 +719,9 @@ def run_campaign(cfg: CampaignConfig, log: Callable[[str], None] = print) -> dic
     (out / "report.json").write_text(json.dumps(R, indent=1, default=str))
     from ..s09_reports.report import render_html
     (out / "report.html").write_text(render_html(R))
-    from ..s09_reports.cases import write_case_comparison
+    from ..s09_reports.cases import write_case_comparison, write_speech_playground
     write_case_comparison(out)
+    write_speech_playground(out)                     # the speech check replayed, response by response
 
     # 13 ------------------------------------------------------------- verdict
     log("[13/13] writing the verdict: release decision, top risks, how to reproduce; every case, expected beside actual")

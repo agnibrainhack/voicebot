@@ -193,7 +193,8 @@ class TurnReport:
         """A JSON-ready view (stored per turn in ``extras["speech"]["turns"]``)."""
         return {"turn": self.turn, "text": self.text, "acts": self.acts, "heard": self.heard, "ok": self.ok,
                 "core_ok": self.core_ok, "flow_ok": self.flow_ok,
-                "claims": [{**v.as_dict(), **({"side": True} if i in self.side["verdicts"] else {})}
+                "claims": [{**v.as_dict(), "sentence": v.claim.sentence,
+                            **({"side": True} if i in self.side["verdicts"] else {})}
                            for i, v in enumerate(self.verdicts)],
                 "findings": [{**f.as_dict(), **({"side": True} if i in self.side["findings"] else {})}
                              for i, f in enumerate(self.findings)]}

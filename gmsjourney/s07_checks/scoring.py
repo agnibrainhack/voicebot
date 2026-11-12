@@ -372,7 +372,8 @@ def response_cards(speech_turns: list[dict[str, Any]], transcript: list[dict[str
 
     Input   the speech check's per-turn reports (``extras["speech"]["turns"]``, one per bot turn) and the run's
             transcript (``[{role, text, ...}]``, used for what the customer said just before each response)
-    Output  ``[{turn, where, customer, text, acts, ok, flow_ok, claims, findings}]`` for every turn with a
+    Output  ``[{turn, where, customer, text, acts, heard, ok, core_ok, flow_ok, claims, findings}]`` for every turn
+            with a
             claim or a finding. Each claim keeps its words, the value they give, its verdict, where the truth was
             read (``basis``: tool result / successful write / what the customer said / GMS exact register /
             GMS stance check / policy text), the true value, and for policy figures the GMS reading (distance
@@ -388,8 +389,8 @@ def response_cards(speech_turns: list[dict[str, Any]], transcript: list[dict[str
             k += 1
             before[k] = last_user
     return [{"turn": t["turn"], "where": turn_where(t["turn"]), "customer": before.get(t["turn"]), "text": t["text"],
-             "acts": t["acts"], "ok": t["ok"], "flow_ok": t["flow_ok"], "claims": t["claims"],
-             "findings": t["findings"]}
+             "acts": t["acts"], "heard": t.get("heard"), "ok": t["ok"], "core_ok": t.get("core_ok", t["ok"]),
+             "flow_ok": t["flow_ok"], "claims": t["claims"], "findings": t["findings"]}
             for t in speech_turns if t["claims"] or t["findings"]]
 
 

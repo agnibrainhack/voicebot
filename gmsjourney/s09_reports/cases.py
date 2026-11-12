@@ -1141,6 +1141,15 @@ def read_judges(ds: Path) -> dict[str, dict]:
     return out
 
 
+def write_speech_playground(out_dir: str | Path) -> Path:
+    """Copy the speech check playground (speech_playground.html) into a run folder: served next to the run it reads
+    the run's dataset/case_results.jsonl by itself; opened from disk it asks for the folder or the file."""
+    import shutil
+    dst = Path(out_dir) / "speech_playground.html"
+    shutil.copyfile(Path(__file__).with_name("speech_playground.html"), dst)
+    return dst
+
+
 def write_case_comparison(out_dir: str | Path, out_name: str = "case_comparison.html") -> Path:
     """Write ``case_comparison.html`` in a run folder: every case side by side with the expected and actual turns,
     from the run's dataset files.

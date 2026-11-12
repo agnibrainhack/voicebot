@@ -306,6 +306,23 @@ def test_what_was_that_is_read_as_unclear_not_as_a_question():
     assert not r._not_heard("How much does expedited delivery cost?")
 
 
+def test_the_speech_playground_is_copied_into_a_run_and_its_cards_keep_what_it_shows(tmp_path=None):
+    import json
+    import tempfile
+    from gmsjourney.s07_checks.scoring import response_cards
+    from gmsjourney.s09_reports.cases import write_speech_playground
+    out = Path(tmp_path or tempfile.mkdtemp())
+    page = write_speech_playground(out).read_text()
+    assert "dataset/case_results.jsonl" in page and "webkitdirectory" in page and "Said vs truth" in page
+    _, B = _bench()
+    conv = B.speech.conversation(None)
+    t = "Thanks, I've noted charge T1 as recognized. Is there anything else I can help with?"
+    rep = conv.check([{"act": "CONFIRM_RECORDED", "text": t}], t, [], [])
+    card = response_cards([{**rep.as_dict(), "turn": 1}], [])
+    assert card and "heard" in card[0] and "core_ok" in card[0]
+    assert all("sentence" in c for c in card[0]["claims"]) and json.dumps(card)
+
+
 # ------------------------------------------------------------------ speech
 def test_a_speech_failure_in_a_side_step_is_flagged_at_its_turn_only():
     from gmsjourney.s07_checks.speech_checks import Finding, TurnReport

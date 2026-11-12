@@ -111,6 +111,21 @@ stop rule was on (and, if it had material deviations, that they were never two i
 same reason, with the turns, heads the failure list of `report.html` and the console's case view, and the LLM judges
 are told the run was stopped (they no longer see the unplayed lines as turns the bot ignored).
 
+### The speech check playground (`speech_playground.html`)
+
+`write_speech_playground(out)` copies `s09_reports/speech_playground.html` into the run folder (the campaign does it
+after `case_comparison.html`). It is one self-contained page that reads the run's `dataset/case_results.jsonl` (every
+run's `speech_turns`, the response cards of `s07_checks/scoring.response_cards`, which keep the acts the words were
+heard as and, per claim, the sentence it was read from): fetched next to it when the folder is served, or chosen /
+dropped when the page is opened from disk (browsers do not let a local page read its folder by itself). For each
+agent response it shows the customer's line and the whole sentence with every claim's words marked, the claim
+cards, and the check in seven steps: the words (cut into sentences), the acts (labelled vs recognised in the words;
+only what the checker flagged is marked), the claims read, where the truth is (tool result, confirmed write, the
+customer's words, the policy store, the policy text), said vs truth (supported / contradicted / unsupported /
+unverifiable, colouring the words), the response as a whole (blocking, speech-flow and advisory findings, side steps
+marked), and the verdict with its reasons. Back / Next / Play, arrow keys for steps, j / k (or up / down) between
+responses.
+
 ### Part 4: inside one case
 
 `pick(items, scenarios, "J015", 0)` selects a base case and one of its reworded variants (`variants_of`);
