@@ -85,6 +85,11 @@ def _verdict(obj: dict | None, raw: str | None = None) -> dict[str, Any]:
     return {"verdict": v, "reason": str(obj.get("reason") or "")[:300], "first_wrong_turn": fw}
 
 
+def _in_order(steps: list | None) -> str:
+    """A turn's calls and acts in order ("calls record_charge_response(T1) -> says CONFIRM_RECORDED"), or "-"."""
+    return " -> ".join(f"{x.get('k')} {x.get('d')}" for x in steps or []) or "-"
+
+
 def combine(rules_ok: bool | None, a: dict | None, b: dict | None) -> dict[str, Any]:
     """The judges beside the rules' verdict: each judge's agreement with the rules, whether they agree with each
     other, and one status line. Judges that could not answer are left out of the comparison."""
@@ -153,10 +158,14 @@ class Judges:
         for t in c.get("turns") or []:
             lines.append(f"\nTurn {t.get('turn')} (state {t.get('state')})")
             lines.append(f"  customer said: {t.get('customer_text')}   meaning: {t.get('customer_card')}")
-            lines.append(f"  REQUIRED tool calls: {t.get('expected_tools')}")
-            lines.append(f"  REQUIRED bot acts: {t.get('expected_bot')}")
-            lines.append(f"  bot tool calls: {t.get('actual_tools')}")
-            lines.append(f"  bot acts: {t.get('actual_bot_acts')}")
+            if t.get("expected_steps") or t.get("actual_steps"):     # calls and acts in the order they happen
+                lines.append(f"  REQUIRED, in order: {_in_order(t.get('expected_steps'))}")
+                lines.append(f"  bot, in order: {_in_order(t.get('actual_steps'))}")
+            else:
+                lines.append(f"  REQUIRED tool calls: {t.get('expected_tools')}")
+                lines.append(f"  REQUIRED bot acts: {t.get('expected_bot')}")
+                lines.append(f"  bot tool calls: {t.get('actual_tools')}")
+                lines.append(f"  bot acts: {t.get('actual_bot_acts')}")
             lines.append(f"  bot said: {t.get('actual_bot_text') or '-'}")
         lines.append(f"\nHow the call had to end: {json.dumps(c.get('expected_outcome'), default=str)}")
         lines.append(f"How the call ended: {json.dumps(c.get('actual_outcome'), default=str)}")

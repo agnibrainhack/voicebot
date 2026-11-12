@@ -781,13 +781,16 @@ def _col(kind: str, tools: str, acts: str, words: str = "", steps: Any = None) -
     if st:                                           # calls and acts in the order they happened
         li = [f'<li class="tool"><span class="sk">calls</span><code>{E(x["d"])}</code></li>' if x.get("k") == "calls" else
               f'<li><span class="sk">says</span><code>{E(x["d"])}</code></li>' for x in st]
-    else:
+    else:                                            # a run folder from before the order was recorded
         li = [f'<li class="tool"><span class="sk">calls</span><code>{E(t)}</code></li>' for t in _items(tools)]
         li += [f'<li><span class="sk">says</span><code>{E(a)}</code></li>' for a in _items(acts)]
+    unordered = not st and _items(tools) and _items(acts)
     if (tools or "").strip() == "(no turn)":
         body = "<p class='small'>(no such turn in this run)</p>"
     else:
-        body = f"<ol>{''.join(li)}</ol>" if li else "<p class='small'>(nothing)</p>"
+        body = (f"<ol>{''.join(li)}</ol>" if li else "<p class='small'>(nothing)</p>") + \
+            ("<p class='small'>Order not recorded in this run: calls listed first. Run the test again to see the "
+             "steps in the order they happen.</p>" if unordered else "")
     head = "Expected (oracle)" if kind == "exp" else "Actual (bot)"
     return (f'<div class="col {kind}"><span class="who">{head}</span>{body}'
             + (f'<div class="words">“{E(words)}”</div>' if words else "") + "</div>")

@@ -2694,11 +2694,24 @@ function botResult(v) {
   const pill = h("span", { class: `pill ${r.correct ? "ok" : "bad"}` }, r.correct ? "correct" : "failed");
   const facts = h("p", { class: "small muted" }, `${v.type === "base" ? "Original wording" : "Reworded " + v.id} · status ${r.status}${r.transfer_reason ? " (" + r.transfer_reason + ")" : ""}${r.expected_transfer_reason && r.expected_transfer_reason !== r.transfer_reason ? ", expected " + r.expected_transfer_reason : ""} · ${r.turns} turns · severity ${r.severity}`);
   const codes = r.codes.length ? h("div", { class: "chips" }, ...r.codes.map(c => h("span", { class: "chip bad" }, c))) : null;
+  // calls and acts in the order they happen (runs from before the order was recorded: calls first)
+  const steps = (st, tools, acts) => st ? h("div", {}, ...st.map((s, n) => h("div", {}, `${n + 1}. ${s.k} ${s.d}`)))
+    : `${tools && tools !== "-" ? tools + " ; " : ""}${acts}`;
+  const TS = { same: ["ok", "✓ same"], side: ["warn", "~ side step only"], kb_wrong: ["warn", "~ policy answer wrong"],
+    asked_again: ["warn", "↺ asked again"], differs: ["bad", "✗ off the journey"], not_played: ["warn", "– not played"] };
+  const TT = { side: "only a policy answer or a clarification differs: the turn is flagged, the run went on",
+    kb_wrong: "on the journey, but the policy answer is not the policy's", asked_again: "the bot asked again what was just answered: the customer said it again",
+    differs: "not what the graph does here", not_played: "the run stopped (two turns in a row off the journey) before this line" };
   const tbt = v.turn_by_turn.length ? table(["Turn", "Same as the graph?", "Customer said", "Graph expected", "Bot did", "Speech check"],
-    v.turn_by_turn.map(x => [x.turn, h("span", { class: `mark ${x.turn_match === "True" ? "ok" : x.after_divergence === "True" ? "warn" : "bad"}`, title: x.after_divergence === "True" ? "after the first difference: the conversations may differ from here" : null },
-        x.turn_match === "True" ? "✓ same" : x.after_divergence === "True" ? "after a difference" : "✗ differs"),
-      x.customer_text, `${x.expected_tools !== "-" ? x.expected_tools + " ; " : ""}${x.expected_bot}`, `${x.actual_tools !== "-" ? x.actual_tools + " ; " : ""}${x.actual_bot_acts}`,
-      x.speech_check || "–"]), { max: 420 }) : null;
+    v.turn_by_turn.map(x => {
+      const ts = x.turn_status && TS[x.turn_status];
+      const [cls, word] = ts || (x.turn_match === "True" ? ["ok", "✓ same"] : x.after_divergence === "True" ? ["warn", "after a difference"] : ["bad", "✗ differs"]);
+      const tip = ts ? TT[x.turn_status] || null : x.after_divergence === "True" ? "after the first difference: the conversations may differ from here" : null;
+      return [x.repeat === "True" ? `${x.turn} (said again)` : x.turn, h("span", { class: `mark ${cls}`, title: tip }, word),
+        x.customer_text, steps(x.expected_steps, x.expected_tools, x.expected_bot),
+        x.turn_status === "not_played" ? "–" : steps(x.actual_steps, x.actual_tools, x.actual_bot_acts),
+        x.speech_check || "–"];
+    }), { max: 420 }) : null;
   return h("div", { class: "level" }, h("div", { class: "lh" }, pill, h("b", { class: "mono" }, v.id), facts), h("div", { class: "lb" }, codes, judgesRow(v.judges),
     tbt || h("p", { class: "small muted" }, "No turn-by-turn record for this version."),
     v.transcript ? h("details", {}, h("summary", { style: "padding:4px 0" }, "Full transcript"), h("div", { class: "conv" }, ...v.transcript.map(m => h("div", { class: `turn ${m.role === "bot" ? "bot" : "customer"}` }, h("div", { class: "who" }, m.role === "bot" ? "Bot" : "Customer"), h("div", { class: "what" }, m.text))))) : null));

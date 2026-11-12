@@ -369,6 +369,18 @@ def _load(out: str, stamp: float) -> dict[str, Any]:
     return {"R": R, "cases": cases, "results": results, "failures": failures, "proofs": proofs, "tbt": dict(tbt)}
 
 
+def _steps(v: Any) -> list[dict] | None:
+    """A turn's calls and acts in order, as dataset/turn_by_turn.csv stores them (None: a run from before the order
+    was recorded)."""
+    if not v:
+        return None
+    try:
+        out = json.loads(v) if isinstance(v, str) else v
+    except ValueError:
+        return None
+    return out if isinstance(out, list) and out else None
+
+
 def load(out: str | Path) -> dict[str, Any]:
     """A finished run's cases, proofs and results, read from its output folder (cached by file time)."""
     o = Path(out)
@@ -470,8 +482,10 @@ def detail(out: str | Path, base_id: str) -> dict[str, Any]:
                           "similarity": p.get("surface_cosine")})
         res = D["results"].get(c["case_id"])
         fail = D["failures"].get(c["case_id"]) or {}
-        tbt = [{k: r.get(k) for k in ("turn", "state", "customer_text", "expected_tools", "actual_tools", "expected_bot",
-                                      "actual_bot_acts", "actual_bot_text", "speech_check", "turn_match", "after_divergence")}
+        tbt = [{**{k: r.get(k) for k in ("turn", "line", "repeat", "state", "customer_text", "expected_tools", "actual_tools",
+                                         "expected_bot", "actual_bot_acts", "actual_bot_text", "speech_check", "turn_match",
+                                         "after_divergence", "turn_status", "kb_wrong")},
+                "expected_steps": _steps(r.get("expected_steps")), "actual_steps": _steps(r.get("actual_steps"))}
                for r in D["tbt"].get(c["case_id"], [])]
         return {"id": c["case_id"], "type": c["case_type"], "arm": c["arm"], "enrichment": c.get("enrichment") or {},
                 "changed": [x.split("=")[0] for x in (c.get("enrichment_changed") or "").split("; ") if "=" in x],

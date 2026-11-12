@@ -214,7 +214,9 @@ s10_console/
 * **Part 2** the case explorer: `load` reads a finished run's cases, proofs and results (cached by file time),
   `index` lists every base case with its reworded versions, `detail` shows one case in full (each version's turns in
   original and reworded words, the meaning read back, the proof's verdict, the bot's result with its turn-by-turn
-  comparison).
+  comparison: each turn's calls and acts numbered in the order they happen, and its status as in
+  `case_comparison.html`: same, side step only, policy answer wrong, asked again, off the journey, not played).
+  A run made before the order was recorded shows the calls first, and `case_comparison.html` says so on those turns.
 
 ## bots.py — the bot under test and the playground
 
