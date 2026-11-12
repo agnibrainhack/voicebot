@@ -6,11 +6,16 @@
 <title>Speech check playground</title>
 <!--
   Speech check playground: every agent response a run checked, its whole sentence beside the claim cards read from
-  it, and the check replayed step by step (the words, the acts, the claims, where the truth comes from, said vs
-  truth, the response as a whole, the verdict).
+  it, and the check replayed step by step from the checker's own trace (speech_trace.py): what the check knows (the
+  customer's meaning cards, the tools' results, the confirmed writes), the pieces and sentences, the words one by
+  one, how each sentence is put (its mode), every reader's matches (kept and dropped), the claim cards, the rules
+  tried to find each truth, said vs truth, faithfulness, required wording, dialog flow, the response's verdict and
+  the case's.
 
   Data: a run's dataset/case_results.jsonl (each graded run's ``speech_turns``: the response cards written by
-  gmsjourney/s07_checks/scoring.response_cards). The page reads it from where it is:
+  gmsjourney/s07_checks/scoring.response_cards, each with its ``trace``; and ``speech_turn_grades``, every turn's
+  grade). Runs from before the trace was kept still load: the steps that need it say so. The page reads it from
+  where it is:
     * served over http next to the run (the pipeline copies this file into every run folder as
       speech_playground.html): it fetches dataset/case_results.jsonl, or the path given as ?data=...;
     * opened from disk: choose the run folder, or the case_results.jsonl file, or drop either onto the page.
@@ -137,6 +142,55 @@ sup.n{font-family:var(--mono);font-size:.62rem;color:var(--muted);margin-left:.0
 .big{font-family:var(--display);font-size:1.5rem}
 ul.why{margin:.5rem 0 0 1.1rem;padding:0}ul.why li{margin:.2rem 0}
 
+/* the detailed trace */
+.sub{font-family:var(--display);font-size:1rem;margin:1rem 0 .4rem}
+.sub:first-child{margin-top:0}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:.2rem .9rem;font-size:.86rem;margin:0}
+.kv dt{color:var(--muted)}.kv dd{margin:0;overflow-wrap:anywhere}
+.box{border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin:.5rem 0}
+.box.pick{cursor:pointer}.box.pick:hover{border-color:var(--accent)}
+.box.on{border-color:var(--accent);background:var(--accent-soft)}
+.sents{display:flex;flex-wrap:wrap;gap:.35rem;margin:.2rem 0 .8rem}
+.sents button{border:1px solid var(--line);background:var(--surface);border-radius:7px;padding:.2rem .55rem;font-size:.8rem;max-width:100%;text-align:left}
+.sents button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.toks{display:flex;flex-wrap:wrap;gap:.3rem;margin:.4rem 0;font-family:var(--mono);font-size:.9rem}
+.tok{position:relative;border:1px solid var(--line);border-radius:6px;padding:.12rem .4rem;background:var(--surface);transition:background .2s,border-color .2s}
+.tok .at{display:block;font-size:.62rem;color:var(--muted);line-height:1}
+.tok.cue{border-color:var(--accent);box-shadow:inset 0 -3px 0 var(--accent)}
+.tok.kept{background:var(--pass-soft);border-color:var(--pass)}
+.tok.blocked{box-shadow:inset 0 -3px 0 var(--unk)}
+.tok.cur{outline:2px solid var(--ink);outline-offset:1px}
+.tok.dim{opacity:.45}
+.legend{display:flex;flex-wrap:wrap;gap:.3rem .9rem;font-size:.78rem;color:var(--muted)}
+.legend span::before{content:"";display:inline-block;width:.8rem;height:.8rem;border-radius:3px;margin-right:.3rem;vertical-align:-.1rem;border:1px solid var(--line)}
+.legend .l-kept::before{background:var(--pass-soft);border-color:var(--pass)}
+.legend .l-cue::before{box-shadow:inset 0 -3px 0 var(--accent);border-color:var(--accent)}
+.legend .l-blocked::before{box-shadow:inset 0 -3px 0 var(--unk)}
+.log{list-style:none;margin:.4rem 0;padding:0;display:grid;gap:.25rem;font-size:.86rem}
+.log li{border-left:3px solid var(--line);padding:.15rem .6rem}
+.log li.kept{border-left-color:var(--pass)}.log li.cue{border-left-color:var(--accent)}
+.log li.blocked{border-left-color:var(--unk);color:var(--muted)}.log li.now{background:var(--accent-soft)}
+.ladder{list-style:none;margin:.3rem 0 0;padding:0;display:grid;gap:.2rem;font-size:.86rem;counter-reset:r}
+.ladder li{display:grid;grid-template-columns:1.6rem 1fr;gap:.4rem;align-items:start;counter-increment:r}
+.ladder li::before{content:counter(r);font-family:var(--mono);font-size:.72rem;color:var(--muted);text-align:right;padding-top:.15rem}
+.ladder li.no{color:var(--muted)}
+.ladder li.yes{font-weight:500}
+.ladder .tag{font-family:var(--mono);font-size:.72rem;margin-right:.35rem}
+.ladder li.yes .tag{color:var(--pass)}
+.cmp{display:grid;grid-template-columns:1fr auto 1fr;gap:.5rem;align-items:center;margin:.5rem 0}
+.cmp .cv{border:1px solid var(--line);border-radius:8px;padding:.45rem .6rem;text-align:center;min-width:0;overflow-wrap:anywhere}
+.cmp .cv small{display:block;color:var(--muted);font-size:.72rem}
+.cmp .op{font-family:var(--mono);font-size:.8rem;color:var(--muted);text-align:center}
+.checks{list-style:none;margin:.3rem 0;padding:0;display:grid;gap:.25rem;font-size:.86rem}
+.checks li{display:grid;grid-template-columns:auto 1fr;gap:.5rem;align-items:start}
+.mk{font-family:var(--mono);font-size:.75rem;border-radius:4px;padding:0 .3rem;margin-top:.15rem}
+.mk.y{background:var(--pass-soft);color:var(--pass)}.mk.n{background:var(--fail-soft);color:var(--fail)}.mk.s{background:var(--unk-soft);color:var(--unk)}
+table.t{border-collapse:collapse;width:100%;font-size:.86rem}
+table.t th,table.t td{border-bottom:1px solid var(--line-soft);padding:.3rem .5rem;text-align:left;vertical-align:top}
+table.t th{color:var(--muted);font-weight:500}
+.formula{white-space:pre-wrap;font-family:var(--mono);font-size:.86rem;background:var(--code-bg);border:1px solid var(--line-soft);border-radius:7px;padding:.5rem .7rem;margin:.5rem 0;overflow-wrap:anywhere}
+.note{font-size:.84rem;color:var(--muted);margin:.4rem 0}
+
 /* loader */
 .loader{max-width:640px;margin:8vh auto;padding:24px;border:2px dashed var(--line);border-radius:14px;background:var(--surface);text-align:left}
 .loader.drag{border-color:var(--accent);background:var(--accent-soft)}
@@ -198,18 +252,31 @@ const FINDING = {
   unread: ["Words not read as policy", "words the reader could not tie to a policy fact (advisory, not graded)", "adv"],
 };
 const STEPS = [
-  ["The words", "What the customer heard, as one response, cut into the sentences the reader works on. The customer's line before it is the context."],
-  ["The acts", "The acts the agent says it performed (its labels) beside the acts its words express. A label the words never express, or words that express another act, make the response unfaithful."],
-  ["Claims read", "Each fact the words state becomes a claim card: what is claimed (field), the value the words give, what it is about, and the exact words. Click a card to find its words in the sentence."],
-  ["Where the truth is", "For every claim the checker picks where the truth lives: a tool result, a confirmed write, the customer's own words, the policy store or the policy text."],
-  ["Said vs truth", "The value the words give is compared with the truth. Supported, contradicted (the truth says otherwise), unsupported (nothing backs it) or unverifiable."],
-  ["The response as a whole", "Problems no single claim shows: required information missing, an act not allowed at this point, words that do not match the labels. Advisory notes are listed but not graded."],
-  ["Verdict", "The response passes only if no claim is contradicted or unsupported and there is no blocking problem. Side-step problems (a policy answer or a clarification) are flagged here and left out of the journey's grade."],
+  ["What the check knows", "Before reading a word, the checker gathers what is true at this point of the call: the customer's meaning cards (what each customer line meant, with its slots), what the tools returned, and which writes the bank confirmed. Every truth used later comes from here or from the policy store."],
+  ["Pieces and sentences", "The response is read piece by piece. When the agent gives each act its own words, each act's words are one piece; otherwise the whole response is one piece. Each piece is cut into sentences at . ? or ! followed by a capital, a digit, $ or a quote, so \"$45.67\" stays whole. A claim never crosses a sentence."],
+  ["Word by word", "The sentence as the reader sees it: plain punctuation, number words as digits, lower case. Every reader runs over these words; the scan replays where each one found something, word by word. Pick a sentence above the words."],
+  ["How it is put", "Three cue lists from the project decide how the sentence is put, which becomes each claim's mode: offered (a question, a condition or an offer word), done (a completion word) or states (anything else). The mode decides where the truth of a value is looked for."],
+  ["Readers and matches", "Each value set (disposition, card action, delivery...) has a list of phrases from the graph and the lexicon. They are tried longest first, as whole words, and a shorter phrase cannot take words a longer one already took. Then the figure patterns run: money, free, business days, the policy limits."],
+  ["Claim cards", "Each match that is kept becomes a claim card: the field (what is claimed), the value the words give, the exact words, what it is about, and the sentence's mode. Click a card to find its words in the response above."],
+  ["Where the truth is", "For each claim the checker tries its rules in a fixed order and stops at the first that applies. That rule says where the truth lives: the policy text, the policy store, a confirmed write, a tool result, or what the customer said."],
+  ["Said vs truth", "The value the words give is compared with the truth, with the comparison the rule calls for. Equal: supported. Different: contradicted. Nothing to back it: unsupported. Nothing to compare: unverifiable, which never fails."],
+  ["Acts: labelled vs heard", "Faithfulness: do the words express each act the agent labelled, and do they name the same value as its label? An act is heard from one of its cue words, or when every field it must say was read as a claim."],
+  ["Required wording", "Completeness: each act's required fields (its says list in the graph) must be in the words, when there is something to say. Clauses the policy reader could not tie to a policy fact are listed as advisory."],
+  ["Dialog flow", "Speech flow: the first act must follow from the prompt the customer was answering, on what the customer meant; each next act must follow from the one before by an automatic step of the graph. Flow is graded on its own (c_flow)."],
+  ["This response", "The response passes (ok) when no claim is contradicted or unsupported and there is no blocking finding. Flow and advisory notes are left out. core_ok also leaves out what failed inside a side step (a policy answer or a clarification)."],
+  ["The case", "The case's speech grade, c_speech, is 1 only when every response of the run is core_ok. With the speech gate set to fail, a case is correct only when its outcome is correct and c_speech is 1 (strict also needs c_flow)."],
 ];
+const SPLIT = { per_act: "per act: each act carries its own words, so each is read on its own",
+  whole: "the whole response: the acts carry no words of their own, so the response is read as one piece" };
+const S_CLAIMS = 5, S_TRUTH = 6, S_CMP = 7;
+const READER_WHY = {
+  phrases: "phrases of a value set, longest first, whole words, no overlap",
+  pattern: "a pattern for a figure",
+};
 const BAD_STATUS = new Set(["contradicted", "unsupported"]);
 
 // ---------------------------------------------------------------- state
-const S = { rows: [], resp: [], view: [], cur: 0, step: 0, focus: null, timer: null, source: "" };
+const S = { rows: [], resp: [], view: [], cur: 0, step: 0, focus: null, timer: null, source: "", sent: 0, scanAt: -1, scanTimer: null };
 const $ = (s, el = document) => el.querySelector(s);
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
@@ -218,10 +285,11 @@ function h(tag, attrs, ...kids) {
     if (k === "class") el.className = v; else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
     else el.setAttribute(k, v === true ? "" : v);
   }
-  for (const k of kids.flat()) if (k != null && k !== false) el.append(k instanceof Node ? k : document.createTextNode(String(k)));
+  for (const k of kids.flat(Infinity)) if (k != null && k !== false) el.append(k instanceof Node ? k : document.createTextNode(String(k)));
   return el;
 }
-const fmt = v => v == null ? "–" : Array.isArray(v) ? v.join(" – ") : typeof v === "object" ? JSON.stringify(v) : String(v);
+const fmt = v => v == null ? "–" : Array.isArray(v) && v.every(x => x === null || typeof x !== "object") ? v.join(" – ")
+  : typeof v === "object" ? JSON.stringify(v) : String(v);
 const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } },
                 set(k, v) { try { localStorage.setItem(k, v); } catch { /* private window */ } } };
 
@@ -234,7 +302,7 @@ function parse(text, source) {
   const resp = [];
   for (const r of rows) for (const c of r.speech_turns || []) resp.push({ row: r, card: c });
   if (!resp.length) throw new Error("no agent response with a speech check in it yet (a test run writes them in dataset/case_results.jsonl)");
-  S.rows = rows; S.resp = resp; S.source = source; S.cur = 0; S.step = 0; S.focus = null;
+  S.rows = rows; S.resp = resp; S.source = source; S.cur = 0; S.step = 0; S.focus = null; S.sent = 0; S.scanAt = -1;
   render();
 }
 async function autoload() {
@@ -338,10 +406,10 @@ function sentences(text) {
 }
 function sentenceView(card) {
   const text = card.text || "", st = S.step;
-  const sp = st >= 2 ? spans(card) : [];
+  const sp = st >= S_CLAIMS ? spans(card) : [];
   const owner = new Array(text.length).fill(-1);
   for (const s of sp) for (let k = s.a; k < s.b; k++) if (owner[k] < 0) owner[k] = s.i;
-  const p = h("p", { class: "sentence" + (st === 0 ? " split" : "") });
+  const p = h("p", { class: "sentence" + (st >= 1 && st <= 4 ? " split" : "") });
   for (const s of sentences(text)) {
     const sent = h("span", { class: "sent" });
     let k = s.a;
@@ -352,7 +420,7 @@ function sentenceView(card) {
       if (o < 0) sent.append(part);
       else {
         const c = card.claims[o];
-        const cls = st >= 4 ? `st-${c.status}` : "neutral";
+        const cls = st >= S_CMP ? `st-${c.status}` : "neutral";
         sent.append(h("mark", { class: `${cls}${S.focus === o ? " focus" : ""}`, title: `claim ${o + 1}: ${c.field} = ${fmt(c.value)}`,
           onclick: () => { S.focus = o; renderDetail(); } }, part, h("sup", { class: "n" }, o + 1)));
       }
@@ -369,75 +437,293 @@ function claimCard(c, i, st) {
     h("dt", {}, "words"), h("dd", {}, "“", c.words, "”"),
     h("dt", {}, "says"), h("dd", {}, h("code", {}, fmt(c.value))),
     c.about ? [h("dt", {}, "about"), h("dd", {}, h("code", {}, c.about))] : null,
-    c.mode && c.mode !== "states" ? [h("dt", {}, "as"), h("dd", {}, c.mode)] : null);
-  if (st >= 3) dl.append(h("dt", { class: "new" }, "truth from"), h("dd", { class: "new" }, c.basis || "–",
+    h("dt", {}, "mode"), h("dd", {}, c.mode || "states"),
+    c.sentence ? [h("dt", {}, "sentence"), h("dd", { class: "small muted" }, c.sentence)] : null);
+  if (st >= S_TRUTH) dl.append(h("dt", { class: "new" }, "truth from"), h("dd", { class: "new" }, c.basis || "–",
     BASIS[c.basis] ? h("div", { class: "small muted" }, BASIS[c.basis]) : null,
     c.source && c.source !== c.basis ? h("div", { class: "small muted" }, "source: ", c.source) : null));
-  if (st >= 3) dl.append(h("dt", { class: "new" }, "truth"), h("dd", { class: "new" }, h("code", {}, fmt(c.truth))));
-  if (st >= 4) dl.append(h("dt", { class: "new" }, "result"), h("dd", { class: "new" },
+  if (st >= S_TRUTH) dl.append(h("dt", { class: "new" }, "truth"), h("dd", { class: "new" }, h("code", {}, fmt(c.truth))));
+  if (st >= S_CMP) dl.append(h("dt", { class: "new" }, "result"), h("dd", { class: "new" },
     h("span", { class: `pill ${c.status}` }, c.status), c.side ? [" ", h("span", { class: "pill side" }, "side step")] : null,
     h("div", { class: "small muted" }, c.why || STATUS[c.status] || "")));
-  return h("button", { class: `claim${st >= 4 ? " st-" + c.status : ""}${S.focus === i ? " focus" : ""}`, type: "button",
+  return h("button", { class: `claim${st >= S_CMP ? " st-" + c.status : ""}${S.focus === i ? " focus" : ""}`, type: "button",
     onclick: () => { S.focus = i; renderDetail(); } },
-    h("h3", {}, h("span", {}, `Claim ${i + 1}: `, c.field), st >= 4 ? h("span", { class: `pill ${c.status}` }, c.status) : null), dl);
+    h("h3", {}, h("span", {}, `Claim ${i + 1}: `, c.field), st >= S_CMP ? h("span", { class: `pill ${c.status}` }, c.status) : null), dl);
 }
-function stepBody(card) {
-  const st = S.step, ex = h("p", { class: "explain" }, STEPS[st][1]);
-  if (st === 0) {
-    const n = sentences(card.text || "").length;
-    return [ex, h("p", {}, `${n} sentence${n === 1 ? "" : "s"}, ${(card.text || "").split(/\s+/).filter(Boolean).length} words. `,
-      card.claims.length ? `The reader will find ${card.claims.length} claim${card.claims.length === 1 ? "" : "s"} in them.` : "The reader finds no checkable claim in them.")];
+// ---------------------------------------------------------------- the trace (how the check went)
+const sub = t => h("h3", { class: "sub" }, t);
+const mark = (ok, skip, plain) => h("span", { class: `mk ${skip || (plain && !ok) ? "s" : ok ? "y" : "n"}` }, skip ? "skip" : ok ? "yes" : "no");
+function noTrace() {
+  return h("p", { class: "note" }, "This run was made before the checker kept its step-by-step trace. Run the cases again to see this step; the claim cards and verdicts below are from the run.");
+}
+function allSents(card) {
+  const out = [];
+  (card.trace?.segments || []).forEach((g, gi) => (g.sentences || []).forEach((s, si) => out.push({ g, gi, s, si, k: out.length })));
+  return out;
+}
+function claimIdx(card, text) { return card.claims.map((c, i) => ({ c, i })).filter(x => x.c.sentence === text); }
+function sentPicker(card) {
+  const all = allSents(card);
+  if (S.sent >= all.length) S.sent = 0;
+  if (all.length < 2) return null;
+  return h("div", { class: "sents", role: "group", "aria-label": "Sentence" }, all.map(x => h("button", { type: "button",
+    "aria-pressed": x.k === S.sent ? "true" : "false", onclick: () => { S.sent = x.k; S.scanAt = -1; stopScan(); renderDetail(); } },
+    h("span", { class: "mono small" }, `${x.k + 1} · ${x.g.act || "response"}  `), x.s.text.length > 60 ? x.s.text.slice(0, 57) + "…" : x.s.text)));
+}
+function tokens(low) { return [...String(low || "").matchAll(/\S+/g)].map(m => ({ t: m[0], a: m.index, b: m.index + m[0].length })); }
+function events(card, s) {
+  const ev = [], c = s.cues || {}, mine = claimIdx(card, s.text);
+  const claimFor = x => mine.find(m => String(m.c.words || "").toLowerCase() === String(x.words).toLowerCase());
+  if (c.question_or_condition) {
+    const q = c.question_or_condition, at = /ends/.test(q.why) ? Math.max(0, s.low.length - 1) : 0;
+    ev.push({ a: at, b: at + 1, kind: "cue", text: `“${q.words}”: ${q.why}, so the sentence is offered` });
   }
+  if (c.offer) ev.push({ a: c.offer.start, b: c.offer.end, kind: "cue", text: `“${c.offer.words}” is an offer word, so the sentence is offered` });
+  if (c.completion) ev.push({ a: c.completion.start, b: c.completion.end, kind: "cue",
+    text: `“${c.completion.words}” is a completion word` + (s.mode === "done" ? ", so the sentence is done" : " (the sentence is already offered)") });
+  if (c.recording) ev.push({ a: c.recording.start, b: c.recording.end, kind: "cue", text: `“${c.recording.words}” is a recording word: a disposition here is said to be recorded` });
+  for (const sc of s.scans || []) for (const x of sc.hits || []) {
+    const kept = x.kept !== false && !/^not read/.test(x.note || "");
+    const cl = kept ? claimFor(x) : null;
+    const what = sc.kind === "phrases" ? `the ${sc.value_set} phrase “${x.phrase}” → ${x.value}` : `the ${sc.reader} pattern → ${fmt(x.value)}`;
+    ev.push({ a: x.start, b: x.end, kind: kept ? "kept" : "blocked", claim: cl ? cl.i : null,
+      text: `“${x.words}” matches ${what}` + (x.blocked_by ? `; dropped, “${x.blocked_by}” (longer) already took these words` : "")
+        + (x.note ? `; ${x.note}` : "") + (cl ? `; becomes claim ${cl.i + 1}` : kept ? "; kept" : "") });
+  }
+  return ev.sort((p, q) => p.a - q.a || (p.kind === "cue" ? -1 : 1));
+}
+function scanView(card, s) {
+  const toks = tokens(s.low), ev = events(card, s), at = S.scanAt;
+  const curTok = at >= 0 ? toks[Math.min(at, toks.length - 1)] : null;
+  const seen = e => at < 0 || (curTok && e.a < curTok.b);
+  const cls = tk => { const hit = ev.filter(e => e.a < tk.b && tk.a < e.b && seen(e)); return hit.some(e => e.kind === "kept") ? "kept" : hit.some(e => e.kind === "cue") ? "cue" : hit.some(e => e.kind === "blocked") ? "blocked" : ""; };
+  const row = h("div", { class: "toks", "aria-label": "The words the reader works on" }, toks.map((tk, k) =>
+    h("span", { class: `tok ${cls(tk)}${curTok && k === at ? " cur" : ""}${curTok && k > at ? " dim" : ""}` }, h("span", { class: "at" }, tk.a), tk.t)));
+  const shown = ev.filter(seen);
+  const log = h("ol", { class: "log", "aria-live": "polite" }, shown.length ? shown.map(e => h("li", {
+    class: `${e.kind}${curTok && e.a >= curTok.a && e.a < curTok.b ? " now" : ""}` }, h("span", { class: "mono small" }, `@${e.a}  `), e.text))
+    : h("li", {}, at >= 0 ? "Nothing found yet." : "No reader found anything in this sentence: it makes no claim."));
+  const done = at < 0 || at >= toks.length - 1;
+  return [
+    h("dl", { class: "kv" }, h("dt", {}, "as said"), h("dd", {}, "“", s.text, "”"),
+      s.numbers?.length ? [h("dt", {}, "numbers"), h("dd", {}, s.numbers.map(n => `${n.words} → ${n.digits}`).join(", "))] : null,
+      h("dt", {}, "as read"), h("dd", {}, h("code", {}, s.low))),
+    row,
+    h("div", { class: "legend" }, h("span", { class: "l-kept" }, "read as a value or figure"), h("span", { class: "l-cue" }, "a cue word (how it is put)"),
+      h("span", { class: "l-blocked" }, "matched but not read"), h("span", {}, "small number: the word's position in the text")),
+    h("div", { class: "nav", style: "margin:.6rem 0 0" },
+      h("button", { class: "btn primary", type: "button", onclick: () => (S.scanTimer ? stopScan() : scan(toks.length)) }, S.scanTimer ? "Pause" : at >= 0 && !done ? "Resume scan" : "Scan word by word"),
+      h("button", { class: "btn", type: "button", disabled: at < 0 || at >= toks.length - 1, onclick: () => { stopScan(); S.scanAt = Math.min(toks.length - 1, at + 1); renderDetail(); } }, "Next word"),
+      h("button", { class: "btn", type: "button", onclick: () => { stopScan(); S.scanAt = -1; renderDetail(); } }, "Show all")),
+    log,
+    h("p", { class: "note" }, "The readers do not walk the words one at a time: each phrase and each pattern runs over the whole sentence. The scan replays their matches in word order so you can follow where each one landed."),
+  ];
+}
+function scan(n) {
+  stopScan();
+  if (S.scanAt < 0 || S.scanAt >= n - 1) S.scanAt = 0;
+  S.scanTimer = setInterval(() => { if (S.scanAt >= n - 1) { stopScan(); renderDetail(); return; } S.scanAt++; renderDetail(); }, 520);
+  renderDetail();
+}
+function stopScan() { if (S.scanTimer) clearInterval(S.scanTimer); S.scanTimer = null; }
+function factsView(f, card) {
+  const out = [];
+  out.push(sub("The customer's meaning cards"));
+  const cust = f.customer || [];
+  out.push(cust.length ? h("table", { class: "t" }, h("tr", {}, h("th", {}, "line"), h("th", {}, "meaning card"), h("th", {}, "slots")),
+    cust.map((c, k) => h("tr", {}, h("td", {}, k + 1, k === cust.length - 1 ? h("div", { class: "small muted" }, "this response answers it") : null),
+      h("td", {}, h("code", {}, c.card)), h("td", {}, Object.entries(c.slots || {}).map(([k2, v]) => h("div", {}, h("code", {}, `${k2} = ${v}`))))))) : h("p", { class: "note" }, "None yet: this is the opening."));
+  out.push(sub("What the customer has said, slot by slot"));
+  const cal = Object.entries(f.caller || {});
+  out.push(cal.length ? h("dl", { class: "kv" }, cal.map(([k, v]) => [h("dt", {}, h("code", {}, `caller.${k}`)), h("dd", {}, h("code", {}, fmt(v)))]))
+    : h("p", { class: "note" }, "Nothing yet."));
+  out.push(h("p", { class: "note" }, "A later card wins over an earlier one for the same slot. When the agent repeats a value back, this is the truth it is held to."));
+  out.push(sub("Writes the bank confirmed"));
+  const w = f.writes || [], fw = f.failed_writes || [];
+  out.push(w.length || fw.length ? h("table", { class: "t" }, h("tr", {}, h("th", {}, "tool"), h("th", {}, "arguments"), h("th", {}, "counted")),
+    w.map(x => h("tr", {}, h("td", {}, h("code", {}, x.tool)), h("td", {}, h("code", {}, fmt(x.args))), h("td", {}, h("span", { class: "pill ok" }, x.status || "success")))),
+    fw.map(x => h("tr", {}, h("td", {}, h("code", {}, x.tool)), h("td", {}, h("code", {}, fmt(x.args))), h("td", {}, h("span", { class: "pill bad" }, x.status || "failed"), h("div", { class: "small muted" }, "not a success: never counts as done")))))
+    : h("p", { class: "note" }, "No write yet."));
+  const items = Object.entries(f.items || {});
+  if (items.length) {
+    out.push(sub("Charges the tools returned"));
+    const cols = [...new Set(items.flatMap(([, it]) => Object.keys(it)))];
+    out.push(h("table", { class: "t" }, h("tr", {}, h("th", {}, "id"), cols.map(c => h("th", {}, c.replace(/_/g, " ")))),
+      items.map(([id, it]) => h("tr", {}, h("td", {}, h("code", {}, id)), cols.map(c => h("td", {}, fmt(it[c])))))));
+  }
+  const res = Object.entries(f.results || {});
+  if (res.length) {
+    out.push(sub("Each tool's latest result"));
+    out.push(h("dl", { class: "kv" }, res.map(([t, r]) => [h("dt", {}, h("code", {}, t)), h("dd", { class: "small" },
+      Object.entries(r).map(([k, v]) => h("div", {}, h("code", {}, `${k}: ${fmt(v)}`))))])));
+  }
+  if (f.options) out.push(sub("Card options offered by the tool"), h("div", { class: "chips" }, f.options.map(o => h("span", { class: "chip" }, o))));
+  out.push(sub("The agent's labels for this response"));
+  out.push(h("div", { class: "chips" }, (card.trace.segments || []).map(g => h("span", { class: "chip", title: JSON.stringify(g.label) }, g.act || "(no label)",
+    Object.entries(g.label || {}).filter(([k]) => k !== "act").map(([k, v]) => ` ${k}=${fmt(v)}`).join("")))));
+  return out;
+}
+function stepBody(card, row) {
+  const st = S.step, t = card.trace, ex = h("p", { class: "explain" }, STEPS[st][1]);
+  const segs = t?.segments || [];
+  if (st === 0) return t?.facts && !t.facts.error ? [ex, ...factsView(t.facts, card)] : [ex, noTrace()];
   if (st === 1) {
-    const labels = card.acts || [], heard = card.heard;
-    // only what the checker itself flagged is marked: the reader recognises some acts in words, not all
-    const notSaid = new Set(card.findings.filter(f => f.kind === "label_not_said").map(f => f.act));
-    const otherAct = new Set(card.findings.filter(f => f.kind === "text_contradicts_label").map(f => f.act));
-    const lab = h("div", {}, h("span", { class: "who" }, "Labelled by the agent"),
-      h("div", { class: "chips" }, labels.length ? labels.map(a => h("span", { class: "chip" + (notSaid.has(a) || otherAct.has(a) ? " miss" : ""),
-        title: notSaid.has(a) ? "labelled, but the words never express it" : otherAct.has(a) ? "the words express another act" : null }, a))
-        : h("span", { class: "muted small" }, "(no labels: a text-only agent)")));
-    const hr = h("div", {}, h("span", { class: "who" }, "Recognised in the words"),
-      heard ? h("div", { class: "chips" }, heard.length ? heard.map(a => h("span", { class: "chip" }, a)) : h("span", { class: "muted small" }, "(none recognised)"))
-        : h("p", { class: "small muted" }, "Not recorded in this run (runs from before it was kept)."));
-    const notes = [];
-    for (const f of card.findings.filter(f => f.kind === "label_not_said" || f.kind === "text_contradicts_label"))
-      notes.push(h("li", {}, h("b", {}, (FINDING[f.kind] || [f.kind])[0]), f.act ? ` (${f.act})` : "", `: ${f.detail}`));
-    if (!notes.length) notes.push(h("li", {}, "No mismatch: nothing the agent labelled is contradicted by its words. ",
-      h("span", { class: "muted" }, "The reader recognises only some acts in words (confirmations, offers, summaries of records...); an act it does not look for is not a mismatch.")));
-    return [ex, h("div", { class: "acts" }, lab, hr), h("ul", { class: "why" }, notes)];
+    if (!t) return [ex, noTrace(), h("p", {}, `${sentences(card.text || "").length} sentences.`)];
+    return [ex, h("p", {}, h("b", {}, "Cut: "), SPLIT[t.split] || t.split), ...segs.map((g, gi) => h("div", { class: "box" },
+      h("div", { class: "chips" }, h("span", { class: "chip" }, g.act || "the whole response"),
+        Object.entries(g.label || {}).filter(([k]) => k !== "act").map(([k, v]) => h("span", { class: "chip" }, `${k} = ${fmt(v)}`)),
+        g.answering ? h("span", { class: "chip extra" }, "answers a policy question") : null,
+        g.opening ? h("span", { class: "chip extra" }, "contains the opening statement") : null),
+      h("ol", { class: "log", start: 1 }, (g.sentences || []).map((s, si) => h("li", {}, h("span", { class: "mono small" }, `sentence ${allSents(card).find(x => x.gi === gi && x.si === si).k + 1}  `), "“", s.text, "”"))),
+      !(g.sentences || []).length ? h("p", { class: "note" }, "No words for this act.") : null))];
   }
   if (st >= 2 && st <= 4) {
-    if (!card.claims.length) return [ex, h("p", { class: "muted" }, "No claim was read from this response.")];
-    return [ex, h("div", { class: "claims" }, card.claims.map((c, i) => claimCard(c, i, st)))];
+    if (!t) return [ex, noTrace()];
+    const all = allSents(card);
+    if (!all.length) return [ex, h("p", { class: "note" }, "No sentence to read.")];
+    const x = all[Math.min(S.sent, all.length - 1)], s = x.s;
+    const head = [ex, sentPicker(card), h("p", { class: "small muted" }, `Sentence ${x.k + 1} of ${all.length}, from `, h("code", {}, x.g.act || "the response"))];
+    if (s.error) return [...head, h("p", { class: "err" }, "The trace could not read this sentence: ", s.error)];
+    if (st === 2) return [...head, ...scanView(card, s)];
+    if (st === 3) {
+      const c = s.cues || {};
+      const items = [
+        ["Does it ask, or open with a condition (if, when, unless, in case)?", c.question_or_condition, c.question_or_condition && `“${c.question_or_condition.words}”: ${c.question_or_condition.why}`],
+        ["Does it use an offer word (shall i, would you like, i can...)?", c.offer, c.offer && `“${c.offer.words}” at ${c.offer.start}`],
+        ["Does it use a completion word (has been, completed, i've replaced...)?", c.completion, c.completion && `“${c.completion.words}” at ${c.completion.start}`],
+      ];
+      if (s.legacy) items.push(["Does it use a recording word (recorded, i've noted...)?", c.recording, c.recording && `“${c.recording.words}”`]);
+      const vs = claimIdx(card, s.text);
+      return [...head, h("dl", { class: "kv" }, h("dt", {}, "as read"), h("dd", {}, h("code", {}, s.low))),
+        h("ul", { class: "checks" }, items.map(([q, hit, why]) => h("li", {}, mark(!!hit, false, true), h("span", {}, q, h("div", { class: "small muted" }, why || "none found"))))),
+        h("div", { class: "formula" }, "mode = offered  if it asks, sets a condition or has an offer word", h("br"), "       done     else if it has a completion word", h("br"), "       states   otherwise",
+          h("br"), h("br"), `this sentence: ${s.mode}`),
+        h("p", { class: "note" }, "Only values of a value set (disposition, card action, delivery...) carry the mode. A value that is offered is a choice, not a statement; a value said to be done is held to a confirmed write; one that is stated is held to what the customer said or what a tool returned. Figures (money, days, limits) are always checked against the policy store."),
+        vs.length ? h("p", {}, "Claims of this sentence: ", vs.map(v => h("code", {}, `${v.i + 1}. ${v.c.field} = ${fmt(v.c.value)} (${v.c.mode || "states"})  `))) : h("p", { class: "note" }, "This sentence makes no claim.")];
+    }
+    const sc = s.scans || [];
+    return [...head,
+      sc.length ? sc.map(r => h("div", { class: "box" },
+        h("b", {}, r.reader), " ", h("span", { class: "small muted" }, READER_WHY[r.kind] || ""),
+        r.kind === "phrases" ? h("p", { class: "note" }, `${r.tried} phrases tried, longest first (the longest: “${r.longest}”).`)
+          : h("p", { class: "note" }, "pattern ", h("code", {}, r.pattern), r.field ? ` → field ${r.field}` : ""),
+        h("table", { class: "t" }, h("tr", {}, h("th", {}, "words"), h("th", {}, "at"), h("th", {}, "value"), h("th", {}, "kept?")),
+          r.hits.map(x => { const kept = x.kept !== false && !/^not read/.test(x.note || "");
+            return h("tr", {}, h("td", {}, "“", x.words, "”", x.phrase && x.phrase !== x.words ? h("div", { class: "small muted" }, "phrase: ", x.phrase) : null),
+              h("td", { class: "mono" }, `${x.start}–${x.end}`), h("td", {}, h("code", {}, fmt(x.value))),
+              h("td", {}, mark(kept), x.blocked_by ? h("div", { class: "small muted" }, `“${x.blocked_by}” already took these words`) : null,
+                x.note ? h("div", { class: "small muted" }, x.note) : null)); }))))
+        : h("p", { class: "note" }, "No reader found anything in this sentence."),
+      (s.quiet || []).length ? [sub("Ran and found nothing"), h("div", { class: "chips" }, s.quiet.map(q => h("span", { class: "chip" }, q, t.readers?.[q] ? ` (${t.readers[q]} phrases)` : "")))] : null];
   }
-  if (st === 5) {
-    if (!card.findings.length) return [ex, h("p", {}, "Nothing to report about the response as a whole.")];
-    return [ex, h("div", { class: "finds" }, card.findings.map(f => {
-      const [title, what, kind] = FINDING[f.kind] || [f.kind, "", "bad"];
-      return h("div", { class: `find ${f.side ? "side" : kind}` },
-        h("b", {}, title), " ", f.act ? h("code", {}, f.act) : null, " ",
-        h("span", { class: `pill ${f.side ? "side" : kind === "adv" ? "adv" : kind === "flow" ? "side" : "bad"}` },
-          f.side ? "side step" : kind === "adv" ? "advisory" : kind === "flow" ? "speech flow" : "blocking"),
-        h("p", {}, f.detail), h("p", { class: "small muted" }, what, f.rule ? ` (${f.rule})` : ""));
-    }))];
+  if (st === S_CLAIMS) {
+    if (!card.claims.length) return [ex, h("p", { class: "note" }, "No claim was read from this response.")];
+    if (!t) return [ex, h("div", { class: "claims" }, card.claims.map((c, i) => claimCard(c, i, st)))];
+    const used = new Set(), out = [ex];
+    for (const x of allSents(card)) {
+      const mine = claimIdx(card, x.s.text).filter(m => !used.has(m.i));
+      mine.forEach(m => used.add(m.i));
+      out.push(h("p", { class: "small" }, h("span", { class: "mono muted" }, `sentence ${x.k + 1}  `), "“", x.s.text, "”"),
+        mine.length ? h("div", { class: "claims" }, mine.map(m => claimCard(m.c, m.i, st))) : h("p", { class: "note" }, "no claim"));
+    }
+    const rest = card.claims.map((c, i) => ({ c, i })).filter(m => !used.has(m.i));
+    if (rest.length) out.push(sub("Read by the policy reader"), h("div", { class: "claims" }, rest.map(m => claimCard(m.c, m.i, st))));
+    return out;
   }
-  // verdict
-  const bad = card.claims.map((c, i) => ({ c, i })).filter(x => BAD_STATUS.has(x.c.status));
-  const blocking = card.findings.filter(f => (FINDING[f.kind] || [, , "bad"])[2] === "bad");
-  const flow = card.findings.filter(f => f.kind === "not_allowed_here");
-  const why = [];
-  for (const { c, i } of bad) why.push(h("li", {}, `claim ${i + 1} (${c.field}) is ${c.status}`, c.why ? `: ${c.why}` : "", c.side ? " - in a side step" : ""));
-  for (const f of blocking) why.push(h("li", {}, (FINDING[f.kind] || [f.kind])[0].toLowerCase(), f.act ? ` (${f.act})` : "", `: ${f.detail}`, f.side ? " - in a side step" : ""));
-  const ok = card.ok !== false;
-  return [ex, h("div", { class: "verdict" },
-      h("span", { class: "big" }, ok ? "Passes" : card.core_ok ? "Fails only in a side step" : "Fails"),
-      h("span", { class: `pill ${ok ? "ok" : card.core_ok ? "side" : "bad"}` }, ok ? "grounded" : card.core_ok ? "flagged at its turn" : "counts against the journey"),
-      flow.length ? h("span", { class: "pill side" }, "speech flow: " + flow.length) : null),
-    why.length ? h("ul", { class: "why" }, why) : h("p", {}, `Every claim is supported${card.claims.length ? "" : " (there were none)"}, and nothing blocking was found.`),
-    h("p", { class: "small muted" }, card.core_ok && !ok
-      ? "Every problem is inside a policy answer or a clarification: it is flagged at this turn and left out of the journey's grade (c_speech), unless the case is that policy question."
-      : "A failing response makes the case's speech check (c_speech) fail; with the default speech gate that makes the case incorrect.")];
+  if (st === S_TRUTH || st === S_CMP) {
+    if (!card.claims.length) return [ex, h("p", { class: "note" }, "No claim was read from this response, so there is nothing to look up.")];
+    return [ex, ...card.claims.map((c, i) => h("div", { class: `box pick${S.focus === i ? " on" : ""}`, onclick: () => { S.focus = i; renderDetail(); } },
+      h("b", {}, `Claim ${i + 1}: ${c.field} = ${fmt(c.value)}`), " ", h("span", { class: "small muted" }, `“${c.words}” · ${c.mode || "states"}`),
+      st === S_TRUTH ? [
+        c.steps ? h("ol", { class: "ladder" }, c.steps.map(x => h("li", { class: x.hit ? "yes" : "no" },
+          h("span", {}, h("span", { class: "tag" }, x.hit ? "applies" : "no"), x.rule, x.detail ? h("div", { class: "small muted" }, x.detail) : null))))
+          : h("p", { class: "note" }, "Rules tried: not kept in this run."),
+        h("dl", { class: "kv", style: "margin-top:.5rem" }, h("dt", {}, "truth"), h("dd", {}, h("code", {}, fmt(c.truth))),
+          h("dt", {}, "read from"), h("dd", {}, c.source || c.basis || "–"))]
+      : [h("div", { class: "cmp" },
+          h("div", { class: "cv" }, h("small", {}, "the words say"), h("code", {}, fmt(c.compare ? c.compare.said : c.value))),
+          h("div", { class: "op" }, c.compare ? c.compare.op : "compared with"),
+          h("div", { class: "cv" }, h("small", {}, "the truth"), h("code", {}, fmt(c.compare ? c.compare.truth : c.truth)))),
+        h("p", {}, c.compare ? h("span", { class: "mono small" }, `→ ${c.compare.result ? "true" : "false"}  `) : null,
+          h("span", { class: `pill ${c.status}` }, c.status), c.side ? [" ", h("span", { class: "pill side" }, "side step")] : null, " ",
+          h("span", { class: "small muted" }, c.why || STATUS[c.status] || ""))]))];
+  }
+  if (st === 8) {
+    const fs = card.findings.filter(f => f.kind === "label_not_said" || f.kind === "text_contradicts_label");
+    if (!t) return [ex, noTrace(), ...fs.map(f => h("p", {}, f.detail))];
+    return [ex, h("dl", { class: "kv" }, h("dt", {}, "labelled"), h("dd", {}, (card.acts || []).join(", ") || "(none: a text-only agent)"),
+        h("dt", {}, "heard in the words"), h("dd", {}, (card.heard || []).join(", ") || "(none)")),
+      ...segs.filter(g => g.act).map(g => h("div", { class: "box" }, h("b", {}, g.act), " ", h("span", { class: "small muted" }, "heard here: ", (g.heard || []).join(", ") || "nothing"),
+        h("ul", { class: "checks" }, (g.faithfulness || []).map(c => h("li", {}, mark(c.ok, c.skip), h("span", {}, c.check, h("div", { class: "small muted" }, c.detail))))))),
+      fs.length ? [sub("Findings"), fs.map(f => h("p", {}, h("span", { class: "pill bad" }, f.kind), " ", f.detail))] : h("p", { class: "note" }, "No faithfulness finding.")];
+  }
+  if (st === 9) {
+    const fs = card.findings.filter(f => ["missing", "disclosed", "volunteered", "unread"].includes(f.kind));
+    if (!t) return [ex, noTrace(), ...fs.map(f => h("p", {}, f.detail))];
+    const adv = new Set(card.advisory || ["unread"]);
+    return [ex, ...segs.map(g => h("div", { class: "box" }, h("b", {}, g.act || "the response"),
+        h("ul", { class: "checks" }, (g.completeness || []).length ? g.completeness.map(c => h("li", {}, mark(c.ok, c.skip), h("span", {}, c.check, h("div", { class: "small muted" }, c.detail))))
+          : h("li", {}, mark(true, true), h("span", {}, "nothing required to check"))),
+        (g.policy || []).length ? [h("p", { class: "small", style: "margin:.4rem 0 .2rem" }, "Policy reader:"),
+          h("ul", { class: "checks" }, g.policy.map(p => h("li", {}, h("span", { class: `pill ${p.outcome === "unread" ? "adv" : p.outcome}` }, p.outcome), h("span", {}, "“", p.clause, "”"))))] : null)),
+      fs.length ? [sub("Findings"), fs.map(f => h("p", {}, h("span", { class: `pill ${adv.has(f.kind) ? "adv" : "bad"}` }, adv.has(f.kind) ? `${f.kind} (advisory)` : f.kind), " ", f.detail))] : h("p", { class: "note" }, "No completeness finding.")];
+  }
+  if (st === 10) {
+    const fs = card.findings.filter(f => f.kind === "not_allowed_here");
+    if (!t) return [ex, noTrace(), ...fs.map(f => h("p", {}, f.detail))];
+    return [ex, h("dl", { class: "kv" }, h("dt", {}, "prompt being answered"), h("dd", {}, (t.pending || []).join(", ") || "(none)"),
+        h("dt", {}, "the customer meant"), h("dd", {}, h("code", {}, t.customer_act || "(nothing yet)")),
+        h("dt", {}, "acts in order"), h("dd", {}, (t.flow_acts || []).join(" → ") || "(none)")),
+      h("ul", { class: "checks" }, (t.flow || []).map(c => h("li", {}, mark(c.ok, c.skip), h("span", {}, c.check, h("div", { class: "small muted" }, c.detail))))),
+      h("p", {}, "flow_ok = ", h("code", {}, String(card.flow_ok !== false)), fs.length ? "" : "  (every step is in the graph)")];
+  }
+  if (st === 11) {
+    const adv = new Set(card.advisory || ["unread"]);
+    const failed = card.claims.map((c, i) => ({ c, i })).filter(x => BAD_STATUS.has(x.c.status));
+    const kindOf = f => f.kind === "not_allowed_here" ? "flow (graded apart)" : adv.has(f.kind) ? "advisory" : "blocking";
+    const rows = [...card.claims.map((c, i) => h("tr", {}, h("td", {}, `claim ${i + 1}`), h("td", {}, `${c.field} = ${fmt(c.value)}`),
+        h("td", {}, h("span", { class: `pill ${c.status}` }, c.status)), h("td", {}, BAD_STATUS.has(c.status) ? (c.side ? "fails, in a side step" : "fails") : "passes"))),
+      ...card.findings.map(f => h("tr", {}, h("td", {}, f.kind), h("td", {}, f.act || ""), h("td", { class: "small" }, f.detail),
+        h("td", {}, f.side && kindOf(f) === "blocking" ? "blocking, in a side step" : kindOf(f))))];
+    const blocking = card.findings.filter(f => kindOf(f) === "blocking");
+    const core = failed.filter(x => !x.c.side).length + blocking.filter(f => !f.side).length;
+    const ok = card.ok !== false;
+    return [ex, rows.length ? h("table", { class: "t" }, h("tr", {}, h("th", {}, "item"), h("th", {}, "what"), h("th", {}, "result"), h("th", {}, "counts as")), rows)
+        : h("p", { class: "note" }, "No claim and no finding."),
+      h("div", { class: "formula" }, `ok      = no failed claim (${failed.length}) and no blocking finding (${blocking.length})  →  ${ok}`, h("br"),
+        `core_ok = the same, leaving out side steps (${core} still failing)  →  ${card.core_ok !== false}`, h("br"),
+        `flow_ok = every act in the graph  →  ${card.flow_ok !== false}`),
+      h("div", { class: "verdict" }, h("span", { class: "big" }, ok ? "Passes" : card.core_ok ? "Fails only in a side step" : "Fails"),
+        h("span", { class: `pill ${ok ? "ok" : card.core_ok ? "side" : "bad"}` }, ok ? "grounded" : card.core_ok ? "flagged at its turn" : "counts against the journey"))];
+  }
+  // the case
+  const grades = row.speech_turn_grades;
+  const where = n => n === 0 ? "the opening" : `reply to customer turn ${n - 1}`;
+  const out = [ex];
+  if (grades) {
+    out.push(h("table", { class: "t" }, h("tr", {}, h("th", {}, "agent turn"), h("th", {}, "claims"), h("th", {}, "ok"), h("th", {}, "core_ok"), h("th", {}, "flow_ok")),
+      grades.map(g => { const k = S.view.findIndex(v => v.row === row && v.card.turn === g.turn);
+        return h("tr", { style: g.turn === card.turn ? "background:var(--accent-soft)" : k >= 0 ? "cursor:pointer" : null,
+          title: k >= 0 && g.turn !== card.turn ? "open this response" : null,
+          onclick: k >= 0 && g.turn !== card.turn ? () => { S.cur = k; S.focus = null; reset(); renderList(); } : null },
+          h("td", {}, where(g.turn), g.turn === card.turn ? h("div", { class: "small muted" }, "this response") : k >= 0 ? h("div", { class: "small muted" }, "open") : h("div", { class: "small muted" }, "nothing checkable said")),
+        h("td", {}, g.claims), h("td", {}, mark(g.ok)), h("td", {}, mark(g.core_ok)), h("td", {}, mark(g.flow_ok))); })));
+  } else out.push(h("p", { class: "note" }, "The other turns' grades were not kept in this run; the case's own numbers follow."));
+  const cs = grades ? +grades.every(g => g.core_ok) : row.c_speech, cf = grades ? +grades.every(g => g.flow_ok) : row.c_flow;
+  const lines = [`c_speech = every turn core_ok  →  ${row.c_speech ?? cs}`];
+  if (row.kb_case) lines.push("          (a policy-question case: its answer is the outcome, so c_speech uses every turn's ok)");
+  lines.push(`c_flow   = every turn flow_ok  →  ${row.c_flow ?? cf}`);
+  if (row.live) {
+    lines.push("", "A Playground conversation has no expected outcome: the case's correct is decided on a test run.");
+  } else {
+    lines.push(`outcome  = the run's outcome alone  →  ${row.outcome_correct ?? "–"}`);
+    lines.push(`gate     = ${row.speech_gate || "–"}`);
+    lines.push(`correct  = outcome${row.speech_gate === "fail" || row.speech_gate === "strict" ? " AND c_speech" : ""}${row.speech_gate === "strict" ? " AND c_flow" : ""}  →  ${row.correct ?? "–"}`);
+  }
+  out.push(h("div", { class: "formula" }, lines.flatMap((l, k) => k ? [h("br"), l] : [l])));
+  if (!row.live && row.correct != null) out.push(h("div", { class: "verdict" }, h("span", { class: "big" }, row.correct ? "Case correct" : "Case incorrect"),
+    row.outcome_correct && !row.c_speech ? h("span", { class: "pill bad" }, "the outcome was right, the words were not") : null));
+  return out;
 }
 
 // ---------------------------------------------------------------- rendering
@@ -482,7 +768,7 @@ function renderList() {
   S.view.forEach(({ row, card }, k) => {
     if (row.sid !== last) { list.append(h("div", { class: "grp" }, row.sid, row.correct === 0 ? " · incorrect" : "")); last = row.sid; }
     list.append(h("button", { class: "item", type: "button", "aria-current": k === S.cur ? "true" : "false",
-      onclick: () => { S.cur = k; S.step = 0; S.focus = null; stop(); renderList(); } },
+      onclick: () => { S.cur = k; S.step = 0; S.focus = null; reset(); renderList(); } },
       h("span", { class: `dot${respSide(card) ? " side" : respBad(card) ? " bad" : ""}` }),
       h("span", {}, card.where || `turn ${card.turn}`), h("span", { class: "snip" }, card.text)));
   });
@@ -494,7 +780,7 @@ function renderDetail() {
   const { row, card } = v;
   const steps = h("ol", { class: "steps", "aria-label": "Steps of the check" }, STEPS.map(([t], k) => h("li", {},
     h("button", { type: "button", class: k < S.step ? "done" : "", "aria-current": k === S.step ? "step" : null,
-      onclick: () => { S.step = k; stop(); renderDetail(); } }, h("span", { class: "k" }, k + 1), t))));
+      onclick: () => { S.step = k; stop(); stopScan(); renderDetail(); } }, h("span", { class: "k" }, k + 1), t))));
   const nav = h("div", { class: "nav" },
     h("button", { class: "btn", type: "button", disabled: S.step === 0, onclick: () => go(-1) }, "Back"),
     h("button", { class: "btn", type: "button", onclick: () => (S.timer ? stop() : play()) }, S.timer ? "Pause" : "Play"),
@@ -509,9 +795,10 @@ function renderDetail() {
     h("section", { class: "card" },
       h("div", { class: "stephead" }, steps, nav),
       h("div", { class: "stephead" }, h("h2", {}, `Step ${S.step + 1}. ${STEPS[S.step][0]}`)),
-      ...stepBody(card)));
+      ...stepBody(card, row).flat(Infinity).filter(Boolean)));
 }
-function go(d) { S.step = Math.max(0, Math.min(STEPS.length - 1, S.step + d)); renderDetail(); }
+function go(d) { stopScan(); S.step = Math.max(0, Math.min(STEPS.length - 1, S.step + d)); renderDetail(); }
+function reset() { stop(); stopScan(); S.sent = 0; S.scanAt = -1; }
 function play() {
   if (S.step === STEPS.length - 1) S.step = 0;
   S.timer = setInterval(() => { if (S.step >= STEPS.length - 1) { stop(); renderDetail(); return; } go(1); }, 1700);
@@ -522,8 +809,8 @@ document.addEventListener("keydown", e => {
   if (!S.view.length || /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName || "")) return;
   if (e.key === "ArrowRight") { stop(); go(1); }
   else if (e.key === "ArrowLeft") { stop(); go(-1); }
-  else if (e.key === "j" || e.key === "ArrowDown") { e.preventDefault(); S.cur = Math.min(S.view.length - 1, S.cur + 1); S.step = 0; S.focus = null; stop(); renderList(); }
-  else if (e.key === "k" || e.key === "ArrowUp") { e.preventDefault(); S.cur = Math.max(0, S.cur - 1); S.step = 0; S.focus = null; stop(); renderList(); }
+  else if (e.key === "j" || e.key === "ArrowDown") { e.preventDefault(); S.cur = Math.min(S.view.length - 1, S.cur + 1); S.step = 0; S.focus = null; reset(); renderList(); }
+  else if (e.key === "k" || e.key === "ArrowUp") { e.preventDefault(); S.cur = Math.max(0, S.cur - 1); S.step = 0; S.focus = null; reset(); renderList(); }
 });
 autoload();
 </script>

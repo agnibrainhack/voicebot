@@ -372,7 +372,8 @@ def response_cards(speech_turns: list[dict[str, Any]], transcript: list[dict[str
 
     Input   the speech check's per-turn reports (``extras["speech"]["turns"]``, one per bot turn) and the run's
             transcript (``[{role, text, ...}]``, used for what the customer said just before each response)
-    Output  ``[{turn, where, customer, text, acts, heard, ok, core_ok, flow_ok, claims, findings}]`` for every turn
+    Output  ``[{turn, where, customer, text, acts, heard, ok, core_ok, flow_ok, claims, findings, advisory, trace}]``
+            (``trace``: how the check went, step by step: speech_trace.py) for every turn
             with a
             claim or a finding. Each claim keeps its words, the value they give, its verdict, where the truth was
             read (``basis``: tool result / successful write / what the customer said / GMS exact register /
@@ -390,7 +391,8 @@ def response_cards(speech_turns: list[dict[str, Any]], transcript: list[dict[str
             before[k] = last_user
     return [{"turn": t["turn"], "where": turn_where(t["turn"]), "customer": before.get(t["turn"]), "text": t["text"],
              "acts": t["acts"], "heard": t.get("heard"), "ok": t["ok"], "core_ok": t.get("core_ok", t["ok"]),
-             "flow_ok": t["flow_ok"], "claims": t["claims"], "findings": t["findings"]}
+             "flow_ok": t["flow_ok"], "claims": t["claims"], "findings": t["findings"],
+             **({"advisory": t["advisory"]} if "advisory" in t else {}), **({"trace": t["trace"]} if t.get("trace") else {})}
             for t in speech_turns if t["claims"] or t["findings"]]
 
 
@@ -467,6 +469,8 @@ def score(scn: Scenario, res, limits: Limits, workflow, budget=None) -> dict[str
         if sp["problems"]:
             row["speech_problems"] = sp["problems"]
         row["speech_turns"] = response_cards(sp["turns"], res.extras.get("transcript") or [])
+        row["speech_turn_grades"] = [{"turn": t["turn"], "ok": t["ok"], "core_ok": t.get("core_ok", t["ok"]),
+                                      "flow_ok": t["flow_ok"], "claims": len(t["claims"])} for t in sp["turns"]]
         row["outcome_correct"] = row["correct"]          # the outcome alone, before the speech gate
         row["speech_gate"] = SPEECH_GATE
         if SPEECH_GATE in ("fail", "strict"):

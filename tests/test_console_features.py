@@ -335,6 +335,9 @@ def test_console_api_for_the_bot_cases_and_playground():
         code, sp = call(f"api/play/s/{v['id']}/speech")
         assert code == 200 and len(sp) == 1 and sp[0]["speech_turns"] and sp[0]["speech_turns"][0]["where"] == "the opening"
         assert all({"text", "claims", "findings", "ok"} <= set(t) for t in sp[0]["speech_turns"])
+        assert b"Where the truth is" in page and b"Word by word" in page and b"The case" in page
+        assert sp[0]["speech_turn_grades"] and all("trace" in t for t in sp[0]["speech_turns"])
+        assert sp[0]["speech_turns"][0]["trace"]["segments"][0]["sentences"]
         ui = (Path(__file__).resolve().parents[1] / "gmsjourney" / "s10_console" / "ui.html").read_text()
         assert '["speech", "Speech check"]' in ui and "Step through the speech check" in ui
         # a run with the LLM bot keeps its settings beside the job, and the job says which models it uses

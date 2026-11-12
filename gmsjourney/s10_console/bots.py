@@ -457,7 +457,7 @@ def _speech(rep) -> dict | None:
     adv = set(rep.advisory)
     finds = [{**f, "advisory": f["kind"] in adv, "flow": f["kind"] == "not_allowed_here"} for f in d["findings"]]
     return {"ok": rep.ok, "core_ok": d.get("core_ok", rep.ok), "flow_ok": rep.flow_ok, "heard": d.get("heard"),
-            "claims": d["claims"], "findings": finds}
+            "claims": d["claims"], "findings": finds, "advisory": d.get("advisory"), "trace": d.get("trace")}
 
 
 @dataclass
@@ -758,9 +758,13 @@ class Session:
             cards.append({"turn": t["n"], "where": turn_where(t["n"]), "customer": (t.get("customer") or {}).get("text"),
                           "text": t["bot"]["text"], "acts": t["bot"].get("act_names") or [], "heard": sp.get("heard"),
                           "ok": sp["ok"], "core_ok": sp.get("core_ok", sp["ok"]), "flow_ok": sp["flow_ok"],
-                          "claims": sp["claims"], "findings": sp["findings"]})
+                          "claims": sp["claims"], "findings": sp["findings"], "advisory": sp.get("advisory"),
+                          "trace": sp.get("trace")})
+        grades = [{"turn": t["n"], "ok": t["speech"]["ok"], "core_ok": t["speech"].get("core_ok", t["speech"]["ok"]),
+                   "flow_ok": t["speech"]["flow_ok"], "claims": len(t["speech"]["claims"])}
+                  for t in self.turns if t.get("speech")]
         return [{"sid": f"{self.case['id']} · Playground conversation {self.id}", "arm": "base", "correct": None,
-                 "speech_turns": cards}]
+                 "speech_turns": cards, "speech_turn_grades": grades, "live": True}]
 
     def _next_line(self) -> int | None:
         """The scripted line that answers the bot's last question (the next turn of the case), if any."""

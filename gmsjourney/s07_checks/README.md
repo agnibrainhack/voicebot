@@ -14,7 +14,8 @@ gmsjourney/s07_checks/
 ├── scoring.py         Scoring a run: was it correct, how bad is a failure, may the bot be released
 ├── speech_checks.py   Checking what the bot said: every claim against its source, every act for completeness
 ├── speech_policy.py   Policy in what the bot says, and proof that the speech check catches errors
-└── speech_reading.py  Reading what the bot said: the contract, the session's facts and the utterance reader
+├── speech_reading.py  Reading what the bot said: the contract, the session's facts and the utterance reader
+└── speech_trace.py    How the speech check read one sentence, step by step (for the speech check page)
 ```
 
 ## `__init__.py`
@@ -264,3 +265,16 @@ Parts:
 | `ReadUtterance` | class | What the reader understood from one utterance. |
 | `UtteranceReader` | class | Reads utterances with the wordings the speech contract (the policy graph) declares. |
 | `fallback` | def | What a figure that names nothing is about: the asked-about thing the first time, ``ANY`` after that. |
+
+## `speech_trace.py`
+
+How the speech check read one sentence, step by step: for the speech check page (`s09_reports/speech_playground.html`).
+It re-runs the readers' own patterns on the same words and reports what they saw; it decides nothing. The verifier
+keeps it per turn in `TurnReport.trace` (with the rules each claim's check tried, `ClaimVerdict.steps`, and the
+comparison made, `ClaimVerdict.compare`).
+
+| name | kind | what it is |
+|---|---|---|
+| `explain_sentence` | def | One sentence as read: the words after normalising, the cue words and the mode, every reader's matches (kept, and dropped because a longer phrase took the words), and the readers that found nothing. |
+| `readers` | def | How many phrases each value-set reader tries (kept once per turn). |
+| `facts_snapshot` | def | What the checker knew when the agent spoke: the customer's meaning cards, the confirmed and failed writes, the charges and each tool's latest result. |

@@ -114,18 +114,36 @@ are told the run was stopped (they no longer see the unplayed lines as turns the
 ### The speech check playground (`speech_playground.html`)
 
 `write_speech_playground(out)` copies `s09_reports/speech_playground.html` into the run folder (the campaign does it
-after `case_comparison.html`). It is one self-contained page that reads the run's `dataset/case_results.jsonl` (every
-run's `speech_turns`, the response cards of `s07_checks/scoring.response_cards`, which keep the acts the words were
-heard as and, per claim, the sentence it was read from): fetched next to it when the folder is served, or chosen /
-dropped when the page is opened from disk (browsers do not let a local page read its folder by itself). For each
-agent response it shows the customer's line and the whole sentence with every claim's words marked, the claim
-cards, and the check in seven steps: the words (cut into sentences), the acts (labelled vs recognised in the words;
-only what the checker flagged is marked), the claims read, where the truth is (tool result, confirmed write, the
-customer's words, the policy store, the policy text), said vs truth (supported / contradicted / unsupported /
-unverifiable, colouring the words), the response as a whole (blocking, speech-flow and advisory findings, side steps
-marked), and the verdict with its reasons. Back / Next / Play, arrow keys for steps, j / k (or up / down) between
-responses. The console shows the same page under *Try the bot › Speech check* (chapter 10), for a Playground
-conversation or any finished test run; `?embed=1` hides its own title and follows the console's day / night setting.
+after `case_comparison.html`). It is one self-contained page that reads the run's `dataset/case_results.jsonl`:
+fetched next to it when the folder is served, or chosen / dropped when the page is opened from disk (browsers do not
+let a local page read its folder by itself). It uses each row's `speech_turns` (the response cards of
+`s07_checks/scoring.response_cards`, each with the checker's own `trace`) and `speech_turn_grades` (every agent
+turn's ok / core_ok / flow_ok).
+
+For each agent response it shows the customer's line and the whole response with every claim's words marked, then
+replays the check in thirteen steps, all from what the checker recorded (`s07_checks/speech_trace.py`; nothing is
+re-derived in the page):
+
+| Step | What it shows |
+|---|---|
+| What the check knows | the customer's meaning cards so far and the slots they gave (`facts.caller`: the truth a value said back is held to), the writes the bank confirmed and the ones that failed, the charges and each tool's latest result, the agent's labels |
+| Pieces and sentences | per act (each act carries its words) or the whole response; each piece cut into sentences |
+| Word by word | the sentence as read (plain punctuation, number words as digits, lower case), each word with its position; *Scan word by word* replays, in word order, every cue word and every reader match, kept or dropped, and which claim each kept match became |
+| How it is put | the three cue lists (question or condition, offer, completion) and the mode they give: offered, done or states |
+| Readers and matches | each value set's phrases (how many, longest first) with every match, the ones dropped because a longer phrase took the words, and the figure patterns (money, free, business days with "at most" / "at least", limits); the readers that found nothing |
+| Claim cards | the claims of each sentence: field, value, words, about, mode |
+| Where the truth is | per claim, every rule tried in order (opening, limit, policy figure, summary of what was written, said to be done, a tool's result, a choice the prompt offers, what the customer said) with why it did or did not apply; the truth and where it was read |
+| Said vs truth | the comparison made (equals ignoring case, is one of, equals as numbers, a range that holds the register value), its result and the verdict |
+| Acts: labelled vs heard | faithfulness: each labelled act heard (by a cue word, or by a claim for every field it must say) or not judged, and each labelled value against the words |
+| Required wording | completeness: each act's required field, said, missing or skipped (with why), and the policy reader's clauses |
+| Dialog flow | the prompt being answered, what the customer meant, and each act's step in the graph |
+| This response | every claim and finding counted as failing, blocking, flow or advisory, side steps marked, and `ok` / `core_ok` / `flow_ok` worked out |
+| The case | every agent turn's grades (click one to open it), `c_speech`, `c_flow`, the outcome, the speech gate and `correct` |
+
+Runs made before the trace was kept still load; the steps that need it say so. Back / Next / Play, arrow keys for
+steps, j / k (or up / down) between responses. The console shows the same page under *Try the bot › Speech check*
+(chapter 10), for a Playground conversation or any finished test run; `?embed=1` hides its own title and follows the
+console's day / night setting.
 
 ### Part 4: inside one case
 

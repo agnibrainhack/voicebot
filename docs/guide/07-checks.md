@@ -161,6 +161,17 @@ s07_checks/
     first time and to `ANY` after that (`fallback`), because "There's also a $15 option" is about some option;
   * `words_to_digits` reads "fifteen dollars" as 15.
 
+### The trace of a check (`speech_trace.py`)
+
+Every turn's report keeps how the check went, for the speech check page (chapter 9): `TurnReport.trace` holds what
+the checker knew (the customer's meaning cards and slots, confirmed and failed writes, tool results), each piece and
+sentence as read (`explain_sentence`: the words after normalising, the cue words and the mode, every reader's
+matches, kept or dropped because a longer phrase took the words), and the faithfulness, completeness and flow checks
+made, passing ones too. Each `ClaimVerdict` keeps `steps` (every rule tried to find its truth, in order, and why it
+did or did not apply) and `compare` (the comparison made: `op`, `said`, `truth`, `result`). The trace only reports;
+claims and verdicts do not depend on it. A limit whose unit has two words (`calendar_days`) is read from "30 calendar
+days".
+
 ### Verdicts and findings (`speech_checks.py`)
 
 `UtteranceVerifier` gives every claim a `ClaimVerdict`: **supported**, **contradicted**, **unsupported** or

@@ -82,6 +82,8 @@ class ClaimVerdict:
     source: str = ""              # where the truth was read
     why: str = ""                 # one plain sentence
     geometry: dict | None = None  # GMS: distance of the claimed value vs the relation's cap (policy figures)
+    steps: tuple = ()             # how the truth was found: the rules tried, in order ({rule, hit, detail})
+    compare: dict | None = None   # the comparison made: {op, said, truth, result}
 
     @property
     def failed(self) -> bool:
@@ -103,6 +105,13 @@ class ClaimVerdict:
         f, mode = self.claim.field, self.claim.mode
         if self.status == "unverifiable":
             return "nothing to check"
+        src = self.source or ""
+        if src.startswith("successful "):              # where the check read it (the generic checks name it)
+            return "successful write"
+        if src.startswith("exact register"):
+            return "GMS exact register"
+        if " result " in src:
+            return "tool result"
         if f in ("merchant", "amount", "date", "age_days"):
             return "tool result"
         if f == "disposition":
@@ -125,7 +134,18 @@ class ClaimVerdict:
         """A JSON-ready view: the claim's fields plus status, basis, truth, source, why (and geometry if any)."""
         return {**self.claim.as_dict(), "status": self.status, "basis": self.basis,
                 "truth": list(self.truth) if isinstance(self.truth, tuple) else self.truth,
-                "source": self.source, "why": self.why, **({"geometry": self.geometry} if self.geometry else {})}
+                "source": self.source, "why": self.why, **({"geometry": self.geometry} if self.geometry else {}),
+                **({"steps": [dict(x) for x in self.steps]} if self.steps else {}),
+                **({"compare": _jsonable(self.compare)} if self.compare else {})}
+
+
+def _jsonable(v: Any) -> Any:
+    """Tuples and sets as lists, recursively (for the JSON trace)."""
+    if isinstance(v, dict):
+        return {str(k): _jsonable(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple, set, frozenset)):
+        return [_jsonable(x) for x in (sorted(v, key=str) if isinstance(v, (set, frozenset)) else v)]
+    return v
 
 
 @dataclass(frozen=True)
@@ -162,6 +182,7 @@ class TurnReport:
     verdicts: list[ClaimVerdict] = field(default_factory=list)
     findings: list[Finding] = field(default_factory=list)
     side: dict = field(default_factory=lambda: {"verdicts": set(), "findings": set()})
+    trace: dict = field(default_factory=dict)   # how the check went, step by step (speech_trace.py; the playground)
 
     @property
     def flow_findings(self) -> list[Finding]:
@@ -197,7 +218,9 @@ class TurnReport:
                             **({"side": True} if i in self.side["verdicts"] else {})}
                            for i, v in enumerate(self.verdicts)],
                 "findings": [{**f.as_dict(), **({"side": True} if i in self.side["findings"] else {})}
-                             for i, f in enumerate(self.findings)]}
+                             for i, f in enumerate(self.findings)],
+                "advisory": sorted(self.advisory),
+                **({"trace": _jsonable(self.trace)} if self.trace else {})}
 
 
 # ------------------------------------------------------------------ the verifier
@@ -264,6 +287,7 @@ class UtteranceVerifier:
         report.advisory = self.advisory
         presented = presented or set()
         asked = self.policy.asked_subjects(question) if self.policy is not None else set()
+        segs = []
         for label, seg_text in segments:
             about = (label or {}).get("txn") or last_item
             if about is not None and not isinstance(about, (str, int, float)):   # a bot's malformed reference:
@@ -271,18 +295,27 @@ class UtteranceVerifier:
             answering = question if (label is None or ("ANSWER_KB" in N.state and label.get("act") == N.state.ANSWER_KB)) \
                 else None
             read = self.reader.read(seg_text, facts, about_item=about, question=answering)
+            seg = {"act": (label or {}).get("act"), "label": {k: v for k, v in (label or {}).items() if k != "text"},
+                   "text": seg_text, "about": about, "answering": bool(answering), "sentences": _explain(self.reader, read, facts),
+                   "opening": any(c.field == "opening" for c in read.claims), "heard": list(read.heard),
+                   "claims": [], "policy": [], "faithfulness": [], "completeness": []}
+            segs.append(seg)
             report.heard += [h for h in read.heard if h not in report.heard]
             mine = []
             for cl in read.claims:
-                mine.append(self._corroborated(self.verify_claim(cl, facts, label)))
+                mine.append(_with_steps(self._corroborated(self.verify_claim(cl, facts, label))))
             if self.policy is not None:
                 act = (label or {}).get("act")
                 for cv in self.policy.check(read):
                     if cv.outcome == "unread":
                         report.findings.append(Finding("unread", act, f"not read as policy: {cv.clause!r}"))
+                        seg["policy"].append({"clause": cv.clause, "outcome": "unread"})
                         continue
-                    v = ClaimVerdict(cv.as_claim(), cv.status, cv.truth, cv.cites or "", cv.why)
+                    v = ClaimVerdict(cv.as_claim(), cv.status, cv.truth, cv.cites or "", cv.why,
+                                     steps=({"rule": "a policy statement", "hit": True,
+                                             "detail": f"read by the policy reader; checked against {cv.cites or 'the policy graph'}"},))
                     mine.append(v)
+                    seg["policy"].append({"clause": cv.clause, "outcome": cv.status})
                     why = self.policy.never(cv.subjects, cv.internal) if not cv.failed_for_disclosure(asked) else None
                     if why:
                         report.findings.append(Finding("disclosed", act, f"{cv.clause!r}: {why}"))
@@ -296,15 +329,22 @@ class UtteranceVerifier:
                         why = self.policy.never((v.claim.about,), False) if v.claim.about else None
                         if why:
                             report.findings.append(Finding("disclosed", act, f"{v.claim.words!r}: {why}"))
+            seg["claims"] = list(range(len(report.verdicts), len(report.verdicts) + len(mine)))
             report.verdicts += mine
             if label is not None:
-                report.findings += self._faithfulness(label, read)
-                report.findings += self._completeness(label["act"], label, read, facts, about, presented)
+                report.findings += self._faithfulness(label, read, seg["faithfulness"])
+                report.findings += self._completeness(label["act"], label, read, facts, about, presented,
+                                                      seg["completeness"])
             elif not labelled:
                 for act in read.heard:
-                    report.findings += self._completeness(act, {}, read, facts, about, presented)
+                    report.findings += self._completeness(act, {}, read, facts, about, presented, seg["completeness"])
         names = report.acts or report.heard
-        report.findings += self._flow(names, pending_prompts or set(), customer_act, first=turn == 0)
+        flow: list[dict] = []
+        report.findings += self._flow(names, pending_prompts or set(), customer_act, first=turn == 0, log=flow)
+        from .speech_trace import readers
+        report.trace = {"split": "per_act" if per_act else "whole", "readers": readers(self.reader),
+                        "segments": segs, "flow": flow, "flow_acts": list(names),
+                        "pending": sorted(pending_prompts or ()), "customer_act": customer_act}
         return report
 
     # ---------------------------------------------------------------- one claim
@@ -376,7 +416,9 @@ class UtteranceVerifier:
         """supported when the claimed value equals ``truth`` (case-insensitive), else contradicted."""
         ok = str(cl.value).lower() == str(truth).lower()
         return ClaimVerdict(cl, "supported" if ok else "contradicted", truth, source,
-                            "" if ok else f"says {cl.value}, the truth is {truth}")
+                            "" if ok else f"says {cl.value}, the truth is {truth}",
+                            compare={"op": "equals, ignoring case", "said": str(cl.value).lower(),
+                                     "truth": str(truth).lower(), "result": ok})
 
     def _item_claim(self, cl: Claim, facts: SessionFacts) -> ClaimVerdict:
         """An account fact must be what the tool returned for that transaction (R7, R24)."""
@@ -466,7 +508,8 @@ class UtteranceVerifier:
                     for h, r, t in self._kx_seen[sent] for val in vals)
         geo = dict(v.geometry or {})
         geo["knowlytix"] = "confirmed" if found else "not found"
-        return ClaimVerdict(v.claim, v.status, v.truth, v.source, v.why, geo)
+        from dataclasses import replace
+        return replace(v, geometry=geo)
 
     def _geometry(self, head: str, relation: str, value: Any) -> dict | None:
         """The GMS reading of a claimed figure: geodesic distance of (head, relation, value) from the fact,
@@ -482,10 +525,10 @@ class UtteranceVerifier:
         return self._geo[key]
 
     # ---------------------------------------------------------------- the turn as a whole
-    def _faithfulness(self, label: dict[str, Any], read: ReadUtterance) -> list[Finding]:
+    def _faithfulness(self, label: dict[str, Any], read: ReadUtterance, log: list | None = None) -> list[Finding]:
         """Do the words say what the label claims?"""
         if self.generic is not None:
-            return self.generic.faithfulness(label, read)
+            return self.generic.faithfulness(label, read, log)
         act = label["act"]
         spec = self.c.acts.get(act)
         out = []
@@ -516,11 +559,11 @@ class UtteranceVerifier:
         return out
 
     def _completeness(self, act: str, label: dict[str, Any], read: ReadUtterance, facts: SessionFacts,
-                      about: str | None, presented: set[str] = frozenset()) -> list[Finding]:
+                      about: str | None, presented: set[str] = frozenset(), log: list | None = None) -> list[Finding]:
         """Does the act say everything the policy requires it to say (when there is something to say)?
         A transaction's facts are required the first time it is presented, not when it is re-asked."""
         if self.generic is not None:
-            return self.generic.completeness(act, label, read, facts)
+            return self.generic.completeness(act, label, read, facts, log)
         spec = self.c.acts.get(act)
         if spec is None:
             return []
@@ -560,31 +603,67 @@ class UtteranceVerifier:
                                                        f"{w['args'].get('action')}", spec_source(self.c, act)))
         return out
 
-    def _flow(self, names: list[str], pending: set[str], customer_act: str | None, first: bool) -> list[Finding]:
+    def _flow(self, names: list[str], pending: set[str], customer_act: str | None, first: bool,
+              log: list | None = None) -> list[Finding]:
         """Is each act where the dialog-state graph allows it? The first act of a turn must follow from a
         prompt the customer was answering, on what they said (or be allowed from anywhere: a person on
         request, a policy answer, a clarification, the turn limit); each next act must follow automatically
         from the one before (or re-ask the pending prompt after a clarification or a policy answer)."""
+        log = log if log is not None else []
         if not names:
+            log.append({"check": "nothing to place in the dialog", "ok": True, "detail": "no act labelled or heard"})
             return []
         out = []
         c = self.c
         if first:
-            if "OPENING" in N.state and N.state.OPENING in c.acts and names[0] != N.state.OPENING:
+            ok = not ("OPENING" in N.state and N.state.OPENING in c.acts and names[0] != N.state.OPENING)
+            log.append({"check": f"{names[0]} starts the call", "ok": ok,
+                        "detail": "the call must start with the opening (R1)" if not ok else "the first turn opens the call"})
+            if not ok:
                 out.append(Finding("not_allowed_here", names[0], "the call must start with the opening (R1)", "R1"))
         else:
             a0 = names[0]
-            ok = (any(a0 in c.next_states(p, customer_act) for p in pending)
-                  or a0 in c.global_acts.get(customer_act or "", set()) or a0 in c.global_acts["any"]
-                  or a0 in pending)
-            if not ok:
+            via = next((f"{p} goes to {a0} when the customer means {customer_act}" for p in sorted(pending)
+                        if a0 in c.next_states(p, customer_act)), None) \
+                or (f"{a0} is allowed from anywhere on {customer_act}" if a0 in c.global_acts.get(customer_act or "", set()) else None) \
+                or (f"{a0} is allowed from anywhere" if a0 in c.global_acts["any"] else None) \
+                or (f"{a0} re-asks the prompt the customer was answering" if a0 in pending else None)
+            log.append({"check": f"{a0} follows what the customer said", "ok": bool(via),
+                        "detail": via or f"from {', '.join(sorted(pending)) or 'no pending prompt'} on {customer_act}, "
+                                         f"the graph does not go to {a0}"})
+            if not via:
                 out.append(Finding("not_allowed_here", a0, f"{a0} does not follow from {sorted(pending)} on "
                                                            f"{customer_act}"))
         for a, b in zip(names, names[1:]):
-            ok = b in c.next_states(a, "auto") or (a in _reask_after() and (b in pending or b in c.prompt_states))
+            auto = b in c.next_states(a, "auto")
+            reask = a in _reask_after() and (b in pending or b in c.prompt_states)
+            ok = auto or reask
+            log.append({"check": f"{b} follows {a}", "ok": ok,
+                        "detail": f"{a} goes on to {b} by itself (an automatic step in the graph)" if auto else
+                        f"after {a} the agent may re-ask a prompt" if reask else f"the graph has no step from {a} to {b}"})
             if not ok:
                 out.append(Finding("not_allowed_here", b, f"{b} does not follow {a}"))
         return out
+
+
+def _explain(reader, read: ReadUtterance, facts) -> list[dict]:
+    """Each sentence as the reader saw it (speech_trace.py); a failure here never fails the check."""
+    from .speech_trace import explain_sentence
+    out = []
+    for s in read.sentences:
+        try:
+            out.append(explain_sentence(reader, s, facts))
+        except Exception as e:                                  # noqa: BLE001 - the trace is for reading only
+            out.append({"text": s, "error": f"{type(e).__name__}: {e}"})
+    return out
+
+
+def _with_steps(v: ClaimVerdict) -> ClaimVerdict:
+    """A verdict from a check that keeps no steps of its own: one step, where its truth was read."""
+    if v.steps:
+        return v
+    from dataclasses import replace
+    return replace(v, steps=({"rule": v.basis, "hit": True, "detail": v.source or v.why},))
 
 
 # ------------------------------------------------------------------ one conversation
@@ -619,6 +698,11 @@ class ConversationChecker:
                                 pending_prompts=self.pending, customer_act=customer_act,
                                 question=last if customer_act == N.act.ASK_KB else None, presented=self.presented)
         self._mark_side(rep, acts)
+        try:
+            from .speech_trace import facts_snapshot
+            rep.trace["facts"] = facts_snapshot(facts, list(customer_frames))
+        except Exception as e:                                  # noqa: BLE001 - the trace is for reading only
+            rep.trace["facts"] = {"error": f"{type(e).__name__}: {e}"}
         self.reports.append(rep)
         for a in acts:                             # a presentation, said or not, counts once
             if a.get("txn") and "PRESENT_TXN" in N.state and a.get("act") == N.state.PRESENT_TXN:
@@ -824,7 +908,7 @@ class GenericReader(UtteranceReader):
         self._limit_res = {}
         for k, unit in model.units.items():
             if unit:
-                stem = re.escape(unit.rstrip("s"))
+                stem = re.escape(unit.rstrip("s")).replace("_", "[ _]")   # "calendar_days": "30 calendar days"
                 self._limit_res[k] = [re.compile(rf"\b(\d+)\s+(?:\w+\s+)?{stem}s?\b")]
 
     def read(self, text: str, facts, about_item: str | None = None, question: Any = None) -> ReadUtterance:
@@ -894,6 +978,21 @@ class GenericReader(UtteranceReader):
         return heard
 
 
+class _Steps:
+    """The rules a claim's check tried, in order: each one that did not apply, then the one that did."""
+
+    def __init__(self):
+        self.steps: list[dict] = []
+
+    def no(self, rule: str, detail: str = "") -> None:
+        self.steps.append({"rule": rule, "hit": False, "detail": detail})
+
+    def hit(self, v: ClaimVerdict, rule: str, detail: str = "", compare: dict | None = None) -> ClaimVerdict:
+        from dataclasses import replace
+        self.steps.append({"rule": rule, "hit": True, "detail": detail})
+        return replace(v, steps=tuple(self.steps), compare=compare if compare is not None else v.compare)
+
+
 class GenericChecks:
     """Claim checks and completeness for a compiled pack (used by UtteranceVerifier when the contract is generic)."""
 
@@ -907,92 +1006,152 @@ class GenericChecks:
                 if sp.get("set")}
 
     def verify_claim(self, cl: Claim, facts, label: dict | None = None):
+        """Grade one claim: the first rule that applies says where its truth is (each rule tried is kept in
+        ``steps``, the comparison made in ``compare``, for the speech check page)."""
         f, m = cl.field, self.m
         store = self.v.store
-        if f == "opening":
-            return ClaimVerdict(cl, "supported", self.v.c.opening, "required opening statement")
+        st = _Steps()
+        if f != "opening":
+            st.no("the required opening statement", "not the opening")
+        else:
+            return st.hit(ClaimVerdict(cl, "supported", self.v.c.opening, "required opening statement"),
+                          "the required opening statement", "the words contain the policy's opening, word for word",
+                          {"op": "contains, word for word", "said": cl.words, "truth": self.v.c.opening, "result": True})
         if f == "limit":
             truth = store.lookup_enm("limit", cl.about)
             ok = _num_eq(cl.value, truth)
-            return ClaimVerdict(cl, "supported" if ok else "contradicted", truth, f"exact register limit/{cl.about}",
-                                "" if ok else f"{cl.about} is {truth}", self.v._geometry(cl.about, "has_value", cl.value))
+            return st.hit(ClaimVerdict(cl, "supported" if ok else "contradicted", truth, f"exact register limit/{cl.about}",
+                                       "" if ok else f"{cl.about} is {truth}", self.v._geometry(cl.about, "has_value", cl.value)),
+                          "a policy limit", f"the GMS exact register: lookup_enm('limit', {cl.about!r}) = {truth}",
+                          {"op": "equals, as numbers", "said": cl.value, "truth": truth, "result": ok})
+        st.no("a policy limit", "not a limit")
         if f in m.numeric:
             members = list(m.numeric[f]["members"])
             truth_of = lambda x: store.lookup_enm(f, x)                       # noqa: E731
-            fits = (lambda t: _num_eq(cl.value, t)) if not isinstance(cl.value, tuple) else \
+            rng = isinstance(cl.value, tuple)
+            fits = (lambda t: _num_eq(cl.value, t)) if not rng else \
                 (lambda t: cl.value[0] <= float(t) and float(t) <= cl.value[1] or _num_eq(cl.value[1], t))
+            op = "a range that holds the register value" if rng else "equals, as numbers"
             who = None if cl.about == ANY else cl.about or (label or {}).get(m.slot_of_set.get(m.numeric[f]["set"], ""))
+            rule = f"a policy figure ({f})"
             if who in members:
                 truth = truth_of(who)
                 ok = fits(truth)
-                return ClaimVerdict(cl, "supported" if ok else "contradicted", truth, f"exact register {f}/{who}",
-                                    "" if ok else f"{who}: {f} is {truth}",
-                                    self.v._geometry(who, f"has_{f}", cl.value if not isinstance(cl.value, tuple)
-                                                     else cl.value[1]))
+                return st.hit(ClaimVerdict(cl, "supported" if ok else "contradicted", truth, f"exact register {f}/{who}",
+                                           "" if ok else f"{who}: {f} is {truth}",
+                                           self.v._geometry(who, f"has_{f}", cl.value if not rng else cl.value[1])),
+                              rule, f"about {who}: the GMS exact register lookup_enm({f!r}, {who!r}) = {truth}",
+                              {"op": op, "said": cl.value, "truth": truth, "result": ok})
             hits = [x for x in members if fits(truth_of(x))]
             if hits:
-                return ClaimVerdict(cl, "supported", cl.value, f"exact register {f}/{hits[0]}")
-            return ClaimVerdict(cl, "unsupported", None, f"exact register {f}", f"no member has this {f}")
+                return st.hit(ClaimVerdict(cl, "supported", cl.value, f"exact register {f}/{hits[0]}"), rule,
+                              f"about nothing named: some member has it ({hits[0]}: {truth_of(hits[0])})",
+                              {"op": f"{op}, for any of {', '.join(members)}", "said": cl.value,
+                               "truth": {x: truth_of(x) for x in members}, "result": True})
+            return st.hit(ClaimVerdict(cl, "unsupported", None, f"exact register {f}", f"no member has this {f}"), rule,
+                          f"about nothing named: no member of {m.numeric[f]['set']} has it",
+                          {"op": f"{op}, for any of {', '.join(members)}", "said": cl.value,
+                           "truth": {x: truth_of(x) for x in members}, "result": False})
+        st.no("a policy figure", "not a number the policy register holds")
         if f in m.value_sets:
             summary = [v for k, v in (label or {}).items() if k not in ("act", "text") and isinstance(v, dict)]
+            rule = "a summary of what was written"
             if summary and f in m.write_args:           # a summary of what was written: each value must be one
                 done = {str((w.get("args") or {}).get(a)) for t, a in m.write_args[f] for w in facts.writes.get(t, [])}
                 ok = str(cl.value) in done
                 tools = ", ".join(t for t, _ in m.write_args[f])
-                return ClaimVerdict(cl, "supported" if ok else "contradicted", sorted(done), f"successful {tools}",
-                                    "" if ok else f"no successful {tools} wrote {cl.value}")
+                return st.hit(ClaimVerdict(cl, "supported" if ok else "contradicted", sorted(done), f"successful {tools}",
+                                           "" if ok else f"no successful {tools} wrote {cl.value}"),
+                              rule, f"the act's label carries a record ({', '.join(k for k, v in (label or {}).items() if isinstance(v, dict))}) "
+                                    f"and {tools} writes {f}: the truth is every value a successful {tools} wrote",
+                              {"op": "is one of", "said": str(cl.value), "truth": sorted(done), "result": ok})
+            st.no(rule, "the act's label carries no record" if not summary else f"no tool writes {f}")
+            rule = "said to be done"
             if cl.mode == "done" and f in m.write_args:
                 done = [(t, a, w) for t, a in m.write_args[f] for w in facts.writes.get(t, [])]
+                tools = ", ".join(t for t, _ in m.write_args[f])
                 if not done:
-                    tools = ", ".join(t for t, _ in m.write_args[f])
-                    return ClaimVerdict(cl, "unsupported", None, tools, f"said to be done, but no {tools} succeeded")
+                    return st.hit(ClaimVerdict(cl, "unsupported", None, tools, f"said to be done, but no {tools} succeeded"),
+                                  rule, f"the sentence says it is done: the truth is a successful {tools}, and none succeeded",
+                                  {"op": "is one of", "said": str(cl.value), "truth": [], "result": False})
                 vals = {(w.get("args") or {}).get(a) for _, a, w in done}
                 ok = cl.value in vals
-                return ClaimVerdict(cl, "supported" if ok else "contradicted", sorted(map(str, vals)),
-                                    f"successful {done[-1][0]}", "" if ok else f"the write was for {', '.join(map(str, vals))}")
+                return st.hit(ClaimVerdict(cl, "supported" if ok else "contradicted", sorted(map(str, vals)),
+                                           f"successful {done[-1][0]}", "" if ok else f"the write was for {', '.join(map(str, vals))}"),
+                              rule, f"the sentence says it is done: the truth is what a successful {tools} wrote",
+                              {"op": "is one of", "said": str(cl.value), "truth": sorted(map(str, vals)), "result": ok})
+            st.no(rule, f"the sentence is put as {cl.mode!r}, not done" if cl.mode != "done" else f"no tool writes {f}")
+            rule = "a value a tool returned"
             if f in m.returned:
                 tool, fld = m.returned[f]
                 truth = facts.results.get(tool, {}).get(fld)
                 if truth is None:
-                    return ClaimVerdict(cl, "unsupported" if cl.mode == "states" else "unverifiable", None, tool,
-                                        f"{tool} returned no {fld}")
-                return self.v._compare(cl, truth, f"{tool} result {fld}")
+                    return st.hit(ClaimVerdict(cl, "unsupported" if cl.mode == "states" else "unverifiable", None, tool,
+                                               f"{tool} returned no {fld}"), rule, f"{tool} returns {f}, but it returned no {fld}")
+                return st.hit(self.v._compare(cl, truth, f"{tool} result {fld}"), rule,
+                              f"{tool} returns {f}: the truth is its result's {fld} = {truth}")
+            st.no(rule, f"no tool returns {f}")
             slot = m.slot_of_set.get(f)
             truth = facts.caller.get(slot) if slot else None
             asked = (label or {}).get("act")
             states_one = any(isinstance(v, str) and m.g.member_set(v) == f for k, v in (label or {}).items()
                              if k not in ("act", "text"))       # a confirmation names its value: not a choice offered
+            rule = "a choice the prompt offers"
             if (cl.mode == "offered" and asked and not states_one and f in self._asks_for(asked)
                     and cl.value in m.g.members(f)):
-                return ClaimVerdict(cl, "supported", cl.value, f"{asked} asks for a {f}",
-                                    "a choice the prompt offers (the graph: it accepts this value set)")
+                return st.hit(ClaimVerdict(cl, "supported", cl.value, f"{asked} asks for a {f}",
+                                           "a choice the prompt offers (the graph: it accepts this value set)"),
+                              rule, f"put as an offer, and {asked} asks the customer for a {f} (the graph)",
+                              {"op": f"is a member of {f}", "said": str(cl.value), "truth": list(m.g.members(f)), "result": True})
+            st.no(rule, "not put as an offer" if cl.mode != "offered" else
+                  f"{asked} names its own value" if states_one else f"{asked or 'this act'} does not ask for a {f}")
+            rule = "what the customer said"
             if truth is None or cl.mode == "offered":
-                return ClaimVerdict(cl, "unverifiable", None, "", "mentioned, not asserted" if truth else
-                                    "the customer has not said it yet")
-            return self.v._compare(cl, truth, "what the customer said")
-        return ClaimVerdict(cl, "unverifiable", None, "", f"no check for {f}")
+                return st.hit(ClaimVerdict(cl, "unverifiable", None, "", "mentioned, not asserted" if truth else
+                                           "the customer has not said it yet"),
+                              "nothing to compare", f"put as an offer: mentioned, not asserted" if truth is not None else
+                              f"the customer's meaning cards have no {slot or f} yet")
+            return st.hit(self.v._compare(cl, truth, "what the customer said"), rule,
+                          f"the customer's meaning card gave {slot} = {truth} (facts.caller.{slot})")
+        st.no("a value set", f"{f} is not a value set")
+        return st.hit(ClaimVerdict(cl, "unverifiable", None, "", f"no check for {f}"), "no check for this field", "")
 
-    def completeness(self, act: str, label: dict, read: ReadUtterance, facts) -> list:
+    def completeness(self, act: str, label: dict, read: ReadUtterance, facts, log: list | None = None) -> list:
+        """The required fields of ``act`` (its ``says``) the words leave out. ``log`` gets one entry per field."""
         spec = self.v.c.acts.get(act)
+        log = log if log is not None else []
         if spec is None:
+            log.append({"check": f"{act} has no required wording in the policy", "ok": True, "detail": ""})
             return []
         out = []
+        if not spec.says:
+            log.append({"check": f"{act} must say nothing in particular", "ok": True, "detail": "its says list is empty"})
         for fs in spec.says:
+            name = f"{act} says the {fs.field}"
             if not fs.required:
+                log.append({"check": name, "ok": True, "skip": True, "detail": "optional"})
                 continue
             want = self.v.c.claim_field(fs)
-            if want is None:
-                continue
             src = fs.source
+            if want is None:
+                log.append({"check": name, "ok": True, "skip": True,
+                            "detail": f"{src}: free wording the reader does not read as a claim"})
+                continue
             if src.startswith("caller.") and facts.caller.get(src.split(".", 1)[1]) is None and not label.get(fs.field):
+                log.append({"check": name, "ok": True, "skip": True, "detail": f"the customer has not said the {src[7:]} yet"})
                 continue
             if fs.field in label and label[fs.field] in (None, ""):
+                log.append({"check": name, "ok": True, "skip": True, "detail": "the act has no value for it"})
                 continue                              # the act has no value for it (a card action with no delivery)
             if src.startswith("result."):
                 tool, _, fld = src[7:].partition(".")
                 if facts.results.get(tool, {}).get(fld) is None:
+                    log.append({"check": name, "ok": True, "skip": True, "detail": f"{tool} returned no {fld}"})
                     continue
-            if not read.of(want):
+            said = read.of(want)
+            log.append({"check": name, "ok": bool(said), "detail": (f"read as a {want} claim: " + ", ".join(
+                f"\u201c{c.words}\u201d" for c in said)) if said else f"no {want} claim in the words ({src})"})
+            if not said:
                 out.append(Finding("missing", act, f"{act} must say the {fs.field} ({src})", spec.source))
         return out
 
@@ -1017,11 +1176,12 @@ def claim_field(model: PackModel, binding: str) -> str | None:
     return None
 
 
-def _faithfulness(self, label: dict, read: ReadUtterance) -> list:
+def _faithfulness(self, label: dict, read: ReadUtterance, log: list | None = None) -> list:
     """Do the words say what the label claims? A labelled value of a value set must be the one the words say
-    (when they name one); a labelled act must be heard."""
+    (when they name one); a labelled act must be heard. ``log`` gets one entry per check made."""
     act = label["act"]
     spec = self.v.c.acts.get(act)
+    log = log if log is not None else []
     out = []
     # an act is judged only when the words could show it: a cue, or a field it must say and has a value for
     # (TRANSFER's reason is optional; a card action with no delivery has no delivery to say)
@@ -1030,6 +1190,17 @@ def _faithfulness(self, label: dict, read: ReadUtterance) -> list:
     judgeable = spec and (spec.cues or need)
     said = {c.field for c in read.claims}
     heard = act in read.heard or (need and all(x in said for x in need))
+    how = []
+    if spec and spec.cues:
+        how.append("a cue word (" + ", ".join(f"\u201c{q}\u201d" for q in spec.cues[:6]) + ("..." if len(spec.cues) > 6 else "") + ")")
+    if need:
+        how.append("a claim for every field it must say (" + ", ".join(need) + ")")
+    if not judgeable:
+        log.append({"check": f"the words express {act}", "ok": True, "skip": True,
+                    "detail": f"{act} has no cue words and nothing it must say: words cannot show it, so it is not judged"})
+    else:
+        log.append({"check": f"the words express {act}", "ok": bool(heard) or not read.text.strip(),
+                    "detail": ("heard: " if heard else "not heard: no ") + " or ".join(how)})
     if judgeable and not heard and read.text.strip():
         out.append(Finding("label_not_said", act, f"labelled {act} but the words do not express it: {read.text!r}"))
     for fld, want in label.items():
@@ -1043,6 +1214,11 @@ def _faithfulness(self, label: dict, read: ReadUtterance) -> list:
             want = _num(want)
         else:
             continue
+        name = f"the words agree with the label's {fld} = {want}"
+        if not said:
+            log.append({"check": name, "ok": True, "skip": True, "detail": f"the words name no {vs or fld}"})
+        else:
+            log.append({"check": name, "ok": str(want) in said, "detail": "the words say " + ", ".join(sorted(said))})
         if said and str(want) not in said:
             out.append(Finding("text_contradicts_label", act, f"label {fld}={want}, the words say {', '.join(sorted(said))}"))
     return out
