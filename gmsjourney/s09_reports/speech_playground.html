@@ -144,6 +144,9 @@ ul.why{margin:.5rem 0 0 1.1rem;padding:0}ul.why li{margin:.2rem 0}
 .loader .btns{display:flex;flex-wrap:wrap;gap:.5rem;margin:.9rem 0}
 .err{color:var(--fail);font-size:.88rem}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+/* inside the console (?embed=1): no title of its own, the console's frame around it */
+.embed .top{padding:8px 12px}.embed .top h1,.embed #reload{display:none}
+.embed .wrap{min-height:calc(100vh - 46px)}
 </style>
 </head>
 <body>
@@ -159,6 +162,16 @@ ul.why{margin:.5rem 0 0 1.1rem;padding:0}ul.why li{margin:.2rem 0}
 
 <script>
 "use strict";
+const EMBED = /[?&]embed=1/.test(location.search);
+if (EMBED) {                                       // inside the console: its day / night choice, its frame
+  document.documentElement.classList.add("embed");
+  // the console's own day / night setting: its <html data-theme>, followed as it changes (else the system's)
+  let host = null; try { host = parent !== window ? parent.document.documentElement : null; } catch { /* another origin */ }
+  const theme = () => { const m = { night: "dark", day: "light", dark: "dark", light: "light" }[host ? host.dataset.theme : ""];
+    if (m) document.documentElement.dataset.theme = m; else delete document.documentElement.dataset.theme; };
+  theme();
+  if (host) new MutationObserver(theme).observe(host, { attributes: true, attributeFilter: ["data-theme"] });
+}
 // ---------------------------------------------------------------- vocabulary (what the check's words mean)
 const STATUS = {
   supported: "the truth agrees with what was said",
@@ -220,16 +233,21 @@ function parse(text, source) {
   else for (const line of t.split(/\r?\n/)) { if (line.trim()) rows.push(JSON.parse(line)); }
   const resp = [];
   for (const r of rows) for (const c of r.speech_turns || []) resp.push({ row: r, card: c });
-  if (!resp.length) throw new Error("no speech checks in this file: it needs a run's dataset/case_results.jsonl");
+  if (!resp.length) throw new Error("no agent response with a speech check in it yet (a test run writes them in dataset/case_results.jsonl)");
   S.rows = rows; S.resp = resp; S.source = source; S.cur = 0; S.step = 0; S.focus = null;
   render();
 }
 async function autoload() {
   const q = new URLSearchParams(location.search).get("data");
+  let why = null;
   for (const p of q ? [q] : ["dataset/case_results.jsonl", "case_results.jsonl"]) {
-    try { const r = await fetch(p, { cache: "no-store" }); if (r.ok) { parse(await r.text(), p); return; } } catch { /* opened from disk */ }
+    try {
+      const r = await fetch(p, { cache: "no-store" });
+      if (r.ok) { try { parse(await r.text(), new URLSearchParams(location.search).get("label") || p); return; } catch (e) { why = String(e.message || e); } }
+      else if (q) why = r.status === 404 ? "this run has no speech check data yet: it is written when the run's bot step finishes" : `could not read it (${r.status})`;
+    } catch { /* opened from disk */ }
   }
-  loader();
+  loader(why);
 }
 function readFile(f) { return new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = bad; r.readAsText(f); }); }
 async function fromFiles(files, how) {
@@ -453,6 +471,9 @@ function render() {
 }
 function renderList() {
   S.view = filtered();
+  if (!S.view.length && S.resp.length && $("#show") && $("#show").value !== "all" && !$("#q").value) {
+    $("#show").value = "all"; S.view = filtered();       // a remembered filter that hides everything here: show all
+  }
   const list = $("#list");
   list.replaceChildren();
   if (!S.view.length) { list.append(h("div", { class: "empty" }, "No response matches.")); $("#detail").replaceChildren(); return; }

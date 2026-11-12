@@ -328,6 +328,15 @@ def test_console_api_for_the_bot_cases_and_playground():
         assert code == 200 and r["turn"]["match"] and len(r["turns"]) == 2
         code, e = call("api/play/s/nope/say", {"text": "x"})
         assert code == 404
+        # Try the bot › Speech check: the page, and the conversation's checks in a test run's row shape
+        with urllib.request.urlopen(base + "speech_playground.html", timeout=60) as r:
+            page = r.read()
+        assert r.status == 200 and b"Said vs truth" in page and b"embed" in page
+        code, sp = call(f"api/play/s/{v['id']}/speech")
+        assert code == 200 and len(sp) == 1 and sp[0]["speech_turns"] and sp[0]["speech_turns"][0]["where"] == "the opening"
+        assert all({"text", "claims", "findings", "ok"} <= set(t) for t in sp[0]["speech_turns"])
+        ui = (Path(__file__).resolve().parents[1] / "gmsjourney" / "s10_console" / "ui.html").read_text()
+        assert '["speech", "Speech check"]' in ui and "Step through the speech check" in ui
         # a run with the LLM bot keeps its settings beside the job, and the job says which models it uses
         from gmsjourney.s10_console.runs import Runs
         R = Runs(runs)

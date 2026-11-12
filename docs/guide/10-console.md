@@ -234,6 +234,12 @@ s10_console/
   (`settings_for`). The console's **Bot:** switch in the top bar shows which bot is in use for the journey and opens
   the choice, which the Playground and test runs share. `suggested()` shows what the models are asked (the two fixed
   prompts and the menu of the journey's first question); `check_gateway` makes one tiny call.
+* **Speech check** (*Try the bot › Speech check*, route `#/speech?session=<id>` or `#/speech?run=<id>`): the speech
+  check replayed step by step (`s09_reports/speech_playground.html`, chapter 9) in a frame, for the Playground
+  conversation (`Session.speech_cards`, served at `GET /api/play/s/<id>/speech` in the rows of a run's
+  `dataset/case_results.jsonl`; *Refresh* reads the turns said since) or any finished test run of the journey
+  (`runs/<id>/dataset/case_results.jsonl`). The Playground's side panel has *Step through the speech check*, and a
+  finished run's page *Speech check, step by step*. The Playground keeps every claim of a turn in full for it.
 * **Part 2** the **playground**: talk to the bot yourself on one case of any journey. `Bench` holds the journey's
   store, oracle, reader, realizer and speech verifier (built once per journey; `reset` forgets it when the graph
   changes). `cases` offers the cases of the latest finished test run, any test run (`run_cases` rebuilds them

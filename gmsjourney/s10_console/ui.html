@@ -749,7 +749,7 @@ const D = () => S.J.domain;
 const STAGES = [
   ["understand", "Understand the policy", "What the graph decides", [["overview", "Overview"], ["sections", "Graph sections"], ["graph", "Flow"], ["edit", "Edit graph"], ["sphere", "GMS sphere"]]],
   ["setup", "Set up the tests", "Your project", [["factors", "Journey factors"], ["bank", "Bank and customer"], ["scoring", "Rules and scoring"]]],
-  ["try", "Try the bot", "One conversation, checked live", [["play", "Playground"]]],
+  ["try", "Try the bot", "One conversation, checked live", [["play", "Playground"], ["speech", "Speech check"]]],
   ["run", "Put the bot to test", "Every case, every check", [["run", "Start a test run"]]],
   ["read", "Read the results", "Verdict, cases, reports", [["runs", "Test runs"]]],
 ];
@@ -959,6 +959,7 @@ const GLOSSARY = [
   ["Core segments", "What every graph needs for the validations a test run makes (verification, tool results, handoffs, limits, rules, wording...). A missing one means those checks have nothing to test."],
   ["Graph version", "Edit graph saves your changes as <name>.v2.json (then .v3 ...) beside the original and switches the journey to it. The original file is never changed; switch back from the versions row."],
   ["GMS sphere", "Every entity of the graph as a point on the unit sphere and every relation as an arc: placed by the trained GMS store's angular distances when a test run has built or loaded the store, else from the graph's relationships."],
+  ["Speech check", "The speech check replayed step by step on every agent response of a Playground conversation or a test run: the whole sentence with each claim's words marked, the claim cards beside it, and how each claim was checked (where the truth is, said vs truth, the response as a whole, the verdict)."],
   ["Playground", "Talk to the bot yourself on one case of any journey. At every turn, stick to the journey (the base journey's next line, whatever the bot said) or talk freely. Every bot turn is validated against the graph either way; a turn that differs is flagged as a deviation, with the answer sheet for both sides."],
   ["Put the bot to test", "A test run: every generated case, original and reworded, played against the bot and checked; it ends with the verdict (Start a test run). In code it is run_campaign."],
   ["Volunteered / unread", "Advisory speech findings: a figure about something not asked; a clause no check could read. Counted, not failed, unless you say so (Rules and scoring)."],
@@ -986,10 +987,10 @@ function render() {
   nav(r.view);
   const main = $("#main");
   if (!S.J && !["run", "runs", "compare", "cases", "verdict", "sheet", "sections", "edit", "sphere"].includes(r.view)) { main.replaceChildren(h("div", { class: "notice bad" }, `This journey could not be read: ${S.err || "unknown error"}`)); return; }
-  const fn = { overview, graph, factors, bank, scoring, run: runView, runs: runsView, compare: compareView, cases: casesView, play: playView, verdict: verdictView, sheet: sheetView, sections: sectionsView, edit: editView, sphere: sphereView }[r.view] || overview;
+  const fn = { overview, graph, factors, bank, scoring, run: runView, runs: runsView, compare: compareView, cases: casesView, play: playView, speech: speechView, verdict: verdictView, sheet: sheetView, sections: sectionsView, edit: editView, sphere: sphereView }[r.view] || overview;
   const out = fn(r);
   if (out) main.replaceChildren(...[out, pageFoot(r.view)].flat().filter(x => x != null && x !== false));
-  if (S.dirty && !["run", "runs", "compare", "cases", "play", "verdict", "sheet", "sections", "edit", "sphere"].includes(r.view)) savebar();      // a re-render keeps the unsaved-changes bar
+  if (S.dirty && !["run", "runs", "compare", "cases", "play", "speech", "verdict", "sheet", "sections", "edit", "sphere"].includes(r.view)) savebar();      // a re-render keeps the unsaved-changes bar
   document.title = `${S.runTitle || ""}${({ cases: "Cases", verdict: "Verdict", compare: "Compare test runs", sheet: "Answer sheet" })[r.view] || (PAGES.find(p => p.id === r.view) || {}).label || "Journey Console"} · Journey Console`;
 }
 function nav(view) {
@@ -2200,7 +2201,8 @@ function runDetailBody() {
       R.headline ? meaning(R.headline) : null,
       h("div", { class: "row" }, h("a", { class: "btn primary", href: `#/verdict/${R.id}` }, "Open the verdict"), h("a", { class: "btn", href: `#/cases/${R.id}` }, "Explore cases"),
         (prev => prev ? h("a", { class: "btn", href: `#/compare?a=${encodeURIComponent(prev.id)}&b=${encodeURIComponent(R.id)}`, title: `Compare with ${prev.id}, the previous finished run of ${job.pack}` }, "Compare with the previous run") : null)(
-          (S.runsList || []).filter(x => x.status === "finished" && x.job.pack === job.pack && x.id < R.id).sort((x, y) => (x.id < y.id ? 1 : -1))[0]), h("a", { class: "btn", href: `#/sheet/${R.id}` }, "Open the answer sheet"), ...["report.html", "bot_validation.html", "case_comparison.html"].map(f => h("a", { class: "btn", href: `runs/${R.id}/${f}`, target: "_blank", rel: "noopener" }, { "report.html": "Open report", "bot_validation.html": "Open bot validation", "case_comparison.html": "Open case comparison" }[f]))))) : null;
+          (S.runsList || []).filter(x => x.status === "finished" && x.job.pack === job.pack && x.id < R.id).sort((x, y) => (x.id < y.id ? 1 : -1))[0]), h("a", { class: "btn", href: `#/sheet/${R.id}` }, "Open the answer sheet"), ...["report.html", "bot_validation.html", "case_comparison.html"].map(f => h("a", { class: "btn", href: `runs/${R.id}/${f}`, target: "_blank", rel: "noopener" }, { "report.html": "Open report", "bot_validation.html": "Open bot validation", "case_comparison.html": "Open case comparison" }[f])),
+          h("a", { class: "btn", href: `#/speech?run=${encodeURIComponent(R.id)}` }, "Speech check, step by step")))) : null;
   const savedRes = R.saved && R.saved.length ? h("section", { class: "card", style: "margin:16px 0" }, h("div", { class: "hd" }, h("h2", {}, "Saved conversations"),
       h("span", { class: `pill ${R.saved.every(x => x.passed) ? "ok" : "bad"}` }, `${R.saved.filter(x => x.passed).length} of ${R.saved.length} without a deviation`)),
     h("div", { class: "bd" }, h("p", { class: "small muted", style: "margin-bottom:8px" }, "The journey's saved Playground conversations, replayed line by line against this run's bot and validated turn by turn."),
@@ -3009,7 +3011,8 @@ function playChat() {
       h("div", { class: "stack", style: "gap:6px" }, h("button", { class: "btn s primary", type: "button", disabled: !Ses.turns.some(t => t.customer) || P.busy, title: "Keep the customer's lines; every test run sends them again to its bot and validates each turn", onclick: () => saveConversation() }, "Save as a test case"),
         h("p", { class: "small muted" }, Ses.turns.some(t => t.customer) ? "Every test run replays saved conversations against its bot." : "Say something first; then you can save the conversation.")),
       h("div", { class: "row" }, h("button", { class: "btn s", onclick: () => { const blob = new Blob([JSON.stringify(Ses, null, 1)], { type: "application/json" }); const a = h("a", { href: URL.createObjectURL(blob), download: `playground-${Ses.case}-${Ses.id}.json` }); document.body.append(a); a.click(); a.remove(); } }, "Download transcript"),
-        h("button", { class: "btn s", onclick: () => startPlay() }, "Restart"), h("button", { class: "btn s", onclick: () => { P.sess = null; paintPlay(); } }, "New conversation"))));
+        h("button", { class: "btn s", onclick: () => startPlay() }, "Restart"), h("button", { class: "btn s", onclick: () => { P.sess = null; paintPlay(); } }, "New conversation")),
+      h("a", { class: "btn s", href: `#/speech?session=${encodeURIComponent(Ses.id)}`, title: "Each bot response's claims, checked step by step" }, "Step through the speech check")));
   return [h("div", { class: "pg" }, h("div", { class: "stack", style: "gap:12px" }, h("div", { class: "xlist", "aria-live": "polite" }, ...items), composer), side)];
 }
 // ---------------------------------------------------------------- the one-page verdict: is the bot ready, the risks, the fingerprint, case by case
@@ -3060,6 +3063,28 @@ function verdictView(r) {
     h("div", { id: "verdict" }, page1, page2)];
 }
 function paintVerdict() { render(); }
+// ---------------------------------------------------------------- the speech check, step by step (s09_reports/speech_playground.html)
+function speechView(r) {
+  const ses = (S.pg && S.pg.pack === S.pack && S.pg.sess) || null;
+  const runs = (S.runsList || []).filter(x => x.status === "finished" && (!S.pack || x.job.pack === S.pack));
+  let src = r.q.get("session") ? `s:${r.q.get("session")}` : r.q.get("run") ? `r:${r.q.get("run")}` : ses ? `s:${ses.id}` : runs[0] ? `r:${runs[0].id}` : "";
+  const opts = [...(ses ? [[`s:${ses.id}`, `This Playground conversation (${ses.case_label || ses.case})`]] : []),
+    ...(src.startsWith("s:") && (!ses || src !== `s:${ses.id}`) ? [[src, `Playground conversation ${src.slice(2)}`]] : []),
+    ...runs.map(x => [`r:${x.id}`, `Test run ${x.id}${x.headline && x.headline.accuracy_original != null ? ` · ${pct(x.headline.accuracy_original)} right` : ""}`])];
+  const pick = h("select", { class: "input", "aria-label": "Speech checks of", style: "min-width:280px", onchange: e => go(`#/speech?${e.target.value.startsWith("s:") ? "session" : "run"}=${encodeURIComponent(e.target.value.slice(2))}`) },
+    ...opts.map(([v, l]) => h("option", { value: v, selected: v === src }, l)));
+  const data = src.startsWith("s:") ? `api/play/s/${encodeURIComponent(src.slice(2))}/speech` : `runs/${encodeURIComponent(src.slice(2))}/dataset/case_results.jsonl`;
+  const label = src.startsWith("s:") ? "this Playground conversation" : `test run ${src.slice(2)}`;
+  const url = `speech_playground.html?embed=1&data=${encodeURIComponent(data)}&label=${encodeURIComponent(label)}`;
+  const fr = src ? h("iframe", { class: "sheetframe", src: url, title: `Speech check of ${label}` }) : null;
+  const acts = h("div", { class: "row" }, opts.length ? pick : null,
+    src ? h("button", { class: "btn s", type: "button", title: "Read the checks again (a conversation adds one per turn)", onclick: () => { if (fr) fr.src = url; } }, "Refresh") : null,
+    src ? h("a", { class: "btn s", href: url.replace("embed=1&", ""), target: "_blank", rel: "noopener" }, "Open in a new tab") : null,
+    src.startsWith("s:") ? h("a", { class: "btn s", href: "#/play" }, "Back to the conversation") : null);
+  return [head("Speech check", "Every agent response, its whole sentence beside the claim cards read from it, and the check replayed step by step: the words, the acts, the claims, where the truth is, said vs truth, the response as a whole, the verdict.", acts),
+    fr || h("div", { class: "card empty" }, "Nothing to show yet: talk to the bot in the Playground, or finish a test run of this journey. ",
+      h("a", { class: "btn s", href: "#/play" }, "Open the Playground"))];
+}
 // ---------------------------------------------------------------- the answer sheet of a run (written after step 5: s09_reports/answer_sheet.py)
 function sheetView(r) {
   const id = r.arg;

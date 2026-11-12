@@ -453,12 +453,11 @@ def _tools(log: list[dict]) -> list[dict]:
 def _speech(rep) -> dict | None:
     if rep is None:
         return None
-    d = rep.as_dict()
-    claims = [{"field": c.get("field"), "words": c.get("words"), "status": c.get("status"), "truth": c.get("truth"),
-               "why": c.get("why"), "basis": c.get("basis")} for c in d["claims"]]
+    d = rep.as_dict()                                # every claim in full: the speech check page replays them
     adv = set(rep.advisory)
     finds = [{**f, "advisory": f["kind"] in adv, "flow": f["kind"] == "not_allowed_here"} for f in d["findings"]]
-    return {"ok": rep.ok, "flow_ok": rep.flow_ok, "heard": d.get("heard"), "claims": claims, "findings": finds}
+    return {"ok": rep.ok, "core_ok": d.get("core_ok", rep.ok), "flow_ok": rep.flow_ok, "heard": d.get("heard"),
+            "claims": d["claims"], "findings": finds}
 
 
 @dataclass
@@ -746,6 +745,22 @@ class Session:
                 "llm": ({"stats": self.llm.stats.as_dict(), "calls": self.llm.llm.report(),
                          "wording": self.llm.wording_llm.report() if getattr(self.llm, "wording_llm", None) is not None else None}
                         if self.llm is not None else None)}
+
+    def speech_cards(self) -> list[dict]:
+        """This conversation's speech checks as one run of the speech check page (speech_playground.html): the
+        shape of a test run's dataset/case_results.jsonl rows, ``[{sid, arm, correct, speech_turns}]``."""
+        from ..s07_checks.speech_checks import turn_where
+        cards = []
+        for t in self.turns:
+            sp = t.get("speech")
+            if not sp:
+                continue
+            cards.append({"turn": t["n"], "where": turn_where(t["n"]), "customer": (t.get("customer") or {}).get("text"),
+                          "text": t["bot"]["text"], "acts": t["bot"].get("act_names") or [], "heard": sp.get("heard"),
+                          "ok": sp["ok"], "core_ok": sp.get("core_ok", sp["ok"]), "flow_ok": sp["flow_ok"],
+                          "claims": sp["claims"], "findings": sp["findings"]})
+        return [{"sid": f"{self.case['id']} · Playground conversation {self.id}", "arm": "base", "correct": None,
+                 "speech_turns": cards}]
 
     def _next_line(self) -> int | None:
         """The scripted line that answers the bot's last question (the next turn of the case), if any."""

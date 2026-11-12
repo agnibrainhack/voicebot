@@ -20,6 +20,8 @@
     GET  /api/play/<pack>/cases?source=S    the playground's cases: "latest" run, a run id, or "project"
     POST /api/play/<pack>/start             a conversation (body: {source, case, sut, judges})
     GET  /api/play/s/<sid>                  a conversation so far
+    GET  /api/play/s/<sid>/speech           its speech checks, in the rows of dataset/case_results.jsonl
+    GET  /speech_playground.html            the speech check step by step (s09_reports): ?data=<a run's jsonl or the above>
     POST /api/play/s/<sid>/say              the customer's next turn (body: {mode: "journey" or "free", text, judges?})
     GET  /api/runs/compare?a=A&b=B          what changed from test run A to test run B, case by case
     POST /api/play/s/<sid>/save             keep the conversation as a test case (body: {name, note})
@@ -293,6 +295,15 @@ def make_server(port: int = 8790, host: str = "127.0.0.1", runs_dir: str | Path 
                     from . import bots as PG
                     with _on(parts[2]):
                         return self._json({"saved": PG.saved_list()})
+                if parts == ["speech_playground.html"]:     # the speech check, step by step (Try the bot › Speech check)
+                    from ..s09_reports import cases as _c
+                    return self._send(200, (Path(_c.__file__).with_name("speech_playground.html")).read_bytes(),
+                                      "text/html; charset=utf-8")
+                if parts[:3] == ["api", "play", "s"] and len(parts) == 5 and parts[4] == "speech":
+                    from . import bots as PG
+                    sess = PG.get(parts[3])
+                    with _on(sess.pack):
+                        return self._json(sess.speech_cards())
                 if parts[:3] == ["api", "play", "s"] and len(parts) == 4:
                     from . import bots as PG
                     sess = PG.get(parts[3])

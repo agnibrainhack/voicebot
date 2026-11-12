@@ -124,7 +124,8 @@ only what the checker flagged is marked), the claims read, where the truth is (t
 customer's words, the policy store, the policy text), said vs truth (supported / contradicted / unsupported /
 unverifiable, colouring the words), the response as a whole (blocking, speech-flow and advisory findings, side steps
 marked), and the verdict with its reasons. Back / Next / Play, arrow keys for steps, j / k (or up / down) between
-responses.
+responses. The console shows the same page under *Try the bot › Speech check* (chapter 10), for a Playground
+conversation or any finished test run; `?embed=1` hides its own title and follows the console's day / night setting.
 
 ### Part 4: inside one case
 
