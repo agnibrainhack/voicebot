@@ -250,11 +250,12 @@ s06_bots/
      | status | what the bot did | what happens next |
      |---|---|---|
      | `same` | the graph's tool calls and acts | the next line |
-     | `side` (*immaterial deviation*) | the graph's trajectory; only a policy answer (ANSWER_KB) or a clarification (ASK_CLARIFY) differs, the graph's `globals.question.answer` / `globals.unclear.clarify`, including a clarification in place of a policy answer | the turn is flagged, the next line follows |
+     | `side` (*non-material deviation*, a side step) | the graph's trajectory; only a policy answer (ANSWER_KB) or a clarification (ASK_CLARIFY) differs, the graph's `globals.question.answer` / `globals.unclear.clarify`, including a clarification in place of a policy answer | the turn is flagged, the next line follows |
      | `asked_again` | no tool call, and it asks again the question the customer just answered (and the trajectory differs) | the customer says the same line again (once per line); a material deviation |
-     | `differs` (*material deviation*) | another tool call, another argument, or another act | the next line: the bot may get back on the journey |
+     | `wrong_action` (*incorrect action*) | the same steps (tool calls and acts, in order) but one done wrongly: another argument, charge or reason | the next line: the bot may get back on the journey; a material deviation |
+     | `differs` (*off the journey*) | another step: a tool call or an act the graph does not take here, or one it takes left out | the next line: the bot may get back on the journey; a material deviation |
 
-     **Two material deviations in a row** (`differs` or `asked_again`), or **a material deviation that ends the call**
+     **Two material deviations in a row** (`wrong_action`, `differs` or `asked_again`), or **a material deviation that ends the call**
      (the bot hangs up or transfers where the graph does not), end the run there: the customer stops and
      `extras["stopped"]` says at which turn and line and why (`None`: the base journey was played to the end). A
      stopped run is incorrect (`c_journey = 0` in its score), whatever its outcome. One material deviation followed by

@@ -232,9 +232,6 @@ factors:
       deny:
         says:
           ASK_MORE_HELP: [DENY]
-      unclear:
-        says:
-          ASK_MORE_HELP: [UNCLEAR]
   human_request:
     anchor: {}
     description: the customer asks for a person at a prompt
@@ -264,60 +261,6 @@ factors:
       at_ask_more_help:
         says:
           ASK_MORE_HELP: [REQUEST_HUMAN]
-        before: true
-  unclear_answer:
-    anchor: {}
-    description: an answer that carries no decision, once (recovered) or past the clarification limit
-    levels:
-      none: {}
-      once_at_ask_auth:
-        says:
-          ASK_AUTH: [UNCLEAR]
-        before: true
-      persists_at_ask_auth:
-        says:
-          ASK_AUTH: [UNCLEAR, UNCLEAR]
-        before: true
-      once_at_ask_auth_retry:
-        says:
-          ASK_AUTH_RETRY: [UNCLEAR]
-        before: true
-      persists_at_ask_auth_retry:
-        says:
-          ASK_AUTH_RETRY: [UNCLEAR, UNCLEAR]
-        before: true
-      once_at_present_txn:
-        says:
-          PRESENT_TXN: [UNCLEAR]
-        before: true
-      persists_at_present_txn:
-        says:
-          PRESENT_TXN: [UNCLEAR, UNCLEAR]
-        before: true
-        expect: {transfer: ambiguity_persists}
-      once_at_provide_context:
-        says:
-          PROVIDE_CONTEXT: [UNCLEAR]
-        before: true
-      persists_at_provide_context:
-        says:
-          PROVIDE_CONTEXT: [UNCLEAR, UNCLEAR]
-        before: true
-      once_at_confirm_action:
-        says:
-          CONFIRM_ACTION: [UNCLEAR]
-        before: true
-      persists_at_confirm_action:
-        says:
-          CONFIRM_ACTION: [UNCLEAR, UNCLEAR]
-        before: true
-      once_at_ask_more_help:
-        says:
-          ASK_MORE_HELP: [UNCLEAR]
-        before: true
-      persists_at_ask_more_help:
-        says:
-          ASK_MORE_HELP: [UNCLEAR, UNCLEAR]
         before: true
   policy_question:
     anchor: {}

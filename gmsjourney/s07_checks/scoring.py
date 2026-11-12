@@ -468,7 +468,8 @@ def score(scn: Scenario, res, limits: Limits, workflow, budget=None) -> dict[str
             row["correct"] = int(row["correct"] and row["c_speech"] and (SPEECH_GATE != "strict" or row["c_flow"]))
     ts = [t for t in (res.extras.get("turn_status") or []) if t.get("status")]
     if ts:                                           # each bot turn against the graph's turn (s06_bots/turns.py)
-        for st, k in (("side", "turns_side"), ("asked_again", "turns_asked_again"), ("differs", "turns_off")):
+        for st, k in (("side", "turns_side"), ("asked_again", "turns_asked_again"), ("differs", "turns_off"),
+                      ("wrong_action", "turns_wrong_action")):
             row[k] = sum(t["status"] == st for t in ts)
         row["turns_judged"] = len(ts)
     stopped = res.extras.get("stopped")

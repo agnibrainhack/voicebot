@@ -281,16 +281,49 @@ def test_a_speech_failure_in_a_side_step_is_flagged_at_its_turn_only():
 
 # ------------------------------------------------------------------ the graph
 def test_an_unclear_answer_to_anything_else_is_clarified_then_a_second_one_transfers():
+    # the journey's cases no longer ask for clarifications (no unclear_answer factor); the graph still clarifies
+    from gmsjourney.s04_cases.journey import JourneySpec, UserSimulator
+    from gmsjourney.s04_cases.meaning import SemanticFrame as F
     from gmsjourney.s06_bots.turns import split_turns
     _, B = _bench()
-    for cid, want in (("unclear_answer=once_at_ask_more_help", ["ASK_CLARIFY", "ASK_MORE_HELP"]),
-                      ("unclear_answer=persists_at_ask_more_help", ["SUMMARIZE", "TRANSFER"])):
-        md = _scenario(cid).base.metadata
-        _, turns = split_turns(B.oracle.run(md["spec"], md["fixture"]).events)
+    md = _scenario().base.metadata
+    for n, want in ((1, ["ASK_CLARIFY", "ASK_MORE_HELP"]), (2, ["SUMMARIZE", "TRANSFER"])):
+        sim, left = UserSimulator(JourneySpec(), md["fixture"]), [n]
+
+        def respond(act, sim=sim, left=left):
+            if act.get("act") == "ASK_MORE_HELP" and left[0] > 0:
+                left[0] -= 1
+                return F.make("UNCLEAR")
+            return sim.respond(act)
+        _, turns = split_turns(B.oracle.run(md["spec"], md["fixture"], responder=respond).events)
         unclear = [t for t in turns if str(t["frame"]).startswith("UNCLEAR")]
-        assert unclear and [a["act"] for a in unclear[-1]["acts"]][-len(want):] == want, (cid, unclear[-1]["acts"])
+        assert len(unclear) == n and [a["act"] for a in unclear[-1]["acts"]][-len(want):] == want, (n, unclear[-1]["acts"])
     g = domain.current().graph
     assert "UNCLEAR" not in (g.states["ASK_MORE_HELP"].get("on") or {})
+
+
+def test_the_journey_asks_for_no_clarification():
+    from gmsjourney.s01_packs.project import Project
+    PG, B = _bench()
+    assert "unclear_answer" not in Project.load(domain.current().project_path).factors
+    for c in PG.cases("project", None)["cases"]:
+        md = _scenario(c["id"]).base.metadata
+        acts = [a.get("act") for e in B.oracle.run(md["spec"], md["fixture"]).events if e.get("role") == "bot"
+                for a in e.get("acts") or []]
+        assert "ASK_CLARIFY" not in acts, c["id"]
+
+
+def test_incorrect_action_off_the_journey_and_side_steps_are_told_apart():
+    from gmsjourney.s06_bots.turns import compare_turn
+    rec = lambda d: [{"role": "tool", "tool": "record_charge_response",                       # noqa: E731
+                      "args": {"transaction_id": "T1", "disposition": d}}]
+    said = [{"act": "CONFIRM_RECORDED", "txn": "T1"}, {"act": "ASK_MORE_HELP"}]
+    assert compare_turn(rec("UNRECOGNIZED"), said, rec("RECOGNIZED"), said, SIDE)["status"] == "wrong_action"
+    assert compare_turn([], [{"act": "TRANSFER", "reason": "ambiguity_persists"}], [],
+                        [{"act": "TRANSFER", "reason": "customer_request"}], SIDE)["status"] == "wrong_action"
+    assert compare_turn(rec("UNRECOGNIZED"), said, [], [{"act": "END"}], SIDE)["status"] == "differs"
+    assert compare_turn([], [{"act": "ASK_CLARIFY"}, {"act": "ASK_MORE_HELP"}], [],
+                        [{"act": "ANSWER_KB"}, {"act": "ASK_MORE_HELP"}], SIDE)["status"] == "side"
 
 
 if __name__ == "__main__":

@@ -490,7 +490,7 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
         played.add(line)
         e = exp_turns[line] if line < len(exp_turns) else None
         r = row_for(i, e, a, line, a.get("repeat"), (statuses.get(i) or {}).get("status"))
-        if r["turn_status"] in ("differs", "asked_again") and diverged_at is None:
+        if r["turn_status"] in ("differs", "asked_again", "wrong_action") and diverged_at is None:
             diverged_at = i
         rows.append(r)
     for line in range(len(exp_turns)):               # lines the run never reached (it stopped, or the bot ended)
@@ -503,7 +503,8 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
         "case_id": scenario.sid, "base_id": item.qid, "turns_expected": len(exp_turns), "turns_actual": len(act_turns),
         "first_divergence_turn": diverged_at, "turns_matching": sum(r["turn_match"] for r in rows),
         "turns_side": count("side"), "turns_asked_again": count("asked_again"), "turns_kb_wrong": count("kb_wrong"),
-        "turns_off": count("differs"), "turns_not_played": count("not_played"),
+        "turns_off": count("differs"), "turns_wrong_action": count("wrong_action"),
+        "turns_not_played": count("not_played"),
         "stopped_at_turn": (stopped or {}).get("turn"), "stopped_at_line": (stopped or {}).get("line"),
         "stopped_why": (stopped or {}).get("why"),
         "items": merchants,                               # charge id -> (merchant, amount), to name charges on the page
@@ -659,15 +660,15 @@ E = lambda s: html.escape(str(s), quote=True)
 STYLE = """
 :root{--bg:#eef1f4;--surface:#fff;--ink:#131c26;--muted:#5a6b7d;--line:#d3dbe3;--line-soft:#e3e9ee;
 --accent:#a8500a;--accent-soft:#f7e9db;--pass:#1c7a4a;--pass-soft:#e2f2e9;--code-bg:#f2f5f8;
---fail:#b3261e;--fail-soft:#fbe9e7;
+--fail:#b3261e;--fail-soft:#fbe9e7;--wrong:#7a2e8e;--wrong-soft:#f3e7f6;
 --display:"IBM Plex Sans Condensed",system-ui,sans-serif;--body:"IBM Plex Sans",system-ui,sans-serif;
 --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;color-scheme:light}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10161d;--surface:#161e27;--ink:#e6edf3;
 --muted:#93a3b3;--line:#2b3743;--line-soft:#222c36;--accent:#f0a35e;--accent-soft:#33261a;--pass:#5cc98d;
---pass-soft:#16281f;--code-bg:#131a22;--fail:#f2837a;--fail-soft:#2e1a19;color-scheme:dark}}
+--pass-soft:#16281f;--code-bg:#131a22;--fail:#f2837a;--fail-soft:#2e1a19;--wrong:#d69be6;--wrong-soft:#2a1d2f;color-scheme:dark}}
 :root[data-theme="dark"]{--bg:#10161d;--surface:#161e27;--ink:#e6edf3;--muted:#93a3b3;--line:#2b3743;
 --line-soft:#222c36;--accent:#f0a35e;--accent-soft:#33261a;--pass:#5cc98d;--pass-soft:#16281f;--code-bg:#131a22;
---fail:#f2837a;--fail-soft:#2e1a19;color-scheme:dark}
+--fail:#f2837a;--fail-soft:#2e1a19;--wrong:#d69be6;--wrong-soft:#2a1d2f;color-scheme:dark}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.6;padding-inline:16px}
 .wrap{max-width:1360px;margin:0 auto;padding-block:clamp(26px,5vw,60px)}
@@ -721,6 +722,12 @@ li.tool .sk{color:var(--accent)}
 .words{margin-top:.35rem;font-size:.86rem;color:var(--muted)}
 .mk{font-family:var(--mono);font-size:.7rem}.mk.ok{color:var(--pass)}.mk.no{color:var(--fail)}.mk.side{color:var(--accent)}.mk.na{color:var(--muted)}
 .turn.side{border-color:var(--accent);background:linear-gradient(90deg,var(--accent-soft),transparent 30%)}
+.mk.wrong{color:var(--wrong)}.turn.wrong{border-color:var(--wrong);background:linear-gradient(90deg,var(--wrong-soft),transparent 30%)}
+.turn.wrong .col.act{border-left-color:var(--wrong)}
+.legend{display:flex;flex-wrap:wrap;gap:.4rem 1.2rem;margin:.5rem 0 0;font-size:.85rem}
+.legend span{display:inline-flex;align-items:center;gap:.4rem}.legend i{width:.8rem;height:.8rem;border-radius:3px;border:2px solid}
+.legend i.ok{border-color:var(--pass)}.legend i.side{border-color:var(--accent);background:var(--accent-soft)}
+.legend i.wrong{border-color:var(--wrong);background:var(--wrong-soft)}.legend i.no{border-color:var(--fail);background:var(--fail-soft)}
 .turn.na{opacity:.7;border-style:dashed}
 .note.bad{color:var(--fail)}
 .note{font-size:.8rem;color:var(--muted);margin-top:.3rem}
@@ -763,24 +770,29 @@ fee disclosure), runtime invariance of the customer turns, and the latency / len
 and feed the release gate.</li>
 <li><b>Turn by turn</b> (below each case, from the agent's opening statement on): the customer says the base journey's
 lines, and every agent turn is set beside the oracle's turn for the same line, with its tool calls and acts <b>in the
-order they happened</b> on both sides. Charges are named by merchant and amount. A turn is
+order they happened</b> on both sides. Charges are named by merchant and amount. Each agent turn is one of four kinds:
+<div class="legend"><span><i class="ok"></i>same as expected</span><span><i class="side"></i>non-material deviation
+(side step)</span><span><i class="wrong"></i>incorrect action</span><span><i class="no"></i>off the journey</span></div>
 <ul>
 <li><b>same as expected</b>: the same tool calls with the same key arguments, in order, and the same decisions (act,
 charge, reason, in order). Acknowledgements such as <code>CONFIRM_RECORDED</code>, and the same charge presented again
-after a clarification or a policy answer, are ignored;</li>
-<li><b>immaterial deviation</b>: the same calls and decisions, but a different policy answer (<code>ANSWER_KB</code>) or
-clarification (<code>ASK_CLARIFY</code>), or a question left unanswered. These do not move the conversation along the
-policy, so the turn is flagged and the run goes on;</li>
-<li><b>policy answer wrong</b>: on the journey, but the figure in a policy answer is not the policy's. The turn is
-flagged and the run goes on; for a policy-question case the answer is the outcome itself, so the case fails;</li>
-<li><b>asked the same question again</b>: the agent made no call and asked again what the customer had just answered.
-The customer says the same line again, once, as a person would. It counts as a material deviation;</li>
-<li><b>material deviation</b>: different calls or decisions from the policy's. The agent may get back on the journey
-at the next turn. <b>Two material deviations in a row</b>, or <b>a material deviation that ends the call</b> (the agent
-hangs up or transfers where the policy does not), <b>stop the run there</b>: the lines never reached are shown as
-<b>not played</b> and the case is incorrect.</li>
+after a policy answer, are ignored;</li>
+<li><b>non-material deviation (side step)</b>: the same calls and decisions, but the policy answer
+(<code>ANSWER_KB</code>) or a clarification (<code>ASK_CLARIFY</code>) differs, or a policy question is left
+unanswered, or the policy answer's figure is wrong. These do not move the conversation along the policy: the turn is
+flagged and the run goes on (for a policy-question case the answer is the outcome, so a wrong one fails the case);</li>
+<li><b>incorrect action</b>: the agent takes the <b>right steps</b> (the same tool calls and acts, in the same order) but
+<b>does one wrongly</b>: another argument, charge or reason - it records a charge as RECOGNIZED when the customer said
+UNRECOGNIZED, or transfers for the wrong reason. A material deviation;</li>
+<li><b>off the journey</b>: the agent takes <b>a different step</b> - a call or an act the policy does not take at this
+point, or leaves one out (it ends the call instead of asking again, skips a record). Asking again what the customer had
+just answered, with no call, is off the journey too; the customer then says the same line again, once. A material
+deviation.</li>
 </ul>
-Flagged turns are counted beside each case.</li>
+After one material deviation the agent may get back on the journey at the next turn. <b>Two material deviations in a
+row</b>, or <b>a material deviation that ends the call</b> (the agent hangs up or transfers where the policy does not),
+<b>stop the run there</b>: the lines never reached are shown as <b>not played</b> and the case is incorrect.
+Each case counts its turns of each kind.</li>
 </ol>
 </div>"""
 
@@ -893,7 +905,7 @@ def _verdict_table(row: dict, summ: dict) -> str:
     if gate in ("fail", "strict"):
         lines += speech_rows
     lines.append('<tr class="grp"><td colspan="4">Also checked, reported next to the verdict (not part of it)</td></tr>')
-    if not kb_in:                                    # flagged at its turn (an immaterial deviation)
+    if not kb_in:                                    # flagged at its turn (a non-material deviation)
         lines += kb_rows
     if gate not in ("fail", "strict"):
         lines += speech_rows
@@ -928,10 +940,11 @@ def _verdict_table(row: dict, summ: dict) -> str:
 # a turn's status -> (words, mark class, turn box class)
 TURN_STATUS = {
     "same": ("same as expected", "ok", ""),
-    "side": ("immaterial deviation", "side", " side"),
-    "asked_again": ("asked the same question again", "no", " diff"),
-    "kb_wrong": ("policy answer wrong", "no", " side"),
-    "differs": ("material deviation", "no", " diff"),
+    "side": ("non-material deviation (side step)", "side", " side"),
+    "kb_wrong": ("non-material deviation (side step): policy answer wrong", "side", " side"),
+    "wrong_action": ("incorrect action", "wrong", " wrong"),
+    "asked_again": ("off the journey: asked the same question again", "no", " diff"),
+    "differs": ("off the journey", "no", " diff"),
     "not_played": ("not played", "na", " na"),
 }
 
@@ -984,7 +997,7 @@ def _case(row: dict, summ: dict, turns: list[dict], judges: dict | None = None) 
         same = summ.get("expected_opening") == summ.get("actual_opening")
         opening = (f'<div class="turn{"" if same else " diff"}"><div class="hd"><b>Opening statement</b>'
                    f'<span>the agent speaks first, before any customer turn</span>'
-                   f'<span class="mk {"ok" if same else "no"}">{"same as expected" if same else "material deviation"}</span>'
+                   f'<span class="mk {"ok" if same else "no"}">{"same as expected" if same else "off the journey"}</span>'
                    f'</div><div class="ea">'
                    + _col("exp", "", summ.get("expected_opening", ""), summ.get("expected_opening_text", ""),
                           steps=summ.get("expected_opening_steps"))
@@ -1014,17 +1027,21 @@ def _case(row: dict, summ: dict, turns: list[dict], judges: dict | None = None) 
     if summ and summ.get("stopped_at_turn") not in (None, ""):
         meta.append(f"<b>stopped after turn {E(summ.get('stopped_at_turn'))}</b>: "
                     + E(summ.get("stopped_why") or "two material deviations in a row"))
-    side_n = sum(int(summ.get(k) or 0) for k in ("turns_side", "turns_kb_wrong")) if summ else 0
-    if side_n:
-        meta.append(f"turns flagged without ending the run: <b>{side_n}</b> ("
-                    + ", ".join(f"{int(summ.get(k) or 0)} {w}" for k, w in (("turns_side", "immaterial deviation"),
-                                ("turns_kb_wrong", "wrong policy answer"))
-                                if int(summ.get(k) or 0)) + ")")
+    if summ:                                         # the agent's turns by kind of deviation
+        n = lambda *ks: sum(int(summ.get(k) or 0) for k in ks)                       # noqa: E731
+        kinds = [(n("turns_side", "turns_kb_wrong"), "non-material", "side"),
+                 (n("turns_wrong_action"), "incorrect action", "wrong"),
+                 (n("turns_off", "turns_asked_again"), "off the journey", "no")]
+        if any(k for k, _, _ in kinds):
+            meta.append("deviations: " + ", ".join(f'<span class="mk {c}"><b>{k}</b> {w}</span>' for k, w, c in kinds if k))
     items = _j(summ.get("items")) if summ else None
     if isinstance(items, dict) and items:            # charges by merchant and amount in the verdict and the reasons
         pat = re.compile(r"(?<![\w$])(" + "|".join(re.escape(k) for k in sorted(items, key=len, reverse=True)) + r")(?![\w])")
         name = lambda m: E(_label(m.group(1), items))                     # noqa: E731
-        verdict, why = pat.sub(name, verdict), pat.sub(name, why)
+        # the agent's own words, quoted “...”, stay exactly as said
+        outside = lambda h: "".join(pat.sub(name, x) if i % 2 == 0 else x                # noqa: E731
+                                    for i, x in enumerate(re.split(r"(“[^”]*”)", h)))
+        verdict, why = outside(verdict), outside(why)
     turns_html = (f'<div class="turns">{opening}{"".join(tb)}</div>' if tb or opening else
                   "<p class='small'>(no turn-by-turn record for this run)</p>")
     return (f'<section class="case {"pass" if ok else "fail"}" id="{E(sid)}" data-ok="{int(ok)}" data-arm="{E(arm)}">'

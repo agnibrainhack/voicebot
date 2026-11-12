@@ -366,72 +366,6 @@ factors:
       - script: ask_more_help
         say: [REQUEST_HUMAN()]
         position: start
-- name: unclear_answer
-  about: an answer that carries no decision, once (recovered) or past the clarification limit
-  default: none
-  relevant_when: reached
-  levels:
-    none: {}
-    once_at_ask_auth:
-      customer:
-      - script: ask_auth
-        say: [UNCLEAR()]
-        position: start
-    persists_at_ask_auth:
-      customer:
-      - script: ask_auth
-        say: [UNCLEAR(), UNCLEAR()]
-        position: start
-    once_at_ask_auth_retry:
-      customer:
-      - script: ask_auth_retry
-        say: [UNCLEAR()]
-        position: start
-    persists_at_ask_auth_retry:
-      customer:
-      - script: ask_auth_retry
-        say: [UNCLEAR(), UNCLEAR()]
-        position: start
-    once_at_present_txn:
-      customer:
-      - script: present_txn
-        say: [UNCLEAR()]
-        position: start
-    persists_at_present_txn:
-      customer:
-      - script: present_txn
-        say: [UNCLEAR(), UNCLEAR()]
-        position: start
-    once_at_provide_context:
-      customer:
-      - script: provide_context
-        say: [UNCLEAR()]
-        position: start
-    persists_at_provide_context:
-      customer:
-      - script: provide_context
-        say: [UNCLEAR(), UNCLEAR()]
-        position: start
-    once_at_confirm_action:
-      customer:
-      - script: confirm_action
-        say: [UNCLEAR()]
-        position: start
-    persists_at_confirm_action:
-      customer:
-      - script: confirm_action
-        say: [UNCLEAR(), UNCLEAR()]
-        position: start
-    once_at_ask_more_help:
-      customer:
-      - script: ask_more_help
-        say: [UNCLEAR()]
-        position: start
-    persists_at_ask_more_help:
-      customer:
-      - script: ask_more_help
-        say: [UNCLEAR(), UNCLEAR()]
-        position: start
 - name: policy_question
   about: the customer asks a policy question at PRESENT_TXN
   default: none
@@ -455,7 +389,7 @@ constraints: [level('get_review_transactions') == 'ok' or level('transactions_co
     == 'ok' or level('transactions_window') == 'inside']
 categories:
 - {name: recovery, when: level('authenticate_customer') != 'ok' or level('get_review_transactions') != 'ok' or level('record_charge_response')
-    != 'ok' or level('get_card_action_options') != 'ok' or level('submit_card_action') != 'ok' or level('unclear_answer') != 'none'}
+    != 'ok' or level('get_card_action_options') != 'ok' or level('submit_card_action') != 'ok'}
 - {name: boundary, when: 'level(''turn_pressure'') != ''normal'' or level(''transactions_count'') in (''at_cap_4'', ''over_cap_5'')
     or level(''transactions_window'') in (''last_at_30'', ''one_more_at_31'')'}
 - {name: governance_policy, when: level('human_request') != 'none'}
@@ -463,7 +397,7 @@ categories:
 tags:
 - {name: procedural_ordering, when: 'True'}
 - {name: recovery, when: level('authenticate_customer') != 'ok' or level('get_review_transactions') != 'ok' or level('record_charge_response')
-    != 'ok' or level('get_card_action_options') != 'ok' or level('submit_card_action') != 'ok' or level('unclear_answer') != 'none'}
+    != 'ok' or level('get_card_action_options') != 'ok' or level('submit_card_action') != 'ok'}
 - {name: boundary, when: 'level(''turn_pressure'') != ''normal'' or level(''transactions_count'') in (''at_cap_4'', ''over_cap_5'')
     or level(''transactions_window'') in (''last_at_30'', ''one_more_at_31'')'}
 - {name: governance_policy, when: level('human_request') != 'none'}

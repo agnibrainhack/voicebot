@@ -715,13 +715,14 @@ ended, transfer reason, responses recorded, card action completed, and the polic
 the comparison that decides correct / incorrect), the stage, admissibility, invariance and budget checks reported
 next to it, the reasons a run failed, and every customer turn with EXPECTED (oracle tools and acts) beside ACTUAL
 (agent tools, acts and words), each numbered in the order it happened, from the agent's opening statement on, with
-every charge named by merchant and amount. Every turn carries a status: *same as expected*; *immaterial deviation* (a
-policy answer or a clarification differs, the trajectory is the graph's: the turn is flagged and the run goes on; a
-wrong or missing policy answer is flagged the same way, and fails the case only when the case is that policy
-question); *asked the same question again* (the agent re-asked what was just answered; the customer says the line
-again, once); *material deviation*. One material deviation followed by a turn back on the journey is tolerated; two
-in a row, or one that ends the call, stop the run, the lines never said are shown as *not played*, and the case is
-incorrect (see guide chapter 6). Incorrect runs are shown by default; buttons show the correct ones, all, or one arm.
+every charge named by merchant and amount. Every turn is one of four kinds, each in its own colour: *same as
+expected*; *non-material deviation* (a side step: a policy answer or a clarification differs, the trajectory is the
+graph's; the turn is flagged and the run goes on; a wrong or missing policy answer is flagged the same way, and fails
+the case only when the case is that policy question); *incorrect action* (the right steps, one done wrongly: another
+argument, charge or reason); *off the journey* (a different step; asking again what was just answered is one, and the
+customer then says the line again, once). Incorrect actions and steps off the journey are material: one followed by a
+turn back on the journey is tolerated; two in a row, or one that ends the call, stop the run, the lines never said
+are shown as *not played*, and the case is incorrect (see guide chapter 6). Incorrect runs are shown by default; buttons show the correct ones, all, or one arm.
 It is built from `dataset/case_results.jsonl` and the turn-by-turn files, so an existing campaign folder can be
 redone without re-running the bot: `python tools/case_comparison.py --campaign output/campaign_llm_sut`.
 

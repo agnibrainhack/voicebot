@@ -12,16 +12,22 @@ act do not move the conversation along the policy graph:
 Everything else (the tool calls with their key arguments, and the other acts in order) is the **trajectory**.
 
     compare_turn(exp_tools, exp_acts, act_tools, act_acts) -> {"status", "tools_ok", "acts_ok", "core_ok"}
-        status  "same"     the turn is what the graph did, side steps included
-                "side"     an immaterial deviation: the trajectory is the graph's, only side steps differ (flagged,
-                           the run goes on)
-                "differs"  a material deviation: the trajectory is not the graph's
+        status  "same"          the turn is what the graph did, side steps included
+                "side"          a non-material deviation (side step): the trajectory is the graph's, only a policy
+                                answer or a clarification differs (flagged, the run goes on)
+                "wrong_action"  an incorrect action: the same steps (calls and acts, in order), but one done wrongly:
+                                another argument, charge or reason (record UNRECOGNIZED as RECOGNIZED, transfer for
+                                the wrong reason)
+                "differs"       off the journey: another step (a call or an act the graph does not take here, or one
+                                it takes left out)
+            "wrong_action" and "differs" are material deviations.
     asked_again(act_tools, act_acts, state) -> True when the bot made no call and is still asking the question the
         customer just answered (the customer then says it again; see harness.JourneyRunner)
 
 Analogy: a driver following a route. Asking the passenger to repeat an address, or answering a question about the
-fare, is not a wrong turn (an immaterial deviation); taking the wrong exit is (a material deviation). One wrong exit
-can be put right at the next junction; two in a row, or stopping the car, and the trip is off the route.
+fare, is not a wrong turn (a non-material deviation). Taking the wrong exit is off the route; taking the right exit
+but in the wrong lane is an incorrect action. Either can be put right at the next junction; two in a row, or
+stopping the car, and the trip is over.
 """
 from __future__ import annotations
 
@@ -88,7 +94,15 @@ def compare_turn(exp_tools: list[dict], exp_acts: list[dict], act_tools: list[di
     core = lambda xs: [x for x in xs if x[0] not in side]          # noqa: E731
     tools_ok = [tool_key(x) for x in exp_tools] == [tool_key(x) for x in act_tools]
     acts_ok, core_ok = en == an, core(en) == core(an)
-    status = "same" if tools_ok and acts_ok else "side" if tools_ok and core_ok else "differs"
+    if tools_ok and acts_ok:
+        status = "same"
+    elif tools_ok and core_ok:
+        status = "side"
+    elif [x["tool"] for x in exp_tools] == [x["tool"] for x in act_tools] \
+            and [x[0] for x in core(en)] == [x[0] for x in core(an)]:
+        status = "wrong_action"          # the same steps, done wrongly: another argument, charge or reason
+    else:
+        status = "differs"               # another step: a call or an act the graph does not take here
     return {"status": status, "tools_ok": tools_ok, "acts_ok": acts_ok, "core_ok": core_ok}
 
 

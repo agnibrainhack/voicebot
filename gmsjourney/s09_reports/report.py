@@ -744,7 +744,7 @@ def failure_reasons(fc: dict[str, Any]) -> list[str]:
     for v in fc.get("violations") or []:
         key, _, detail = str(v).partition(":")
         out.append(f"Policy violation: {esc(_VIOLATION_EN.get(key, key))}" + (f" <code>{esc(detail)}</code>" if detail else "") + ".")
-    side = "" if fc.get("kb_case") in (1, "1", True) else " (flagged at its turn as an immaterial deviation; it does not decide the case)"
+    side = "" if fc.get("kb_case") in (1, "1", True) else " (flagged at its turn as a non-material deviation; it does not decide the case)"
     for k in fc.get("kb_detail") or []:
         if not k.get("correct"):
             out.append(f"Policy question <code>{esc(k.get('frame'))}</code>: the agent answered “{esc(k.get('answer'))}” "
@@ -752,7 +752,7 @@ def failure_reasons(fc: dict[str, Any]) -> list[str]:
     if fc.get("invariance_ok") == 0:
         out.append("A customer turn did not read back to its intended meaning (runtime invariance monitor).")
     for p in fc.get("speech_problems") or []:
-        flag = " Flagged at its turn: it is in a policy answer or a clarification (an immaterial deviation)." \
+        flag = " Flagged at its turn: it is in a policy answer or a clarification (a non-material deviation)." \
             if p.get("side") and fc.get("kb_case") not in (1, "1", True) else ""
         if p["kind"] in ("contradicted", "unsupported"):
             out.append(f"The agent said “{esc(p.get('sentence'))}”: {esc(p['kind'])} — {esc(p.get('why'))} "
