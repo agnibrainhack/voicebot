@@ -2104,8 +2104,9 @@ function runView(r) {
   const startBtn = h("button", { class: "btn primary", type: "submit", disabled: !!active }, "Start the test");
   const form = h("form", { class: "card", onsubmit: async e => { e.preventDefault(); startBtn.disabled = true; startBtn.replaceChildren(h("span", { class: "spin" }), "Starting…");
       if (S.dirty && !(await confirmBox("Save before running?", "The run reads the saved project. Your unsaved edits would not be used.", "Run without them"))) { startBtn.disabled = false; startBtn.replaceChildren("Start the test"); return; }
-      try { const body = { ...F, max_cases: F.max_cases === "" ? null : Number(F.max_cases), runs_per_base: Number(F.runs_per_base) || 1, seed: Number(F.seed) || 42, customer: F.scripted_customer === false ? "adaptive" : "scripted", sut: sutBody() };
-        delete body.scripted_customer;
+      try { const body = { ...F, max_cases: F.max_cases === "" ? null : Number(F.max_cases), runs_per_base: Number(F.runs_per_base) || 1, seed: Number(F.seed) || 42, customer: F.scripted_customer === false ? "adaptive" : "scripted", sut: sutBody(),
+          speech_gate: F.flow_in_correct ? "strict" : "fail" };
+        delete body.scripted_customer; delete body.flow_in_correct;
         const TE = (S.meta.tools_llm || {}).enrichment || {}, TT = (S.meta.tools_llm || {}).testing || {};
         Object.assign(body, { llm_backend: TE.backend || "gateway", llm_model: TE.backend === "local" ? "" : (TE.model || ""), llm_local_path: TE.local_path || "", llm_vllm_url: TE.vllm_url || "",
           bot_workers: body.sut.kind === "llm" ? 4 : 1,
@@ -2126,6 +2127,7 @@ function runView(r) {
         h("label", { for: "rf-rpb" }, "Runs per case"), h("input", { class: "input num", id: "rf-rpb", type: "number", min: 1, inputmode: "numeric", style: "width:140px", value: F.runs_per_base, oninput: e => set("runs_per_base", e.target.value) }),
         h("label", { for: "rf-seed" }, "Seed"), h("input", { class: "input num", id: "rf-seed", type: "number", inputmode: "numeric", style: "width:140px", value: F.seed, oninput: e => set("seed", e.target.value) })),
       h("div", { class: "grid2" }, h("div", { class: "stack", style: "gap:4px" }, h("h3", {}, "Checks"), chk("scripted_customer", "Customer follows the base journey", "Says the case's own lines whatever the bot answers, so a wrong turn cannot steer the case. Off: answers the bot's last question."), chk("speech_controls", "Speech controls", "Prove the speech check flags planted wording errors"), chk("run_governance", "Runtime gates", "Calibrate and run the runtime monitor"),
+          chk("flow_in_correct", "Count speech flow in correct", "A case where the bot says an act the dialog does not allow at that point is marked incorrect (otherwise it is reported, and only its severity counts)"),
           chk("run_resilience", "Tool faults", "Errors and plausible wrong answers from each tool"), chk("run_mutation", "Planted defects", "Mutant bots each suite must catch"), chk("run_power", "Power analysis", "Slower; sizes the design"),
           chk("llm_judges", "Two LLM judges", "Two LLM judges read every run beside the rules (which still decide); disagreements are flagged"),
           h("div", { style: "padding-left:26px" }, llmPick("testing", "rf-jdg", "Judges' LLM"))),

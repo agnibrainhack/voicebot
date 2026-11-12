@@ -837,11 +837,11 @@ def _verdict_table(row: dict, summ: dict) -> str:
                          f'<td class="m {"ok" if ok else "no"}">{"✓ correct" if ok else "✗ wrong"}</td></tr>')
     gate = row.get("speech_gate")
     speech_rows = _speech_rows(row) if "c_speech" in row else []
-    if gate in ("fail", "strict"):
-        lines += speech_rows
+    # in the verdict: the words under "fail" and "strict", the flow only under "strict" (Count speech flow in correct)
+    n_in = 0 if gate not in ("fail", "strict") else 1 if gate == "fail" else 2
+    lines += speech_rows[:n_in]
     lines.append('<tr class="grp"><td colspan="4">Also checked, reported next to the verdict (not part of it)</td></tr>')
-    if gate not in ("fail", "strict"):
-        lines += speech_rows
+    lines += speech_rows[n_in:]
     stages = (row.get("why") or {}).get("stages") or {}
     wrong = set(_j(summ.get("stages_wrong")) or []) | set(stages)
     graded = sorted(k[2:] for k in row if k.startswith("c_") and k not in ("c_speech", "c_flow"))

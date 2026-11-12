@@ -551,7 +551,8 @@ paraphrase keeps its meaning. That second part is what the LLM judge is for.
 **Scores per case** (in `results.csv`):
 
 - `c_speech`: every turn's claims are supported, faithful to the labels and complete;
-- `c_flow`: every act follows the graph;
+- `c_flow`: every act follows the graph (a side step placed where the graph has none is left out; `c_flow_strict`
+  keeps it);
 - `outcome_correct`: the earlier verdict, kept as it was;
 - `speech_claims`, `speech_supported`, `speech_contradicted`, `speech_unsupported`, `speech_missing` and the rest;
 - `speech_problems`: the first few problems in words.
@@ -560,7 +561,10 @@ paraphrase keeps its meaning. That second part is what the LLM judge is for.
 
 - `report`: speech is shown but not graded;
 - `fail` (default): `correct` also needs `c_speech`;
-- `strict`: `correct` also needs `c_flow`.
+- `strict`: `correct` also needs `c_flow` (in the console: *Count speech flow in correct* under Checks).
+
+The severity of `SPEECH_FLOW` (`evaluation.severity` in `project.yaml`) does not change `correct`: it decides how a
+flow problem counts in the release gate (a `critical` code fails the gate on its first occurrence).
 
 **Checking the checker.** A check that never fires proves nothing, so the campaign runs eleven negative controls
 (`s07_checks/speech_policy.py`; skip them with `--no-speech-controls`). Each control edits only the words of one act in a real

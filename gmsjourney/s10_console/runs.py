@@ -591,6 +591,8 @@ class Runs:
         why = check_device(job.get("device"))
         if why:
             raise ValueError(why)
+        if job.get("speech_gate") not in (None, "report", "fail", "strict"):
+            raise ValueError('speech_gate is "report", "fail" or "strict" (speech flow counts in correct)')
         if job.get("customer") not in (None, "scripted", "adaptive"):
             raise ValueError('customer is "scripted" (the base journey\'s lines) or "adaptive" (answers the bot)')
         if (job.get("sut") or {}).get("provider") == "local" and (job.get("sut") or {}).get("kind") == "llm":
@@ -897,7 +899,7 @@ OPTIONS = ("max_cases", "runs_per_base", "seed", "run_resilience", "run_mutation
            "speech_controls", "calibration_bootstrap", "negative_controls_per_type", "llm_arm", "llm_mode", "llm_model",
            "rebuild_store", "profile", "customer", "llm_backend", "llm_local_path", "llm_vllm_url", "llm_judges",
            "llm_judges_mode", "llm_judges_max_runs", "judges_backend", "judges_model", "judges_local_path",
-           "judges_vllm_url", "bot_workers", "reuse_proofs")
+           "judges_vllm_url", "bot_workers", "reuse_proofs", "speech_gate")
 
 
 def main(run_dir: str) -> int:

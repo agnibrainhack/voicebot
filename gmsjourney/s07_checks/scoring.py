@@ -459,6 +459,7 @@ def score(scn: Scenario, res, limits: Limits, workflow, budget=None) -> dict[str
         row.update(sp["summary"])
         if item.metadata.get("kb_qid") and "c_speech_strict" in row:
             row["c_speech"] = row["c_speech_strict"]   # a policy-question case: its answer is the outcome itself
+            row["c_flow"] = row.get("c_flow_strict", row.get("c_flow", 1))
         if sp["problems"]:
             row["speech_problems"] = sp["problems"]
         row["speech_turns"] = response_cards(sp["turns"], res.extras.get("transcript") or [])

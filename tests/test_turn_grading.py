@@ -195,6 +195,21 @@ def test_a_speech_failure_in_a_side_step_is_flagged_at_its_turn_only():
     rep2 = TurnReport(2, "y", ["SUMMARIZE"], [], [], [Finding("missing", "SUMMARIZE", "no summary")])
     Conversation._mark_side(rep2, [{"act": "SUMMARIZE", "text": "y"}])
     assert not rep2.core_ok and rep2.as_dict()["findings"][0].get("side") is None
+    # a clarification where the graph has none breaks the flow only of the side step: c_flow keeps it out
+    rep3 = TurnReport(3, "z", ["ASK_CLARIFY"], [], [], [Finding("not_allowed_here", "ASK_CLARIFY", "not here")])
+    Conversation._mark_side(rep3, [{"act": "ASK_CLARIFY", "text": "z"}])
+    assert rep3.core_flow_ok and not rep3.flow_ok
+    rep4 = TurnReport(4, "w", ["END"], [], [], [Finding("not_allowed_here", "END", "not here")])
+    Conversation._mark_side(rep4, [{"act": "END", "text": "w"}])
+    assert not rep4.core_flow_ok
+
+
+def test_the_console_sends_count_speech_flow_in_correct_as_the_strict_gate():
+    from gmsjourney.s10_console import runs
+    assert "speech_gate" in runs.OPTIONS
+    ui = (Path(runs.__file__).parent / "ui.html").read_text()
+    assert 'chk("flow_in_correct", "Count speech flow in correct"' in ui
+    assert 'speech_gate: F.flow_in_correct ? "strict" : "fail"' in ui
 
 
 # ------------------------------------------------------------------ the graph
