@@ -1815,7 +1815,8 @@ function describeLevel(L, isDef) {
     const at = promptsOf(op.script);
     const said = (op.say || []).filter(Boolean);
     const when = op.position === "replace" ? "instead of the usual answer" : op.position === "append" ? "after the usual answer" : "first";
-    if (op.add_slots) parts.push(["at ", h("b", {}, at.join("/") || op.script), ` the customer also gives ${Object.entries(op.add_slots).map(([k, v]) => `${k} = ${v}`).join(", ")}`]);
+    if (op.add_slots) parts.push(["at ", h("b", {}, at.join("/") || op.script), ` the customer also gives ${Object.entries(op.add_slots).map(([k, v]) => `${k} = ${v}`).join(", ")}`,
+      op.to ? ` with ${op.to}` : "", op.once ? ", once (the first such answer only)" : ""]);
     if (said.length) parts.push(["at ", h("b", {}, at.join("/") || op.script), op.item != null ? ` (item ${op.item})` : "", " the customer says ", said.join(", then "), ` ${when}`, op.sticky ? ", every time" : ""]);
   }
   const lead = isDef ? "Default: " : "This level: ";

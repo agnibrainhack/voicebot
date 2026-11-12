@@ -59,12 +59,23 @@ factors:
   relevant_when: reached
   levels:
     ok: {}
-    retry_authenticated:
+    retry_authenticated:                 # a wrong code first (8421), then the right one
       fixture:
         tool:authenticate_customer: [FAILED, AUTHENTICATED]
-    failed_2x:
+      customer:
+      - script: ask_auth
+        say: [PROVIDE_CREDENTIAL(credential=8421)]
+        position: replace
+    failed_2x:                           # the wrong code (8421) twice
       fixture:
         tool:authenticate_customer: [FAILED, FAILED]
+      customer:
+      - script: ask_auth
+        say: [PROVIDE_CREDENTIAL(credential=8421)]
+        position: replace
+      - script: ask_auth_retry
+        say: [PROVIDE_CREDENTIAL(credential=8421)]
+        position: replace
       boundary: true
     unavailable:
       fixture:
@@ -190,12 +201,6 @@ factors:
         say: [DENY(), CONFIRM()]
         position: replace
         item: all
-    request_card_action_card_action_secure_card:
-      customer:
-      - script: confirm_action
-        say: [REQUEST_CARD_ACTION(card_action=SECURE_CARD), CONFIRM()]
-        position: replace
-        item: all
     request_card_action_card_action_replace_card:
       customer:
       - script: confirm_action
@@ -256,24 +261,21 @@ factors:
         say: [INFORM_DISPOSITION(disposition=UNRECOGNIZED)]
         position: replace
 - name: present_txn_card_action
-  about: the card action the customer adds at PRESENT_TXN
+  about: the card action the customer adds at PRESENT_TXN (once, to the first charge they do not recognize)
   default: none
   anchor: {state: PRESENT_TXN}
   relevant_when: reached
   levels:
     none: {}
-    secure_card:
-      customer:
-      - script: present_txn
-        add_slots: {card_action: SECURE_CARD}
-        item: all
     replace_card:
       customer:
       - script: present_txn
         add_slots: {card_action: REPLACE_CARD}
+        to: INFORM_DISPOSITION(disposition=UNRECOGNIZED)
         item: all
+        once: true
 - name: present_txn_delivery
-  about: the delivery the customer adds at PRESENT_TXN
+  about: the delivery the customer adds at PRESENT_TXN (once, to the first charge they do not recognize)
   default: none
   anchor: {state: PRESENT_TXN}
   relevant_when: reached
@@ -283,31 +285,32 @@ factors:
       customer:
       - script: present_txn
         add_slots: {card_action: REPLACE_CARD, delivery: standard_delivery}
+        to: INFORM_DISPOSITION(disposition=UNRECOGNIZED)
         item: all
+        once: true
     expedited_delivery:
       customer:
       - script: present_txn
         add_slots: {card_action: REPLACE_CARD, delivery: expedited_delivery}
+        to: INFORM_DISPOSITION(disposition=UNRECOGNIZED)
         item: all
+        once: true
 - name: provide_context_card_action
-  about: the card action the customer adds at PROVIDE_CONTEXT
+  about: the card action the customer adds at PROVIDE_CONTEXT (once, to the first charge they do not recognize)
   default: none
   anchor: {state: PROVIDE_CONTEXT}
   relevant_when: reached
   levels:
     none: {}
-    secure_card:
-      customer:
-      - script: provide_context
-        add_slots: {card_action: SECURE_CARD}
-        item: all
     replace_card:
       customer:
       - script: provide_context
         add_slots: {card_action: REPLACE_CARD}
+        to: INFORM_DISPOSITION(disposition=UNRECOGNIZED)
         item: all
+        once: true
 - name: provide_context_delivery
-  about: the delivery the customer adds at PROVIDE_CONTEXT
+  about: the delivery the customer adds at PROVIDE_CONTEXT (once, to the first charge they do not recognize)
   default: none
   anchor: {state: PROVIDE_CONTEXT}
   relevant_when: reached
@@ -317,12 +320,16 @@ factors:
       customer:
       - script: provide_context
         add_slots: {card_action: REPLACE_CARD, delivery: standard_delivery}
+        to: INFORM_DISPOSITION(disposition=UNRECOGNIZED)
         item: all
+        once: true
     expedited_delivery:
       customer:
       - script: provide_context
         add_slots: {card_action: REPLACE_CARD, delivery: expedited_delivery}
+        to: INFORM_DISPOSITION(disposition=UNRECOGNIZED)
         item: all
+        once: true
 - name: human_request
   about: the customer asks for a person at a prompt
   default: none

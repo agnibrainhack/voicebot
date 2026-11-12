@@ -245,7 +245,7 @@ class LocalChat:
 from ..s04_cases.meaning import SemanticFrame
 from .reference import BotTurn, GraphBot, KeywordReader, _say, _word, turn_order
 
-STRUCTURED_VERSION = "structured-bot/1"
+STRUCTURED_VERSION = "structured-bot/2"
 KINDS = ("actionable", "question", "claim", "social", "unclear")
 SOCIAL_ACT = "CHITCHAT"
 
@@ -261,7 +261,9 @@ kind:
   "claim"       the customer states a policy fact as true ("the fee is waived, right?", "you said it was free"):
                 "about" as for a question, and "claimed" is what they stated, in their words
   "social"      small talk, thanks, an apology or a remark with no answer, question or claim in it
-  "unclear"     anything else, or an answer you cannot place on the menu
+  "unclear"     anything else, or an answer you cannot place on the menu. A customer who did not hear or follow
+                the bot ("what was that?", "sorry?", "say that again", "I don't understand") is "unclear", never a
+                question: they are not asking about a policy fact
 A turn with social talk and an answer is "actionable": the answer counts. When the customer changes their mind within
 the turn, give the final answer. A plain yes or a plain no means what the menu's "yes" and "no" say.
 
@@ -364,7 +366,7 @@ class LLMReader:
             for m in g.members(spec["set"]):
                 if g.attr(m, attr) is not None:
                     name = (g.aliases(m) or [m.lower().replace("_", " ")])[0]
-                    out[f"value:{attr}:{m}"] = f"the {attr.replace('_usd', '').replace('_', ' ')} of {name}"
+                    out[f"value:{attr}:{m}"] = _fact_words(attr, name)
         for k, lv in g.limits.items():
             if not lv.get("internal"):
                 out[f"limit:{k}"] = k.replace("_", " ")
@@ -426,6 +428,21 @@ class LLMReader:
             self.stats.note("reading", why, {"state": state, "customer": text, "read": obj})
         return f
 
+    def _not_heard(self, text: str) -> bool:
+        """The customer did not hear or follow the bot: the pack's strong cues for an unclear answer
+        (domain.yaml -> lexicon ... UNCLEAR.strong_cues, e.g. "what was that", "say that again")."""
+        from ..s01_packs.loading import current
+        G = self.g.glob
+        act = G["unclear"]["act"] if G.get("unclear") else "UNCLEAR"
+        cues = []
+        for node in (current().get("lexicon.acts") or {}, current().get("lexicon") or {}):
+            spec = node.get(act) if isinstance(node, dict) else None
+            if isinstance(spec, dict) and spec.get("strong_cues"):
+                cues = spec["strong_cues"]
+                break
+        low = re.sub(r"[^a-z ]", "", str(text).lower().replace("'", ""))
+        return any(re.search(c, low) for c in cues)
+
     def frame(self, obj: Any, text: str, state: str, menu: dict) -> tuple[Any, str, str | None]:
         """(meaning card, kind, why the reading was not used or None)."""
         F = SemanticFrame
@@ -446,6 +463,8 @@ class LLMReader:
                 if parts[0] == "value":
                     return F.make(q, intent="value", attr=parts[1], entity=parts[2]), kind, None
                 return F.make(q, intent="limit", key=parts[1]), kind, None
+            if about == "other" and self._not_heard(text):     # "what was that?": the customer did not follow
+                return unclear, "unclear", "a request to repeat, read as unclear"
             return F.make(q, intent="unstated_fact"), kind, None if about == "other" else f"no such fact: {about}"
         if kind != "actionable":
             return unclear, "unclear", None
@@ -497,6 +516,20 @@ class LLMReader:
         vs = self.g.member_set(next(iter(values)))
         found = self.kw.find(vs, " " + v.lower().replace("'", "") + " ") if vs else None
         return found if found in values else None
+
+
+def _fact_words(attr: str, name: str) -> str:
+    """What a figure is, for the reader's menu: "the fee of expedited delivery (dollars)", "the most business days
+    standard delivery takes (how long it takes)", "the fewest business days standard delivery takes (the soonest it
+    arrives)"."""
+    if attr.endswith("_usd"):
+        return f"the {attr[:-4].replace('_', ' ')} of {name} (dollars)"
+    w = attr.split("_")
+    if w[-1] == "max":
+        return f"the most {' '.join(w[:-1])} {name} takes (how long it takes)"
+    if w[-1] == "min":
+        return f"the fewest {' '.join(w[:-1])} {name} takes (the soonest it arrives)"
+    return f"the {' '.join(w)} of {name}"
 
 
 class Wording:

@@ -772,6 +772,10 @@ def _kind(attr: str) -> str:
     return "count"
 
 
+UP_TO = re.compile(r"\b(?:up to|at most|within|no more than|as long as|maximum of|max(?:imum)?)\s*$")
+AT_LEAST = re.compile(r"\b(?:at least|as few as|no fewer than|no less than|minimum of|min(?:imum)?)\s*$")
+
+
 class PackModel:
     """What the generic check needs to know about a compiled pack, read from its compact graph."""
 
@@ -864,7 +868,10 @@ class GenericReader(UtteranceReader):
                 claims.append(Claim(attr, 0, fm.group(0), sent, about(attr, fm.start())))
         for mt in BUSINESS_DAYS.finditer(low):
             lo, hi = int(mt.group(1)), int(mt.group(2) or mt.group(1))
-            for attr in self.m.days[:1]:
+            before = low[max(0, mt.start() - 24):mt.start()]
+            bound = "max" if UP_TO.search(before) and lo == hi else "min" if AT_LEAST.search(before) and lo == hi else None
+            pick = [a for a in self.m.days if bound and a.endswith("_" + bound)] or self.m.days[:1]
+            for attr in pick[:1]:                      # "up to 7 business days" is the maximum, "at least 5" the minimum
                 claims.append(Claim(attr, (lo, hi), mt.group(0), sent, about(attr, mt.start())))
         for key, regs in self._limit_res.items():
             for rx in regs:

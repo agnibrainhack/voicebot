@@ -716,15 +716,16 @@ def failure_reasons(fc: dict[str, Any]) -> list[str]:
     """Plain-English reasons a run failed, read off its graded row (nothing re-judged here)."""
     out = []
     if fc.get("stopped_at_line") not in (None, ""):
-        out.append(f"The run stopped at customer line {esc(fc['stopped_at_line'])}: two bot turns in a row were off the "
-                   "journey, so the rest of the base journey was not played.")
+        out.append(f"The run stopped at customer line {esc(fc['stopped_at_line'])}: "
+                   f"{esc(fc.get('stopped_why') or 'two material deviations in a row')}, so the rest of the base "
+                   "journey was not played and the case is incorrect.")
     why = fc.get("why") or {}
     exp, act = why.get("expected") or {}, why.get("actual") or {}
     if isinstance(exp, dict) and isinstance(act, dict):
         if exp.get("end") != act.get("end") or exp.get("transfer_reason") != act.get("transfer_reason"):
             e = exp.get("end") + (f" ({exp['transfer_reason']})" if exp.get("transfer_reason") else "")
             a = (act.get("end") or "no ending") + (f" ({act['transfer_reason']})" if act.get("transfer_reason") else "")
-            out.append(f"Call outcome: expected <b>{esc(e)}</b>, the bot ended <b>{esc(a)}</b>.")
+            out.append(f"Call outcome: expected <b>{esc(e)}</b>, the agent ended <b>{esc(a)}</b>.")
         if exp.get("recorded") != act.get("recorded"):
             out.append(f"Recorded responses: expected <code>{esc(_fmt(exp.get('recorded')))}</code>, "
                        f"recorded <code>{esc(_fmt(act.get('recorded')))}</code>.")
@@ -736,28 +737,28 @@ def failure_reasons(fc: dict[str, Any]) -> list[str]:
                        f"got <code>{esc(act.get('writes'))}</code>.")
         if "told" in exp and exp.get("told") != act.get("told"):
             out.append(f"What the customer had to be told: expected <code>{esc(exp.get('told'))}</code>, "
-                       f"the bot said <code>{esc(act.get('told'))}</code>.")
+                       f"the agent said <code>{esc(act.get('told'))}</code>.")
     for st, d in (why.get("stages") or {}).items():
         out.append(f"Stage <b>{esc(st)}</b>: expected <code>{esc(_fmt(d.get('expected')))}</code>, "
                    f"got <code>{esc(_fmt(d.get('actual')))}</code>.")
     for v in fc.get("violations") or []:
         key, _, detail = str(v).partition(":")
         out.append(f"Policy violation: {esc(_VIOLATION_EN.get(key, key))}" + (f" <code>{esc(detail)}</code>" if detail else "") + ".")
-    side = "" if fc.get("kb_case") in (1, "1", True) else " (flagged at its turn; a side step does not decide the case)"
+    side = "" if fc.get("kb_case") in (1, "1", True) else " (flagged at its turn as an immaterial deviation; it does not decide the case)"
     for k in fc.get("kb_detail") or []:
         if not k.get("correct"):
-            out.append(f"Policy question <code>{esc(k.get('frame'))}</code>: the bot answered “{esc(k.get('answer'))}” "
+            out.append(f"Policy question <code>{esc(k.get('frame'))}</code>: the agent answered “{esc(k.get('answer'))}” "
                        f"— {esc(k.get('detail'))}{side}.")
     if fc.get("invariance_ok") == 0:
         out.append("A customer turn did not read back to its intended meaning (runtime invariance monitor).")
     for p in fc.get("speech_problems") or []:
-        flag = " Flagged at its turn: it is in a policy answer or a clarification (a side step)." \
+        flag = " Flagged at its turn: it is in a policy answer or a clarification (an immaterial deviation)." \
             if p.get("side") and fc.get("kb_case") not in (1, "1", True) else ""
         if p["kind"] in ("contradicted", "unsupported"):
-            out.append(f"The bot said “{esc(p.get('sentence'))}”: {esc(p['kind'])} — {esc(p.get('why'))} "
+            out.append(f"The agent said “{esc(p.get('sentence'))}”: {esc(p['kind'])} — {esc(p.get('why'))} "
                        f"({esc(p.get('where') or 'turn ' + str(p.get('turn')))}).{flag}")
         else:
-            out.append(f"What the bot said in {esc(p.get('where') or 'turn ' + str(p.get('turn')))}: {esc(p.get('why'))}"
+            out.append(f"What the agent said in {esc(p.get('where') or 'turn ' + str(p.get('turn')))}: {esc(p.get('why'))}"
                        + (f" ({esc(p['rule'])})" if p.get("rule") else "") + "." + flag)
     for b in fc.get("budget_violations") or []:
         out.append(f"Budget: {esc(b)}.")

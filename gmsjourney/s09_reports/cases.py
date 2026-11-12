@@ -282,16 +282,51 @@ ACT_FIELDS = ("txn", "intent", "answer", "reason", "recorded", "action", "delive
 
 
 # ----------------------------------------------------------------------------- rendering
+def items_named(fx: dict, *event_lists: list[dict]) -> dict[str, tuple[str, str]]:
+    """item id -> (merchant, amount) for every charge the case's bank returns: from the fixture (its ``transactions``
+    or a tool's scripted results) and from the tool results in the runs' events."""
+    out: dict[str, tuple[str, str]] = {}
+
+    def take(v: Any) -> None:
+        if isinstance(v, dict):
+            if v.get("transaction_id") and v.get("merchant"):
+                out.setdefault(str(v["transaction_id"]), (str(v["merchant"]), str(v.get("amount", ""))))
+            for x in v.values():
+                take(x)
+        elif isinstance(v, list):
+            for x in v:
+                take(x)
+    take(fx)
+    for evs in event_lists:
+        take([e.get("result") for e in evs or [] if e.get("role") == "tool"])
+    return out
+
+
+def _label(t: Any, merchants: dict | None) -> str:
+    """A charge by merchant and amount (Amazon $45.67), or its id when the bank named none."""
+    m = (merchants or {}).get(str(t)) if t is not None else None
+    if not m:
+        return str(t)
+    return f"{m[0]} ${m[1]}" if m[1] not in ("", "None") else m[0]
+
+
+def opening_text(acts: list[dict]) -> str:
+    """The oracle's opening acts in the reference wording (the policy's opening statement, then its first question)."""
+    from ..s06_bots.reference import _say
+    try:
+        return " ".join(t for t in (_say(a) for a in acts if not str(a.get("act", "")).startswith("(")) if t)
+    except Exception:                                  # noqa: BLE001 - a pack without bot wording
+        return ""
+
+
 def describe_act(a: dict, merchants: dict[str, tuple[str, str]] | None = None) -> str:
-    """A bot act as a short readable string: PRESENT_TXN(T2: Starbucks $6.25)."""
+    """A bot act as a short readable string: PRESENT_TXN(Starbucks $6.25)."""
     name = a.get("act", "?")
     if name == "OPENING":
         return "OPENING"
     parts = []
     if a.get("txn"):
-        t = a["txn"]
-        m = (merchants or {}).get(t)
-        parts.append(f"{t}: {m[0]} ${m[1]}" if m else t)
+        parts.append(_label(a["txn"], merchants))
     if name == "ANSWER_KB" and (a.get("intent") or a.get("answer") is not None):
         parts.append(f"{a.get('intent')} -> {json.dumps(a.get('answer'), default=str)}")
     for k in ("reason", "action", "delivery", "disposition"):
@@ -301,20 +336,22 @@ def describe_act(a: dict, merchants: dict[str, tuple[str, str]] | None = None) -
         parts.append(f"${a['fee']}")
     if name == "SUMMARIZE" and a.get("recorded") is not None:
         rec = a["recorded"]
-        parts.append(", ".join(f"{k}={v}" for k, v in (rec.items() if isinstance(rec, dict) else rec)) or "nothing")
+        parts.append(", ".join(f"{_label(k, merchants)} = {v}" for k, v in (rec.items() if isinstance(rec, dict) else rec))
+                     or "nothing")
     # a pack's own act fields (the charge-review fields above are rendered their own way)
     parts += [f"{k}={v}" for k, v in a.items()
               if k not in ACT_FIELDS and k not in ("act", "text", "state") and v is not None and not isinstance(v, (dict, list))]
     return f"{name}({'; '.join(parts)})" if parts else name
 
 
-def describe_tool(e: dict) -> str:
-    """One tool call as a line, keeping only its key arguments: ``tool(key=value) -> status``."""
+def describe_tool(e: dict, merchants: dict | None = None) -> str:
+    """One tool call as a line, keeping only its key arguments: ``tool(key=value) -> status`` (a charge named by
+    merchant and amount)."""
     args = e.get("args") or {}
     keep = {k: v for k, v in args.items() if k in key_args().get(e["tool"], tuple(args))}
     res = e.get("result")
     status = (res.get("status") or res.get("error")) if isinstance(res, dict) else ("error" if e.get("ok") is False else res)
-    a = ", ".join(f"{k}={v}" for k, v in keep.items())
+    a = ", ".join(f"{k}={_label(v, merchants) if str(v) in (merchants or {}) else v}" for k, v in keep.items())
     return f"{e['tool']}({a}) -> {status}"
 
 
@@ -343,7 +380,7 @@ def segment(events: list[dict]) -> tuple[list[dict], list[dict]]:
 
 def steps_of(steps: list, merchants: dict | None = None) -> list[dict]:
     """A turn's steps in order, as [{"k": "calls" | "says", "d": text}] (stored with the turn, drawn by ``_col``)."""
-    return [{"k": "calls", "d": describe_tool(x)} if k == "call" else {"k": "says", "d": describe_act(x, merchants)}
+    return [{"k": "calls", "d": describe_tool(x, merchants)} if k == "call" else {"k": "says", "d": describe_act(x, merchants)}
             for k, x in steps]
 
 
@@ -380,12 +417,11 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
     """Expected (oracle) vs actual (bot) for one scenario, one row per customer turn."""
     item = scenario.base
     spec, fx = item.metadata["spec"], item.metadata["fixture"]
-    merchants = {t["transaction_id"]: (t["merchant"], t["amount"]) for t in (fx.get("transactions") or [])
-                 if "transaction_id" in t and "merchant" in t}
     expected = oracle.run(spec, fx)
     path = validator.base_path(item) if validator is not None else None
     res = runner.run(scenario, faults=faults, oracle_path=path)
     actual = res.extras["trace"]
+    merchants = items_named(fx, expected.events, actual.events)
     _, exp_turns = segment(expected.events)
     _, act_turns = segment(actual.events)
     ont = runner.ont
@@ -416,6 +452,9 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
                         kb_wrong.append(j.get("detail") or "the policy answer is not the policy's")
         if kb_wrong and status in ("same", "side"):
             status = "kb_wrong"
+        if a is not None and e is not None and any(x.get("act") == answer_act for x in e["acts"]) \
+                and not any(x.get("act") == answer_act for x in a["acts"]):
+            kb_wrong.append("the customer's policy question was not answered")
         card = ont.card(frame, st) if frame is not None else {}
         text = (a or {}).get("text") or ""
         if not text and e is not None and path is not None and line is not None and line < len(path):
@@ -429,8 +468,8 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
             "turn": i, "line": line, "repeat": bool(repeat), "state": st,
             "customer_text": text,
             "customer_card": json.dumps({"act": card.get("act"), "slots": card.get("slots")}) if card else "",
-            "expected_tools": " ; ".join(describe_tool(x) for x in (e["tools"] if e else [])) or ("-" if e else "(no turn)"),
-            "actual_tools": " ; ".join(describe_tool(x) for x in (a["tools"] if a else [])) or ("-" if a else "(no turn)"),
+            "expected_tools": " ; ".join(describe_tool(x, merchants) for x in (e["tools"] if e else [])) or ("-" if e else "(no turn)"),
+            "actual_tools": " ; ".join(describe_tool(x, merchants) for x in (a["tools"] if a else [])) or ("-" if a else "(no turn)"),
             "expected_bot": " ; ".join(describe_act(x, merchants) for x in (e["acts"] if e else [])) or "-",
             "actual_bot_acts": " ; ".join(describe_act(x, merchants) for x in (a["acts"] if a else [])) or "-",
             "expected_steps": steps_of(e["steps"], merchants) if e else [],
@@ -466,6 +505,8 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
         "turns_side": count("side"), "turns_asked_again": count("asked_again"), "turns_kb_wrong": count("kb_wrong"),
         "turns_off": count("differs"), "turns_not_played": count("not_played"),
         "stopped_at_turn": (stopped or {}).get("turn"), "stopped_at_line": (stopped or {}).get("line"),
+        "stopped_why": (stopped or {}).get("why"),
+        "items": merchants,                               # charge id -> (merchant, amount), to name charges on the page
         "bot_ended_at": ended_at,
         "expected_outcome": json.loads(item.answer) if isinstance(item.answer, str) else item.answer,
         "actual_outcome": json.loads(res.answer) if isinstance(res.answer, str) else res.answer,
@@ -476,8 +517,12 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
         "speech_ok": bool(row.get("c_speech", 1)), "speech_problems": row.get("speech_problems") or [],
         "speech_opening": speech_open,
         "stages_wrong": [k[2:] for k, v in row.items() if k.startswith("c_") and v == 0],
-        "expected_opening": " ; ".join(describe_act(x) for x in segment(expected.events)[0]),
-        "actual_opening": " ; ".join(describe_act(x) for x in segment(actual.events)[0]),
+        "expected_opening": " ; ".join(describe_act(x, merchants) for x in segment(expected.events)[0]),
+        "actual_opening": " ; ".join(describe_act(x, merchants) for x in segment(actual.events)[0]),
+        "expected_opening_steps": steps_of(split_turns(expected.events)[0]["steps"], merchants),
+        "actual_opening_steps": steps_of(split_turns(actual.events)[0]["steps"], merchants),
+        "actual_opening_text": " ".join(split_turns(actual.events)[0]["bot_text"]),
+        "expected_opening_text": opening_text(segment(expected.events)[0]),
     }
     return pd.DataFrame(rows), summary
 
@@ -695,45 +740,47 @@ footer{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--line);font-
 HOW_JUDGED = """
 <div class="panel">
 <h2 style="margin-top:0">How a case is judged</h2>
-<p>Every run is graded by comparing what the bot <b>did</b> - read from the calls it made on the test backend,
+<p>Every run is graded by comparing what the agent <b>did</b> - read from the calls it made on the test backend,
 not from what it said - with what the oracle (an executable reading of the policy) does in the same situation.</p>
 <ol>
-<li><b>Correct / incorrect</b> is decided by one comparison, the <b>outcome signature</b>, and all four fields must match:
+<li><b>Correct / incorrect</b> needs the <b>outcome signature</b> to match, all four fields:
 <ul>
-<li><b>how the call ended</b>: <code>TRANSFERRED</code> (transfer_to_human was called), <code>ENDED</code> (the bot closed
-the call), or <code>INCOMPLETE</code> (neither);</li>
+<li><b>how the call ended</b>: <code>TRANSFERRED</code> (transfer_to_human was called), <code>ENDED</code> (the agent
+closed the call), or <code>INCOMPLETE</code> (neither);</li>
 <li><b>the transfer reason</b> passed to transfer_to_human (e.g. <code>record_failed</code>, <code>customer_request</code>);</li>
 <li><b>the responses actually recorded</b>: every record_charge_response call that returned SUCCESS for the same
 charge, as charge → disposition (RECOGNIZED / UNRECOGNIZED / UNSURE);</li>
 <li><b>the card action actually completed</b>: a submit_card_action that returned SUCCESS for the requested action,
 with its delivery option.</li>
 </ul>
-For a <b>policy-question case</b> the graded policy answer must also be correct: its figure equals the exact value in the
-policy store, or the bot abstains where the policy states nothing.</li>
+and the <b>journey played to its end</b>: a run stopped by the agent (below) is incorrect even when its outcome
+happens to match. For a <b>policy-question case</b> the graded policy answer must also be correct: its figure equals
+the exact value in the policy store, or the agent abstains where the policy states nothing.</li>
 <li><b>Reported next to the verdict, not part of it</b>: the per-stage decisions (authenticate, retrieve, present, kb,
 capture, record, card action, transfer, summary), <b>workflow admissibility</b> (no policy violation such as claiming a
 record that did not succeed, using an account tool before authentication, submitting without confirmation, skipping the
 fee disclosure), runtime invariance of the customer turns, and the latency / length budgets. They set a run's severity
 and feed the release gate.</li>
-<li><b>Turn by turn</b> (below each case): the customer says the base journey's lines, and every bot turn is set
-beside the oracle's turn for the same line, with its tool calls and acts <b>in the order they happened</b> on both
-sides. A turn is
+<li><b>Turn by turn</b> (below each case, from the agent's opening statement on): the customer says the base journey's
+lines, and every agent turn is set beside the oracle's turn for the same line, with its tool calls and acts <b>in the
+order they happened</b> on both sides. Charges are named by merchant and amount. A turn is
 <ul>
 <li><b>same as expected</b>: the same tool calls with the same key arguments, in order, and the same decisions (act,
-charge, reason, in order). Acknowledgements such as <code>OPENING</code> and <code>CONFIRM_RECORDED</code>, and the
-same charge presented again after a clarification, are ignored;</li>
-<li><b>differs only in a side step</b>: the same calls and decisions, but a different policy answer
-(<code>ANSWER_KB</code>) or clarification (<code>ASK_CLARIFY</code>). Side steps do not move the conversation along the
+charge, reason, in order). Acknowledgements such as <code>CONFIRM_RECORDED</code>, and the same charge presented again
+after a clarification or a policy answer, are ignored;</li>
+<li><b>immaterial deviation</b>: the same calls and decisions, but a different policy answer (<code>ANSWER_KB</code>) or
+clarification (<code>ASK_CLARIFY</code>), or a question left unanswered. These do not move the conversation along the
 policy, so the turn is flagged and the run goes on;</li>
 <li><b>policy answer wrong</b>: on the journey, but the figure in a policy answer is not the policy's. The turn is
 flagged and the run goes on; for a policy-question case the answer is the outcome itself, so the case fails;</li>
-<li><b>asked the same question again</b>: the bot made no call and asked again what the customer had just answered.
-The customer says the same line again, once, as a person would;</li>
-<li><b>off the journey</b>: different calls or decisions. The bot may get back on the journey at the next turn;
-<b>two turns in a row off the journey end the run there</b> (the customer stops), and the lines never reached are
-shown as <b>not played</b>.</li>
+<li><b>asked the same question again</b>: the agent made no call and asked again what the customer had just answered.
+The customer says the same line again, once, as a person would. It counts as a material deviation;</li>
+<li><b>material deviation</b>: different calls or decisions from the policy's. The agent may get back on the journey
+at the next turn. <b>Two material deviations in a row</b>, or <b>a material deviation that ends the call</b> (the agent
+hangs up or transfers where the policy does not), <b>stop the run there</b>: the lines never reached are shown as
+<b>not played</b> and the case is incorrect.</li>
 </ul>
-Flagged turns are counted beside each case; whether the case is correct is decided by its outcome, as above.</li>
+Flagged turns are counted beside each case.</li>
 </ol>
 </div>"""
 
@@ -788,7 +835,7 @@ def _col(kind: str, tools: str, acts: str, words: str = "", steps: Any = None) -
         body = "<p class='small'>(no such turn in this run)</p>"
     else:
         body = f"<ol>{''.join(li)}</ol>" if li else "<p class='small'>(nothing)</p>"
-    head = "Expected (oracle)" if kind == "exp" else "Actual (bot)"
+    head = "Expected (oracle)" if kind == "exp" else "Actual (agent)"
     return (f'<div class="col {kind}"><span class="who">{head}</span>{body}'
             + (f'<div class="words">“{E(words)}”</div>' if words else "") + "</div>")
 
@@ -825,23 +872,35 @@ def _verdict_table(row: dict, summ: dict) -> str:
         ok = e == a
         lines.append(f'<tr><td>{E(label)}</td><td><code>{E(_fmt(e))}</code></td><td><code>{E(_fmt(a))}</code></td>'
                      f'<td class="m {"ok" if ok else "no"}">{"✓ match" if ok else "✗ differs"}</td></tr>')
-    kb = row.get("kb_detail") or []
-    if kb:
-        for k in kb:
-            ok = bool(k.get("correct"))
-            lines.append(f'<tr><td>Policy answer to <code>{E(k.get("frame"))}</code></td>'
-                         f'<td class="small">{E(k.get("detail"))}</td><td>“{E(k.get("answer"))}”</td>'
-                         f'<td class="m {"ok" if ok else "no"}">{"✓ correct" if ok else "✗ wrong"}</td></tr>')
+    if "c_journey" in row:                           # stopped by the agent: incorrect whatever the outcome
+        okj = bool(int(row.get("c_journey") or 0))
+        lines.append(f'<tr><td>Journey played to its end</td><td><code>every line</code></td><td>'
+                     + ("<code>every line</code>" if okj else
+                        f'stopped at customer line {E(row.get("stopped_at_line"))}: {E(row.get("stopped_why") or "")}')
+                     + f'</td><td class="m {"ok" if okj else "no"}">{"✓ match" if okj else "✗ stopped"}</td></tr>')
+    kb_rows = []
+    for k in row.get("kb_detail") or []:
+        ok = bool(k.get("correct"))
+        kb_rows.append(f'<tr{"" if row.get("kb_case") in (1, "1", True) else " class=sub"}><td>Policy answer to '
+                       f'<code>{E(k.get("frame"))}</code></td>'
+                       f'<td class="small">{E(k.get("detail"))}</td><td>“{E(k.get("answer"))}”</td>'
+                       f'<td class="m {"ok" if ok else "no"}">{"✓ correct" if ok else "✗ wrong"}</td></tr>')
+    kb_in = row.get("kb_case") in (1, "1", True)     # a policy-question case: its answer is the outcome
+    if kb_in:
+        lines += kb_rows
     gate = row.get("speech_gate")
     speech_rows = _speech_rows(row) if "c_speech" in row else []
     if gate in ("fail", "strict"):
         lines += speech_rows
     lines.append('<tr class="grp"><td colspan="4">Also checked, reported next to the verdict (not part of it)</td></tr>')
+    if not kb_in:                                    # flagged at its turn (an immaterial deviation)
+        lines += kb_rows
     if gate not in ("fail", "strict"):
         lines += speech_rows
     stages = (row.get("why") or {}).get("stages") or {}
     wrong = set(_j(summ.get("stages_wrong")) or []) | set(stages)
-    graded = sorted(k[2:] for k in row if k.startswith("c_") and k not in ("c_speech", "c_flow"))
+    graded = sorted(k[2:] for k in row if k.startswith("c_")
+                    and k not in ("c_speech", "c_flow", "c_journey", "c_speech_strict", "c_flow_strict"))
     for st in graded:
         if st in stages:
             d = stages[st]
@@ -863,16 +922,16 @@ def _verdict_table(row: dict, summ: dict) -> str:
         lines.append(f'<tr class="sub"><td>Budgets</td><td colspan="2">{E("; ".join(map(str, row["budget_violations"])))}'
                      f'</td><td class="m no">✗ over</td></tr>')
     return ('<div class="cmp"><table><thead><tr><th>What is compared</th><th>Expected (oracle)</th>'
-            '<th>Actual (bot)</th><th>Result</th></tr></thead><tbody>' + "".join(lines) + "</tbody></table></div>")
+            '<th>Actual (agent)</th><th>Result</th></tr></thead><tbody>' + "".join(lines) + "</tbody></table></div>")
 
 
 # a turn's status -> (words, mark class, turn box class)
 TURN_STATUS = {
     "same": ("same as expected", "ok", ""),
-    "side": ("differs only in a side step", "side", " side"),
-    "asked_again": ("asked the same question again", "side", " side"),
+    "side": ("immaterial deviation", "side", " side"),
+    "asked_again": ("asked the same question again", "no", " diff"),
     "kb_wrong": ("policy answer wrong", "no", " side"),
-    "differs": ("off the journey", "no", " diff"),
+    "differs": ("material deviation", "no", " diff"),
     "not_played": ("not played", "na", " na"),
 }
 
@@ -895,7 +954,7 @@ def judges_block(j: dict | None) -> str:
                 + f' <span class="small">{E(v.get("reason") or "")}</span></li>')
     return (f'<div class="why judges"><span class="who">LLM judges (beside the rules, which decide)</span>'
             f' <span class="tag {cls}">{E(st)}</span><ul>'
-            + one("Judge A, the auditor (expected steps vs the bot's)", j.get("a"))
+            + one("Judge A, the auditor (expected steps vs the agent's)", j.get("a"))
             + one("Judge B, the reviewer (the call and the policy rules only)", j.get("b")) + "</ul></div>")
 
 
@@ -919,12 +978,18 @@ def _case(row: dict, summ: dict, turns: list[dict], judges: dict | None = None) 
                + "".join(f"<li>{r}</li>" for r in failure_reasons(row)) + "</ul>"
                + (f"<div class='small'>failure codes: {E(', '.join(row.get('failure_codes') or []))}</div>"
                   if row.get("failure_codes") else "") + "</div>")
+    verdict = _verdict_table(row, summ)
     opening = ""
     if summ and (summ.get("expected_opening") or summ.get("actual_opening")):
         same = summ.get("expected_opening") == summ.get("actual_opening")
-        opening = (f'<div class="turn{"" if same else " diff"}"><div class="hd"><b>Call opens</b><span>before any customer turn</span>'
-                   f'<span class="mk {"ok" if same else "no"}">{"same" if same else "differs"}</span></div><div class="ea">'
-                   + _col("exp", "", summ.get("expected_opening", "")) + _col("act", "", summ.get("actual_opening", ""))
+        opening = (f'<div class="turn{"" if same else " diff"}"><div class="hd"><b>Opening statement</b>'
+                   f'<span>the agent speaks first, before any customer turn</span>'
+                   f'<span class="mk {"ok" if same else "no"}">{"same as expected" if same else "material deviation"}</span>'
+                   f'</div><div class="ea">'
+                   + _col("exp", "", summ.get("expected_opening", ""), summ.get("expected_opening_text", ""),
+                          steps=summ.get("expected_opening_steps"))
+                   + _col("act", "", summ.get("actual_opening", ""), summ.get("actual_opening_text", ""),
+                          steps=summ.get("actual_opening_steps"))
                    + "</div></div>")
     tb = []
     for t in turns:
@@ -943,17 +1008,23 @@ def _case(row: dict, summ: dict, turns: list[dict], judges: dict | None = None) 
                   + _col("exp", t.get("expected_tools", ""), t.get("expected_bot", ""), steps=t.get("expected_steps"))
                   + (_col("act", t.get("actual_tools", ""), t.get("actual_bot_acts", ""), t.get("actual_bot_text", ""),
                           steps=t.get("actual_steps")) if status != "not_played" else
-                     '<div class="col act"><span class="who">Actual (bot)</span><p class="small">(not played: the run '
+                     '<div class="col act"><span class="who">Actual (agent)</span><p class="small">(not played: the run '
                      'had ended)</p></div>')
                   + "</div>" + kbw + "</div>")
     if summ and summ.get("stopped_at_turn") not in (None, ""):
-        meta.append(f"<b>stopped after turn {E(summ.get('stopped_at_turn'))}</b>: two bot turns in a row off the journey")
-    side_n = sum(int(summ.get(k) or 0) for k in ("turns_side", "turns_asked_again", "turns_kb_wrong")) if summ else 0
+        meta.append(f"<b>stopped after turn {E(summ.get('stopped_at_turn'))}</b>: "
+                    + E(summ.get("stopped_why") or "two material deviations in a row"))
+    side_n = sum(int(summ.get(k) or 0) for k in ("turns_side", "turns_kb_wrong")) if summ else 0
     if side_n:
         meta.append(f"turns flagged without ending the run: <b>{side_n}</b> ("
-                    + ", ".join(f"{int(summ.get(k) or 0)} {w}" for k, w in (("turns_side", "side step"),
-                                ("turns_asked_again", "asked again"), ("turns_kb_wrong", "wrong policy answer"))
+                    + ", ".join(f"{int(summ.get(k) or 0)} {w}" for k, w in (("turns_side", "immaterial deviation"),
+                                ("turns_kb_wrong", "wrong policy answer"))
                                 if int(summ.get(k) or 0)) + ")")
+    items = _j(summ.get("items")) if summ else None
+    if isinstance(items, dict) and items:            # charges by merchant and amount in the verdict and the reasons
+        pat = re.compile(r"(?<![\w$])(" + "|".join(re.escape(k) for k in sorted(items, key=len, reverse=True)) + r")(?![\w])")
+        name = lambda m: E(_label(m.group(1), items))                     # noqa: E731
+        verdict, why = pat.sub(name, verdict), pat.sub(name, why)
     turns_html = (f'<div class="turns">{opening}{"".join(tb)}</div>' if tb or opening else
                   "<p class='small'>(no turn-by-turn record for this run)</p>")
     return (f'<section class="case {"pass" if ok else "fail"}" id="{E(sid)}" data-ok="{int(ok)}" data-arm="{E(arm)}">'
@@ -961,7 +1032,7 @@ def _case(row: dict, summ: dict, turns: list[dict], judges: dict | None = None) 
             f'<span class="kind">{E(arm)}</span><span class="tag {"ok" if ok else "no"}">{"correct" if ok else "incorrect"}</span>'
             + (f'<span class="tag sev">severity {E(sev)}</span>' if sev != "none" else "")
             + f'</h3><div class="cmeta">{" · ".join(meta)}</div></div>'
-            + _verdict_table(row, summ) + why + judges_block(judges) + turns_html + "</section>")
+            + verdict + why + judges_block(judges) + turns_html + "</section>")
 
 
 def read_judges(ds: Path) -> dict[str, dict]:
@@ -998,7 +1069,7 @@ def write_case_comparison(out_dir: str | Path, out_name: str = "case_comparison.
     for t in _read_csv(ds / "turn_by_turn.csv"):
         turns.setdefault(t["case_id"], []).append(t)
     R = json.loads((out / "report.json").read_text()) if (out / "report.json").exists() else {}
-    bot = (R.get("results") or {}).get("bot", "the bot under test")
+    bot = (R.get("results") or {}).get("bot", "the agent under test")
     order = list(rows) + [s for s in summ if s not in rows]
     arm_rank = {"base": 0, "template": 1, "llm": 2}
     order.sort(key=lambda s: (arm_rank.get((rows.get(s) or summ.get(s) or {}).get("arm") or "base", 9), s))
@@ -1030,7 +1101,7 @@ def write_case_comparison(out_dir: str | Path, out_name: str = "case_comparison.
 <span class="kicker">Campaign · expected vs actual</span>
 <h1>Expected vs actual, case by case</h1>
 <p class="lede">System under test: <b>{E(bot)}</b>. Each run of the campaign, with what the oracle expects beside what the
-bot did. {len(order)} runs: <b>{n_bad}</b> incorrect, <b>{n_ok}</b> correct.{E(sample)}</p>
+agent did. {len(order)} runs: <b>{n_bad}</b> incorrect, <b>{n_ok}</b> correct.{E(sample)}</p>
 <div class="tiles"><div class="tile"><b>{n_bad}</b><span>incorrect</span></div><div class="tile"><b>{n_ok}</b><span>correct</span></div>
 {''.join(f'<div class="tile"><b>{n}</b><span>{E(a)} runs</span></div>' for a, n in sorted(arms.items()))}</div>
 {HOW_JUDGED}

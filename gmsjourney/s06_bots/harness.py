@@ -233,8 +233,12 @@ class JourneyRunner:
                 statuses.append({"turn": i - 1, "line": prev_line, "status": status, "repeat": prev_repeat})
                 if status is not None:
                     off = 0 if status in ("same", "side") else off + 1
-                    if off >= 2:                     # two turns in a row off the journey: the run ends here
-                        stopped = {"turn": i - 1, "line": prev_line, "why": "two bot turns in a row off the journey"}
+                    if off >= 2:                     # two material deviations in a row: the run ends here
+                        stopped = {"turn": i - 1, "line": prev_line, "why": "two material deviations in a row"}
+                        break
+                    if turn.ended and off:           # the agent ended the call where the graph does not
+                        stopped = {"turn": i - 1, "line": prev_line,
+                                   "why": "the agent ended the call where the graph does not"}
                         break
                 if status == "asked_again":
                     repeated.add(prev_line)

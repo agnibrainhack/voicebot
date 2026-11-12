@@ -66,6 +66,8 @@ s07_checks/
 * **trajectory**: every consecutive pair of tools must be a workflow edge of the store; plus rule checks:
   authentication before account tools, attempt limits, the transaction limit, claims only after SUCCESS,
   confirmation before submit, fee disclosure before expedited, the turn limit;
+* **journey**: `c_journey` (the base journey played to its end: the run was not stopped by two material
+  deviations in a row or by the bot ending the call where the graph does not, chapter 6); part of `correct`.
 * **speech**: `c_speech` (every claim supported, faithful and complete on every turn) and `c_flow` (every act
   where the graph allows it). A failure inside a **side step** (the words of a policy answer or a clarification,
   or a finding about one of those acts) is marked `side` at its turn and left out of `c_speech`; it is still

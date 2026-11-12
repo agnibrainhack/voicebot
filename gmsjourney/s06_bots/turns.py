@@ -13,14 +13,15 @@ Everything else (the tool calls with their key arguments, and the other acts in 
 
     compare_turn(exp_tools, exp_acts, act_tools, act_acts) -> {"status", "tools_ok", "acts_ok", "core_ok"}
         status  "same"     the turn is what the graph did, side steps included
-                "side"     the trajectory is the graph's; only side steps differ (flagged, the run goes on)
-                "differs"  the trajectory is not the graph's (the bot is off the journey)
+                "side"     an immaterial deviation: the trajectory is the graph's, only side steps differ (flagged,
+                           the run goes on)
+                "differs"  a material deviation: the trajectory is not the graph's
     asked_again(act_tools, act_acts, state) -> True when the bot made no call and is still asking the question the
         customer just answered (the customer then says it again; see harness.JourneyRunner)
 
 Analogy: a driver following a route. Asking the passenger to repeat an address, or answering a question about the
-fare, is not a wrong turn; taking the wrong exit is. One wrong exit can be put right at the next junction; two in a
-row and the trip is off the route.
+fare, is not a wrong turn (an immaterial deviation); taking the wrong exit is (a material deviation). One wrong exit
+can be put right at the next junction; two in a row, or stopping the car, and the trip is off the route.
 """
 from __future__ import annotations
 
@@ -52,8 +53,8 @@ def side_acts() -> set[str]:
 
 def normalize_acts(acts: list[dict]) -> list[tuple]:
     """The decision content of a bot reply: (act, txn, reason) in order, without optional acknowledgements, without
-    a re-presentation of the same charge right after a clarification / context / policy answer, and without
-    immediate repeats."""
+    a re-presentation of the same charge right after a clarification / context / policy answer (on both sides alike,
+    so a clarification in place of a policy answer stays a side step), and without immediate repeats."""
     out: list[tuple] = []
     prev = None
     for a in acts:
@@ -61,7 +62,7 @@ def normalize_acts(acts: list[dict]) -> list[tuple]:
         if name in OPTIONAL_ACTS:
             continue
         if name == "PRESENT_TXN" and prev is not None and prev.get("act") in REASK_AFTER \
-                and (prev.get("txn") in (None, a.get("txn"))) and prev.get("act") != "ANSWER_KB":
+                and (prev.get("txn") in (None, a.get("txn"))):
             prev = a
             continue
         # a policy answer is about the question, not the charge on screen; its correctness is graded separately

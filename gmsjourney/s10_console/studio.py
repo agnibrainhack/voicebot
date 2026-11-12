@@ -370,12 +370,17 @@ def reach(proj: Project, run, name: str, lv: Any, base: dict[str, Any] | None = 
         return {**base, name: lv}, None
     runs = [0]
 
+    L = proj.factors[name].levels.get(lv)
+    said_only_with = any(op.get("to") for op in (L.customer if L is not None else []))   # slots added to one answer
+
     def gets_there(d) -> bool:
         sp = journey.JourneySpec(**d)
         if not journey.is_valid(sp):
             return False
         runs[0] += 1
         st, tl = _visits(run(sp))
+        if said_only_with and not journey._reach(sp).get(name, True):   # that answer is never given here
+            return False
         return bool(want_s & st or want_t & tl)
 
     others = [(g, lv2) for g, f in proj.factors.items() if g != name and g not in base and not f.role

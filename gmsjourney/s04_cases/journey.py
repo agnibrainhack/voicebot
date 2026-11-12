@@ -377,15 +377,19 @@ class UserSimulator:
         return [(sc, self.ids[idx])] if 0 <= idx < len(self.ids) else []
 
     def _apply(self, op: dict[str, Any], view: CaseView, owner: str | None = None) -> None:
+        done = False                                 # ``once``: the slots go on the first matching line only
         for key in self._keys(op, view):
             q = self.queues.setdefault(key, [])
             if op.get("add_slots"):
                 to = self._frame(op["to"]) if op.get("to") else None
                 for s in q:
+                    if done:
+                        break
                     if to is None or (s.frame.act == to.act and all(s.frame.get(k) == v for k, v in to.slots)):
                         s.frame = F.make(s.frame.act, **{**dict(s.frame.slots), **op["add_slots"]})
                         if owner and owner != s.owner:
                             s.also = (*s.also, owner)
+                        done = bool(op.get("once"))
                 continue
             frames = list(op.get("frames", ()))
             if op.get("questions"):                  # this case's policy questions, asked here

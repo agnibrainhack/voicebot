@@ -102,7 +102,11 @@ customer asks. Everything about it is computed from the project file (chapter 1)
 
 The customer answers each bot act from the case's scripts. Each script is a **queue of meaning cards, then a
 default**: a level can push an act to be said at a state before the scripted answer, once or every time, replace the
-answer, or add a slot. For a loop, each item gets its own queue (`per_item`).
+answer, or add a slot. For a loop, each item gets its own queue (`per_item`). A slot is added to the answers that
+match `to` (e.g. `INFORM_DISPOSITION(disposition=UNRECOGNIZED)`), and with `once: true` only to the first of them in
+item order: in charge_review_graph a customer asks for a replacement card once, on the first charge they do not
+recognize, not on every one. Levels can also change what the customer says at a prompt: the failed verification
+levels have the customer give a wrong code (8421) where the bank refuses it.
 
 The simulator is **reactive**: it answers whatever the bot just asked, not a fixed transcript. Analogy: an actor who
 knows their character's intentions rather than a recording. A bot that asks the questions in a different order, or

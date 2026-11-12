@@ -723,7 +723,7 @@ def test_the_answer_sheet_lists_every_case_its_answer_key_and_its_rewordings():
     info = write_answer_sheet(d, oracle=oracle, store=store, validator=val, bases=bases, proofs=proofs, journey=dom.name)
     html_ = (Path(d) / "answer_sheet.html").read_text()
     assert info == {"file": "answer_sheet.html", "cases": 3, "rewordings": 3, "accepted": 3}
-    assert all(b.qid in html_ for b in bases) and "A correct bot must, in order" in html_ and "proved: same answer key" in html_
+    assert all(b.qid in html_ for b in bases) and "A correct agent must, in order" in html_ and "proved: same answer key" in html_
 
 
 def test_the_rewording_llm_and_the_judges_llm_are_chosen_separately():

@@ -1,9 +1,10 @@
 """How a bot turn is graded against the graph's turn, and the order a turn is shown in (s06_bots/turns.py,
 s06_bots/harness.py JourneyRunner, s02_graph/pending.py, s07_checks/speech_checks.py).
 
-* a side step (a policy answer, a clarification) that differs flags only its turn ("side"); the run goes on;
+* an immaterial deviation (a policy answer, a clarification) flags only its turn ("side"); the run goes on;
 * a bot that asks again the question just answered gets the same line once more ("asked_again");
-* one turn off the journey is tolerated, two in a row end the run (``extras["stopped"]``);
+* one material deviation is tolerated; two in a row, or one that ends the call, stop the run (``extras["stopped"]``)
+  and the case is incorrect;
 * a turn's tool calls and acts are kept in the order they happened, for the graph and for the bot;
 * a speech failure inside a side step leaves ``c_speech`` alone and fails ``c_speech_strict``;
 * "anything else?" answered unclearly is clarified by the graph (R22), not taken as a goodbye.
@@ -150,9 +151,9 @@ def test_one_turn_off_is_tolerated_two_in_a_row_end_the_run():
     runner = _runner(lambda tools: Fixed(tools, ["PRESENT_TXN"]))
     res = runner.run(_scenario())
     st = res.extras["turn_status"]
-    # line 1 answers PRESENT_TXN, so saying it again there is a re-ask: off the journey all the same
+    # line 1 answers PRESENT_TXN, so saying it again there is a re-ask: a material deviation all the same
     assert [(s["line"], s["status"]) for s in st] == [(0, "differs"), (1, "asked_again")]
-    assert res.extras["stopped"] == {"turn": 1, "line": 1, "why": "two bot turns in a row off the journey"}
+    assert res.extras["stopped"] == {"turn": 1, "line": 1, "why": "two material deviations in a row"}
     script = res.extras["script_lines"]
     assert sum(1 for e in res.extras["trace"].events if e.get("role") == "user") == 2 < script
 
@@ -182,6 +183,87 @@ def test_a_bot_back_on_the_journey_after_one_wrong_turn_plays_on():
     st = [s["status"] for s in res.extras["turn_status"]]
     assert st[0] == "differs" and set(st[1:]) == {"same"} and res.extras["stopped"] is None
     assert len(st) == res.extras["script_lines"]
+
+
+class HangsUp:
+    """The graph's bot, but it ends the call after its first reply."""
+
+    def __init__(self, tools):
+        from gmsjourney.s06_bots.reference import GraphBot
+        _, B = _bench()
+        self.inner = GraphBot(tools, B.store)
+
+    def start(self):
+        return self.inner.start()
+
+    def respond(self, text):
+        from gmsjourney.s06_bots.reference import BotTurn
+        t = self.inner.respond(text)
+        return BotTurn(t.text, t.acts + [{"act": "END"}], True, None)
+
+
+def test_an_agent_that_ends_the_call_where_the_graph_does_not_stops_the_run_and_fails_the_case():
+    from gmsjourney.s07_checks.scoring import score
+    PG, B = _bench()
+    runner = _runner(HangsUp)
+    scn = _scenario()
+    res = runner.run(scn)
+    assert [s["status"] for s in res.extras["turn_status"]] == ["differs"]
+    assert res.extras["stopped"]["why"] == "the agent ended the call where the graph does not"
+    row = score(scn, res, B.oracle.limits, B.oracle.store.workflow)
+    assert row["c_journey"] == 0 and row["correct"] == 0
+
+
+def test_a_clarification_in_place_of_a_policy_answer_is_an_immaterial_deviation():
+    from gmsjourney.s06_bots.turns import compare_turn
+    exp = [{"act": "ANSWER_KB", "intent": "value", "answer": 15}, {"act": "PRESENT_TXN", "txn": "T1"}]
+    got = [{"act": "ASK_CLARIFY"}, {"act": "PRESENT_TXN", "txn": "T1"}]
+    assert compare_turn([], exp, [], got, SIDE)["status"] == "side"
+
+
+def test_charges_are_named_by_merchant_and_amount_and_the_opening_is_shown():
+    from gmsjourney.s06_bots.reference import make_graph_factory
+    from gmsjourney.s09_reports.cases import turn_by_turn
+    PG, B = _bench()
+    runner = _runner(make_graph_factory(B.store))
+    df, s = turn_by_turn(runner, B.oracle, _scenario("transactions_count=two"), validator=runner.paths)
+    said = " ".join(x["d"] for st in df["expected_steps"] for x in st)
+    assert "Amazon $45.67" in said and "Starbucks $6.25" in said and "(T1" not in said
+    assert s["actual_opening_text"] and s["expected_opening_steps"][0]["d"] == "OPENING"
+
+
+def test_policy_answers_carry_their_unit():
+    from gmsjourney.s06_bots.reference import limit_sentence, value_sentence
+    assert value_sentence("standard_delivery", "business_days_max", 7) == "Standard delivery takes at most 7 business days."
+    assert value_sentence("expedited_delivery", "fee_usd", 15) == "The fee for expedited delivery is $15."
+    assert limit_sentence("lookback_days", 30, "calendar_days") == "The limit is 30 calendar days."
+    assert limit_sentence("max_transactions_per_session", 4, "transactions") == "The limit is 4 transactions per session."
+
+
+def test_the_customer_asks_for_a_new_card_once_and_gives_a_wrong_code_when_verification_fails():
+    from gmsjourney.s04_cases.journey import JourneySpec
+    PG, B = _bench()
+    c = PG._case(B, "x", "x", JourneySpec(transactions_count="two", present_txn_disposition="unrecognized",
+                                          present_txn_delivery="standard_delivery"), source="project")
+    asks = [l["text"] for l in c["lines"] if l.get("state") == "PRESENT_TXN"]
+    assert len(asks) == 2 and "replace my card" in asks[0] and "replace" not in asks[1]
+    c = PG._case(B, "y", "y", JourneySpec(authenticate_customer="failed_2x"), source="project")
+    assert [l["text"].count("8421") for l in c["lines"][:2]] == [1, 1]
+    from gmsjourney.s01_packs.project import Project
+    proj = Project.load(domain.current().project_path)
+    for f in proj.factors.values():                 # the customer never asks to secure the card
+        for lv in f.levels.values():
+            for op in lv.customer:
+                assert "SECURE_CARD" not in str(op), (f.name, op)
+
+
+def test_what_was_that_is_read_as_unclear_not_as_a_question():
+    from gmsjourney.s06_bots.llm_bot import LLMReader
+    _bench()
+    r = LLMReader.__new__(LLMReader)
+    r.g = domain.current().graph
+    assert r._not_heard("Hmm, sorry, what was that?") and r._not_heard("Could you say that again?")
+    assert not r._not_heard("How much does expedited delivery cost?")
 
 
 # ------------------------------------------------------------------ speech

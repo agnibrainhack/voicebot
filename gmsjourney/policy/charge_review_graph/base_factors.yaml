@@ -153,9 +153,6 @@ factors:
     description: card_action the customer adds at PRESENT_TXN
     levels:
       none: {}
-      secure_card:
-        answer:
-          PRESENT_TXN: {card_action: SECURE_CARD}
       replace_card:
         answer:
           PRESENT_TXN: {card_action: REPLACE_CARD}
@@ -194,9 +191,6 @@ factors:
     description: card_action the customer adds at PROVIDE_CONTEXT
     levels:
       none: {}
-      secure_card:
-        answer:
-          PROVIDE_CONTEXT: {card_action: SECURE_CARD}
       replace_card:
         answer:
           PROVIDE_CONTEXT: {card_action: REPLACE_CARD}
@@ -227,9 +221,6 @@ factors:
       deny:
         says:
           CONFIRM_ACTION: [DENY]
-      request_card_action_secure_card:
-        says:
-          CONFIRM_ACTION: [REQUEST_CARD_ACTION(card_action=SECURE_CARD)]
       request_card_action_replace_card:
         says:
           CONFIRM_ACTION: [REQUEST_CARD_ACTION(card_action=REPLACE_CARD)]

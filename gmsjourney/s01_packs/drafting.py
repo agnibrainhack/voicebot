@@ -641,8 +641,8 @@ def draft(dom=None) -> dict[str, Any]:
             for m in g.members(sp["set"]):
                 extra = {need: vals[0] for need, vals in (sp.get("with") or {}).items()}
                 slots = {**extra, sl: m}
-                if st in in_loop:                     # layered onto every item's answer
-                    op = {"script": script[st], "add_slots": slots, "item": "all"}
+                if st in in_loop:                     # added to one item's answer: a customer asks for it once
+                    op = {"script": script[st], "add_slots": slots, "item": "all", "once": True}
                 else:
                     base = default_answer(st)
                     op = {"script": script[st], "say": [base[:-1] + (", " if base[-2] != "(" else "")

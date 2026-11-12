@@ -867,12 +867,10 @@ class GraphBot(GraphOracle):
         intent = frame.get("intent")
         if intent == "value":
             v = g.attr(frame.get("entity"), frame.get("attr"))
-            what = frame.get("attr").replace("_usd", "").replace("_", " ")
-            ent = frame.get("entity").replace("_", " ").lower()
-            text = f"The {what} for {ent} is " + (f"${v}." if frame.get("attr").endswith("_usd") else f"{v}.")
+            text = value_sentence(frame.get("entity"), frame.get("attr"), v)
         elif intent == "limit":
             v = g.limit_value(frame.get("key"))
-            text = f"The limit is {v}."
+            text = limit_sentence(frame.get("key"), v, (g.limits.get(frame.get("key")) or {}).get("unit"))
         else:
             v, text = None, "I don't have information on that; a representative can help."
         self._tr.kb.append({"frame": frame, "answer": v, "correct": True})
@@ -908,6 +906,34 @@ class GraphBot(GraphOracle):
             return self._turn(False)
         except _Stop:
             return self._turn(True)
+
+
+def _fig(v: Any) -> str:
+    """A figure as said: 30, not 30.0."""
+    return str(int(v)) if isinstance(v, float) and v.is_integer() else str(v)
+
+
+def value_sentence(entity: str, attr: str, v: Any) -> str:
+    """A policy figure of a value in words, with its unit: "Standard delivery takes at most 7 business days.",
+    "The fee for expedited delivery is $15." (the unit is read off the attribute's name: ``_usd`` is dollars,
+    ``_min`` / ``_max`` are at least / at most of what the rest names)."""
+    ent = entity.replace("_", " ").lower()
+    if attr.endswith("_usd"):
+        return f"The {attr[:-4].replace('_', ' ')} for {ent} is ${_fig(v)}."
+    words = attr.split("_")
+    bound = {"min": "at least", "max": "at most"}.get(words[-1])
+    unit = " ".join(words[:-1] if bound else words)
+    if "days" in words:                               # a duration: it takes so many days
+        return f"{ent[:1].upper() + ent[1:]} takes {bound + ' ' if bound else ''}{_fig(v)} {unit}."
+    return f"The {unit} for {ent} is {bound + ' ' if bound else ''}{_fig(v)}."
+
+
+def limit_sentence(key: str, v: Any, unit: str | None) -> str:
+    """A policy limit in words, with its unit: "The limit is 30 calendar days.", "The limit is 4 transactions per
+    session." (the unit is the graph's ``limits.<key>.unit``)."""
+    u = (unit or "").replace("_", " ").strip()
+    per = " per session" if key.endswith("_per_session") else ""
+    return f"The limit is {_fig(v)}{' ' + u if u else ''}{per}."
 
 
 def _say(a: dict[str, Any]) -> str:

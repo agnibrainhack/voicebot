@@ -26,6 +26,7 @@ from __future__ import annotations
 import copy
 import html
 import json
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -72,7 +73,16 @@ details{margin-top:.8rem}summary{cursor:pointer;color:var(--accent)}
 """
 
 
-def _outcome_rows(answer: Any) -> list[tuple[str, str]]:
+def _named(text: str, merchants: dict | None) -> str:
+    """Charge ids in a line replaced by merchant and amount (Amazon $45.67)."""
+    from .cases import _label
+    if not merchants:
+        return text
+    pat = re.compile(r"(?<![\w$])(" + "|".join(re.escape(k) for k in sorted(merchants, key=len, reverse=True)) + r")(?!\w)")
+    return pat.sub(lambda m: _label(m.group(1), merchants), text)
+
+
+def _outcome_rows(answer: Any, merchants: dict | None = None) -> list[tuple[str, str]]:
     try:
         o = json.loads(answer) if isinstance(answer, str) else (answer or {})
     except ValueError:
@@ -84,7 +94,7 @@ def _outcome_rows(answer: Any) -> list[tuple[str, str]]:
     rows = [("ends", n["end"] or "?")]
     if n["transfer_reason"]:
         rows.append(("transfer reason", n["transfer_reason"]))
-    rows.append(("records", "; ".join(n["writes"]) or "nothing"))
+    rows.append(("records", _named("; ".join(n["writes"]), merchants) or "nothing"))
     if n["told"]:
         rows.append(("tells the customer", "; ".join(map(str, n["told"]))))
     for k, v in o.items():                                # a pack's own outcome fields
@@ -104,7 +114,7 @@ def write_answer_sheet(out_dir: str | Path, *, oracle, store, validator, bases: 
                        llm_proofs: list | None = None, journey: str = "", factor_names: list | None = None,
                        out_name: str = "answer_sheet.html") -> dict[str, Any]:
     """Write ``answer_sheet.html`` in ``out_dir`` (see the module docstring) and return what it holds."""
-    from .cases import describe_act, describe_tool, segment
+    from .cases import describe_act, describe_tool, items_named, segment
     kg = getattr(store, "kg", None)
     ont = validator.ont
     by_base: dict[str, list] = defaultdict(list)
@@ -127,8 +137,7 @@ def write_answer_sheet(out_dir: str | Path, *, oracle, store, validator, bases: 
     for b in bases:
         spec, fx = b.metadata["spec"], b.metadata["fixture"]
         tr = oracle.run(spec, copy.deepcopy(fx))
-        merchants = {t["transaction_id"]: (t.get("merchant"), t.get("amount")) for t in (fx.get("transactions") or [])
-                     if isinstance(t, dict) and "transaction_id" in t and "merchant" in t}
+        merchants = items_named(fx, tr.events)          # charges by merchant and amount
         opening, turns = segment(tr.events)
         path = validator.base_path(b)
         states = validator.base_states(b) if hasattr(validator, "base_states") else [None] * len(path)
@@ -147,7 +156,7 @@ def write_answer_sheet(out_dir: str | Path, *, oracle, store, validator, bases: 
                 except Exception:                         # noqa: BLE001
                     words = str(frame)
             card = ont.card(frame, st) if frame is not None else {}
-            must = [f"<div>calls {E(describe_tool(x))}</div>" if k == "call" else           # in the order they happen
+            must = [f"<div>calls {E(describe_tool(x, merchants))}</div>" if k == "call" else           # in the order they happen
                     f"<div>{E(describe_act(x, merchants))}</div>" for k, x in t["steps"]]
             rows.append(f'<tr><td class="n">{i}</td><td><code>{E(st)}</code></td><td>“{E(words)}”</td>'
                         f'<td><code>{E(_card(card))}</code></td>'
@@ -165,14 +174,14 @@ def write_answer_sheet(out_dir: str | Path, *, oracle, store, validator, bases: 
                          for t in p.turns)
             var_html.append(f'<div class="var{"" if p.accepted else " rej"}"><div class="vh"><b class="mono">{E(p.sid)}</b>'
                             f'<span class="tag">{E(p.arm)}</span>'
-                            f'<span class="tag {"ok" if p.accepted else "no"}">{"proved: same answer key" if p.accepted else "rejected: never reaches the bot"}</span>'
+                            f'<span class="tag {"ok" if p.accepted else "no"}">{"proved: same answer key" if p.accepted else "rejected: never reaches the agent"}</span>'
                             f'<span class="meta" style="margin:0">{E(lv)}</span></div>'
                             f'<div class="tw"><table><tbody>{tl}</tbody></table></div></div>')
         cat = b.metadata.get("category") or getattr(b, "base", "") or ""
         tags = b.metadata.get("tags") or []
         rel = b.metadata.get("relevant") or {}
         rel_txt = ", ".join(f"{k}={v}" for k, v in rel.items()) if isinstance(rel, dict) else ", ".join(map(str, rel))
-        end = "".join(f"<dt>{E(k)}</dt><dd>{E(v)}</dd>" for k, v in _outcome_rows(b.answer))
+        end = "".join(f"<dt>{E(k)}</dt><dd>{E(v)}</dd>" for k, v in _outcome_rows(b.answer, merchants))
         q = getattr(b, "question", None) or b.metadata.get("question")
         blocks.append(
             f'<section class="case" id="{E(b.qid)}" data-text="{E((b.qid + " " + str(cat) + " " + " ".join(map(str, tags))).lower())}">'
@@ -183,9 +192,9 @@ def write_answer_sheet(out_dir: str | Path, *, oracle, store, validator, bases: 
             + (f'<div class="meta">Decisions exercised: <code>{E(rel_txt)}</code></div>' if rel_txt else "")
             + (f'<div class="meta">Policy question: {E(q)}</div>' if q and isinstance(q, str) else "")
             + f'<dl class="end">{end}</dl>'
-            + (f'<div class="meta">Call opens: the bot must <code>{E(op)}</code></div>' if op else "")
+            + (f'<div class="meta">Opening statement: the agent must <code>{E(op)}</code></div>' if op else "")
             + '<div class="tw"><table><thead><tr><th>#</th><th>Dialog state</th><th>The customer says (original wording)</th>'
-              '<th>Which means</th><th>A correct bot must, in order</th><th>Rules of the state</th></tr></thead><tbody>'
+              '<th>Which means</th><th>A correct agent must, in order</th><th>Rules of the state</th></tr></thead><tbody>'
             + "".join(rows) + "</tbody></table></div>"
             + (f'<details><summary>The same case in other words: {len(vs)} reworded versions</summary>{"".join(var_html)}</details>'
                if vs else "")
@@ -198,10 +207,10 @@ def write_answer_sheet(out_dir: str | Path, *, oracle, store, validator, bases: 
 <style>{CSS}</style>
 <div class="wrap">
 <h1 id="top">Answer sheet{(" · " + E(journey)) if journey else ""}</h1>
-<p class="lede">Every case generated for this test run, before any bot is run: what the customer says and means at each
-turn, what a correct bot must do (its tool calls with their key arguments and its acts, in the order they happen) and how the call must end, all read
+<p class="lede">Every case generated for this test run, before any agent is run: what the customer says and means at each
+turn, what a correct agent must do (its tool calls with their key arguments and its acts, in the order they happen) and how the call must end, all read
 off the policy graph's own run of the case. Under each case, its reworded versions: a proved version has the same answer
-key turn for turn; a rejected one is never sent to the bot.</p>
+key turn for turn; a rejected one is never sent to the agent.</p>
 <div class="tiles"><div class="tile"><b>{len(bases)}</b><span>cases</span></div><div class="tile"><b>{n_var}</b><span>reworded versions</span></div>
 <div class="tile"><b>{n_ok}</b><span>proved to mean the same</span></div><div class="tile"><b>{n_var - n_ok}</b><span>rejected</span></div></div>
 <div class="toolbar"><input id="q" type="search" placeholder="Find a case by id, category or tag" aria-label="Find a case">

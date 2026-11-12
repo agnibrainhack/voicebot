@@ -714,12 +714,14 @@ every run the outcome signature expected by the oracle beside what the bot produ
 ended, transfer reason, responses recorded, card action completed, and the policy answer for policy-question cases -
 the comparison that decides correct / incorrect), the stage, admissibility, invariance and budget checks reported
 next to it, the reasons a run failed, and every customer turn with EXPECTED (oracle tools and acts) beside ACTUAL
-(bot tools, acts and words), each numbered in the order it happened. Every turn carries a status: *same as
-expected*; *differs only in a side step* (a policy answer or a clarification differs, the trajectory is the graph's:
-the turn is flagged and the run goes on; a wrong policy answer is flagged the same way, and fails the case only when
-the case is that policy question); *asked again* (the bot re-asked what was just answered; the customer says the line
-again, once); *off the journey*. One turn off followed by a turn back on is tolerated; two in a row stop the run, and
-the lines never said are shown as *not played* (see guide chapter 6). Incorrect runs are shown by default; buttons show the correct ones, all, or one arm.
+(agent tools, acts and words), each numbered in the order it happened, from the agent's opening statement on, with
+every charge named by merchant and amount. Every turn carries a status: *same as expected*; *immaterial deviation* (a
+policy answer or a clarification differs, the trajectory is the graph's: the turn is flagged and the run goes on; a
+wrong or missing policy answer is flagged the same way, and fails the case only when the case is that policy
+question); *asked the same question again* (the agent re-asked what was just answered; the customer says the line
+again, once); *material deviation*. One material deviation followed by a turn back on the journey is tolerated; two
+in a row, or one that ends the call, stop the run, the lines never said are shown as *not played*, and the case is
+incorrect (see guide chapter 6). Incorrect runs are shown by default; buttons show the correct ones, all, or one arm.
 It is built from `dataset/case_results.jsonl` and the turn-by-turn files, so an existing campaign folder can be
 redone without re-running the bot: `python tools/case_comparison.py --campaign output/campaign_llm_sut`.
 

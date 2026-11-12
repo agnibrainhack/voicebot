@@ -73,7 +73,7 @@ def test_case_comparison_page_from_campaign_files():
                     "expected_bot": "TRANSFER(record_failed)", "actual_bot_acts": "CONFIRM_RECORDED(T1)",
                     "actual_bot_text": "Recorded!", "turn_match": False, "after_divergence": False, "arm": "base"})
     page = write_case_comparison(d).read_text()
-    for want in ("How a case is judged", "outcome signature", "Expected (oracle)", "Actual (bot)", "✗ differs",
+    for want in ("How a case is judged", "outcome signature", "Expected (oracle)", "Actual (agent)", "✗ differs",
                  "TRANSFERRED", "record_failed", "T1 = RECOGNIZED", "Why it failed", "claimed a response",
                  "data-ok=\"1\"", "All cases", "Recorded!"):
         assert want in page, want

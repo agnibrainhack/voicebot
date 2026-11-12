@@ -250,18 +250,18 @@ s06_bots/
      | status | what the bot did | what happens next |
      |---|---|---|
      | `same` | the graph's tool calls and acts | the next line |
-     | `side` | the graph's trajectory; only a **side step** differs: a policy answer (ANSWER_KB) or a clarification (ASK_CLARIFY), the graph's `globals.question.answer` / `globals.unclear.clarify` | the turn is flagged, the next line follows |
-     | `asked_again` | no tool call, and it asks again the question the customer just answered | the customer says the same line again (once per line) |
-     | `differs` | another tool call, another argument, or another act | the next line: the bot may get back on the journey |
+     | `side` (*immaterial deviation*) | the graph's trajectory; only a policy answer (ANSWER_KB) or a clarification (ASK_CLARIFY) differs, the graph's `globals.question.answer` / `globals.unclear.clarify`, including a clarification in place of a policy answer | the turn is flagged, the next line follows |
+     | `asked_again` | no tool call, and it asks again the question the customer just answered (and the trajectory differs) | the customer says the same line again (once per line); a material deviation |
+     | `differs` (*material deviation*) | another tool call, another argument, or another act | the next line: the bot may get back on the journey |
 
-     **Two bot turns in a row off the journey** (`differs` or `asked_again`) end the run there: the customer stops
-     and `extras["stopped"]` says at which turn and line (`None`: the base journey was played to the end). One wrong
-     turn followed by a turn back on the journey is reported and the run goes on. A wrong policy answer on a turn
-     that is otherwise on the journey is flagged at that turn (the report's `kb_wrong`); it fails the case only when
-     the case is that policy question. If the bot ends the call early (hangs up, transfers), the remaining lines are
-     still said and every bot reply is recorded and checked (`extras["bot_ended_at"]`, `after_bot_ended` per turn).
-     With faults injected, or without the graph's expected turns (no validator), every line is said in order and
-     nothing is stopped;
+     **Two material deviations in a row** (`differs` or `asked_again`), or **a material deviation that ends the call**
+     (the bot hangs up or transfers where the graph does not), end the run there: the customer stops and
+     `extras["stopped"]` says at which turn and line and why (`None`: the base journey was played to the end). A
+     stopped run is incorrect (`c_journey = 0` in its score), whatever its outcome. One material deviation followed by
+     a turn back on the journey is reported and the run goes on. A wrong policy answer on a turn that is otherwise on
+     the journey is flagged at that turn (the report's `kb_wrong`); it fails the case only when the case is that
+     policy question. With faults injected, or without the graph's expected turns (no validator), every line is said
+     in order and nothing is stopped;
    * `"adaptive"`: the customer simulator answers the bot's last act (chapter 4), so after a bot mistake it answers
      what the bot actually asked. Useful to explore a bot, not to grade one against a fixed case.
 
