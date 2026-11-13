@@ -98,6 +98,26 @@ class StanceSpec:
     denied: tuple[str, ...]
 
 
+def bot_cues() -> dict[str, tuple[str, ...]]:
+    """The words that mark each agent act in any agent's words: the pack's ``bot.cues`` (domain.yaml), lower case,
+    number words as digits ("last four" is also read as "last 4"). An act with none is heard only by what it must
+    say (its ``says`` fields); one with neither cannot be confirmed from the words."""
+    from ..s01_packs.loading import current
+    try:
+        raw = (current().section("bot") or {}).get("cues") or {}
+    except Exception:                                         # noqa: BLE001 - a pack without a bot section
+        return {}
+    out = {}
+    for act, cues in raw.items():
+        seen = []
+        for c in cues or []:
+            for form in (str(c).lower(), words_to_digits(str(c)).lower()):
+                if form and form not in seen:
+                    seen.append(form)
+        out[act] = tuple(seen)
+    return out
+
+
 @dataclass
 class SpeechContract:
     """Everything the reader and the verifier need to know about speech, read once from the policy graph.
@@ -125,10 +145,12 @@ class SpeechContract:
         if not kg.where("says"):
             raise ValueError("the policy graph has no speech layer (build it with s02_graph/triples.py)")
         acts = {}
+        extra = bot_cues() if getattr(kg, "graph", None) is not None else {}
         for st in kg.states:
             says = tuple(FieldSpec(r["field"], r["from"], bool(r.get("required"))) for r in kg.says(st))
             src = next((t["source"] for t in kg.where("says", head=st)), None)
-            acts[st] = ActContract(st, says, tuple(kg.spoken_cues(st)), src)
+            cues = tuple(dict.fromkeys([*kg.spoken_cues(st), *extra.get(st, ())]))
+            acts[st] = ActContract(st, says, cues, src)
         g = getattr(kg, "graph", None)              # a pack compiled from a compact graph: generic fields
         if g is None:
             value_sets = {vs: kg.value_set(vs) for vs in (N.value_set.disposition, N.value_set.card_action,

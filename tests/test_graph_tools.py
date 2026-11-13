@@ -83,6 +83,7 @@ def test_drafted_bot_lines_say_every_field_with_its_unit_and_pass_the_speech_che
             cfg = yaml.safe_load((dst / "domain.yaml").read_text())
             cfg.setdefault("domain", {})["id"] = dst.name
             cfg.get("bot", {}).pop("says", None)
+            cfg.get("bot", {}).pop("cues", None)    # cue words go with a pack's own wording, not the drafted lines
             (dst / "domain.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True))
             d = domain.set_current(dst.name)
             assert sorted(x for x in d.lexicon_drafted if x.startswith("bot.says.")) == sorted(f"bot.says.{k}" for k in says)

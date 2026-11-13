@@ -245,7 +245,26 @@ s06_bots/
      of the graph's own conversation of the case and the state each one answers. A bot that goes wrong at turn 3 still
      hears turn 4 of the base case, so the case it is graded on is the case that was designed and proved, not one the
      bot steered into. Each bot turn is compared with the graph's turn for the same line (`turns.compare_turn`,
-     `extras["turn_status"]`, one entry per customer turn):
+     `extras["turn_status"]`, one entry per customer turn).
+
+     **What the bot did is read from what can be observed** (`acts_from="oracle"`, the default): its tool calls (on
+     the mock bank, with their results) and its words. A real agent does not say which dialog acts its words are, so
+     its acts for a turn are **the oracle's acts for that turn, each held in its words** (`s06_bots/oracle_says.py`).
+     An act is *held* when the words express it (one of its cue words, `bot.cues` in the pack's `domain.yaml`, or
+     every field it must say stated as a claim; OPENING by the opening statement; a policy answer by a figure about
+     what was asked) and give no other value; *contradicted* when they express it with another value (the words'
+     values are what is graded); *not heard* when they do not express it (left out of the turn: off the journey);
+     *not checkable* when the act has no cue and nothing it must say (taken as said; every act of
+     `charge_review_graph` can be heard). A sentence that expresses an act the oracle does not take there (by a cue
+     not explained by the act before it, `bot.says` lines say which acts' cues another act's line contains) is an act
+     of the agent's own. Each sentence also goes to the oracle's act it expresses, so the speech check reads every
+     claim under the right act (a summary is held to the confirmed writes). The bot event keeps the check
+     (`says`), the acts graded (`acts`, placed among the calls where the oracle places them) and the agent's own
+     labels if it gave any (`bot_acts`, never graded). With no oracle turn (an adaptive customer, injected faults)
+     the agent's own labels are used when it gives them, else the acts its words express. `acts_from="bot"` grades
+     the agent's own labels instead (a structured agent; the tests of the turn-kind rules). On the 44 project cases
+     of `charge_review_graph`, the reference bot and an LLM bot that misreads answers are graded the same with and
+     without their labels:
 
      | status | what the bot did | what happens next |
      |---|---|---|
@@ -284,8 +303,8 @@ s06_bots/
 * `CallableBotAdapter(start, respond)`: provide two Python callables that return text (and, optionally, acts);
 * `HTTPBotAdapter(url)`: a deployed bot over HTTP, `POST {session, text} -> {text, acts?, ended?}`.
 
-For a bot that returns only text, `BotActClassifier` infers the dialog acts of each turn from cues and content, so it
-is graded the same way. `item_index` gives the realizer the context of the items a tool returned (merchant names
+A bot that returns only text (no acts) is graded the same way: its acts are the oracle's, held in its words (above).
+For the older non-graph pack, `BotActClassifier` infers them from cues and content. `item_index` gives the realizer the context of the items a tool returned (merchant names
 etc.). `make_reference_factory(mutant=None)` builds the charge-review reference bot.
 
 `GraphRunner` (Part 2) is the same loop for journeys mined from a compact graph.

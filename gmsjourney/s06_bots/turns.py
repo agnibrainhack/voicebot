@@ -119,9 +119,11 @@ def split_turns(events: list[dict]) -> tuple[dict, list[dict]]:
     among the calls; without one it comes after them).
 
         -> (opening, turns); every entry {"tools": [...], "acts": [...], "steps": [("call", event) | ("say", act)],
-            "bot_text": [...]}, and a turn also {"frame", "text", "line", "repeat"} from its customer event."""
+            "bot_text": [...], "says": [...], "kb": [...], "bots": n}, and a turn also {"frame", "text", "line",
+            "repeat"} from its customer event. ``says``: for each agent reply, the oracle's acts held in its words
+            (s06_bots/oracle_says.py), when the run was graded that way; ``kb``: the policy answers judged in it."""
     def new(user: dict | None) -> dict:
-        d = {"tools": [], "acts": [], "steps": [], "bot_text": [], "_keys": []}
+        d = {"tools": [], "acts": [], "steps": [], "bot_text": [], "says": [], "kb": [], "bots": 0, "_keys": []}
         if user is not None:
             d.update({"frame": user.get("frame"), "text": user.get("text"), "line": user.get("line"),
                       "repeat": bool(user.get("repeat"))})
@@ -146,6 +148,10 @@ def split_turns(events: list[dict]) -> tuple[dict, list[dict]]:
                 tgt["_keys"].append(((n if k is None else min(k, n), 1, len(tgt["_keys"])), ("say", a)))
             if ev.get("text"):
                 tgt["bot_text"].append(ev["text"])
+            tgt["bots"] += 1
+            if ev.get("says") is not None:
+                tgt["says"].append(ev["says"])
+            tgt["kb"] += list(ev.get("kb") or [])
     for d in [opening] + turns:
         d["steps"] = [s for _, s in sorted(d.pop("_keys"), key=lambda x: x[0])]
     return opening, turns

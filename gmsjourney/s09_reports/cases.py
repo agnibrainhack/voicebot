@@ -412,6 +412,48 @@ def speech_by_turn(events: list[dict], speech_turns: list[dict]) -> tuple[str, l
     return opening, [" | ".join(x) for x in per_turn]
 
 
+def reports_by_turn(events: list[dict], speech_turns: list[dict]) -> tuple[list[dict], list[list[dict]]]:
+    """The speech check's report for every agent reply, cut like ``split_turns``: (the opening's, per customer
+    turn)."""
+    opening, per_turn, k, cur = [], [], 0, None
+    for ev in events:
+        if ev.get("role") == "user":
+            per_turn.append([])
+            cur = per_turn[-1]
+        elif ev.get("role") == "bot":
+            rep = speech_turns[k] if k < len(speech_turns) else None
+            k += 1
+            if rep is not None:
+                (opening if cur is None else cur).append(rep)
+    return opening, per_turn
+
+
+def says_record(says: list[dict], merchants: dict | None = None) -> dict[str, Any]:
+    """The oracle's acts held in an agent reply (s06_bots/oracle_says.py), compact for the page: each expected act
+    with whether the words hold it, and what the words said that the oracle did not expect."""
+    rows, extra, oracle = [], [], False
+    for h in says or []:
+        oracle = oracle or bool(h.get("oracle"))
+        rows += [{"act": describe_act(r.get("label") or {"act": r.get("act")}, merchants), "status": r.get("status"),
+                  "how": r.get("how"), "detail": r.get("detail")} for r in h.get("says") or []]
+        extra += [{"act": x.get("act"), "how": x.get("how")} for x in h.get("extra") or []]
+    return {"oracle": oracle, "says": rows, "extra": extra}
+
+
+def claims_record(reports: list[dict]) -> dict[str, Any]:
+    """Every claim card read from an agent reply and its check, and the reply's findings (speech check)."""
+    claims, finds, ok, core = [], [], True, True
+    for rep in reports or []:
+        ok, core = ok and bool(rep.get("ok", True)), core and bool(rep.get("core_ok", rep.get("ok", True)))
+        adv = set(rep.get("advisory") or ["unread"])
+        for c in rep.get("claims") or []:
+            claims.append({k: c.get(k) for k in ("field", "value", "words", "about", "mode", "status", "truth", "basis",
+                                                 "source", "why", "side")})
+        finds += [{"kind": f.get("kind"), "act": f.get("act"), "detail": f.get("detail"), "side": f.get("side", False),
+                   "advisory": f.get("kind") in adv} for f in rep.get("findings") or []]
+    return {"checked": bool(reports), "ok": ok, "core_ok": core, "claims": claims, "findings": finds}
+
+
 # ----------------------------------------------------------------------------- one scenario
 def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Expected (oracle) vs actual (bot) for one scenario, one row per customer turn."""
@@ -427,9 +469,9 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
     ont = runner.ont
     side = side_acts()
     speech_open, speech_turns = speech_by_turn(actual.events, ((res.extras.get("speech") or {}).get("turns") or []))
+    rep_open, rep_turns = reports_by_turn(actual.events, ((res.extras.get("speech") or {}).get("turns") or []))
     statuses = {s_["turn"]: s_ for s_ in (res.extras.get("turn_status") or [])}
     stopped = res.extras.get("stopped")
-    kb = list(getattr(actual, "kb", []) or [])           # one judgement per policy answer, in order
     rows, diverged_at = [], None
     answer_act = ((runner.graph.glob.get("question") or {}).get("answer") if getattr(runner, "graph", None) is not None
                   else "ANSWER_KB")
@@ -443,13 +485,10 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
                            a["acts"] if a else [], side) if e is not None and a is not None else None
         status = status or (cmp["status"] if cmp else "not_played" if a is None else "differs")
         kb_wrong = []
-        if a is not None:                              # this turn's policy answers, judged against the policy
-            for x in a["acts"]:
-                if x.get("act") == answer_act:
-                    j = kb[k_kb[0]] if k_kb[0] < len(kb) else None
-                    k_kb[0] += 1
-                    if j is not None and not j.get("correct"):
-                        kb_wrong.append(j.get("detail") or "the policy answer is not the policy's")
+        if a is not None:                              # this turn's policy answers, each judged where it was given
+            for j in a.get("kb") or []:
+                if not j.get("correct"):
+                    kb_wrong.append(j.get("detail") or "the policy answer is not the policy's")
         if kb_wrong and status in ("same", "side"):
             status = "kb_wrong"
         if a is not None and e is not None and any(x.get("act") == answer_act for x in e["acts"]) \
@@ -476,6 +515,10 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
             "actual_steps": steps_of(a["steps"], merchants) if a else [],
             "actual_bot_text": " ".join(a["bot_text"]) if a else "",
             "speech_check": speech_turns[i] if a is not None and i < len(speech_turns) else "",
+            "actual_says": says_record(a.get("says"), merchants) if a is not None else {},
+            "actual_claims": claims_record(rep_turns[i] if i < len(rep_turns) else []) if a is not None else {},
+            "kb_answers": [{"answer": j.get("answer"), "correct": bool(j.get("correct")), "detail": j.get("detail")}
+                           for j in (a.get("kb") or [])] if a is not None else [],
             "expected_next_state": e_acts[-1][0] if e_acts else "-",
             "actual_next_state": a_acts[-1][0] if a_acts else "-",
             "tools_match": bool(cmp and cmp["tools_ok"]), "acts_match": bool(cmp and cmp["acts_ok"]),
@@ -484,7 +527,6 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
             "after_bot_ended": ended_at is not None and line is not None and line >= ended_at,
         }
 
-    k_kb = [0]
     for i, a in enumerate(act_turns):
         line = a.get("line") if a.get("line") is not None else i
         played.add(line)
@@ -524,6 +566,8 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
         "expected_opening_steps": steps_of(split_turns(expected.events)[0]["steps"], merchants),
         "actual_opening_steps": steps_of(split_turns(actual.events)[0]["steps"], merchants),
         "actual_opening_text": " ".join(split_turns(actual.events)[0]["bot_text"]),
+        "actual_opening_says": says_record(split_turns(actual.events)[0]["says"], merchants),
+        "actual_opening_claims": claims_record(rep_open),
         "expected_opening_text": opening_text(segment(expected.events)[0]),
     }
     return pd.DataFrame(rows), summary
@@ -744,6 +788,18 @@ li.tool .sk{color:var(--accent)}
 .toc a{display:block;padding:.12rem 0;color:var(--ink);text-decoration:none;border-bottom:1px dashed var(--line-soft);font-family:var(--mono);font-size:.76rem}
 .toc a.f::before{content:"✗ ";color:var(--fail)}.toc a.p::before{content:"✓ ";color:var(--pass)}
 .small{font-size:.84rem;color:var(--muted)}
+.sub-h{display:block;margin:.55rem 0 .2rem;font-family:var(--mono);font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+ul.held{list-style:none;margin:.1rem 0 0;padding:0}ul.held li{display:grid;grid-template-columns:7.2rem minmax(0,1fr);gap:.4rem;margin:.2rem 0}
+ul.held .st{font-family:var(--mono);font-size:.7rem;font-weight:500}
+.st.ok{color:var(--pass)}.st.no{color:var(--fail)}.st.na{color:var(--muted)}.st.wrong{color:var(--wrong)}.st.side{color:var(--accent)}
+table.cards{margin-top:.15rem;font-size:.8rem;background:var(--surface);border:1px solid var(--line-soft);border-radius:7px}
+table.cards td{padding:.3rem .45rem;vertical-align:top}table.cards th{padding:.25rem .45rem;font-size:.64rem}
+.pill{display:inline-block;border-radius:4px;padding:0 .35rem;font-family:var(--mono);font-size:.68rem}
+.pill.supported{background:var(--pass-soft);color:var(--pass)}.pill.contradicted,.pill.unsupported{background:var(--fail-soft);color:var(--fail)}
+.pill.unverifiable,.pill.adv{background:var(--code-bg);color:var(--muted);border:1px solid var(--line-soft)}
+.pill.side{background:var(--accent-soft);color:var(--accent)}
+.rv{margin-top:.35rem;font-size:.8rem}
+.stopbar{text-align:center;letter-spacing:.04em}
 footer{margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--line);font-size:.85rem;color:var(--muted)}
 """
 
@@ -772,30 +828,43 @@ record that did not succeed, using an account tool before authentication, submit
 fee disclosure), runtime invariance of the customer turns, and the latency / length budgets. They set a run's severity
 and feed the release gate.</li>
 <li><b>Turn by turn</b> (below each case, from the agent's opening statement on): the customer says the base journey's
-lines, and every agent turn is set beside the oracle's turn for the same line, with its tool calls and acts <b>in the
-order they happened</b> on both sides. Charges are named by merchant and amount. Each agent turn is one of four kinds:
+lines. For each line, the <b>oracle's turn</b> is on the left: its tool calls and what it <b>says</b> (the acts the
+policy takes, with their values), in order. On the right is the <b>agent's turn</b>, taken only from what can be
+observed: the <b>tool calls</b> it made, with their key arguments and results, and its <b>words</b>. The agent's own
+naming of its acts, if it gives any, is not used. Charges are named by merchant and amount. The agent's words are
+validated in two ways:
+<ul>
+<li><b>The oracle's SAYS, checked in the words</b>: each act the oracle says at this turn must be held by the agent's
+words. <span class="st ok">✓ held</span>: the words express it (one of the act's cue words, or every field it must say
+is stated) and give no other value; <span class="st no">✗ other value</span>: they express it with another value
+(noted the charge as RECOGNIZED where the customer said UNRECOGNIZED); <span class="st no">✗ not in the words</span>;
+<span class="st na">– not checkable</span>: the act has no cue word and nothing it must say, so it is taken as said when
+the calls match. Words that express an act the oracle does not take here are shown as
+<span class="st wrong">+ not expected</span>.</li>
+<li><b>Claim cards</b>: every value, figure or limit the words state is read into a claim and checked against its
+truth: what the customer said (the customer's meaning card), a tool's result or a confirmed write, or the policy store.
+Each is <span class="pill supported">supported</span>, <span class="pill contradicted">contradicted</span>,
+<span class="pill unsupported">unsupported</span> (nothing backs it), or <span class="pill unverifiable">unverifiable</span>
+(nothing to compare yet, never a failure). A policy answer must also give the policy's own figure.</li>
+</ul>
+Each agent turn is then one of four kinds:
 <div class="legend"><span><i class="ok"></i>same as expected</span><span><i class="side"></i>non-material deviation
 (side step)</span><span><i class="wrong"></i>incorrect action</span><span><i class="no"></i>off the journey</span></div>
 <ul>
-<li><b>same as expected</b>: the same tool calls with the same key arguments, in order, and the same decisions (act,
-charge, reason, in order). Acknowledgements such as <code>CONFIRM_RECORDED</code>, and the same charge presented again
-after a policy answer, are ignored;</li>
-<li><b>non-material deviation (side step)</b>: the same calls and decisions, but the policy answer
-(<code>ANSWER_KB</code>) or a clarification (<code>ASK_CLARIFY</code>) differs, or a policy question is left
-unanswered, or the policy answer's figure is wrong. These do not move the conversation along the policy: the turn is
-flagged and the run goes on (for a policy-question case the answer is the outcome, so a wrong one fails the case);</li>
-<li><b>incorrect action</b>: the agent takes the <b>right steps</b> (the same tool calls and acts, in the same order) but
-<b>does one wrongly</b>: another argument, charge or reason - it records a charge as RECOGNIZED when the customer said
-UNRECOGNIZED, or transfers for the wrong reason. A material deviation;</li>
-<li><b>off the journey</b>: the agent takes <b>a different step</b> - a call or an act the policy does not take at this
-point, or leaves one out (it ends the call instead of asking again, skips a record). Asking again what the customer had
-just answered, with no call, is off the journey too; the customer then says the same line again, once. A material
-deviation.</li>
+<li><b>same as expected</b>: the same tool calls with the same key arguments, in order, and every act the oracle says
+held by the words (acknowledgements such as <code>CONFIRM_RECORDED</code> are not decisions: their values are checked
+on the tool call and in the claim cards);</li>
+<li><b>non-material deviation (side step)</b>: the same calls and decisions, but the policy answer or a clarification
+differs, or a policy question is left unanswered or answered wrongly. The turn is flagged and the run goes on (for a
+policy-question case the answer is the outcome, so a wrong one fails the case);</li>
+<li><b>incorrect action</b>: the right steps done wrongly: another argument, charge or reason;</li>
+<li><b>off the journey</b>: a different step: a call or an act the policy does not take here, or one it takes left
+out. Asking again what the customer had just answered, with no call, is off the journey too; the customer then says
+the line again, once.</li>
 </ul>
-After one material deviation the agent may get back on the journey at the next turn. <b>Two material deviations in a
-row</b>, or <b>a material deviation that ends the call</b> (the agent hangs up or transfers where the policy does not),
-<b>stop the run there</b>: the lines never reached are shown as <b>not played</b> and the case is incorrect.
-Each case counts its turns of each kind.</li>
+After one material deviation (incorrect action, off the journey) the agent may get back on the journey at the next
+turn. Two in a row, or one that ends the call: <b>Validation Stopped</b>. The lines after it are not played and the
+case is incorrect.</li>
 </ol>
 </div>"""
 
@@ -855,6 +924,78 @@ def _col(kind: str, tools: str, acts: str, words: str = "", steps: Any = None) -
             + (f'<div class="words">“{E(words)}”</div>' if words else "") + "</div>")
 
 
+HELD = {"held": ("✓ held", "ok"), "contradicted": ("✗ other value", "no"), "not_heard": ("✗ not in the words", "no"),
+        "not_checkable": ("– not checkable", "na")}
+
+
+def _says_html(says: dict) -> str:
+    """The oracle's SAYS for a turn, each act marked by whether the agent's words hold it."""
+    rows = says.get("says") or []
+    if not rows and not says.get("extra"):
+        return ""
+    li = []
+    for r in rows:
+        word, cls = HELD.get(r.get("status"), (r.get("status"), "na"))
+        why = r.get("how") if r.get("status") == "held" else r.get("detail")
+        li.append(f'<li><span class="st {cls}">{E(word)}</span><span><code>{E(r.get("act"))}</code>'
+                  + (f' <span class="small">{E(why)}</span>' if why else "") + "</span></li>")
+    for x in says.get("extra") or []:
+        li.append(f'<li><span class="st wrong">+ not expected</span><span><code>{E(x.get("act"))}</code> '
+                  f'<span class="small">said by {E(x.get("how"))}; the oracle does not say it here</span></span></li>')
+    return '<span class="sub-h">The oracle\'s SAYS, checked in these words</span><ul class="held">' + "".join(li) + "</ul>"
+
+
+def _claims_html(cr: dict) -> str:
+    """Every claim card read from the agent's words, its truth and its verdict, then the reply's findings."""
+    if not cr or not cr.get("checked"):
+        return ""
+    claims, finds = cr.get("claims") or [], [f for f in cr.get("findings") or [] if f.get("kind") != "unread"]
+    unread = sum(1 for f in cr.get("findings") or [] if f.get("kind") == "unread")
+    out = ['<span class="sub-h">Claim cards: what the words state, checked against the truth</span>']
+    if claims:
+        tr = []
+        for c in claims:
+            st = c.get("status") or ""
+            tr.append(f'<tr><td><code>{E(c.get("field"))} = {E(_fmt(c.get("value")))}</code>'
+                      f'<div class="small">“{E(c.get("words"))}”'
+                      + (f' · about {E(c.get("about"))}' if c.get("about") else "")
+                      + (f' · {E(c.get("mode"))}' if c.get("mode") and c.get("mode") != "states" else "") + "</div></td>"
+                      f'<td><code>{E(_fmt(c.get("truth")))}</code><div class="small">{E(c.get("basis") or "")}'
+                      + (f': {E(c.get("source"))}' if c.get("source") and c.get("source") != c.get("basis") else "") + "</div></td>"
+                      f'<td><span class="pill {E(st)}">{E(st)}</span>'
+                      + (' <span class="pill side">side step</span>' if c.get("side") else "")
+                      + (f'<div class="small">{E(c.get("why"))}</div>' if c.get("why") else "") + "</td></tr>")
+        out.append('<table class="cards"><thead><tr><th>Claim (the words)</th><th>Truth (where it was read)</th>'
+                   '<th>Result</th></tr></thead><tbody>' + "".join(tr) + "</tbody></table>")
+    else:
+        out.append('<p class="small">No claim: these words state no value, figure or limit to check.</p>')
+    for f in finds:
+        cls = "adv" if f.get("advisory") else "side" if f.get("side") else "contradicted"
+        what = "flow" if f.get("kind") == "not_allowed_here" else f.get("kind")
+        out.append(f'<div class="rv"><span class="pill {cls}">{E(what)}</span> {E(f.get("detail"))}</div>')
+    verdict = "grounded" if cr.get("ok") else ("fails only in a side step" if cr.get("core_ok") else "not grounded")
+    out.append(f'<div class="rv"><span class="pill {"supported" if cr.get("ok") else "side" if cr.get("core_ok") else "contradicted"}">'
+               f'{E(verdict)}</span>' + (f' <span class="small">{unread} clause{"s" if unread != 1 else ""} not read '
+                                        f'as policy (advisory)</span>' if unread else "") + "</div>")
+    return "".join(out)
+
+
+def _col_agent(tools: str, acts: str, words: str, steps: Any, says: Any, claims: Any) -> str:
+    """The agent's side of a turn: the calls it made (with their results), its words, the oracle's SAYS checked in
+    those words, and every claim card. A run graded from the agent's own act labels (an older run) shows them."""
+    says, claims = _j(says) or {}, _j(claims) or {}
+    if not isinstance(says, dict) or not says.get("oracle"):
+        return _col("act", tools, acts, words, steps) if not claims else \
+            _col("act", tools, acts, words, steps)[:-6] + _claims_html(claims if isinstance(claims, dict) else {}) + "</div>"
+    st = _j(steps) if isinstance(steps, str) else steps
+    calls = [x["d"] for x in st or [] if x.get("k") == "calls"] if st else _items(tools)
+    li = "".join(f'<li class="tool"><span class="sk">calls</span><code>{E(c)}</code></li>' for c in calls)
+    return ('<div class="col act"><span class="who">Actual (agent): its calls and its words</span>'
+            + (f"<ol>{li}</ol>" if li else "<p class='small'>(no tool call)</p>")
+            + (f'<div class="words">“{E(words)}”</div>' if words else "<p class='small'>(said nothing)</p>")
+            + _says_html(says) + _claims_html(claims) + "</div>")
+
+
 def _speech_rows(row: dict) -> list[str]:
     """The speech check's verdict on the bot's words (s07_checks/speech_*.py), as table rows: one for the words,
     one for the flow (part of the verdict only under --speech-gate strict)."""
@@ -891,8 +1032,7 @@ def _verdict_table(row: dict, summ: dict) -> str:
         okj = bool(int(row.get("c_journey") or 0))
         lines.append(f'<tr><td>Journey played to its end</td><td><code>every line</code></td><td>'
                      + ("<code>every line</code>" if okj else
-                        f'stopped after the agent\'s reply to customer line {E(row.get("stopped_at_line"))}: '
-                        f'{E(row.get("stopped_why") or "")}')
+                        f'Validation Stopped at turn {E(row.get("stopped_at_turn"))}')
                      + f'</td><td class="m {"ok" if okj else "no"}">{"✓ match" if okj else "✗ stopped"}</td></tr>')
     kb_rows = []
     for k in row.get("kb_detail") or []:
@@ -953,46 +1093,6 @@ TURN_STATUS = {
 }
 
 
-STOP_RULE_WORDS = {
-    "two_in_a_row": "Two material deviations in a row: the agent did not get back on the journey after the first, so "
-                    "the customer stops (a person would not keep following a conversation that has left the policy).",
-    "ended_call": "A material deviation that ended the call: the agent hung up or transferred where the policy does "
-                  "not, so there is no conversation left to play.",
-}
-
-
-def _stop_box(stop: dict, turns: list[dict], sid: str, anchor) -> str:
-    """Why a run was stopped, for its case: the rule that fired and, for each turn that triggered it, what the
-    customer said, what the policy required and what the agent did (from the run's own turn records)."""
-    by_turn = {}
-    for t in turns:
-        try:
-            by_turn[int(t.get("turn"))] = t
-        except (TypeError, ValueError):
-            pass
-    steps = lambda st, tools, acts: " → ".join(f"{x['k']} {x['d']}" for x in (_j(st) if isinstance(st, str) else st)   # noqa: E731
-                                               or []) or "; ".join(_items(tools) + _items(acts)) or "(nothing)"
-    items = []
-    for k, x in enumerate(stop.get("turns") or []):
-        t = by_turn.get(int(x["turn"])) or {}
-        word = TURN_STATUS.get(x.get("status"), TURN_STATUS["differs"])[0]
-        items.append(f'<li><a href="#{E(anchor(int(x["turn"])))}">Turn {E(x["turn"])}</a> (customer line '
-                     f'{E(x.get("line"))}) - <b>{E(word)}</b>. The customer said “{E(t.get("customer_text", ""))}”.'
-                     f'<div class="small">policy: {E(steps(t.get("expected_steps"), t.get("expected_tools"), t.get("expected_bot")))}</div>'
-                     f'<div class="small">agent: {E(steps(t.get("actual_steps"), t.get("actual_tools"), t.get("actual_bot_acts")))}</div></li>')
-    ended = stop.get("ended_with") or {}
-    end_line = (f"<p class='small'>The agent's last act: <code>{E(ended.get('act'))}"
-                + (f"({E(ended.get('reason'))})" if ended.get("reason") else "") + "</code>.</p>") if ended.get("act") else ""
-    not_played = [t for t in turns if t.get("turn_status") == "not_played"]
-    np_line = (f"<p class='small'>Not played: {len(not_played)} customer line{'s' if len(not_played) != 1 else ''} "
-               f"(line{'s' if len(not_played) != 1 else ''} {E(', '.join(str(t.get('line')) for t in not_played))})."
-               "</p>") if not_played else \
-        "<p class='small'>No line was left: the stop came at the last line of the base journey.</p>"
-    return (f'<div class="why stopwhy"><span class="who">Why the run stopped</span>'
-            f'<p>{E(STOP_RULE_WORDS.get(stop.get("rule"), stop.get("why") or ""))} A stopped run is incorrect '
-            f'(<code>JOURNEY_STOPPED</code>), whatever its outcome.</p><ol>{"".join(items)}</ol>{end_line}{np_line}</div>')
-
-
 def judges_block(j: dict | None) -> str:
     """The two LLM judges beside the rules' verdict (s07_checks/llm_judges.py), for a case page."""
     if not j:
@@ -1015,6 +1115,14 @@ def judges_block(j: dict | None) -> str:
             + one("Judge B, the reviewer (the call and the policy rules only)", j.get("b")) + "</ul></div>")
 
 
+def _simple_stop(reason: str, row: dict) -> str:
+    """A stopped run's reason, said simply: "Validation Stopped" and where."""
+    if reason.startswith("The run stopped"):
+        return f"Validation Stopped at turn {E(row.get('stopped_at_turn', ''))}." if row.get("stopped_at_turn") not in (None, "") \
+            else "Validation Stopped."
+    return reason
+
+
 def _case(row: dict, summ: dict, turns: list[dict], judges: dict | None = None) -> str:
     from .report import failure_reasons
     sid = row.get("sid") or summ.get("case_id")
@@ -1032,7 +1140,7 @@ def _case(row: dict, summ: dict, turns: list[dict], judges: dict | None = None) 
     why = ""
     if not ok or not bool(int(row.get("workflow_adherent", 1) or 1)):
         why = ('<div class="why"><span class="who">Why it ' + ("failed" if not ok else "was flagged") + "</span><ul>"
-               + "".join(f"<li>{r}</li>" for r in failure_reasons(row)) + "</ul>"
+               + "".join(f"<li>{_simple_stop(r, row)}</li>" for r in failure_reasons(row)) + "</ul>"
                + (f"<div class='small'>failure codes: {E(', '.join(row.get('failure_codes') or []))}</div>"
                   if row.get("failure_codes") else "") + "</div>")
     verdict = _verdict_table(row, summ)
@@ -1045,13 +1153,12 @@ def _case(row: dict, summ: dict, turns: list[dict], judges: dict | None = None) 
                    f'</div><div class="ea">'
                    + _col("exp", "", summ.get("expected_opening", ""), summ.get("expected_opening_text", ""),
                           steps=summ.get("expected_opening_steps"))
-                   + _col("act", "", summ.get("actual_opening", ""), summ.get("actual_opening_text", ""),
-                          steps=summ.get("actual_opening_steps"))
+                   + _col_agent("", summ.get("actual_opening", ""), summ.get("actual_opening_text", ""),
+                                summ.get("actual_opening_steps"), summ.get("actual_opening_says"),
+                                summ.get("actual_opening_claims"))
                    + "</div></div>")
     stop = _j(summ.get("stopped_detail")) if summ else None
     stop = stop if isinstance(stop, dict) else None
-    trig = {int(x["turn"]): k + 1 for k, x in enumerate((stop or {}).get("turns") or [])}
-    n_trig = len(trig)
     anchor = lambda n: f"{sid}--turn-{n}"                                                # noqa: E731
     tb = []
     for t in turns:
@@ -1066,7 +1173,6 @@ def _case(row: dict, summ: dict, turns: list[dict], judges: dict | None = None) 
         flags = (f'<span class="mk {cls}">{E(word)}</span>'
                  + (f"<span>customer line {E(line)}</span>" if line not in (None, "") else "")
                  + ("<span>the customer said it again</span>" if _b(t.get("repeat")) else "")
-                 + (f'<span class="mk no">counted toward the stop ({trig[tn]} of {n_trig})</span>' if tn in trig else "")
                  + ("<span>after the first difference</span>" if after and status not in ("not_played",) else ""))
         kbw = f'<div class="note bad">Policy answer wrong: {E(t.get("kb_wrong"))}</div>' if t.get("kb_wrong") else ""
         tb.append(f'<div class="turn{box}" id="{E(anchor(tn))}"><div class="hd"><b>Turn {E(t.get("turn"))}</b>'
@@ -1075,32 +1181,18 @@ def _case(row: dict, summ: dict, turns: list[dict], judges: dict | None = None) 
                   + (f' <span class="small"><code>{E(t.get("customer_card"))}</code></span>' if t.get("customer_card") else "")
                   + "</span></div><div class='ea'>"
                   + _col("exp", t.get("expected_tools", ""), t.get("expected_bot", ""), steps=t.get("expected_steps"))
-                  + (_col("act", t.get("actual_tools", ""), t.get("actual_bot_acts", ""), t.get("actual_bot_text", ""),
-                          steps=t.get("actual_steps")) if status != "not_played" else
-                     '<div class="col act"><span class="who">Actual (agent)</span><p class="small">(not played: the run '
-                     'had been stopped)</p></div>')
+                  + (_col_agent(t.get("actual_tools", ""), t.get("actual_bot_acts", ""), t.get("actual_bot_text", ""),
+                                t.get("actual_steps"), t.get("actual_says"), t.get("actual_claims"))
+                     if status != "not_played" else
+                     '<div class="col act"><span class="who">Actual (agent)</span><p class="small">Validation Stopped: '
+                     'not played.</p></div>')
                   + "</div>" + kbw + "</div>")
         if stop is not None and tn == int(stop.get("turn", -1)):
-            tb.append(f'<div class="stopbar">■ The run stopped here, after the agent\'s reply to customer line '
-                      f'{E(stop.get("line"))}: {E(stop.get("why"))}. The lines below were not played.</div>')
-    rule = _j(summ.get("stop_rule")) if summ else None
-    stop_box = ""
+            tb.append('<div class="stopbar">Validation Stopped</div>')
     if stop is not None:
-        meta.append(f"<b>stopped after turn {E(stop.get('turn'))}</b> (customer line {E(stop.get('line'))}): "
-                    + E(stop.get("why")))
-        stop_box = _stop_box(stop, turns, sid, anchor)
-    elif summ and summ.get("stopped_at_turn") not in (None, ""):            # an older run folder: no evidence kept
-        meta.append(f"<b>stopped after turn {E(summ.get('stopped_at_turn'))}</b>: "
-                    + E(summ.get("stopped_why") or "two material deviations in a row"))
-    elif isinstance(rule, dict) and not rule.get("active"):
-        meta.append(f"stop rule off for this run ({E(rule.get('off_because') or 'no expected turns')}): every line "
-                    "was played")
-    elif isinstance(rule, dict):
-        mat = [t.get("turn") for t in turns if t.get("turn_status") in ("wrong_action", "differs", "asked_again")]
-        if mat:
-            meta.append("stop rule on, not triggered: material deviation" + ("s" if len(mat) > 1 else "")
-                        + f" at turn{'s' if len(mat) > 1 else ''} {E(', '.join(map(str, mat)))}, "
-                        + "never two in a row, and none ended the call")
+        meta.append(f"<b>Validation Stopped</b> at turn {E(stop.get('turn'))}")
+    elif summ and summ.get("stopped_at_turn") not in (None, ""):            # an older run folder
+        meta.append(f"<b>Validation Stopped</b> at turn {E(summ.get('stopped_at_turn'))}")
     if summ:                                         # the agent's turns by kind of deviation
         n = lambda *ks: sum(int(summ.get(k) or 0) for k in ks)                       # noqa: E731
         kinds = [(n("turns_side", "turns_kb_wrong"), "non-material", "side"),
@@ -1123,7 +1215,7 @@ def _case(row: dict, summ: dict, turns: list[dict], judges: dict | None = None) 
             f'<span class="kind">{E(arm)}</span><span class="tag {"ok" if ok else "no"}">{"correct" if ok else "incorrect"}</span>'
             + (f'<span class="tag sev">severity {E(sev)}</span>' if sev != "none" else "")
             + f'</h3><div class="cmeta">{" · ".join(meta)}</div></div>'
-            + verdict + why + stop_box + judges_block(judges) + turns_html + "</section>")
+            + verdict + why + judges_block(judges) + turns_html + "</section>")
 
 
 def read_judges(ds: Path) -> dict[str, dict]:

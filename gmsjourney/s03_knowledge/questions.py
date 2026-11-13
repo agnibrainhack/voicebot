@@ -293,11 +293,17 @@ def judge_kb_answer(store, frame: SemanticFrame, answer_text: str) -> dict[str, 
     ok, tier, detail = False, "incorrect", ""
     anchored = anchored_figures(store, frame, answer_text) if at in ("money", "days", "number") else None
     if anchored is not None:
+        attr = str(frame.get("attr") or "")
+
         def same(v: Any) -> bool:
             if isinstance(gt, (tuple, list)):
                 lo, hi = (v if isinstance(v, (tuple, list)) else (v, v))
                 return float(gt[0]) <= float(lo) and float(hi) <= float(gt[1])
-            return not isinstance(v, (tuple, list)) and abs(float(v) - float(gt)) < 1e-9
+            if isinstance(v, (tuple, list)):        # "at most 7 business days" reads as (7, 7); "3 to 7" as (3, 7)
+                lo, hi = float(v[0]), float(v[1])
+                pick = hi if attr.endswith("_max") else lo if attr.endswith("_min") else (hi if lo == hi else None)
+                return pick is not None and abs(pick - float(gt)) < 1e-9
+            return abs(float(v) - float(gt)) < 1e-9
         ok = all(same(v) for v in anchored)
         detail = f"about {frame.get('entity') or frame.get('key')}: {anchored} truth={gt}"
     elif at == "money":

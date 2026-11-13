@@ -460,7 +460,8 @@ divergence, expected vs actual outcome, stages wrong, violations).
 
 ## Validating what the bot says (`gmsjourney/s07_checks/speech_*.py`)
 
-The checks above grade what the bot *did*: its tool calls and its dialog-act labels. A bot can do everything right
+The checks above grade what the bot *did*: its tool calls, and the oracle's acts for each turn held in its words (a
+bot's own dialog-act labels are not needed). A bot can do everything right
 and still say the wrong thing, for example by labelling a turn `CONFIRM_RECORDED(T1, UNRECOGNIZED)` and recording
 UNRECOGNIZED, but telling the customer "I've noted that you **recognize** the Amazon charge". The speech check reads
 every sentence the customer hears and grades it against the policy graph, the GMS and what actually happened in the
@@ -681,7 +682,9 @@ def factory(tools):                       # point your bot's tool client at `too
 run_campaign(CampaignConfig(out_dir="my_bot_run", bot_factory=factory, bot_name="MyBot"))
 ```
 
-`HTTPBotAdapter` drives a deployed bot. If your bot returns text only, `BotActClassifier` infers its acts. The
+`HTTPBotAdapter` drives a deployed bot. Your bot need not label its acts: a turn is graded on its tool calls and on
+the oracle's acts for that turn, each held in its words (`s06_bots/oracle_says.py`; the cue words of each act are
+`bot.cues` in the pack's `domain.yaml`), and labels it does give are kept but not graded. The
 runtime monitor wraps the same tool client, so the gates watch your bot exactly as they watch the reference bot;
 `GovernanceConfig(mode="enforce")` turns DENY into a blocked call.
 

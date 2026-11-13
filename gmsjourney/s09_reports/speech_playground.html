@@ -266,7 +266,8 @@ const STEPS = [
   ["This response", "The response passes (ok) when no claim is contradicted or unsupported and there is no blocking finding. Flow and advisory notes are left out. core_ok also leaves out what failed inside a side step (a policy answer or a clarification)."],
   ["The case", "The case's speech grade, c_speech, is 1 only when every response of the run is core_ok. With the speech gate set to fail, a case is correct only when its outcome is correct and c_speech is 1 (strict also needs c_flow)."],
 ];
-const SPLIT = { per_act: "per act: each act carries its own words, so each is read on its own",
+const SPLIT = { oracle: "by the oracle's acts: the agent gives only calls and words, so each sentence is read under the act of the oracle's it expresses (s06_bots/oracle_says.py)",
+  per_act: "per act: each act carries its own words, so each is read on its own",
   whole: "the whole response: the acts carry no words of their own, so the response is read as one piece" };
 const S_CLAIMS = 5, S_TRUTH = 6, S_CMP = 7;
 const READER_WHY = {

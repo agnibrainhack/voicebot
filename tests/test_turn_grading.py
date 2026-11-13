@@ -32,13 +32,13 @@ def _bench():
     return PG, PG.bench()
 
 
-def _runner(fac):
+def _runner(fac, acts_from="bot"):
     from gmsjourney.s05_rewording.proof import GraphInvarianceValidator
     from gmsjourney.s06_bots.harness import JourneyRunner
     PG, B = _bench()
     val = GraphInvarianceValidator(B.store, B.oracle, B.reader, B.realizer)
     return JourneyRunner(store=B.store, realizer=B.realizer, reader=B.reader, bot_factory=fac, customer="scripted",
-                         paths=val)
+                         paths=val, acts_from=acts_from)
 
 
 def _scenario(case_id="default"):
@@ -223,9 +223,10 @@ def test_a_stopped_case_says_why_on_its_page_in_the_report_and_to_the_judges():
     assert "customer line 1" in reason and "turn 0 (customer line 0): off the journey" in reason \
         and "JOURNEY_STOPPED" in reason, reason
     page = _case(row, summ, df.to_dict(orient="records"))
-    for want in ("Why the run stopped", "counted toward the stop (1 of 2)", "counted toward the stop (2 of 2)",
-                 "The run stopped here", "Not played:"):
+    for want in ("Validation Stopped at turn 1", '<div class="stopbar">Validation Stopped</div>',
+                 "Validation Stopped: not played."):
         assert want in page, want
+    assert "counted toward the stop" not in page and "Why the run stopped" not in page
     from gmsjourney.s10_console import runs
     assert runs._result(row)["stopped"].startswith("The run stopped after the agent's reply to customer line 1")
     text = Judges._case_a({"turns": df.to_dict(orient="records"), "stopped": summ["stopped_detail"]})

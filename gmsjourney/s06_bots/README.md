@@ -9,6 +9,7 @@ gmsjourney/s06_bots/
 ├── __init__.py   The bots under test and the harness that drives them
 ├── harness.py    Driving a bot through a case and observing it
 ├── llm_bot.py    The LLM bot under test: a model reads and words, the policy graph decides
+├── oracle_says.py  Grading an agent that gives only tool calls and words: the oracle's SAYS, held in its words
 ├── reference.py  The reference bots: well-behaved bots under test that follow the policy
 ├── tools.py      The mock bank the bot talks to, and the record of one conversation
 └── turns.py      One customer turn of a run compared with the same turn of the graph's own run
@@ -120,3 +121,14 @@ One customer turn of a run compared with the same turn of the graph's own run: t
 | `compare_turn` | def | A bot turn against the graph's turn: `same`, `side` (only side steps differ) or `differs` (off the journey). |
 | `asked_again` | def | The bot made no call and asks again the question the customer just answered. |
 | `split_turns` | def | A run's events cut into the opening and one entry per customer line, with its calls and acts in the order they happened (`steps`). |
+
+## `oracle_says.py`
+
+Grading an agent that gives only tool calls and words: the oracle's SAYS, held in the agent's words. Each act the
+oracle says at a turn is *held* (the words express it, by a cue word from the pack's `bot.cues` or every field it
+must say, with no other value), *contradicted*, *not heard* or *not checkable*; each sentence goes to the oracle's
+act it expresses, and a sentence expressing an act the oracle does not take there is an act of the agent's own.
+
+| name | kind | what it is |
+|---|---|---|
+| `hold` | def | The oracle's acts for one turn, each checked against the agent's words: the acts the turn is graded as having said, the segments the speech check reads, and the check of each act. |

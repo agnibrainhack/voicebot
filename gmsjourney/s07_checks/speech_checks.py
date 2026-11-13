@@ -270,7 +270,7 @@ class UtteranceVerifier:
     def check_turn(self, acts: list[dict[str, Any]], text: str, facts: SessionFacts, *, turn: int = 0,
                    last_item: str | None = None, pending_prompts: set[str] | None = None,
                    customer_act: str | None = None, question: Any = None,
-                   presented: set[str] | None = None) -> TurnReport:
+                   presented: set[str] | None = None, held: dict | None = None) -> TurnReport:
         """Check one bot turn. ``acts`` are the labels (each may carry its own ``text``); with no labels the
         whole text is read and the acts it expresses stand in for them.
 
@@ -279,10 +279,17 @@ class UtteranceVerifier:
         customer_act     what the customer's last turn meant (for flow)
         question         the customer's policy question, when this turn answers one (ASK_KB frame)
         presented        transactions already presented: re-asking one need not repeat its facts (pdf.3:
-                         do not ask the customer to repeat information without a reason)"""
+                         do not ask the customer to repeat information without a reason)
+        held             the oracle's acts held in the words (s06_bots/oracle_says.hold): each sentence is read
+                         under the oracle's act it belongs to, the acts are the ones the turn is graded as having
+                         said, and whether each act is in the words is the hold's verdict (no label of the agent's)"""
         labelled = [a for a in acts if a.get("act")]
         per_act = labelled and all("text" in a for a in labelled)
         segments = [(a, a.get("text") or "") for a in labelled] if per_act else [(None, text or "")]
+        if held is not None:
+            labelled = [a for a in held["acts"] if a.get("act")]
+            per_act = True
+            segments = [(lab, words) for lab, words in held["segments"]]
         report = TurnReport(turn, text or "", [a.get("act") for a in labelled], [])
         report.advisory = self.advisory
         presented = presented or set()
@@ -331,7 +338,14 @@ class UtteranceVerifier:
                             report.findings.append(Finding("disclosed", act, f"{v.claim.words!r}: {why}"))
             seg["claims"] = list(range(len(report.verdicts), len(report.verdicts) + len(mine)))
             report.verdicts += mine
-            if label is not None:
+            if label is not None and held is not None:     # the hold already decided whether the act is in the words
+                row = next((r for r in held["says"] if r["act"] == label.get("act")), None)
+                if row is not None:
+                    seg["faithfulness"].append({"check": f"the words express {row['act']} (the oracle's act)",
+                                                "ok": row["status"] == "held", "detail": row["detail"]})
+                report.findings += self._completeness(label["act"], label, read, facts, about, presented,
+                                                      seg["completeness"])
+            elif label is not None:
                 report.findings += self._faithfulness(label, read, seg["faithfulness"])
                 report.findings += self._completeness(label["act"], label, read, facts, about, presented,
                                                       seg["completeness"])
@@ -342,7 +356,9 @@ class UtteranceVerifier:
         flow: list[dict] = []
         report.findings += self._flow(names, pending_prompts or set(), customer_act, first=turn == 0, log=flow)
         from .speech_trace import readers
-        report.trace = {"split": "per_act" if per_act else "whole", "readers": readers(self.reader),
+        report.trace = {"split": "oracle" if held is not None else "per_act" if per_act else "whole",
+                        "readers": readers(self.reader),
+                        **({"says": {k: v for k, v in held.items() if k != "segments"}} if held is not None else {}),
                         "segments": segs, "flow": flow, "flow_acts": list(names),
                         "pending": sorted(pending_prompts or ()), "customer_act": customer_act}
         return report
@@ -682,22 +698,35 @@ class ConversationChecker:
         self.pending: set[str] = set()
         self.presented: set[str] = set()          # transactions whose facts were stated when presented
 
+    def hold(self, expected: list[dict] | None, text: str, tool_log: list[dict[str, Any]], customer_frames: list[Any],
+             question: Any = None, answer_act: str | None = None) -> dict[str, Any]:
+        """The oracle's acts for this turn held in the agent's words (s06_bots/oracle_says.hold)."""
+        from ..s06_bots.oracle_says import hold
+        facts = SessionFacts.from_run(tool_log, customer_frames, self.session_date, self.v.c.success_values)
+        return hold(self.v, expected, text, facts, question=question, store=self.v.store, answer_act=answer_act)
+
     def check(self, acts: list[dict[str, Any]], text: str, tool_log: list[dict[str, Any]],
-              customer_frames: list[Any]) -> TurnReport:
+              customer_frames: list[Any], held: dict | None = None) -> TurnReport:
         """Check one bot turn, then remember what it presented and asked.
 
         acts             the bot's act labels for the turn ([] for a text-only bot)
         text             what the customer hears
         tool_log         the backend's tool log so far (everything the bot did before speaking)
         customer_frames  the customer's frames so far (the last one is what this turn answers)
+        held             the oracle's acts held in the words (``hold``): the turn is read and graded by them
         """
         facts = SessionFacts.from_run(tool_log, customer_frames, self.session_date, self.v.c.success_values)
         last = customer_frames[-1] if customer_frames else None
         customer_act = getattr(last, "act", None)
         rep = self.v.check_turn(acts, text, facts, turn=len(self.reports), last_item=self.last_item,
                                 pending_prompts=self.pending, customer_act=customer_act,
-                                question=last if customer_act == N.act.ASK_KB else None, presented=self.presented)
-        self._mark_side(rep, acts)
+                                question=last if customer_act == N.act.ASK_KB else None, presented=self.presented,
+                                held=held)
+        if held is not None:
+            acts = list(held["acts"])
+            self._mark_side(rep, [{**lab, "text": words} for lab, words in held["segments"] if lab])
+        else:
+            self._mark_side(rep, acts)
         try:
             from .speech_trace import facts_snapshot
             rep.trace["facts"] = facts_snapshot(facts, list(customer_frames))

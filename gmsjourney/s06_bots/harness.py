@@ -146,6 +146,10 @@ class JourneyRunner:
     reader: Any
     bot_factory: Callable[[Any], Any]
     use_structured_acts: bool = True
+    # where a turn's acts come from: "oracle" (an agent gives tool calls and words only: the oracle's acts for the
+    # turn, each held in the words, s06_bots/oracle_says.py; the agent's own labels, if any, are kept but not graded)
+    # or "bot" (the agent's own act labels, as a structured agent gives them)
+    acts_from: str = "oracle"
     classifier: BotActClassifier = field(default_factory=BotActClassifier)
     governance: Any = None            # governance.monitor.GovernanceConfig -> runtime gates on every run
     arm_realizers: dict[str, Any] | None = None   # enrichment arm -> realizer (scenario.metadata['arm'])
@@ -184,7 +188,9 @@ class JourneyRunner:
         script = self._script(scn, oracle_path, oracle_states)   # scripted customer: the base journey's lines
         if script is not None and oracle_path is None:
             oracle_path = [(f, c) for f, c, _ in script]          # its lines are the proved, pinned wording
-        expected = self._expected(scn) if script is not None and not faults else None   # the graph's turn per line
+        exp_open, expected = self._expected_turns(scn) if script is not None and not faults else (None, None)
+        oracle = self.acts_from == "oracle" and self.graph is not None and self.speech is not None
+        answer_act = (self.graph.glob.get("question") or {}).get("answer") if self.graph is not None else None
         side = side_acts()
         if self.graph is None:
             merchants = {t["transaction_id"]: t["merchant"] for t in fx["transactions"]}
@@ -215,20 +221,42 @@ class JourneyRunner:
         turn: BotTurn = _clean(bot.start())
         bot_stats.append(_turn_stats(turn.text, t0))
         for i in range(MAX_USER_TURNS + 1):
-            acts = turn.acts if (self.use_structured_acts and turn.acts) else \
-                ([self.classifier.classify(turn.text, merchants)] if self.graph is None else [{"act": "UNKNOWN"}])
+            held = None
+            exp_turn = (exp_open if prev_line is None else expected[prev_line] if prev_line < len(expected)
+                        else {"acts": [], "steps": []}) if oracle and expected is not None else None
+            # the oracle's acts for this turn, each held in the agent's words; with no oracle turn (an adaptive
+            # customer, injected faults) the agent's own labels when it gives them, else what its words express
+            if oracle and (exp_turn is not None or not (self.use_structured_acts and turn.acts)):
+                held = speech.hold(exp_turn["acts"] if exp_turn is not None else None, turn.text, env.log,
+                                   tr.user_frames, question=last_kb, answer_act=answer_act)
+                acts = [dict(a) for a in held["acts"]] or [{"act": "UNKNOWN"}]
+            else:
+                acts = turn.acts if (self.use_structured_acts and turn.acts) else \
+                    ([self.classifier.classify(turn.text, merchants)] if self.graph is None else [{"act": "UNKNOWN"}])
             said = None
             if speech is not None:           # what the customer hears, checked before they answer
-                said = speech.check(turn.acts if self.use_structured_acts else [], turn.text, env.log, tr.user_frames)
+                said = speech.check(acts if held is not None else turn.acts if self.use_structured_acts else [],
+                                    turn.text, env.log, tr.user_frames, held=held)
             cb = getattr(turn, "calls_before", None)
-            at = [turn_base + min(max(0, int(c)), len(turn_tools)) for c in cb] \
-                if cb is not None and len(cb) == len(acts) and acts is turn.acts else [turn_base + len(turn_tools)] * len(acts)
-            tr.events.append({"role": "bot", "acts": acts, "text": turn.text, "at": at})
+            if held is not None and exp_turn is not None:   # an oracle act sits where the oracle says it
+                before = _calls_before(exp_turn)
+                at = [turn_base + min(before[k] if k is not None and k < len(before) else len(turn_tools), len(turn_tools))
+                      for k in held["from"]] + [turn_base + len(turn_tools)] * (len(acts) - len(held["from"]))
+            else:
+                at = [turn_base + min(max(0, int(c)), len(turn_tools)) for c in cb] \
+                    if cb is not None and len(cb) == len(acts) and acts is turn.acts else [turn_base + len(turn_tools)] * len(acts)
+            ev = {"role": "bot", "acts": acts, "text": turn.text, "at": at}
+            if held is not None:
+                ev["says"] = {k: v for k, v in held.items() if k != "segments"}
+                ev["bot_acts"] = [{k: v for k, v in a.items() if k != "text"} for a in (turn.acts or [])]
+            tr.events.append(ev)
             transcript.append({"role": "bot", "text": turn.text, "acts": [a.get("act") for a in acts]})
             if monitor is not None:
-                monitor.on_bot(turn.text, turn.acts if self.use_structured_acts else None)
+                monitor.on_bot(turn.text, acts if held is not None else turn.acts if self.use_structured_acts else None)
                 monitor.on_speech(said)      # the speech check's findings, sealed live into the audit
-            self._observe_acts(tr, acts, last_kb, turn.text)
+            kb_now = self._observe_acts(tr, acts, last_kb, turn.text)
+            if kb_now:
+                ev["kb"] = kb_now
             if prev_line is not None:               # how the bot answered the line just said
                 status = None
                 if expected is not None:
@@ -237,8 +265,10 @@ class JourneyRunner:
                         status = "differs"
                     else:
                         status = compare_turn(e["tools"], e["acts"], turn_tools, acts, side)["status"]
+                        re_asked = acts if held is None else \
+                            [{"act": h} for h in held["heard"] if h == script[prev_line][2]] or acts
                         if status == "differs" and prev_line not in repeated \
-                                and asked_again(turn_tools, acts, script[prev_line][2]):
+                                and asked_again(turn_tools, re_asked, script[prev_line][2]):
                             status = "asked_again"
                 statuses.append({"turn": i - 1, "line": prev_line, "status": status, "repeat": prev_repeat})
                 if status is not None:
@@ -355,23 +385,30 @@ class JourneyRunner:
 
     def _expected(self, scn: Scenario) -> list[dict] | None:
         """The graph's own turn for each base-journey line (tool calls and acts), or None without a validator."""
+        return self._expected_turns(scn)[1]
+
+    def _expected_turns(self, scn: Scenario) -> tuple[dict | None, list[dict] | None]:
+        """The graph's own opening and its turn for each base-journey line, or (None, None) without a validator."""
         oracle = getattr(self.paths, "oracle", None)
         if oracle is None:
-            return None
-        cache = self.__dict__.setdefault("_exp_cache", {})
+            return None, None
+        cache = self.__dict__.setdefault("_exp_cache2", {})
         item = scn.base
         if item.qid not in cache:
             tr = oracle.run(item.metadata["spec"], item.metadata["fixture"])
-            cache[item.qid] = split_turns(tr.events)[1]
+            cache[item.qid] = split_turns(tr.events)
         return cache[item.qid]
 
-    def _observe_acts(self, tr: Trace, acts: list[dict], last_kb, text: str) -> None:
+    def _observe_acts(self, tr: Trace, acts: list[dict], last_kb, text: str) -> list[dict]:
+        """Note what the acts did; returns the policy answers judged in this turn (each against the policy)."""
         if self.graph is not None:                   # outcomes and claims are read at the end (trace.finish)
+            out = []
             for a in acts:
                 if a.get("act") == N.state.ANSWER_KB and last_kb is not None:
                     ans = a.get("text", text)
-                    tr.kb.append({"frame": str(last_kb), "answer": ans, **judge_kb_answer(self.store, last_kb, ans)})
-            return
+                    out.append({"frame": str(last_kb), "answer": ans, **judge_kb_answer(self.store, last_kb, ans)})
+            tr.kb += out
+            return out
         for a in acts:
             k = a.get("act")
             if k == N.state.PRESENT_TXN and a.get("txn") and (not tr.presented or tr.presented[-1] != a["txn"]) \
@@ -390,6 +427,18 @@ class JourneyRunner:
                 ans = a.get("text", text)
                 verdict = judge_kb_answer(self.store, last_kb, ans)
                 tr.kb.append({"frame": str(last_kb), "answer": ans, **verdict})
+        return []
+
+
+def _calls_before(turn: dict) -> list[int]:
+    """For each act of an oracle turn, how many of the turn's tool calls come before it (its ``steps``)."""
+    out, n = [], 0
+    for kind, _ in turn.get("steps") or []:
+        if kind == "call":
+            n += 1
+        else:
+            out.append(n)
+    return out
 
 
 def _turn_stats(text: str, t0: float) -> dict[str, Any]:

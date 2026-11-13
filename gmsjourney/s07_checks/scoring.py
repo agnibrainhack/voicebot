@@ -483,6 +483,7 @@ def score(scn: Scenario, res, limits: Limits, workflow, budget=None) -> dict[str
         row["turns_judged"] = len(ts)
     stopped = res.extras.get("stopped")
     row["stopped_at_line"] = stopped["line"] if stopped else None
+    row["stopped_at_turn"] = stopped["turn"] if stopped else None
     row["stop_rule"] = res.extras.get("stop_rule")
     if ts:                                           # the journey played to its end (no stop): part of `correct`
         row["c_journey"] = int(stopped is None)

@@ -654,3 +654,41 @@ bot:
     END: "Thank you for calling. Goodbye."
     TRANSFER: "Let me transfer you to a representative who can help."
     ASK_CLARIFY: "Sorry, I didn't catch that."
+  # The words that mark each act in ANY agent's words (s07_checks/speech_reading.bot_cues), so an agent that gives
+  # only tool calls and words is graded against the oracle's acts: each act the graph expects at a turn must be
+  # heard in the words (a cue below, or every field it must say), with no value contradicted. Lower case, matched
+  # as text ("last four" is also read as "last 4"). Written from the policy's steps, not from one bot's wording;
+  # an act with no cue and nothing it must say (OPENING is heard by the opening statement) cannot be confirmed.
+  cues:
+    ASK_AUTH: [last four, digits of your card, digits on your card, card number, verify your identity,
+               confirm your identity, verify it's you, verify that it's you]
+    ASK_AUTH_RETRY: [didn't match, did not match, doesn't match, does not match, not a match, try again,
+                     one more time]
+    PRESENT_TXN: [do you recognize, do you recognise, recognize this charge, recognize the charge, recognize it,
+                  is this charge yours, is this yours, did you make this, did you make that]
+    PROVIDE_CONTEXT: [more details, more detail, more information, more about, here's more, here is more,
+                      here are more, a bit more about, days ago, posted on]
+    CONFIRM_RECORDED: [i've noted, i have noted, i've recorded, i have recorded, noted that, noted it]
+    DISCLOSE_FEE: [a fee of, fee of, the fee is, there is a fee, there's a fee, it costs, costs $, extra charge]
+    CONFIRM_ACTION: [shall i, should i, go ahead, would you like me to, do you want me to, can i proceed,
+                     to confirm, ok to proceed, okay to proceed]
+    ACTION_DONE: [all done, it's done, that's done, is done, has been, have been, i've replaced, i have replaced,
+                  i've secured, i have secured, i've ordered, i have ordered, we will, will be sent, on its way,
+                  on the way]
+    ACK_DECLINED: [won't make, will not make, no change, no changes, won't change, will not change, leave your card,
+                   leave the card, not make any change]
+    INFORM_NO_CARD_ACTION: [isn't available, is not available, not available, unavailable, can't make that change,
+                            cannot make that change, unable to make, not able to make]
+    EXPLAIN_LIMIT: [limited number, only review, can only review, limit of, maximum of]
+    EXPLAIN_NO_TXNS: [don't see any, do not see any, no recent charges, no charges, nothing to review,
+                      no transactions, no recent transactions]
+    SUMMARIZE: [to summarize, in summary, to recap, summary, recap, summing up]
+    ASK_MORE_HELP: [anything else, something else, else i can help, other questions, any other question,
+                    help with anything]
+    END: [goodbye, good bye, bye, thank you for calling, thanks for calling, have a great day, have a good day,
+          have a nice day]
+    TRANSFER: [transfer you, transferring you, i'll transfer, i will transfer, connect you, connecting you,
+               a representative, a specialist, an agent who, a person who]
+    ASK_CLARIFY: [didn't catch, did not catch, say that again, repeat that, could you repeat, can you repeat,
+                  didn't understand, did not understand, didn't get that, did not get that, come again, rephrase,
+                  sorry, what]
