@@ -131,6 +131,10 @@ def test_the_case_page_shows_the_oracles_says_and_every_claim_card():
                  "✗ other value", "✓ held", "Claim cards", "says RECOGNIZED, the truth is UNRECOGNIZED",
                  "what the customer said", "successful write"):
         assert want in page, want
+    for want in ("How this turn was validated (pseudocode with its values)", "meaning_card    = INFORM_DISPOSITION(disposition=UNRECOGNIZED)",
+                 "tools_match = (agent.calls == oracle.calls)", "result = CONTRADICTED", "kind = incorrect action",
+                 "How the verdict was computed", "correct = outcome_match AND journey_played"):
+        assert want in page.replace("&quot;", '"').replace("&#x27;", "'"), want
     agent = page.split("Actual (agent): its calls and its words")[2]
     assert '<span class="sk">says</span>' not in agent.split("Expected (oracle)")[0]   # no SAYS of the agent's own
 

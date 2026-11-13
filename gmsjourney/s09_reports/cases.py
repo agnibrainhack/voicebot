@@ -434,8 +434,10 @@ def says_record(says: list[dict], merchants: dict | None = None) -> dict[str, An
     rows, extra, oracle, sents = [], [], False, []
     for h in says or []:
         oracle = oracle or bool(h.get("oracle"))
+        named = (lambda x: re.sub(r"\b(" + "|".join(map(re.escape, sorted(merchants, key=len, reverse=True))) + r")\b",
+                                  lambda m: _label(m.group(1), merchants), x)) if merchants else (lambda x: x)
         rows += [{"act": describe_act(r.get("label") or {"act": r.get("act")}, merchants), "status": r.get("status"),
-                  "how": r.get("how"), "detail": r.get("detail")} for r in h.get("says") or []]
+                  "how": r.get("how"), "detail": named(r.get("detail") or "")} for r in h.get("says") or []]
         extra += [{"act": x.get("act"), "how": x.get("how"), "closing": bool(x.get("closing")),
                    "sentence": (h.get("sentences") or [{}] * (x.get("sentence", 0) + 1))[x.get("sentence", 0)].get("text")}
                   for x in h.get("extra") or []]
@@ -447,14 +449,29 @@ def says_record(says: list[dict], merchants: dict | None = None) -> dict[str, An
 def claims_record(reports: list[dict], merchants: dict | None = None) -> dict[str, Any]:
     """Every claim card read from an agent reply and its check, and the reply's findings (speech check). A charge is
     named by merchant and amount (``merchants``: id -> (merchant, amount))."""
-    claims, finds, ok, core = [], [], True, True
+    claims, finds, ok, core, locals_ = [], [], True, True, {}
     name = lambda v: _label(v, merchants) if merchants and str(v) in merchants else v          # noqa: E731
     for rep in reports or []:
         ok, core = ok and bool(rep.get("ok", True)), core and bool(rep.get("core_ok", rep.get("ok", True)))
         adv = set(rep.get("advisory") or ["unread"])
         for c in rep.get("claims") or []:
             d = {k: c.get(k) for k in ("field", "value", "words", "about", "mode", "status", "truth", "basis",
-                                       "source", "why", "side")}
+                                       "source", "why", "side", "sentence")}
+            steps = c.get("steps") or []                 # the rule that decided where the truth is
+            hit = next((x for x in steps if x.get("hit")), None)
+            if hit:
+                det = hit.get("detail") or ""
+                if merchants:
+                    det = re.sub(r"\b(" + "|".join(map(re.escape, sorted(merchants, key=len, reverse=True))) + r")\b",
+                                 lambda m: _label(m.group(1), merchants), det)
+                d["rule"] = {"rule": hit.get("rule"), "detail": det,
+                             "tried": [x.get("rule") for x in steps if not x.get("hit")]}
+            if c.get("compare"):
+                d["compare"] = dict(c["compare"])
+                if d["field"] == "item":
+                    d["compare"]["said"] = name(d["compare"].get("said"))
+                    tr = d["compare"].get("truth")
+                    d["compare"]["truth"] = [name(x) for x in tr] if isinstance(tr, list) else name(tr)
             d["about"] = name(d["about"])
             if d["field"] == "item":
                 d["value"], d["truth"] = name(d["value"]), name(d["truth"])
@@ -465,7 +482,14 @@ def claims_record(reports: list[dict], merchants: dict | None = None) -> dict[st
             claims.append(d)
         finds += [{"kind": f.get("kind"), "act": f.get("act"), "detail": f.get("detail"), "side": f.get("side", False),
                    "advisory": f.get("kind") in adv} for f in rep.get("findings") or []]
-    return {"checked": bool(reports), "ok": ok, "core_ok": core, "claims": claims, "findings": finds}
+        fx = (rep.get("trace") or {}).get("facts") or {}
+        if fx and "facts" not in locals_:                # what the check knew when the agent spoke
+            locals_["facts"] = {"caller": fx.get("caller") or {},
+                                "cards": [c.get("card") for c in fx.get("customer") or []][-1:],
+                                "writes": [f"{w.get('tool')}({', '.join(f'{k}={name(v)}' for k, v in (w.get('args') or {}).items())})"
+                                           for w in fx.get("writes") or []]}
+    return {"checked": bool(reports), "ok": ok, "core_ok": core, "claims": claims, "findings": finds,
+            **({"facts": locals_["facts"]} if "facts" in locals_ else {})}
 
 
 # ----------------------------------------------------------------------------- one scenario
@@ -807,6 +831,10 @@ li.tool .sk{color:var(--accent)}
 .said p{margin:0;font-size:1.02rem;line-height:1.55;color:var(--ink);font-weight:500}
 .said .sact.x{color:var(--accent);border-color:var(--accent)}
 .said .sact{display:inline-block;margin:0 .15rem 0 .35rem;padding:0 .3rem;border-radius:4px;font-family:var(--mono);font-size:.62rem;font-weight:500;vertical-align:.12em;color:var(--muted);background:var(--code-bg);border:1px solid var(--line-soft)}
+details.pseudo-d{margin-top:.5rem;border:1px dashed var(--line);border-radius:8px;padding:.35rem .6rem;background:var(--surface)}
+details.pseudo-d summary{cursor:pointer;font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--accent)}
+pre.pseudo{margin:.5rem 0 .2rem;font-family:var(--mono);font-size:.76rem;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink)}
+pre.pseudo .pc{color:var(--muted)}
 .sub-h{display:block;margin:.55rem 0 .2rem;font-family:var(--mono);font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
 ul.held{list-style:none;margin:.1rem 0 0;padding:0}ul.held li{display:grid;grid-template-columns:7.2rem minmax(0,1fr);gap:.4rem;margin:.2rem 0}
 ul.held .st{font-family:var(--mono);font-size:.7rem;font-weight:500}
@@ -860,6 +888,11 @@ is stated) and give no other value; <span class="st no">✗ other value</span>: 
 <span class="st na">– not checkable</span>: the act has no cue word and nothing it must say, so it is taken as said when
 the calls match. Words that express an act the oracle does not take here are shown as
 <span class="st wrong">+ not expected</span>.</li>
+<li><b>Pseudocode with the values</b>: under every turn, and under each case's verdict table, <i>How this turn was
+validated</i> spells the algorithm out step by step with that turn's own inputs filled in: the customer's words and
+meaning card, what the check knew, the oracle's calls and SAYS, the agent's calls and words, each act checked, each
+sentence, every claim card with the rule that found its truth and the comparison made, the reply's verdict, the turn's
+kind and the stop rule.</li>
 <li><b>Claim cards</b>: every value, figure or limit the words state is read into a claim and checked against its
 truth: what the customer said (the customer's meaning card), a tool's result or a confirmed write, or the policy store.
 Each is <span class="pill supported">supported</span>, <span class="pill contradicted">contradicted</span>,
@@ -1031,6 +1064,187 @@ def _said_html(words: str, sentences: Any = None) -> str:
     return f'<div class="said"><span class="said-h">The agent said</span><p>“{body.strip()}”</p></div>'
 
 
+# ----------------------------------------------------------------------------- the algorithm, with this turn's values
+MATERIAL = {"wrong_action", "differs", "asked_again"}
+
+
+class _Pseudo:
+    """Pseudocode lines with this turn's values in them: ``line(code, comment)``, rendered as a <pre>."""
+
+    def __init__(self):
+        self.rows: list[tuple[str, str]] = []
+
+    def line(self, code: str = "", comment: str = "") -> None:
+        self.rows.append((code, comment))
+
+    def html(self) -> str:
+        out = []
+        for code, comment in self.rows:
+            c = E(code)
+            if comment:
+                pad = max(1, 58 - len(code)) if len(code) < 58 else 2
+                c += " " * pad + f'<span class="pc">{E("# " + comment)}</span>'
+            out.append(c)
+        return "<pre class='pseudo'>" + "\n".join(out) + "</pre>"
+
+
+def _short(v: Any, n: int = 90) -> str:
+    t = _fmt(v) if not isinstance(v, str) else v
+    return t if len(t) <= n else t[:n - 1] + "…"
+
+
+def _pseudo_turn(t: dict, title: str, streak: int, opening: bool = False) -> str:
+    """How one turn was validated, as pseudocode with the turn's own values (for a reader who wants every step)."""
+    says, cr = _j(t.get("actual_says")) or {}, _j(t.get("actual_claims")) or {}
+    says = says if isinstance(says, dict) else {}
+    cr = cr if isinstance(cr, dict) else {}
+    exp = _j(t.get("expected_steps")) or []
+    act = _j(t.get("actual_steps")) or []
+    status = t.get("turn_status") or ""
+    P = _Pseudo()
+    P.line(f"# ── {title} " + "─" * max(4, 60 - len(title)))
+    if not opening:
+        card = _j(t.get("customer_card")) or {}
+        card_s = f"{card.get('act')}(" + ", ".join(f"{k}={v}" for k, v in (card.get("slots") or {}).items()) + ")" \
+            if isinstance(card, dict) and card.get("act") else str(card or "-")
+        P.line(f'customer.words  = "{_short(t.get("customer_text"), 80)}"')
+        P.line(f"meaning_card    = {card_s}", "what the customer meant: read from the words, proved equal to the plan")
+    fx = cr.get("facts") or {}
+    if fx:
+        P.line("facts.caller    = {" + ", ".join(f"{k}: {v}" for k, v in (fx.get("caller") or {}).items()) + "}",
+               "every slot the customer has given so far (later answers win)")
+        P.line(f"facts.writes    = [{', '.join(fx.get('writes') or []) or ''}]", "writes the bank confirmed (SUCCESS, echoed)")
+    P.line(f"oracle.calls    = [{'; '.join(x['d'] for x in exp if x.get('k') == 'calls')}]")
+    P.line(f"oracle.says     = [{'; '.join(x['d'] for x in exp if x.get('k') == 'says')}]",
+           "the acts the policy graph takes here, with their values")
+    P.line(f"agent.calls     = [{'; '.join(x['d'] for x in act if x.get('k') == 'calls')}]", "observed on the test bank")
+    P.line(f'agent.words     = "{_short(t.get("actual_bot_text"), 100)}"', "what the customer heard")
+    if status == "not_played":
+        P.line()
+        P.line("# Validation Stopped before this line: nothing to check")
+        return f'<details class="pseudo-d"><summary>How this turn was validated (pseudocode with its values)</summary>{P.html()}</details>'
+    P.line()
+    if not opening:
+        P.line("# STEP 1  the tool calls: the same tools with the same key arguments, in order")
+        P.line(f"tools_match = (agent.calls == oracle.calls)", f"-> {_b(t.get('tools_match'))}")
+        P.line()
+    P.line(f"# STEP {1 if opening else 2}  each act the oracle says must be held by the agent's words")
+    P.line("for act in oracle.says:")
+    P.line("    heard  = a cue word of the act is in the words  OR  every field it must say is read as a claim")
+    P.line("    agrees = every value the words give for its fields == the oracle's value")
+    word = {"held": "held", "contradicted": "other value", "not_heard": "not in the words", "not_checkable": "not checkable"}
+    for r in says.get("says") or []:
+        why = r.get("how") if r.get("status") == "held" else r.get("detail")
+        P.line(f"    {r.get('act')}  -> {word.get(r.get('status'), r.get('status'))}", _short(why or "", 110))
+    for x in says.get("extra") or []:
+        if x.get("closing"):
+            P.line(f'    closing words "{_short(x.get("sentence") or "", 40)}"  -> not graded', "the agent went on: a wording point")
+        else:
+            P.line(f"    + {x.get('act')}  -> said, not expected", f"by {x.get('how')}")
+    if not opening:
+        P.line("acts_match = the same decisions in order (act, charge, reason) as the oracle",
+               f"-> {_b(t.get('acts_match'))}")
+        P.line("             # an act's values (a disposition, a summary's record) are checked on the tool call (STEP 1)")
+        P.line("             # and in the claim cards (STEP 4); CONFIRM_RECORDED is an acknowledgement, not a decision")
+    P.line()
+    n = 2 if opening else 3
+    sents = says.get("sentences") or []
+    if sents:
+        P.line(f"# STEP {n}  cut the words into sentences; each is read under the oracle's act it expresses")
+        for k, x in enumerate(sents, 1):
+            P.line(f'sentence[{k}] "{_short(x.get("text"), 70)}"', f"-> {x.get('act') or 'no act'}")
+        P.line()
+        n += 1
+    P.line(f"# STEP {n}  read every claim card from the words, find its truth, compare")
+    P.line("for claim in read(sentence):          # a value, figure, limit or charge the words state")
+    P.line("    rule  = first rule that applies: opening · charge · limit · policy figure · summary of writes ·")
+    P.line("            said to be done · tool result · choice offered · what the customer said")
+    P.line("    truth = where that rule says the truth lives;  result = compare(claim.value, truth)")
+    claims = cr.get("claims") or []
+    if not claims:
+        P.line("(no claim: the words state no value, figure, limit or charge)")
+    for k, c in enumerate(claims, 1):
+        P.line(f'claim[{k}] {c.get("field")} = {_short(c.get("value"), 40)}   words "{_short(c.get("words"), 40)}"'
+               + (f"   mode {c.get('mode')}" if c.get("mode") and c.get("mode") != "states" else ""))
+        rule = c.get("rule") or {}
+        if rule:
+            P.line(f"    rule  = {rule.get('rule')}", _short(rule.get("detail") or "", 110))
+        P.line(f"    truth = {_short(c.get('truth'), 60)}", _short(c.get("source") or c.get("basis") or "", 80))
+        cmp = c.get("compare") or {}
+        if cmp:
+            P.line(f"    {_short(cmp.get('said'), 30)}  {cmp.get('op')}  {_short(cmp.get('truth'), 40)}",
+                   f"-> {str(bool(cmp.get('result'))).lower()}")
+        P.line(f"    result = {str(c.get('status')).upper()}" + ("  (side step)" if c.get("side") else ""),
+               _short(c.get("why") or "", 100))
+    P.line()
+    n += 1
+    finds = [f for f in cr.get("findings") or [] if f.get("kind") != "unread"]
+    failed = [k for k, c in enumerate(claims, 1) if c.get("status") in ("contradicted", "unsupported")]
+    blocking = [f for f in finds if not f.get("advisory") and f.get("kind") != "not_allowed_here"]
+    P.line(f"# STEP {n}  this reply's speech verdict")
+    P.line(f"failed_claims     = {['claim ' + str(k) for k in failed]}", "contradicted or unsupported")
+    P.line(f"blocking_findings = {[f.get('kind') for f in blocking]}", "missing wording, a disclosure ...")
+    for f in finds:
+        P.line(f"    {f.get('kind')}: {_short(f.get('detail'), 90)}", "advisory" if f.get("advisory") else "")
+    P.line("reply_ok = no failed claim AND no blocking finding", f"-> {bool(cr.get('ok', True))}")
+    P.line("core_ok  = the same, leaving out side steps (policy answer, clarification)", f"-> {bool(cr.get('core_ok', True))}")
+    kb = _j(t.get("kb_answers")) or []
+    for j in kb if isinstance(kb, list) else []:
+        P.line(f"policy_answer_correct = figure == the policy store's", f"-> {bool(j.get('correct'))}  ({_short(j.get('detail'), 60)})")
+    if opening:
+        return f'<details class="pseudo-d"><summary>How this turn was validated (pseudocode with its values)</summary>{P.html()}</details>'
+    P.line()
+    n += 1
+    kind = TURN_STATUS.get(status, (status,))[0]
+    P.line(f"# STEP {n}  the turn's kind")
+    P.line("if tools_match and acts_match:                 kind = same as expected")
+    P.line("elif tools_match and only side acts differ:    kind = non-material deviation (side step)")
+    P.line("elif same tools and same steps, one done wrong: kind = incorrect action        # material")
+    P.line("else:                                          kind = off the journey          # material")
+    P.line(f"kind = {kind}")
+    P.line()
+    n += 1
+    P.line(f"# STEP {n}  the stop rule")
+    P.line(f"material_in_a_row = {streak}", "two in a row, or one that ends the call -> Validation Stopped")
+    P.line("-> Validation Stopped" if streak >= 2 else "-> go on to the next customer line")
+    return f'<details class="pseudo-d"><summary>How this turn was validated (pseudocode with its values)</summary>{P.html()}</details>'
+
+
+def _pseudo_case(row: dict, summ: dict) -> str:
+    """How the case's verdict was computed, as pseudocode with its values."""
+    sig = row.get("signature") or row.get("why") or {}
+    exp, act = (sig.get("expected") or {}), (sig.get("actual") or {})
+    items = _j(summ.get("items")) if summ else None
+    items = items if isinstance(items, dict) else {}
+
+    def val(v: Any) -> str:
+        if isinstance(v, list) and v and all(isinstance(x, (list, tuple)) and len(x) == 2 and isinstance(x[1], dict) for x in v):
+            return "; ".join(f"{t}(" + ", ".join(f"{k}={_label(x, items) if str(x) in items else x}"
+                                                   for k, x in sorted(a.items())) + ")" for t, a in v)
+        return _short(v, 90)
+    P = _Pseudo()
+    P.line("# ── the case verdict ──────────────────────────────────────────")
+    for k in ("end", "transfer_reason", "recorded", "action", "writes"):
+        if k in exp or k in act:
+            P.line(f"expected.{k:<16}= {val(exp.get(k))}")
+            P.line(f"actual.{k:<18}= {val(act.get(k))}", "match" if exp.get(k) == act.get(k) else "DIFFERS")
+    oc = row.get("outcome_correct")
+    P.line("outcome_match  = every field above matches", f"-> {bool(oc) if oc is not None else '-'}")
+    if "c_journey" in row:
+        P.line("journey_played = not Validation Stopped", f"-> {bool(int(row.get('c_journey') or 0))}")
+    gate = row.get("speech_gate")
+    if "c_speech" in row:
+        P.line("speech_ok      = every reply core_ok (every claim grounded)", f"-> {bool(int(row.get('c_speech') or 0))}")
+    if row.get("kb_case") in (1, "1", True):
+        P.line("policy_answer  = the answer's figure is the policy store's", f"-> {bool(int(row.get('kb_correct') or 0))}")
+    terms = ["outcome_match"] + (["journey_played"] if "c_journey" in row else []) \
+        + (["speech_ok"] if gate in ("fail", "strict") else []) + (["flow_ok"] if gate == "strict" else []) \
+        + (["policy_answer"] if row.get("kb_case") in (1, "1", True) else [])
+    P.line(f"correct = {' AND '.join(terms)}", f"speech gate: {gate or 'report'}")
+    P.line(f"        -> {bool(int(row.get('correct') or 0))}")
+    return f'<details class="pseudo-d"><summary>How the verdict was computed (pseudocode with its values)</summary>{P.html()}</details>'
+
+
 def _speech_rows(row: dict) -> list[str]:
     """The speech check's verdict on the bot's words (s07_checks/speech_*.py), as table rows: one for the words,
     one for the flow (part of the verdict only under --speech-gate strict)."""
@@ -1178,7 +1392,7 @@ def _case(row: dict, summ: dict, turns: list[dict], judges: dict | None = None) 
                + "".join(f"<li>{_simple_stop(r, row)}</li>" for r in failure_reasons(row)) + "</ul>"
                + (f"<div class='small'>failure codes: {E(', '.join(row.get('failure_codes') or []))}</div>"
                   if row.get("failure_codes") else "") + "</div>")
-    verdict = _verdict_table(row, summ)
+    verdict = _verdict_table(row, summ) + (_pseudo_case(row, summ) if row else "")
     opening = ""
     if summ and (summ.get("expected_opening") or summ.get("actual_opening")):
         same = summ.get("expected_opening") == summ.get("actual_opening")
@@ -1191,13 +1405,23 @@ def _case(row: dict, summ: dict, turns: list[dict], judges: dict | None = None) 
                    + _col_agent("", summ.get("actual_opening", ""), summ.get("actual_opening_text", ""),
                                 summ.get("actual_opening_steps"), summ.get("actual_opening_says"),
                                 summ.get("actual_opening_claims"))
-                   + "</div></div>")
+                   + "</div>"
+                   + (_pseudo_turn({"expected_steps": summ.get("expected_opening_steps"),
+                                    "actual_steps": summ.get("actual_opening_steps"),
+                                    "actual_bot_text": summ.get("actual_opening_text"),
+                                    "actual_says": summ.get("actual_opening_says"),
+                                    "actual_claims": summ.get("actual_opening_claims")},
+                                   "Opening statement: the agent speaks first", 0, opening=True)
+                      if summ.get("actual_opening_says") else "")
+                   + "</div>")
     stop = _j(summ.get("stopped_detail")) if summ else None
     stop = stop if isinstance(stop, dict) else None
     anchor = lambda n: f"{sid}--turn-{n}"                                                # noqa: E731
     tb = []
+    streak = 0
     for t in turns:
         status = t.get("turn_status") or ("same" if _b(t.get("turn_match")) else "differs")
+        streak = streak + 1 if status in MATERIAL else 0 if status not in ("not_played",) else streak
         word, cls, box = TURN_STATUS.get(status, TURN_STATUS["differs"])
         after = _b(t.get("after_divergence"))
         try:
@@ -1221,7 +1445,10 @@ def _case(row: dict, summ: dict, turns: list[dict], judges: dict | None = None) 
                      if status != "not_played" else
                      '<div class="col act"><span class="who">Actual (agent)</span><p class="small">Validation Stopped: '
                      'not played.</p></div>')
-                  + "</div>" + kbw + "</div>")
+                  + "</div>" + kbw
+                  + (_pseudo_turn(t, f"Turn {t.get('turn')}: the customer answers {t.get('state') or 'the opening'}", streak)
+                     if _j(t.get("actual_says")) or status == "not_played" else "")
+                  + "</div>")
         if stop is not None and tn == int(stop.get("turn", -1)):
             tb.append('<div class="stopbar">Validation Stopped</div>')
     if stop is not None:

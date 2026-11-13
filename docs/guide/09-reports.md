@@ -114,6 +114,14 @@ order) beside the **agent's turn** (right), which shows only what can be observe
   contradicted, unsupported, unverifiable; side step marked) and why; then the reply's findings (missing, flow,
   advisory) and its verdict (grounded, fails only in a side step, not grounded).
 
+Under every turn, and under each case's verdict table, a **pseudocode** section (*How this turn was validated*,
+*How the verdict was computed*; `_pseudo_turn`, `_pseudo_case`) writes the algorithm out step by step with that turn's
+own values filled in: the customer's words and meaning card, what the check knew (`facts.caller`, the confirmed
+writes), the oracle's calls and SAYS, the agent's calls and words; then STEP 1 the tool calls, STEP 2 each oracle act
+checked in the words, STEP 3 the sentences and the act each was read under, STEP 4 every claim card with the rule that
+found its truth, the truth and the comparison made, STEP 5 the reply's verdict, STEP 6 the turn's kind and STEP 7 the
+stop rule; and for the case, each outcome field expected and actual and the `correct` formula with its terms' values.
+
 Every turn is one of four kinds, each in its own colour (a legend heads the page): *same as expected*; *non-material
 deviation (side step)* (amber, the run went on; also when the policy answer is wrong or missing); *incorrect action*
 (purple: the right steps, one done wrongly); *off the journey* (red: a different step, or the same question asked
