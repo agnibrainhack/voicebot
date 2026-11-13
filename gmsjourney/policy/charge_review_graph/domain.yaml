@@ -629,6 +629,9 @@ lexicon:
 bot:
   # a charge is said by its details, as get_review_transactions returned them (never by its internal id)
   item: "the {merchant} charge for ${amount}"
+  # other words for a limit's unit, so "up to 4 charges" is read as the transactions limit
+  unit_words:
+    transactions: [charges, charge, purchases]
   values:
     RECOGNIZED: recognized
     UNRECOGNIZED: unrecognized

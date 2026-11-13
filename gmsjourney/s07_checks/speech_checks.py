@@ -108,6 +108,10 @@ class ClaimVerdict:
         src = self.source or ""
         if src == "the customer's policy question":
             return "what the customer asked"
+        if src == "what the customer said":
+            return "what the customer said"
+        if src.endswith(" result options") or " result " in src:
+            return "tool result"
         if src.startswith("the returned charge"):
             return "tool result"
         if src.startswith("successful "):              # where the check read it (the generic checks name it)
@@ -907,10 +911,13 @@ class PackModel:
         slot_sets = {sp["set"] for a in (g.data.get("acts") or {}) for sp in g.slot_specs(a).values()
                      if sp["set"] in g.values}
         self.returned = {}                                             # value set -> (tool, field)
+        self.offered = {}                                              # value set -> (tool, field): the options a tool lists
         for t, sp in g.tools.items():
             for f, vs in (sp.get("returns") or {}).items():
                 if isinstance(vs, str) and vs in g.values:
                     self.returned[vs] = (t, f)
+                elif isinstance(vs, dict) and vs.get("subset_of") in g.values:
+                    self.offered[vs["subset_of"]] = (t, f)
         self.value_sets = [vs for vs in g.values if vs in slot_sets or vs in self.returned]
         self.slot_of_set = {}
         for a in (g.data.get("acts") or {}):
@@ -932,6 +939,45 @@ class PackModel:
                 self.phrases[m] = sorted({w.lower() for w in ws if w and "{" not in w}, key=len, reverse=True)
 
 
+LIMIT_CUE = re.compile(r"\b(limit|limited|up to|at most|maximum|max|no more than|only|cap|allowed|allows?|within|"
+                       r"covers?|look ?back|per session|per call|in one call|minimum|min|at least|must be|or older|"
+                       r"requires?|required|need to be|needs to be)\b")
+
+
+def _unit_words() -> dict[str, list[str]]:
+    """The pack's other words for a limit's unit (domain.yaml ``bot.unit_words``: transactions -> [charges])."""
+    from ..s01_packs.loading import current
+    try:
+        return {k: list(v or []) for k, v in ((current().section("bot") or {}).get("unit_words") or {}).items()}
+    except Exception:                                          # noqa: BLE001 - a pack without a bot section
+        return {}
+
+
+def _item_regex() -> re.Pattern | None:
+    """The pack's wording of a returned item (``bot.item``: "the {merchant} charge for ${amount}") as a pattern, so a
+    charge the words name that no tool returned is read too (a made-up charge)."""
+    from ..s01_packs.loading import current
+    try:
+        tpl = (current().section("bot") or {}).get("item")
+    except Exception:                                          # noqa: BLE001
+        return None
+    if not tpl or "{merchant}" not in tpl:
+        return None
+    parts = re.split(r"(\{\w+\})", str(tpl).lower())
+    rx = ""
+    for p in parts:
+        if p == "{merchant}":
+            rx += r"(?P<merchant>[a-z0-9][\w&'.-]*(?: [a-z0-9][\w&'.-]*){0,2}?)"
+        elif p.startswith("{"):
+            rx += r"[\w.,$-]+"
+        else:
+            rx += re.escape(p)
+    try:
+        return re.compile(rx)
+    except re.error:
+        return None
+
+
 class GenericReader(UtteranceReader):
     """Reads a compiled pack's bot turns into claims on its value sets, figures and limits."""
 
@@ -940,11 +986,14 @@ class GenericReader(UtteranceReader):
         self.m = model
         self._value_phrases = {vs: sorted({(p, v) for v in model.g.members(vs) for p in model.phrases.get(v, [])},
                                           key=lambda x: -len(x[0])) for vs in model.value_sets}
+        self._item_re = _item_regex()
         self._limit_res = {}
+        words = _unit_words()
         for k, unit in model.units.items():
             if unit:
-                stem = re.escape(unit.rstrip("s")).replace("_", "[ _]")   # "calendar_days": "30 calendar days"
-                self._limit_res[k] = [re.compile(rf"\b(\d+)\s+(?:\w+\s+)?{stem}s?\b")]
+                stems = [re.escape(w.rstrip("s")).replace("_", "[ _]") for w in [unit, *words.get(unit, [])]]
+                alt = "|".join(dict.fromkeys(stems))        # "calendar_days": "30 calendar days"; "transactions": "charges"
+                self._limit_res[k] = [re.compile(rf"\b(\d+)\s+(?:\w+\s+)?(?:{alt})s?\b")]
 
     def read(self, text: str, facts, about_item: str | None = None, question: Any = None) -> ReadUtterance:
         out = ReadUtterance(text=text or "", sentences=_sentences(text or ""))
@@ -961,7 +1010,8 @@ class GenericReader(UtteranceReader):
     def _sentence(self, sent: str, facts, question: Any = None, seen: set | None = None) -> list[Claim]:
         low = words_to_digits(sent).lower()
         asks = bool(_r.QUESTION_OR_CONDITION.search(sent.strip()))
-        mode = "offered" if asks or _r.OFFER.search(low) else "done" if _r.COMPLETION.search(low) else "states"
+        mode = "offered" if asks or _r.OFFER.search(low) else "done" if _r.COMPLETION.search(low) \
+            else "recorded" if _r.RECORDING_VERBS.search(low) else "states"
         claims: list[Claim] = []
         # the charges the tools returned, named by their merchant (or their id): "the Amazon charge for $45.67"
         items = []
@@ -970,7 +1020,10 @@ class GenericReader(UtteranceReader):
                 if name:
                     items += [(m.start(), m.end(), tid, m.group(0)) for m in
                               re.finditer(r"(?<![\w$])" + re.escape(name) + r"(?![\w])", low)]
-        items.sort()
+        for mt in self._item_re.finditer(low) if self._item_re is not None else ():
+            if not any(s0 < mt.end() and mt.start() < e0 for s0, e0, _, _ in items):   # a charge no tool returned
+                items.append((mt.start("merchant"), mt.end("merchant"), None, mt.group("merchant")))
+        items.sort(key=lambda x: x[0])
         named: dict[str, list] = {vs: self._values_named(low, vs) for vs in self.m.value_sets}
         for vs, ms in named.items():
             for mt in ms:                            # a value said of a named charge is about that charge
@@ -986,7 +1039,7 @@ class GenericReader(UtteranceReader):
             return facts.caller.get(self.m.slot_of_set.get(vs, ""))
 
         for s0, _, tid, w in items:
-            claims.append(Claim("item", tid, w, sent, tid, mode))
+            claims.append(Claim("item", tid if tid is not None else w, w, sent, tid, mode))
         days_spans = [(m.start(), m.end()) for m in BUSINESS_DAYS.finditer(low)]
         for mt in MONEY.finditer(low):
             v = _read_num(mt.group(1) or mt.group(2))
@@ -1010,12 +1063,13 @@ class GenericReader(UtteranceReader):
             pick = [a for a in self.m.days if bound and a.endswith("_" + bound)] or self.m.days[:1]
             for attr in pick[:1]:                      # "up to 7 business days" is the maximum, "at least 5" the minimum
                 claims.append(Claim(attr, (lo, hi), mt.group(0), sent, about(attr, mt.start())))
-        for key, regs in self._limit_res.items():
-            for rx in regs:
-                for mt in rx.finditer(low):
-                    if any(s <= mt.start() < e for s, e in days_spans):
-                        continue
-                    claims.append(Claim("limit", int(mt.group(1)), mt.group(0), sent, key))
+        if LIMIT_CUE.search(low):                      # a count is a limit only when said as one ("up to 4")
+            for key, regs in self._limit_res.items():
+                for rx in regs:
+                    for mt in rx.finditer(low):
+                        if any(s <= mt.start() < e for s, e in days_spans):
+                            continue
+                        claims.append(Claim("limit", int(mt.group(1)), mt.group(0), sent, key))
         return _dedupe(claims)
 
     def _heard(self, r: ReadUtterance) -> list[str]:
@@ -1077,11 +1131,16 @@ class GenericChecks:
                                   "a charge the tools returned", f"\u201c{cl.words}\u201d names {cl.about}, a charge the tools returned",
                                   {"op": "is one of the returned charges", "said": cl.value, "truth": sorted(facts.items),
                                    "result": True})
-                return st.hit(ClaimVerdict(cl, "unsupported", None, "the returned charges", "no tool returned this charge"),
-                              "a charge the tools returned", "no tool returned it")
+                return st.hit(ClaimVerdict(cl, "unsupported", sorted(facts.items), "the returned charges",
+                                           f"no tool returned a charge from {cl.words}"),
+                              "a charge the tools returned", f"\u201c{cl.words}\u201d names no charge the tools returned",
+                              {"op": "is one of the returned charges", "said": cl.words, "truth": sorted(facts.items),
+                               "result": False})
             truth = (it or {}).get("amount")
             if truth is None:
-                return st.hit(ClaimVerdict(cl, "unsupported", None, "the returned charges", f"no amount returned for {cl.about}"),
+                return st.hit(ClaimVerdict(cl, "unsupported", None, "the returned charges",
+                                           f"no amount returned for {cl.about}" if cl.about else
+                                           "the amount of a charge no tool returned"),
                               "the amount of a returned charge", "the tools returned no amount for it")
             ok = _num_eq(cl.value, truth)
             return st.hit(ClaimVerdict(cl, "supported" if ok else "contradicted", truth, f"the returned charge {cl.about}",
@@ -1163,6 +1222,38 @@ class GenericChecks:
                               rule, f"the sentence says it is done: the truth is what a successful {tools} wrote",
                               {"op": "is one of", "said": str(cl.value), "truth": sorted(map(str, vals)), "result": ok})
             st.no(rule, f"the sentence is put as {cl.mode!r}, not done" if cl.mode != "done" else f"no tool writes {f}")
+            rule = "said to be recorded"
+            if cl.mode == "recorded" and f in m.write_args:   # "I've noted ...": a successful write must be behind it
+                tools = ", ".join(t for t, _ in m.write_args[f])
+                writes = [(a, w) for t, a in m.write_args[f] for w in facts.writes.get(t, [])]
+                if cl.about is not None:
+                    writes = [(a, w) for a, w in writes if str(cl.about) in map(str, (w.get("args") or {}).values())]
+                vals = sorted({str((w.get("args") or {}).get(a)) for a, w in writes})
+                if not vals:
+                    return st.hit(ClaimVerdict(cl, "unsupported", None, tools,
+                                               f"said to be recorded, but no successful {tools}"
+                                               + (f" for {cl.about}" if cl.about else "")),
+                                  rule, f"a recording word: the truth is a successful {tools}, and none succeeded",
+                                  {"op": "is one of", "said": str(cl.value), "truth": [], "result": False})
+                if str(cl.value) not in vals:
+                    return st.hit(ClaimVerdict(cl, "contradicted", vals, f"successful {tools}",
+                                               f"says {cl.value} was recorded, the record is {', '.join(vals)}"),
+                                  rule, f"a recording word: the truth is what a successful {tools} wrote",
+                                  {"op": "is one of", "said": str(cl.value), "truth": vals, "result": False})
+                st.no(rule, f"a successful {tools} wrote {cl.value}: now held to what the customer said too")
+            else:
+                st.no(rule, "no recording word" if cl.mode != "recorded" else f"no tool writes {f}")
+            rule = "an option the tools offered"
+            if cl.mode == "offered" and f in m.offered and m.offered[f][0] in facts.results:
+                tool, fld = m.offered[f]
+                opts = [str(x) for x in (facts.results.get(tool, {}).get(fld) or [])]
+                ok = str(cl.value) in opts
+                return st.hit(ClaimVerdict(cl, "supported" if ok else "unsupported", opts, f"{tool} result {fld}",
+                                           "" if ok else f"offers {cl.value}; {tool} offered only {', '.join(opts) or 'nothing'}"),
+                              rule, f"an option put to the customer: the truth is the options {tool} returned",
+                              {"op": "is one of the options offered", "said": str(cl.value), "truth": opts, "result": ok})
+            st.no(rule, "not put as an offer" if cl.mode != "offered" else
+                  f"no tool lists the {f} options" if f not in m.offered else f"{m.offered[f][0]} was not called")
             rule = "a value a tool returned"
             if f in m.returned:
                 tool, fld = m.returned[f]

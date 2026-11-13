@@ -170,6 +170,17 @@ s07_checks/
     delivery is $0." to "How much does standard delivery cost?") is supported by the question itself
     (`SessionFacts.asked`, from the customer's ASK_KB meaning card; basis *what the customer asked*), checked before
     what the customer said earlier (a customer who chose expedited delivery may still ask about standard).
+  * a value said to be **recorded** (a recording word: "I've noted", "recorded") must have a successful write behind
+    it, of that value, for that charge (unsupported when none succeeded, contradicted when another value was
+    written), and is then held to what the customer said as well;
+  * an option **put to the customer** (an offer or a question) must be one of the options the tool listed
+    (`get_card_action_options` returns them; the graph's `subset_of`), else it is unsupported;
+  * a charge named in the pack's wording of a charge (`bot.item`) that no tool returned ("the Walmart charge for
+    $99.10") is unsupported, and so is its amount;
+  * a count is read as a limit only when said as one ("up to", "only", "at most", "minimum", ...): "I found 2
+    transactions" is not the transactions limit; `bot.unit_words` gives a unit's other words ("charges").
+
+`tests/test_truth_mapping.py` holds each kind of claim to its truth with the right value and with a wrong one.
 
 ### The trace of a check (`speech_trace.py`)
 
