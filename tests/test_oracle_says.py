@@ -185,3 +185,16 @@ def test_closing_words_while_the_call_goes_on_are_flagged_not_graded_as_ending_i
     assert on["acts"] == [{"act": "PRESENT_TXN", "txn": "T1"}] and on["extra"][0]["closing"] is True
     off = hold(B.speech, [{"act": "PRESENT_TXN", "txn": "T1"}], text, SessionFacts(), ended=True)
     assert {"act": "END"} in off["acts"]                    # it did end the call: an act the oracle does not take
+
+
+def test_an_llm_worded_line_may_not_name_a_charge_by_its_internal_id():
+    from gmsjourney.s06_bots.llm_bot import StructuredStats, Wording
+    _bench()
+    w = Wording(None, StructuredStats())
+    w.items = {"T1": {"transaction_id": "T1", "merchant": "Amazon", "amount": "45.67"}}
+    a = {"act": "PRESENT_TXN", "txn": "T1"}
+    tpl = "Let's look at the Amazon charge for $45.67. Do you recognize it?"
+    assert w.facts(a) == {"txn": "the Amazon charge for $45.67"}             # what the wording model is given
+    assert w.check("Let's look at charge T1, Amazon, $45.67. Do you recognize it?", tpl, a)   # rejected: the template is said
+    assert w.check("Could you check the $45.67 Amazon charge? Do you recognize it?", tpl, a) is None
+    assert "merchant" in w.check("Could you check the $45.67 charge? Do you recognize it?", tpl, a)

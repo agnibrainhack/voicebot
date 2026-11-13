@@ -549,8 +549,10 @@ class Wording:
         mk = markers()
         self.risky = [_low(x) for x in mk["policy"] + mk["commitment"]]
 
+    items: dict = {}                                   # the items the tools returned (set before each turn)
+
     def _word(self, k: str, v: Any) -> str:
-        return _word(self.dom, k, v)
+        return _word(self.dom, k, v, self.items)       # a charge by its details ("the Amazon charge for $45.67")
 
     def facts(self, a: dict[str, Any]) -> dict[str, Any]:
         return {k: self._word(k, v) for k, v in a.items() if k not in ("act", "text", "state") and v not in (None, "")}
@@ -564,10 +566,19 @@ class Wording:
         if _num_set(line) != _num_set(template):
             return f"its figures {_num_set(line)} are not the template's {_num_set(template)}"
         for k, w in self.facts(a).items():
+            it = self.items.get(str(a.get(k))) if isinstance(a.get(k), str) else None
+            if it is not None:                           # a charge: its merchant must be said (its amount is a figure)
+                m = _low(str(it.get("merchant") or ""))
+                if m and m in T and m not in L:
+                    return f"it leaves out {k}'s merchant ({m})"
+                continue
             w = _low(w)
             if w and w in T and w not in L:
                 return f"it leaves out {k} ({w})"
         has = lambda f, x: re.search(r"\b" + re.escape(f) + r"\b", x) is not None     # noqa: E731
+        for tid in self.items:                           # a charge is said by its details, never by its internal id
+            if has(_low(str(tid)), L) and not has(_low(str(tid)), T):
+                return f"it names a charge by its internal id ({tid})"
         named = [f for f in self.value_forms if has(f, T)]
         for f in self.value_forms:
             if has(f, L) and not has(f, T) and not any(f in n or n in f for n in named):
@@ -684,6 +695,7 @@ class StructuredBot(GraphBot):
         items = items_of(self._results)
         lines = [_say(a, items) for a in acts]
         if self.wording is not None and acts:
+            self.wording.items = items
             lines = self.wording.word(acts, lines, self._heard)
         else:
             self.stats.add("templated", len(lines))
