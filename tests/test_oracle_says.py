@@ -198,3 +198,18 @@ def test_an_llm_worded_line_may_not_name_a_charge_by_its_internal_id():
     assert w.check("Let's look at charge T1, Amazon, $45.67. Do you recognize it?", tpl, a)   # rejected: the template is said
     assert w.check("Could you check the $45.67 Amazon charge? Do you recognize it?", tpl, a) is None
     assert "merchant" in w.check("Could you check the $45.67 charge? Do you recognize it?", tpl, a)
+
+
+def test_the_option_a_policy_answer_names_is_the_one_the_customer_asked_about():
+    from gmsjourney.s04_cases.meaning import SemanticFrame as F
+    from gmsjourney.s07_checks.speech_reading import SessionFacts
+    PG, B = _bench()
+    q = F.make("ASK_KB", intent="value", entity="standard_delivery", attr="fee_usd")
+    # the customer chose expedited delivery earlier, then asks about standard: the answer names what was asked
+    f = SessionFacts.from_run([], [F.make("INFORM_DISPOSITION", disposition="UNRECOGNIZED", delivery="expedited_delivery"), q])
+    v = B.speech
+    got = [(c.field, c.value, v.verify_claim(c, f).status) for c in
+           v.reader.read("The fee for standard delivery is $0.", f, question=q).claims]
+    assert got == [("delivery", "standard_delivery", "supported"), ("fee_usd", 0, "supported")]
+    assert v.verify_claim(v.reader.read("The fee for standard delivery is $0.", f, question=q).claims[0], f).basis \
+        == "what the customer asked"

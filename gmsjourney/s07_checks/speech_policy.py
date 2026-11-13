@@ -557,7 +557,7 @@ class PolicyChecker:
             return False
         ent, attr, key = question.get("entity"), question.get("attr"), question.get("key")
         asked = {x for x in (ent, key) if x}
-        if not asked:
+        if not asked or str(claim.value) in asked:       # naming what was asked is not telling anything else
             return False
         want = [f for f in self.corpus.figures if (f.subject == ent and attr and f.attr == attr)
                 or (key and f.subject == key)]

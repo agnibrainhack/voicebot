@@ -106,6 +106,8 @@ class ClaimVerdict:
         if self.status == "unverifiable":
             return "nothing to check"
         src = self.source or ""
+        if src == "the customer's policy question":
+            return "what the customer asked"
         if src.startswith("the returned charge"):
             return "tool result"
         if src.startswith("successful "):              # where the check read it (the generic checks name it)
@@ -1185,6 +1187,16 @@ class GenericChecks:
                               {"op": f"is a member of {f}", "said": str(cl.value), "truth": list(m.g.members(f)), "result": True})
             st.no(rule, "not put as an offer" if cl.mode != "offered" else
                   f"{asked} names its own value" if states_one else f"{asked or 'this act'} does not ask for a {f}")
+            rule = "the subject the customer asked about"
+            if getattr(facts, "asked", None) is not None and str(cl.value) == str(facts.asked):
+                return st.hit(ClaimVerdict(cl, "supported", facts.asked, "the customer's policy question",
+                                           "the option the customer asked about"),
+                              rule, f"this reply answers the customer's question about {facts.asked} "
+                                    f"(the customer's meaning card: ASK_KB entity={facts.asked})",
+                              {"op": "is the subject of the question", "said": str(cl.value), "truth": facts.asked,
+                               "result": True})
+            st.no(rule, "the customer's last line is not a policy question" if getattr(facts, "asked", None) is None
+                  else f"the customer asked about {facts.asked}")
             rule = "what the customer said"
             if truth is None or cl.mode == "offered":
                 return st.hit(ClaimVerdict(cl, "unverifiable", None, "", "mentioned, not asserted" if truth else

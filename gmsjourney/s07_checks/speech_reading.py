@@ -318,6 +318,7 @@ class SessionFacts:
     options: list[str] | None = None
     caller: dict[str, Any] = field(default_factory=dict)
     results: dict[str, dict[str, Any]] = field(default_factory=dict)     # tool -> its latest result
+    asked: str | None = None          # what the customer's latest line asks about, when it is a policy question
 
     # ------------------------------------------------------------------ construction
     @classmethod
@@ -352,6 +353,9 @@ class SessionFacts:
             for slot, value in getattr(fr, "slots", ()):
                 if value is not None:
                     f.caller[slot] = value
+        last = customer_frames[-1] if customer_frames else None
+        if last is not None and getattr(last, "act", None) == N.act.ASK_KB:     # the question this reply answers
+            f.asked = last.get("entity") or last.get("key")
         return f
 
     # ------------------------------------------------------------------ lookups

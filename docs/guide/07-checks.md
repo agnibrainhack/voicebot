@@ -166,6 +166,10 @@ s07_checks/
     named charge is about it, so a summary that swaps two charges' answers is contradicted for each (held to what was
     written for that charge). The agent says a charge by its details (`bot.item` in `domain.yaml`: "the Amazon charge
     for $45.67"), never by its internal id.
+  * a value named in a policy answer that is the option the customer's question is about ("The fee for standard
+    delivery is $0." to "How much does standard delivery cost?") is supported by the question itself
+    (`SessionFacts.asked`, from the customer's ASK_KB meaning card; basis *what the customer asked*), checked before
+    what the customer said earlier (a customer who chose expedited delivery may still ask about standard).
 
 ### The trace of a check (`speech_trace.py`)
 
