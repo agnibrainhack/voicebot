@@ -193,6 +193,13 @@ def hold(verifier, expected: list[dict] | None, text: str, facts, question: Any 
                             bad.append(f"{fld}: the oracle says " + ", ".join(f"{k} = {v}" for k, v in want.items())
                                        + f", the words say {', '.join(got)}")
                     continue
+                if isinstance(want, str) and str(want) in (getattr(facts, "items", None) or {}):   # a returned charge
+                    got = sorted({str(cl.value) for cl in claims if cl.field == "item"})
+                    if got:
+                        row["said"][fld] = got
+                        if str(want) not in got:
+                            bad.append(f"{fld}: the oracle says {want}, the words name {', '.join(got)}")
+                    continue
                 vs = g.member_set(str(want)) if (g is not None and isinstance(want, str)) else None
                 if vs:
                     got = sorted({str(cl.value) for cl in claims if cl.field == vs})

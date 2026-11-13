@@ -160,6 +160,12 @@ s07_checks/
   * figures are tied to their subject: the member named nearest; a figure naming nothing goes to the asked member the
     first time and to `ANY` after that (`fallback`), because "There's also a $15 option" is about some option;
   * `words_to_digits` reads "fifteen dollars" as 15.
+  * for a compiled pack (`GenericReader`), a charge the tools returned is read where the words name it, by its
+    merchant or its id (claim `item`, supported when a tool returned it), and money said nearer that charge than any
+    priced option is its amount (claim `amount`, held to the amount the tool returned), not a fee. A value said of a
+    named charge is about it, so a summary that swaps two charges' answers is contradicted for each (held to what was
+    written for that charge). The agent says a charge by its details (`bot.item` in `domain.yaml`: "the Amazon charge
+    for $45.67"), never by its internal id.
 
 ### The trace of a check (`speech_trace.py`)
 

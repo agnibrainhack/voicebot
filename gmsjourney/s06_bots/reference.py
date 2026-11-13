@@ -879,7 +879,8 @@ class GraphBot(GraphOracle):
     # -------------------------------------------------------- the bot interface
     def _turn(self, ended: bool) -> BotTurn:
         decided, before = turn_order(self._tr.events, self._mark)
-        acts = [{**a, "text": _say(a)} for a in decided]
+        items = items_of(self._results)
+        acts = [{**a, "text": _say(a, items)} for a in decided]
         self.ended = self.ended or ended
         return BotTurn(" ".join(a["text"] for a in acts), acts, self.ended, before)
 
@@ -936,15 +937,33 @@ def limit_sentence(key: str, v: Any, unit: str | None) -> str:
     return f"The limit is {_fig(v)}{' ' + u if u else ''}{per}."
 
 
-def _say(a: dict[str, Any]) -> str:
+def items_of(results: dict[str, Any]) -> dict[str, dict]:
+    """item id -> its record, for every item a tool returned (a dict with the item's id and its name)."""
+    out: dict[str, dict] = {}
+
+    def walk(v: Any) -> None:
+        if isinstance(v, dict):
+            if v.get("transaction_id") is not None and len(v) > 1:
+                out.setdefault(str(v["transaction_id"]), dict(v))
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+    walk(results)
+    return out
+
+
+def _say(a: dict[str, Any], items: dict[str, dict] | None = None) -> str:
     """The act in words: its text, else the pack's template (domain.yaml -> bot.says) with each field worded,
-    else its fields in plain words."""
+    else its fields in plain words. ``items`` (the items the tools returned) let a charge be said by its details
+    (``bot.item``: "the {merchant} charge for ${amount}") instead of its id."""
     if a.get("text"):
         return str(a["text"])
     from ..s01_packs.loading import current
     dom = current()
     tpl = (dom.get("bot.says") or {}).get(a["act"])
-    words = {k: _word(dom, k, v) for k, v in a.items() if k != "act"}
+    words = {k: _word(dom, k, v, items) for k, v in a.items() if k != "act"}
     if tpl:
         class _Fill(dict):
             def __missing__(self, k):
@@ -958,12 +977,31 @@ def _say(a: dict[str, Any]) -> str:
     return f"{a['act'].replace('_', ' ').capitalize()}{': ' + fields if fields else ''}."
 
 
-def _word(dom, field: str, v: Any) -> str:
-    """One field value as the bot says it: a value in its lexicon wording, money as $N, else as is."""
+def item_words(dom, tid: Any, items: dict[str, dict] | None) -> str | None:
+    """An item as the bot says it, from the pack's ``bot.item`` template and the item's returned record (None: the
+    item was not returned, or the pack words items by their id)."""
+    tpl = dom.get("bot.item")
+    it = (items or {}).get(str(tid))
+    if not tpl or not it:
+        return None
+    try:
+        return str(tpl).format_map({k: ("" if x is None else x) for k, x in it.items()})
+    except (KeyError, ValueError):
+        return None
+
+
+def _word(dom, field: str, v: Any, items: dict[str, dict] | None = None) -> str:
+    """One field value as the bot says it: a returned item by its details, a value in its lexicon wording, money as
+    $N, else as is."""
     if v is None:
         return ""
     if isinstance(v, dict):                          # a summary: key -> value ("T1 as recognized and T2 as ...")
-        return " and ".join(f"{k} as {_word(dom, field, x)}" for k, x in v.items()) or "nothing"
+        return " and ".join(f"{item_words(dom, k, items) or k} as {_word(dom, field, x)}" for k, x in v.items()) \
+            or "nothing"
+    if items and isinstance(v, str) and str(v) in items:
+        said = item_words(dom, v, items)
+        if said:
+            return said
     if isinstance(v, str):
         bv = (dom.get("bot.values") or {}).get(v)    # the bot's own word for a value
         if bv:

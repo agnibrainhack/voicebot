@@ -133,3 +133,40 @@ def test_the_case_page_shows_the_oracles_says_and_every_claim_card():
         assert want in page, want
     agent = page.split("Actual (agent): its calls and its words")[2]
     assert '<span class="sk">says</span>' not in agent.split("Expected (oracle)")[0]   # no SAYS of the agent's own
+
+
+def _facts():
+    from gmsjourney.s07_checks.speech_reading import SessionFacts
+    log = [{"tool": "authenticate_customer", "args": {"credential": "4821"}, "result": {"status": "AUTHENTICATED"}},
+           {"tool": "get_review_transactions", "args": {},
+            "result": {"status": "TRANSACTIONS", "transactions": [
+                {"transaction_id": "T1", "merchant": "Amazon", "amount": "45.67"},
+                {"transaction_id": "T2", "merchant": "Starbucks", "amount": "6.25"}]}},
+           {"tool": "record_charge_response", "args": {"transaction_id": "T1", "disposition": "RECOGNIZED"},
+            "result": {"status": "SUCCESS", "transaction_id": "T1", "disposition": "RECOGNIZED"}},
+           {"tool": "record_charge_response", "args": {"transaction_id": "T2", "disposition": "UNRECOGNIZED"},
+            "result": {"status": "SUCCESS", "transaction_id": "T2", "disposition": "UNRECOGNIZED"}}]
+    return SessionFacts.from_run(log, [], None, {})
+
+
+def test_the_agent_names_a_charge_by_its_details_and_they_are_checked():
+    from gmsjourney.s06_bots.reference import _say, items_of
+    PG, B = _bench()
+    f = _facts()
+    items = items_of({"get_review_transactions": {"transactions": list(f.items.values())}})
+    assert _say({"act": "PRESENT_TXN", "txn": "T1"}, items) == "Let's look at the Amazon charge for $45.67. Do you recognize it?"
+    assert _say({"act": "SUMMARIZE", "recorded": {"T1": "RECOGNIZED", "T2": "UNRECOGNIZED"}}, items) == \
+        "To summarize, I've noted the Amazon charge for $45.67 as recognized and the Starbucks charge for $6.25 as unrecognized."
+    v = B.speech
+    got = lambda text, label=None: [(c.field, c.value, c.about, v.verify_claim(c, f, label).status)     # noqa: E731
+                                    for c in v.reader.read(text, f).claims]
+    assert got("Let's look at the Amazon charge for $45.67.") == [("item", "T1", "T1", "supported"),
+                                                                    ("amount", 45.67, "T1", "supported")]
+    assert ("amount", 54.67, "T1", "contradicted") in got("Let's look at the Amazon charge for $54.67.")
+    # a summary that swaps two charges' answers: each is held to what was written for that charge
+    rec = {"act": "SUMMARIZE", "recorded": {"T1": "RECOGNIZED", "T2": "UNRECOGNIZED"}}
+    swapped = got("To summarize, I've noted the Amazon charge as unrecognized and the Starbucks charge as recognized.", rec)
+    assert ("disposition", "UNRECOGNIZED", "T1", "contradicted") in swapped
+    assert ("disposition", "RECOGNIZED", "T2", "contradicted") in swapped
+    # a fee is still a fee when the sentence names the delivery option and no charge
+    assert got("Expedited delivery has a fee of $15.")[-1][0] == "fee_usd"

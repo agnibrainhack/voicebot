@@ -440,15 +440,25 @@ def says_record(says: list[dict], merchants: dict | None = None) -> dict[str, An
     return {"oracle": oracle, "says": rows, "extra": extra}
 
 
-def claims_record(reports: list[dict]) -> dict[str, Any]:
-    """Every claim card read from an agent reply and its check, and the reply's findings (speech check)."""
+def claims_record(reports: list[dict], merchants: dict | None = None) -> dict[str, Any]:
+    """Every claim card read from an agent reply and its check, and the reply's findings (speech check). A charge is
+    named by merchant and amount (``merchants``: id -> (merchant, amount))."""
     claims, finds, ok, core = [], [], True, True
+    name = lambda v: _label(v, merchants) if merchants and str(v) in merchants else v          # noqa: E731
     for rep in reports or []:
         ok, core = ok and bool(rep.get("ok", True)), core and bool(rep.get("core_ok", rep.get("ok", True)))
         adv = set(rep.get("advisory") or ["unread"])
         for c in rep.get("claims") or []:
-            claims.append({k: c.get(k) for k in ("field", "value", "words", "about", "mode", "status", "truth", "basis",
-                                                 "source", "why", "side")})
+            d = {k: c.get(k) for k in ("field", "value", "words", "about", "mode", "status", "truth", "basis",
+                                       "source", "why", "side")}
+            d["about"] = name(d["about"])
+            if d["field"] == "item":
+                d["value"], d["truth"] = name(d["value"]), name(d["truth"])
+            for k in ("source", "why"):
+                if merchants and isinstance(d.get(k), str):
+                    d[k] = re.sub(r"\b(" + "|".join(map(re.escape, sorted(merchants, key=len, reverse=True))) + r")\b",
+                                  lambda m: _label(m.group(1), merchants), d[k])
+            claims.append(d)
         finds += [{"kind": f.get("kind"), "act": f.get("act"), "detail": f.get("detail"), "side": f.get("side", False),
                    "advisory": f.get("kind") in adv} for f in rep.get("findings") or []]
     return {"checked": bool(reports), "ok": ok, "core_ok": core, "claims": claims, "findings": finds}
@@ -516,7 +526,7 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
             "actual_bot_text": " ".join(a["bot_text"]) if a else "",
             "speech_check": speech_turns[i] if a is not None and i < len(speech_turns) else "",
             "actual_says": says_record(a.get("says"), merchants) if a is not None else {},
-            "actual_claims": claims_record(rep_turns[i] if i < len(rep_turns) else []) if a is not None else {},
+            "actual_claims": claims_record(rep_turns[i] if i < len(rep_turns) else [], merchants) if a is not None else {},
             "kb_answers": [{"answer": j.get("answer"), "correct": bool(j.get("correct")), "detail": j.get("detail")}
                            for j in (a.get("kb") or [])] if a is not None else [],
             "expected_next_state": e_acts[-1][0] if e_acts else "-",
@@ -567,7 +577,7 @@ def turn_by_turn(runner, oracle, scenario, faults=None, validator=None) -> tuple
         "actual_opening_steps": steps_of(split_turns(actual.events)[0]["steps"], merchants),
         "actual_opening_text": " ".join(split_turns(actual.events)[0]["bot_text"]),
         "actual_opening_says": says_record(split_turns(actual.events)[0]["says"], merchants),
-        "actual_opening_claims": claims_record(rep_open),
+        "actual_opening_claims": claims_record(rep_open, merchants),
         "expected_opening_text": opening_text(segment(expected.events)[0]),
     }
     return pd.DataFrame(rows), summary

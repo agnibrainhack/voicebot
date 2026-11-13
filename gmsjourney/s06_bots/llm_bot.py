@@ -243,7 +243,7 @@ class LocalChat:
 # =====================================================================================================================
 
 from ..s04_cases.meaning import SemanticFrame
-from .reference import BotTurn, GraphBot, KeywordReader, _say, _word, turn_order
+from .reference import BotTurn, GraphBot, KeywordReader, _say, _word, items_of, turn_order
 
 STRUCTURED_VERSION = "structured-bot/2"
 KINDS = ("actionable", "question", "claim", "social", "unclear")
@@ -681,7 +681,8 @@ class StructuredBot(GraphBot):
     def _turn(self, ended: bool) -> BotTurn:
         decided, before = turn_order(self._tr.events, self._mark)
         acts = [dict(a) for a in decided]
-        lines = [_say(a) for a in acts]
+        items = items_of(self._results)
+        lines = [_say(a, items) for a in acts]
         if self.wording is not None and acts:
             lines = self.wording.word(acts, lines, self._heard)
         else:

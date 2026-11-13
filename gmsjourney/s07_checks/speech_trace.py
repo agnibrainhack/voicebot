@@ -54,14 +54,15 @@ def explain_sentence(reader, sent: str, facts=None) -> dict[str, Any]:
 
     scans: list[dict[str, Any]] = []
     sets = list(reader.m.value_sets) if generic else list(reader._value_phrases)
-    if not generic and facts is not None:              # the legacy reader names the returned charges by merchant
+    if facts is not None:                              # the charges the tools returned, by merchant (or id)
         hits = []
-        for tid, it in (facts.items or {}).items():
-            name = str(it.get("merchant") or "").lower()
-            if name:
-                hits += [_hit(m, value=tid) for m in re.finditer(r"\b" + re.escape(name) + r"\b", low)]
-        scans.append({"reader": "merchants of the returned charges", "kind": "pattern", "field": "merchant",
-                      "pattern": "the merchant names get_review_transactions returned", "hits": hits})
+        for tid, it in (getattr(facts, "items", None) or {}).items():
+            for name in dict.fromkeys([str(it.get("merchant") or "").lower()] + ([str(tid).lower()] if generic else [])):
+                if name:
+                    hits += [_hit(m, value=tid) for m in re.finditer(r"(?<![\w$])" + re.escape(name) + r"(?![\w])", low)]
+        scans.append({"reader": "charges the tools returned", "kind": "pattern", "field": "item" if generic else "merchant",
+                      "pattern": "the merchant names (or ids) of the charges the tools returned; money near one is its amount",
+                      "hits": sorted(hits, key=lambda x: x["start"])})
     for vs in sets:
         phrases = reader._value_phrases.get(vs, [])
         taken: list[tuple[int, int, str]] = []
@@ -82,7 +83,8 @@ def explain_sentence(reader, sent: str, facts=None) -> dict[str, Any]:
     money_field = (reader.m.money[0] if reader.m.money else None) if generic else "fee or amount"
     if money_field:
         scans.append({"reader": "money", "kind": "pattern", "field": money_field, "pattern": MONEY.pattern,
-                      "hits": [_hit(m, value=m.group(1) or m.group(2)) for m in MONEY.finditer(low)]})
+                      "hits": [_hit(m, value=m.group(1) or m.group(2), note=_charge_note(scans, m.start()))
+                               for m in MONEY.finditer(low)]})
     fm = _r.FREE.search(low)
     need = (reader.m.numeric[money_field]["set"] if generic and money_field else None) if generic else "delivery"
     named = any(x["kept"] for s in scans if s.get("value_set") == need for x in s["hits"])
@@ -123,6 +125,15 @@ def explain_sentence(reader, sent: str, facts=None) -> dict[str, Any]:
     cues = {k: v for k, v in cues.items() if v}
     return {"text": sent, "low": low, **({"numbers": numbers} if numbers else {}), "cues": cues, "mode": mode,
             "scans": [x for x in scans if x["hits"]], "quiet": quiet, **({} if generic else {"legacy": True})}
+
+
+def _charge_note(scans: list[dict], pos: int) -> str | None:
+    """Money said near a named charge is read as that charge's amount (s07_checks/speech_checks.GenericReader)."""
+    named = next((x["hits"] for x in scans if x.get("field") == "item"), [])
+    if not named:
+        return None
+    near = min(named, key=lambda h: abs(h["start"] - pos))
+    return f"read as the amount of {near['value']} (named nearest), unless a priced option is named nearer"
 
 
 def readers(reader) -> dict[str, int]:

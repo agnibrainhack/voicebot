@@ -32,7 +32,9 @@ def _misread_turn():
 
 def test_each_claim_keeps_the_rules_tried_and_the_comparison():
     turn, _ = _misread_turn()
-    said_back, summary = turn["claims"]
+    said_back, summary = [c for c in turn["claims"] if c["field"] == "disposition"]
+    assert [(c["field"], c["status"]) for c in turn["claims"] if c["field"] != "disposition"] == \
+        [("item", "supported"), ("amount", "supported")] * 2      # the charge, named by its details, and its amount
     assert said_back["status"] == "contradicted" and summary["status"] == "supported"
     rules = [s["rule"] for s in said_back["steps"]]
     assert said_back["steps"][-1] == {"rule": "what the customer said", "hit": True,
@@ -53,11 +55,13 @@ def test_the_turn_keeps_what_was_known_and_how_each_sentence_was_read():
     assert f["writes"] == [{"tool": "record_charge_response", "args": {"transaction_id": "T1", "disposition": "RECOGNIZED"},
                             "status": "SUCCESS"}]
     s0 = tr["segments"][0]["sentences"][0]
-    assert s0["low"] == "thanks, i've noted charge t1 as recognized." and s0["mode"] == "states" and s0["cues"] == {}
-    hit = s0["scans"][0]["hits"][0]
-    assert (hit["words"], hit["value"], hit["start"], hit["end"], hit["kept"]) == ("recognized", "RECOGNIZED", 32, 42, True)
-    assert "money" in s0["quiet"] and tr["readers"]["disposition phrases"] > 10
-    assert tr["segments"][0]["claims"] == [0] and tr["segments"][1]["claims"] == [1] and tr["segments"][2]["claims"] == []
+    assert s0["low"] == "thanks, i've noted the amazon charge for $45.67 as recognized." and s0["mode"] == "states" \
+        and s0["cues"] == {}
+    hit = next(x for x in s0["scans"] if x.get("value_set") == "disposition")["hits"][0]
+    assert (hit["words"], hit["value"], hit["start"], hit["end"], hit["kept"]) == ("recognized", "RECOGNIZED", 51, 61, True)
+    assert "free" in s0["quiet"] and tr["readers"]["disposition phrases"] > 10
+    assert tr["segments"][0]["claims"] == [0, 1, 2] and tr["segments"][1]["claims"] == [3, 4, 5] \
+        and tr["segments"][2]["claims"] == []
     ask = tr["segments"][2]["sentences"][0]
     assert ask["mode"] == "offered" and ask["cues"]["offer"]["words"] == "i can" and ask["cues"]["question_or_condition"]
     # the checks of the turn as a whole, passing ones too

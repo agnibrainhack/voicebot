@@ -627,6 +627,8 @@ lexicon:
 # The reference bot's wording (s06_bots/reference.py, GraphBot): a line per act, fields in braces ([ ... ] only when its fields have values); values in the bot's own words
 # (the lexicon above words them as the customer says them). Each value word is one the speech reader's cues read.
 bot:
+  # a charge is said by its details, as get_review_transactions returned them (never by its internal id)
+  item: "the {merchant} charge for ${amount}"
   values:
     RECOGNIZED: recognized
     UNRECOGNIZED: unrecognized
@@ -639,9 +641,9 @@ bot:
     OPENING: "{text}"
     ASK_AUTH: "To get started, please tell me the last four digits of your card."
     ASK_AUTH_RETRY: "That didn't match. Please tell me the last four digits of your card again."
-    PRESENT_TXN: "Let's look at charge {txn}. Do you recognize it?"
-    PROVIDE_CONTEXT: "Here are more details about charge {txn}. Do you recognize it now?"
-    CONFIRM_RECORDED: "Thanks, I've noted charge {txn} as {disposition}."
+    PRESENT_TXN: "Let's look at {txn}. Do you recognize it?"
+    PROVIDE_CONTEXT: "Here are more details about {txn}. Do you recognize it now?"
+    CONFIRM_RECORDED: "Thanks, I've noted {txn} as {disposition}."
     DISCLOSE_FEE: "{delivery} has a fee of {fee}."
     CONFIRM_ACTION: "To confirm: you'd like to {action}[ with {delivery}]. Shall I go ahead?"
     ACTION_DONE: "All done: we will {action}[ with {delivery}]."

@@ -106,6 +106,8 @@ class ClaimVerdict:
         if self.status == "unverifiable":
             return "nothing to check"
         src = self.source or ""
+        if src.startswith("the returned charge"):
+            return "tool result"
         if src.startswith("successful "):              # where the check read it (the generic checks name it)
             return "successful write"
         if src.startswith("exact register"):
@@ -737,7 +739,7 @@ class ConversationChecker:
             if a.get("txn") and "PRESENT_TXN" in N.state and a.get("act") == N.state.PRESENT_TXN:
                 self.presented.add(a["txn"])
         named = [a.get("txn") for a in acts if a.get("txn")] + \
-                [v.claim.about for v in rep.verdicts if v.claim.field == "merchant"]
+                [v.claim.about for v in rep.verdicts if v.claim.field in ("merchant", "item")]
         if named:
             self.last_item = named[-1]
         names = rep.acts or rep.heard
@@ -957,10 +959,19 @@ class GenericReader(UtteranceReader):
         asks = bool(_r.QUESTION_OR_CONDITION.search(sent.strip()))
         mode = "offered" if asks or _r.OFFER.search(low) else "done" if _r.COMPLETION.search(low) else "states"
         claims: list[Claim] = []
+        # the charges the tools returned, named by their merchant (or their id): "the Amazon charge for $45.67"
+        items = []
+        for tid, it in (getattr(facts, "items", None) or {}).items():
+            for name in dict.fromkeys([str(it.get("merchant") or "").lower(), str(tid).lower()]):
+                if name:
+                    items += [(m.start(), m.end(), tid, m.group(0)) for m in
+                              re.finditer(r"(?<![\w$])" + re.escape(name) + r"(?![\w])", low)]
+        items.sort()
         named: dict[str, list] = {vs: self._values_named(low, vs) for vs in self.m.value_sets}
         for vs, ms in named.items():
-            for mt in ms:
-                claims.append(Claim(vs, mt.value, mt.words, sent, None, mode))
+            for mt in ms:                            # a value said of a named charge is about that charge
+                near = max((x for x in items if x[0] <= mt.start), default=None, key=lambda x: x[0])
+                claims.append(Claim(vs, mt.value, mt.words, sent, near[2] if near else None, mode))
         asked = question.get("entity") if question is not None else None
 
         def about(attr: str, pos: int) -> str | None:
@@ -970,9 +981,17 @@ class GenericReader(UtteranceReader):
                 return hit or fallback(asked, attr, seen if seen is not None else set())
             return facts.caller.get(self.m.slot_of_set.get(vs, ""))
 
+        for s0, _, tid, w in items:
+            claims.append(Claim("item", tid, w, sent, tid, mode))
         days_spans = [(m.start(), m.end()) for m in BUSINESS_DAYS.finditer(low)]
         for mt in MONEY.finditer(low):
             v = _read_num(mt.group(1) or mt.group(2))
+            if items:                                  # money said of a named charge is that charge's amount
+                near = min(items, key=lambda x: abs(x[0] - mt.start()))
+                opts = [m for attr in self.m.money[:1] for m in named.get(self.m.numeric[attr]["set"]) or []]
+                if not opts or abs(near[0] - mt.start()) < min(abs(m.start - mt.start()) for m in opts):
+                    claims.append(Claim("amount", v, mt.group(0), sent, near[2]))
+                    continue
             for attr in self.m.money[:1]:
                 claims.append(Claim(attr, v, mt.group(0), sent, about(attr, mt.start())))
         fm = _r.FREE.search(low)
@@ -1046,6 +1065,26 @@ class GenericChecks:
             return st.hit(ClaimVerdict(cl, "supported", self.v.c.opening, "required opening statement"),
                           "the required opening statement", "the words contain the policy's opening, word for word",
                           {"op": "contains, word for word", "said": cl.words, "truth": self.v.c.opening, "result": True})
+        if f in ("item", "amount"):                     # a charge the tools returned, and its amount
+            it = facts.items.get(str(cl.about)) if getattr(facts, "items", None) else None
+            if f == "item":
+                if it is not None:
+                    return st.hit(ClaimVerdict(cl, "supported", cl.value, f"the returned charge {cl.about}"),
+                                  "a charge the tools returned", f"\u201c{cl.words}\u201d names {cl.about}, a charge the tools returned",
+                                  {"op": "is one of the returned charges", "said": cl.value, "truth": sorted(facts.items),
+                                   "result": True})
+                return st.hit(ClaimVerdict(cl, "unsupported", None, "the returned charges", "no tool returned this charge"),
+                              "a charge the tools returned", "no tool returned it")
+            truth = (it or {}).get("amount")
+            if truth is None:
+                return st.hit(ClaimVerdict(cl, "unsupported", None, "the returned charges", f"no amount returned for {cl.about}"),
+                              "the amount of a returned charge", "the tools returned no amount for it")
+            ok = _num_eq(cl.value, truth)
+            return st.hit(ClaimVerdict(cl, "supported" if ok else "contradicted", truth, f"the returned charge {cl.about}",
+                                       "" if ok else f"says {cl.value}, the charge's amount is {truth}"),
+                          "the amount of a returned charge", f"the tools returned {cl.about} with amount {truth}",
+                          {"op": "equals, as numbers", "said": cl.value, "truth": truth, "result": ok})
+        st.no("a returned charge or its amount", "not about a charge")
         if f == "limit":
             truth = store.lookup_enm("limit", cl.about)
             ok = _num_eq(cl.value, truth)
@@ -1086,9 +1125,19 @@ class GenericChecks:
             summary = [v for k, v in (label or {}).items() if k not in ("act", "text") and isinstance(v, dict)]
             rule = "a summary of what was written"
             if summary and f in m.write_args:           # a summary of what was written: each value must be one
-                done = {str((w.get("args") or {}).get(a)) for t, a in m.write_args[f] for w in facts.writes.get(t, [])}
-                ok = str(cl.value) in done
+                writes = [(a, w) for t, a in m.write_args[f] for w in facts.writes.get(t, [])]
+                done = {str((w.get("args") or {}).get(a)) for a, w in writes}
                 tools = ", ".join(t for t, _ in m.write_args[f])
+                mine = {str((w.get("args") or {}).get(a)) for a, w in writes
+                        if cl.about is not None and str(cl.about) in map(str, (w.get("args") or {}).values())}
+                if mine:                                # said of a named charge: what was written for that charge
+                    ok = str(cl.value) in mine
+                    return st.hit(ClaimVerdict(cl, "supported" if ok else "contradicted", sorted(mine),
+                                               f"successful {tools} for {cl.about}",
+                                               "" if ok else f"says {cl.value} for {cl.about}, the write was {', '.join(sorted(mine))}"),
+                                  rule, f"a summary naming {cl.about}: the truth is what a successful {tools} wrote for it",
+                                  {"op": "is one of", "said": str(cl.value), "truth": sorted(mine), "result": ok})
+                ok = str(cl.value) in done
                 return st.hit(ClaimVerdict(cl, "supported" if ok else "contradicted", sorted(done), f"successful {tools}",
                                            "" if ok else f"no successful {tools} wrote {cl.value}"),
                               rule, f"the act's label carries a record ({', '.join(k for k, v in (label or {}).items() if isinstance(v, dict))}) "

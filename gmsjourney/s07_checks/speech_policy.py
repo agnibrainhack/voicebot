@@ -553,7 +553,7 @@ class PolicyChecker:
     def volunteered(self, claim, question: Any) -> bool:
         """In an answer to a policy question, a fact besides the one asked: another subject, another figure of the
         asked subject, a figure naming nothing that is not the asked one, or a policy statement (not a promise)."""
-        if question is None or claim.field in ("promise", "opening"):
+        if question is None or claim.field in ("promise", "opening", "item", "amount"):   # a charge is not policy
             return False
         ent, attr, key = question.get("entity"), question.get("attr"), question.get("key")
         asked = {x for x in (ent, key) if x}
