@@ -170,3 +170,14 @@ def test_the_agent_names_a_charge_by_its_details_and_they_are_checked():
     assert ("disposition", "RECOGNIZED", "T2", "contradicted") in swapped
     # a fee is still a fee when the sentence names the delivery option and no charge
     assert got("Expedited delivery has a fee of $15.")[-1][0] == "fee_usd"
+
+
+def test_closing_words_while_the_call_goes_on_are_flagged_not_graded_as_ending_it():
+    from gmsjourney.s06_bots.oracle_says import hold
+    from gmsjourney.s07_checks.speech_reading import SessionFacts
+    PG, B = _bench()
+    text = "Thank you for calling! Let's look at charge T1. Do you recognize it?"
+    on = hold(B.speech, [{"act": "PRESENT_TXN", "txn": "T1"}], text, SessionFacts(), ended=False)
+    assert on["acts"] == [{"act": "PRESENT_TXN", "txn": "T1"}] and on["extra"][0]["closing"] is True
+    off = hold(B.speech, [{"act": "PRESENT_TXN", "txn": "T1"}], text, SessionFacts(), ended=True)
+    assert {"act": "END"} in off["acts"]                    # it did end the call: an act the oracle does not take

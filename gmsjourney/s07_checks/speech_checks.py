@@ -701,11 +701,13 @@ class ConversationChecker:
         self.presented: set[str] = set()          # transactions whose facts were stated when presented
 
     def hold(self, expected: list[dict] | None, text: str, tool_log: list[dict[str, Any]], customer_frames: list[Any],
-             question: Any = None, answer_act: str | None = None) -> dict[str, Any]:
-        """The oracle's acts for this turn held in the agent's words (s06_bots/oracle_says.hold)."""
+             question: Any = None, answer_act: str | None = None, ended: bool | None = None) -> dict[str, Any]:
+        """The oracle's acts for this turn held in the agent's words (s06_bots/oracle_says.hold); ``ended``: whether
+        the agent ended the call with this reply."""
         from ..s06_bots.oracle_says import hold
         facts = SessionFacts.from_run(tool_log, customer_frames, self.session_date, self.v.c.success_values)
-        return hold(self.v, expected, text, facts, question=question, store=self.v.store, answer_act=answer_act)
+        return hold(self.v, expected, text, facts, question=question, store=self.v.store, answer_act=answer_act,
+                    ended=ended)
 
     def check(self, acts: list[dict[str, Any]], text: str, tool_log: list[dict[str, Any]],
               customer_frames: list[Any], held: dict | None = None) -> TurnReport:

@@ -228,7 +228,7 @@ class JourneyRunner:
             # customer, injected faults) the agent's own labels when it gives them, else what its words express
             if oracle and (exp_turn is not None or not (self.use_structured_acts and turn.acts)):
                 held = speech.hold(exp_turn["acts"] if exp_turn is not None else None, turn.text, env.log,
-                                   tr.user_frames, question=last_kb, answer_act=answer_act)
+                                   tr.user_frames, question=last_kb, answer_act=answer_act, ended=bool(turn.ended))
                 acts = [dict(a) for a in held["acts"]] or [{"act": "UNKNOWN"}]
             else:
                 acts = turn.acts if (self.use_structured_acts and turn.acts) else \

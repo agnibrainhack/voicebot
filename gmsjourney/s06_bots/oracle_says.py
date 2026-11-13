@@ -59,13 +59,16 @@ def _num(v: Any) -> Any:
 
 
 def hold(verifier, expected: list[dict] | None, text: str, facts, question: Any = None, store: Any = None,
-         answer_act: str | None = None) -> dict[str, Any]:
+         answer_act: str | None = None, ended: bool | None = None) -> dict[str, Any]:
     """The oracle's acts for one turn, each checked against the agent's words (see the module docstring).
     ``expected`` None (no oracle for this turn: an adaptive customer, injected faults): the acts are the ones the
     words express."""
     c, reader = verifier.c, verifier.reader
     g = getattr(getattr(verifier, "generic", None), "m", None)
     g = getattr(g, "g", None)
+    # closing words ("thank you for calling") end the call only when the agent ends it; said while the call goes
+    # on, they are a wording slip, flagged and not graded as the end of the call (``ended`` None: not known)
+    closing = {getattr(g, "end_state", None)} - {None} if ended is False else set()
     sents = _sentences(text or "")
     reads = [reader.read(s, facts, question=question) for s in sents]
     lows = [words_to_digits(s).lower() for s in sents]
@@ -88,7 +91,7 @@ def hold(verifier, expected: list[dict] | None, text: str, facts, question: Any 
             xs = [a for _, a in cued] or list(r.heard)      # a cue says which act; fields alone only without one
             xs = [a for a in xs if not any(a in covers.get(b, ()) and b not in covers.get(a, ()) for b in xs if b != a)]
             order += [a for a in xs if a not in order]
-        acts = [{"act": a} for a in order]
+        acts = [{"act": a} for a in order if a not in closing]
         return {"sentences": [{"text": s, "act": None, "heard": [{"act": a, "how": _how(c, a, r, lows[k], cue_in)}
                                                                 for a in r.heard]} for k, (s, r) in enumerate(zip(sents, reads))],
                 "says": [], "extra": [], "acts": acts, "from": [], "segments": [(None, text or "")],
@@ -226,8 +229,8 @@ def hold(verifier, expected: list[dict] | None, text: str, facts, question: Any 
         names_x = {a for a, _ in xs}
         return [(a, q) for a, q in xs if not any(a in covers.get(b, ()) and b not in covers.get(a, ())
                                                  for b in names_x if b != a)]
-    extra = [{"act": a, "sentence": k, "how": f"the cue \u201c{q}\u201d"} for k, xs in extra_of.items()
-             for a, q in narrow(xs)]
+    extra = [{"act": a, "sentence": k, "how": f"the cue \u201c{q}\u201d",
+              **({"closing": True} if a in closing else {})} for k, xs in extra_of.items() for a, q in narrow(xs)]
 
     keyed, prev_key = [], -1.0               # the acts in the order the words say them
     for i, (row, lab) in enumerate(zip(says, exp)):
@@ -246,6 +249,8 @@ def hold(verifier, expected: list[dict] | None, text: str, facts, question: Any 
         prev_key = key
         keyed.append((key, i, a))
     for x in extra:
+        if x.get("closing"):                     # the call went on: not the end of the call
+            continue
         if all(x["act"] != a.get("act") for _, _, a in keyed):
             keyed.append((x["sentence"] + 0.5, None, {"act": x["act"]}))
     keyed.sort(key=lambda t: t[0])

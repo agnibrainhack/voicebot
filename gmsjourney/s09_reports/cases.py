@@ -431,13 +431,17 @@ def reports_by_turn(events: list[dict], speech_turns: list[dict]) -> tuple[list[
 def says_record(says: list[dict], merchants: dict | None = None) -> dict[str, Any]:
     """The oracle's acts held in an agent reply (s06_bots/oracle_says.py), compact for the page: each expected act
     with whether the words hold it, and what the words said that the oracle did not expect."""
-    rows, extra, oracle = [], [], False
+    rows, extra, oracle, sents = [], [], False, []
     for h in says or []:
         oracle = oracle or bool(h.get("oracle"))
         rows += [{"act": describe_act(r.get("label") or {"act": r.get("act")}, merchants), "status": r.get("status"),
                   "how": r.get("how"), "detail": r.get("detail")} for r in h.get("says") or []]
-        extra += [{"act": x.get("act"), "how": x.get("how")} for x in h.get("extra") or []]
-    return {"oracle": oracle, "says": rows, "extra": extra}
+        extra += [{"act": x.get("act"), "how": x.get("how"), "closing": bool(x.get("closing")),
+                   "sentence": (h.get("sentences") or [{}] * (x.get("sentence", 0) + 1))[x.get("sentence", 0)].get("text")}
+                  for x in h.get("extra") or []]
+        ext = {x.get("sentence"): ("closing words" if x.get("closing") else x.get("act")) for x in h.get("extra") or []}
+        sents += [{"text": x.get("text"), "act": x.get("act") or ext.get(k)} for k, x in enumerate(h.get("sentences") or [])]
+    return {"oracle": oracle, "says": rows, "extra": extra, "sentences": sents}
 
 
 def claims_record(reports: list[dict], merchants: dict | None = None) -> dict[str, Any]:
@@ -798,6 +802,11 @@ li.tool .sk{color:var(--accent)}
 .toc a{display:block;padding:.12rem 0;color:var(--ink);text-decoration:none;border-bottom:1px dashed var(--line-soft);font-family:var(--mono);font-size:.76rem}
 .toc a.f::before{content:"✗ ";color:var(--fail)}.toc a.p::before{content:"✓ ";color:var(--pass)}
 .small{font-size:.84rem;color:var(--muted)}
+.said{margin:.55rem 0 .2rem;padding:.6rem .8rem;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:0 8px 8px 0}
+.said-h{display:block;font-family:var(--mono);font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;color:var(--accent);margin-bottom:.2rem}
+.said p{margin:0;font-size:1.02rem;line-height:1.55;color:var(--ink);font-weight:500}
+.said .sact.x{color:var(--accent);border-color:var(--accent)}
+.said .sact{display:inline-block;margin:0 .15rem 0 .35rem;padding:0 .3rem;border-radius:4px;font-family:var(--mono);font-size:.62rem;font-weight:500;vertical-align:.12em;color:var(--muted);background:var(--code-bg);border:1px solid var(--line-soft)}
 .sub-h{display:block;margin:.55rem 0 .2rem;font-family:var(--mono);font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
 ul.held{list-style:none;margin:.1rem 0 0;padding:0}ul.held li{display:grid;grid-template-columns:7.2rem minmax(0,1fr);gap:.4rem;margin:.2rem 0}
 ul.held .st{font-family:var(--mono);font-size:.7rem;font-weight:500}
@@ -950,6 +959,11 @@ def _says_html(says: dict) -> str:
         li.append(f'<li><span class="st {cls}">{E(word)}</span><span><code>{E(r.get("act"))}</code>'
                   + (f' <span class="small">{E(why)}</span>' if why else "") + "</span></li>")
     for x in says.get("extra") or []:
+        if x.get("closing"):                         # closing words while the call goes on: flagged, not graded
+            li.append(f'<li><span class="st side">! closing words</span><span>“{E(x.get("sentence") or "")}” '
+                      f'<span class="small">sounds like the end of the call ({E(x.get("how"))}), but the agent went on: '
+                      f'a wording point, not graded as ending the call</span></span></li>')
+            continue
         li.append(f'<li><span class="st wrong">+ not expected</span><span><code>{E(x.get("act"))}</code> '
                   f'<span class="small">said by {E(x.get("how"))}; the oracle does not say it here</span></span></li>')
     return '<span class="sub-h">The oracle\'s SAYS, checked in these words</span><ul class="held">' + "".join(li) + "</ul>"
@@ -1002,8 +1016,19 @@ def _col_agent(tools: str, acts: str, words: str, steps: Any, says: Any, claims:
     li = "".join(f'<li class="tool"><span class="sk">calls</span><code>{E(c)}</code></li>' for c in calls)
     return ('<div class="col act"><span class="who">Actual (agent): its calls and its words</span>'
             + (f"<ol>{li}</ol>" if li else "<p class='small'>(no tool call)</p>")
-            + (f'<div class="words">“{E(words)}”</div>' if words else "<p class='small'>(said nothing)</p>")
-            + _says_html(says) + _claims_html(claims) + "</div>")
+            + _said_html(words, says.get("sentences")) + _says_html(says) + _claims_html(claims) + "</div>")
+
+
+def _said_html(words: str, sentences: Any = None) -> str:
+    """What the agent said, set apart: each sentence with the act it was read as (the oracle's act it expresses)."""
+    if not words:
+        return '<div class="said"><span class="said-h">The agent said</span><p class="small">(nothing)</p></div>'
+    sents = sentences if isinstance(sentences, list) and sentences else None
+    body = "".join(f'<span class="sent">{E(x.get("text"))}'
+                   + (f'<span class="sact{" x" if x.get("act") == "closing words" else ""}">{E(x.get("act"))}</span>'
+                      if x.get("act") else "") + "</span> "
+                   for x in sents) if sents else E(words)
+    return f'<div class="said"><span class="said-h">The agent said</span><p>“{body.strip()}”</p></div>'
 
 
 def _speech_rows(row: dict) -> list[str]:

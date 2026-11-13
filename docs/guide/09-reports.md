@@ -102,11 +102,13 @@ Each turn sets the **oracle's turn** (left: its tool calls and what it says, the
 order) beside the **agent's turn** (right), which shows only what can be observed of an agent:
 
 * its **tool calls**, with their key arguments and results;
-* its **words**, quoted as said;
+* its **words**, set apart in a box (*The agent said*), each sentence tagged with the act it was read as;
 * **the oracle's SAYS, checked in these words** (`actual_says`, from `s06_bots/oracle_says.py`): each act the oracle
   says at this turn, marked *✓ held* (with the cue or the fields that show it), *✗ other value* (what the oracle
   says and what the words say), *✗ not in the words*, or *– not checkable*; and *+ not expected* for an act the words
-  express that the oracle does not take there. The agent's own act labels are not shown and not used;
+  express that the oracle does not take there, and *! closing words* for words that sound like the end of the call
+  ("thank you for calling") while the agent goes on: a wording point, not graded as ending the call (closing words
+  end the call only when the agent ends it). The agent's own act labels are not shown and not used;
 * **claim cards** (`actual_claims`): every value, figure or limit read from the words, with its truth and where it
   was read (what the customer said, a confirmed write, a tool's result, the policy store), its result (supported,
   contradicted, unsupported, unverifiable; side step marked) and why; then the reply's findings (missing, flow,
