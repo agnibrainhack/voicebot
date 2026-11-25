@@ -1,0 +1,10 @@
+# Block 8 (training) on a GPU host. Generation needs only the repo's base requirements (+ a vLLM server).
+torch>=2.4
+transformers>=4.55        # GptOssForCausalLM, Mxfp4Config(dequantize=True)
+peft>=0.17                # LoRA; target_parameters for MoE experts
+accelerate>=0.33
+safetensors
+tokenizers
+pandas
+scikit-learn
+pyyaml

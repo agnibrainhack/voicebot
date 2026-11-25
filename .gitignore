@@ -42,3 +42,8 @@ Thumbs.db
 
 # Backups written by gmsjourney.graph.factors.apply_edits
 *.bak
+
+# turnval: client AOP material and generated data / runs stay local
+turnval/data/*.json
+turnval/out/
+turnval/runs/

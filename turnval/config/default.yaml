@@ -1,0 +1,44 @@
+# turnval run configuration. Paths are relative to the repository root unless absolute.
+
+data:
+  hrt_graph: turnval/data/hrt_graph.json      # the HRT graph (kept out of git)
+  aop_flow: turnval/data/aop_flow.json        # the AOP flow (kept out of git)
+  factors: turnval/config/factors.yaml
+
+design:
+  seed: 7
+  replicates: 3            # copies of the covering array; each copy is new data, wording and error choices
+  extra_random: 0          # extra random valid rows on top of the covering array
+
+simulation:
+  max_turns: 40
+  include_handoff_turns: true     # a turn whose correct response is a transfer / call end is validated too
+  side_negatives_per_conversation: 2
+  out_of_place_per_conversation: 1  # a correct response from another state dropped into this context (label 0)
+
+text:
+  renderer: llm            # llm | template (template: no model, for dry runs)
+  backend: local           # local = gpt-oss on vLLM (vllm_url or local_path); gateway = the Amex model gateway
+  vllm_url: ""             # e.g. http://localhost:8000/v1 ; env GMSJOURNEY_VLLM_URL is used when empty
+  local_path: ""           # a gpt-oss-20b folder loaded in-process when no server URL is given
+  model: ""                # gateway deployment (gpt-41, gpt-55) when backend = gateway
+  role: enrichment
+  mode: live               # live | replay (cache only)
+  cache_dir: null          # default: the gmsjourney cache
+  customer_temperature: 0.9
+  bot_temperature: 0.6
+  error_temperature: 0.8
+  max_tries: 3
+  reasoning_effort: low    # gpt-oss: "Reasoning: low|medium|high" in the system prompt (empty: leave it out)
+  max_tokens: {customer: 800, bot: 1600, summary: 1000, judge: 1600}   # room for gpt-oss reasoning + the answer
+  verify: true             # LLM quality gate on every generated response
+  mask_customer_digits: true
+  workers: 8
+
+split:
+  ratios: {train: 0.8, val: 0.1, test: 0.1}
+  group_by: conv_id        # conv_id: best balance of every factor level; design_id: replicates of a row kept together (stricter)
+  seed: 13
+
+output:
+  dir: turnval/out

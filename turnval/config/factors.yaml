@@ -1,0 +1,252 @@
+# Journey factors for the turn-validator dataset (Block 2).
+#
+# Every factor has levels and, optionally:
+#   when:    a Python expression over earlier factors; the factor is relevant only when it holds (else "n/a")
+#   source:  graph (a decision in aop_flow.json / a branch condition in hrt_graph.json) | suggested
+#   covers:  the flow decisions ("tool.field": [values]) this factor drives; `python -m turnval.factors audit` checks
+#            that every outcome the flow branches on is reachable from some factor level
+# Factors are filled in file order, so a factor's `when` may only use factors above it.
+# constraints: Python expressions every row must satisfy (rows violating one are never generated).
+# strength: 2 = every feasible pair of levels appears in some conversation; `triples` adds 3-way coverage
+# for the listed factor groups.
+
+strength: 2
+triples:
+  - [aop, error_family, error_position]
+  - [aop, error_family, interjection]
+  - [aop, error_family, cust_register]
+
+factors:
+  # ---------------------------------------------------------------- conversation
+  aop:
+    levels: [UI, CV]
+    source: graph
+  cust_style:
+    levels: [terse, plain, chatty]
+    source: suggested
+    doc: length and padding of the customer's turns
+  cust_register:
+    levels: [canonical, colloquial, hesitant, formal]
+    source: suggested
+    doc: wording - AOP vocabulary, everyday words, fillers and hedges, formal
+  cust_noise:
+    levels: [clean, transcript_artifacts]
+    source: suggested
+    doc: text as it comes out of speech recognition (repeated words, digits as words, dropped punctuation)
+  cust_emotion:
+    levels: [calm, anxious, frustrated]
+    source: suggested
+  digit_format:
+    levels: [digits, words, grouped, mixed]
+    source: suggested
+    doc: how identifiers / OTPs are said ("1234", "one two three four", "twelve thirty-four", ...)
+  interjection:
+    levels: [none, off_topic, new_concern, asks_human, multi_demand, clarifying_question, hold_on,
+             alternative_id, procedural_question, asks_question, ungrounded_question, next_txn_request]
+    source: graph
+    doc: one customer-driven condition from the graph (global policies + box branches) raised once in the call
+  interjection_position:
+    levels: [early, middle, late]
+    when: interjection != 'none'
+    source: suggested
+  correction:
+    levels: [none, self_correct_in_turn, reverse_previous]
+    source: suggested
+    doc: the customer corrects a value within a turn, or reverses an earlier answer on a later turn
+
+  # ---------------------------------------------------------------- User Identification (graph decisions)
+  ui_ani:
+    levels: [PROFILE_MATCH, PROFILE_NO_MATCH, TRANSFER_TO_CCP]
+    when: aop == 'UI'
+    source: graph
+    covers: {initialize_session.ani_match: [PROFILE_MATCH, PROFILE_NO_MATCH, TRANSFER_TO_CCP]}
+  ui_id_choice:
+    levels: [FULL_SSN, CM_15, NO_PREFERENCE_SHARED, UNKNOWN]
+    when: aop == 'UI' and ui_ani == 'PROFILE_NO_MATCH'
+    source: graph
+    covers: {check_fullssn_or_cm15.match: [FULL_SSN, CM_15, NO_PREFERENCE_SHARED, UNKNOWN]}
+  ui_4ssn_result:
+    levels: [PROFILE_SINGLE_MATCH, PROFILE_MULTI_MATCH, PROFILE_NO_MATCH, TRANSFER_TO_CCP]
+    when: aop == 'UI' and ui_ani == 'PROFILE_MATCH'
+    source: graph
+    covers: {set_4ssn_metadata.match: [PROFILE_SINGLE_MATCH, PROFILE_MULTI_MATCH, PROFILE_NO_MATCH, TRANSFER_TO_CCP]}
+  ui_fullssn_result:
+    levels: [PROFILE_SINGLE_MATCH, PROFILE_MULTI_MATCH, PROFILE_NO_MATCH, TRANSFER_TO_CCP]
+    when: aop == 'UI' and ui_ani == 'PROFILE_NO_MATCH' and ui_id_choice in ('FULL_SSN', 'NO_PREFERENCE_SHARED')
+    source: graph
+    covers: {set_fullssn_metadata.match: [PROFILE_SINGLE_MATCH, PROFILE_MULTI_MATCH, PROFILE_NO_MATCH, TRANSFER_TO_CCP]}
+  ui_id_retry:
+    levels: [none, INPUT_ERROR, ATTEMPT_ERROR, NO_USER_RESPONSE, INPUT_then_ATTEMPT]
+    when: aop == 'UI' and ui_ani != 'TRANSFER_TO_CCP'
+    source: graph
+    doc: failed tries on the first identifier asked (4SSN, full SSN or CM15) before its result
+    covers: {set_4ssn_metadata.match: [INPUT_ERROR, ATTEMPT_ERROR, NO_USER_RESPONSE],
+             set_fullssn_metadata.match: [INPUT_ERROR, ATTEMPT_ERROR, NO_USER_RESPONSE],
+             set_cm15_metadata.match: [INPUT_ERROR, ATTEMPT_ERROR, NO_USER_RESPONSE]}
+  ui_card_confirm:
+    levels: [confirms, denies]
+    when: aop == 'UI' and (ui_4ssn_result == 'PROFILE_SINGLE_MATCH' or ui_fullssn_result == 'PROFILE_SINGLE_MATCH')
+    source: graph
+    doc: "IF the user confirms they are asking about the card ending in {last5}"
+  ui_confirm_identification:
+    levels: [PROFILE_IDENTIFIED, PROFILE_NOT_IDENTIFIED]
+    when: aop == 'UI' and ui_card_confirm == 'confirms'
+    source: graph
+    covers: {confirm_identification.match: [PROFILE_IDENTIFIED, PROFILE_NOT_IDENTIFIED]}
+  ui_cm5:
+    levels: [PROFILE_IDENTIFIED, PROFILE_NOT_IDENTIFIED, SEARCHING_then_IDENTIFIED, INPUT_ERROR_then_IDENTIFIED,
+             ATTEMPT_ERROR_then_IDENTIFIED, TRANSFER_TO_CCP]
+    when: aop == 'UI' and (ui_4ssn_result == 'PROFILE_MULTI_MATCH' or ui_fullssn_result == 'PROFILE_MULTI_MATCH')
+    source: graph
+    covers: {set_cm5_metadata.match: [PROFILE_IDENTIFIED, PROFILE_NOT_IDENTIFIED, INPUT_ERROR, ATTEMPT_ERROR, TRANSFER_TO_CCP],
+             check_cm5.result: [SEARCHING]}
+  ui_cm15:
+    levels: [PROFILE_IDENTIFIED, PROFILE_NOT_IDENTIFIED, TRANSFER_TO_CCP]
+    when: >-
+      aop == 'UI' and (ui_id_choice == 'CM_15' or ui_4ssn_result == 'PROFILE_NO_MATCH' or ui_card_confirm == 'denies'
+      or ui_fullssn_result == 'PROFILE_NO_MATCH' or ui_cm5 == 'PROFILE_NOT_IDENTIFIED')
+    source: graph
+    covers: {set_cm15_metadata.match: [PROFILE_IDENTIFIED, PROFILE_NOT_IDENTIFIED, TRANSFER_TO_CCP]}
+  ui_14key:
+    levels: [PROFILE_IDENTIFIED, PROFILE_NOT_IDENTIFIED, zip_INPUT_ERROR_then_IDENTIFIED, ssn_INPUT_ERROR_then_IDENTIFIED,
+             cm5_INPUT_ERROR_then_IDENTIFIED, TRANSFER_TO_CCP]
+    when: aop == 'UI' and (ui_id_choice == 'UNKNOWN' or ui_cm15 == 'PROFILE_NOT_IDENTIFIED')
+    source: graph
+    covers: {set_14key_metadata.match: [PROFILE_IDENTIFIED, PROFILE_NOT_IDENTIFIED, TRANSFER_TO_CCP]}
+  ui_verification:
+    levels: [PASSED_AT_ASK, pass_first, repeat_then_pass, next_question_then_pass, input_error_then_pass,
+             no_response_then_pass, otp_sms, otp_email, otp_no_preference_then_sms, otp_unknown_transfer,
+             fails_transfer, TRANSFER_AT_ASK]
+    when: aop == 'UI' and ui_ani != 'TRANSFER_TO_CCP'
+    source: graph
+    doc: the Verification section's path once a profile is identified
+    covers: {set_ask_verification_metadata.response: [ASK_QUESTION, VERIFICATION_PASSED, TRANSFER_TO_CCP],
+             check_verification.match: [VALIDATE, nextQuestion-OTP, nextQuestion, repeatQuestion, INPUT_USER_ERROR, NO_USER_RESPONSE, VERIFICATION_PASSED, TRANSFER_TO_CCP],
+             process_check_verification.match: [VERIFICATION_PASSED, nextQuestion, repeatQuestion, TRANSFER_TO_CCP],
+             check_OTP_channel.match: [SMS, EMAIL, NO_PREFERENCE_SHARED, UNKNOWN]}
+  ui_question_type:
+    levels: [date_of_birth, zip_code, street_address, phone_last4]
+    when: aop == 'UI' and ui_ani != 'TRANSFER_TO_CCP'
+    source: suggested
+    doc: what askVerification's questionText asks (synthetic)
+
+  # ---------------------------------------------------------------- Charge Verification (graph decisions + data)
+  cv_fetch:
+    levels: [SELF_SERVICE_ELIGIBLE, NO_ACTIVE_CASE, NOT_ELIGIBLE_TO_VERIFY_CHARGES, TRANSFER_TO_CCP]
+    when: aop == 'CV'
+    source: graph
+    covers: {fetch_fraud_charges.action: [SELF_SERVICE_ELIGIBLE, NO_ACTIVE_CASE, NOT_ELIGIBLE_TO_VERIFY_CHARGES, TRANSFER_TO_CCP]}
+  cv_cards:
+    levels: [1, 2, 3]
+    when: aop == 'CV' and cv_fetch == 'SELF_SERVICE_ELIGIBLE'
+    source: graph
+    doc: cards with flagged charges (VERIFY_NEXT_CARD loop)
+  cv_txns_per_card:
+    levels: [1, 2, 3]
+    when: aop == 'CV' and cv_fetch == 'SELF_SERVICE_ELIGIBLE'
+    source: graph
+    doc: flagged charges per card (num_transactions > 1 branch, VERIFY_ADDITIONAL_TRANSACTIONS loop)
+    covers: {transaction_readout.started: ['False', 'True']}
+  cv_next_txn_route:
+    levels: [via_next_action, read_next_transaction]
+    when: aop == 'CV' and cv_fetch == 'SELF_SERVICE_ELIGIBLE' and cv_txns_per_card != '1'
+    source: graph
+    doc: the next charge on the same card comes from update_concerns_get_next_action or straight from the status tool
+    covers: {update_transaction_verification_status.action: [READ_NEXT_TRANSACTION]}
+  cv_answers:
+    levels: [all_attempted, none_attempted, mixed, unsure_then_answer, non_answer_then_answer, unmatched_transfer]
+    when: aop == 'CV' and cv_fetch == 'SELF_SERVICE_ELIGIBLE'
+    source: graph
+    covers: {update_transaction_verification_status.action: [SEND_TO_AMEX, PROVIDE_MORE_INFO, TRANSACTION_NOT_VERIFIED, TRANSFER_TO_CCP]}
+  cv_disclosure_retry:
+    levels: ['no', 'yes']
+    when: aop == 'CV' and cv_fetch == 'SELF_SERVICE_ELIGIBLE'
+    source: graph
+    doc: check_transaction_disclosure is False once (the bot's readout left out merchant or amount)
+    covers: {check_transaction_disclosure: ['False']}
+  cv_final:
+    levels: [ALL_CHARGES_VERIFIED, REPLACE_CARD, TRANSFER_TO_CCP, credit_active_case, declined_approved_transaction,
+             declined_non_risk_transaction, declined_static_transaction]
+    when: aop == 'CV' and cv_fetch == 'SELF_SERVICE_ELIGIBLE'
+    source: graph
+    covers: {update_concerns_get_next_action.action: [ALL_CHARGES_VERIFIED, REPLACE_CARD, TRANSFER_TO_CCP, VERIFY_ADDITIONAL_TRANSACTIONS, VERIFY_NEXT_CARD],
+             set_update_concern_get_next_action_metadata.reason: [credit_active_case, declined_approved_transaction, declined_non_risk_transaction, declined_static_transaction]}
+  cv_declined_non_fraud:
+    levels: ['yes', 'no']
+    when: aop == 'CV' and cv_final == 'ALL_CHARGES_VERIFIED'
+    source: graph
+    doc: closing branch (metadata.has_declined_non_fraud)
+  cv_status:
+    levels: [approved, declined, mixed]
+    when: aop == 'CV' and cv_fetch == 'SELF_SERVICE_ELIGIBLE'
+    source: graph
+  cv_mode_field:
+    levels: [present, absent]
+    when: aop == 'CV' and cv_fetch == 'SELF_SERVICE_ELIGIBLE'
+    source: graph
+  cv_address_field:
+    levels: [present, absent, mixed]
+    when: aop == 'CV' and cv_fetch == 'SELF_SERVICE_ELIGIBLE'
+    source: graph
+  cv_txn_day:
+    levels: [today, yesterday, older, mixed]
+    when: aop == 'CV' and cv_fetch == 'SELF_SERVICE_ELIGIBLE'
+    source: graph
+  cv_card_role:
+    levels: [basic_primary, supplementary, basic_not_primary]
+    when: aop == 'CV' and cv_fetch == 'SELF_SERVICE_ELIGIBLE'
+    source: graph
+    doc: 'role == BASIC and isBasic true | role != BASIC and isBasic false | role == BASIC and isBasic false'
+  cv_leading_zero:
+    levels: ['yes', 'no']
+    when: aop == 'CV' and cv_fetch == 'SELF_SERVICE_ELIGIBLE'
+    source: graph
+    doc: last5AccountNumber starts with 0 (read each digit, keep leading zeros)
+  cv_currency:
+    levels: [USD, foreign]
+    when: aop == 'CV' and cv_fetch == 'SELF_SERVICE_ELIGIBLE'
+    source: suggested
+  cv_names:
+    levels: [same, preferred_differs]
+    when: aop == 'CV'
+    source: graph
+    doc: preferred_first_name equal to or different from first_name
+  cv_prefix:
+    levels: [short, full_ui]
+    when: aop == 'CV'
+    source: suggested
+    doc: what comes before CV in the summary - a one-line "identified and verified" or the full identification
+
+  # ---------------------------------------------------------------- the bot's error (labels)
+  error_family:
+    levels: [none, transition_skip, transition_wrong_branch, transition_repeat, transition_regress,
+             premature_handoff, missing_handoff, content_missing, content_forbidden, metadata_wrong,
+             order_violation, guardrail_local, guardrail_global, context_ignored, wrapper_misread, hallucination]
+    source: suggested
+    doc: one injected bot error per conversation (none = a clean conversation)
+  error_position:
+    levels: [early, middle, late]
+    when: error_family != 'none'
+    source: suggested
+  error_recovery:
+    levels: [recovers, stays_off]
+    when: error_family != 'none'
+    source: suggested
+    doc: in the two turns after the error the bot returns to the correct state, or stays off it
+  error_subtlety:
+    levels: [blatant, subtle]
+    when: error_family != 'none'
+    source: suggested
+
+constraints:
+  # interjections that only exist in one AOP
+  - not (aop == 'CV' and interjection in ('clarifying_question', 'hold_on', 'alternative_id', 'procedural_question'))
+  - not (aop == 'UI' and interjection in ('asks_question', 'ungrounded_question', 'next_txn_request'))
+  # an error that needs a hand-off moment
+  - not (error_family == 'missing_handoff' and interjection != 'asks_human')
+  # an error about how the customer was heard needs something to mishear
+  - not (error_family == 'context_ignored' and interjection == 'none' and correction == 'none')
+  # CV calls that end at once have no readout to corrupt
+  - not (aop == 'CV' and cv_fetch != 'SELF_SERVICE_ELIGIBLE' and error_family in ('metadata_wrong', 'order_violation', 'guardrail_local', 'wrapper_misread', 'transition_regress'))
+  - not (aop == 'CV' and cv_fetch != 'SELF_SERVICE_ELIGIBLE' and interjection != 'none')
+  - not (aop == 'UI' and ui_ani == 'TRANSFER_TO_CCP' and (error_family != 'none' or interjection != 'none'))

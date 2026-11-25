@@ -1,0 +1,49 @@
+# Block 8 - training the turn validator (gpt-oss-20b + LoRA, contrastive).
+data:
+  train: turnval/out/train.csv
+  val: turnval/out/val.csv
+  test: turnval/out/test.csv
+  real_test: ""                  # turnval/out/real_test_labeled.csv (the 200 hand-labelled real turns), optional
+  max_length: 1536               # tokens; the summary is cut from the front when the input is too long
+  drop_rejected: true            # leave out rows the quality gate rejected (accepted == 0)
+
+model:
+  backbone: openai/gpt-oss-20b   # a local folder or hub id; "tiny-random" builds a small model (tests only)
+  dequantize_mxfp4: true         # gpt-oss ships MXFP4 weights: train on bf16 weights
+  dtype: bfloat16
+  device_map: auto               # spreads the layers over the visible GPUs
+  gradient_checkpointing: true
+  head: linear                   # linear: a classification head on the pooled last token | lm_token: logit("yes") - logit("no")
+  proj_dim: 256                  # projection for the contrastive loss
+  dropout: 0.1
+  lora:
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    target_modules: [q_proj, k_proj, v_proj, o_proj]
+    target_parameters: []        # e.g. [mlp.experts.gate_up_proj, mlp.experts.down_proj] to adapt the experts too
+
+loss:
+  bce: 1.0                       # every row: admissible (1) or not (0)
+  pairwise: 1.0                  # within a context group: every correct response scores above every wrong one
+  pairwise_margin: 1.0
+  supcon: 0.2                    # supervised contrastive on the projection
+  supcon_label: label_family     # label | label_family (each error family its own class)
+  supcon_temperature: 0.1
+  pos_weight: auto               # BCE weight of positives: auto = negatives / positives in train
+
+train:
+  seed: 17
+  epochs: 3
+  batch_rows: 16                 # rows per step; whole context groups are kept in one batch
+  grad_accum: 4
+  lr: 1.0e-4
+  head_lr: 1.0e-3
+  weight_decay: 0.01
+  warmup_ratio: 0.05
+  max_grad_norm: 1.0
+  eval_every_steps: 0            # 0 = once per epoch
+  early_stopping_patience: 2
+  select_metric: pr_auc          # val metric that picks the best checkpoint
+  out_dir: turnval/runs/gptoss20b_lora
+  precision_target: 0.95         # report the threshold where precision on "wrong" reaches this
