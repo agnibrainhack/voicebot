@@ -20,7 +20,7 @@ text:
   renderer: llm            # llm | template (template: no model, for dry runs)
   backend: local           # local = gpt-oss on vLLM (vllm_url or local_path); gateway = the Amex model gateway
   vllm_url: ""             # e.g. http://localhost:8000/v1 ; env GMSJOURNEY_VLLM_URL is used when empty
-  local_path: ""           # a gpt-oss-20b folder loaded in-process when no server URL is given
+  local_path: ""           # with vllm_url: the served model name (e.g. openai/gpt-oss-20b); without: a model folder loaded in-process
   model: ""                # gateway deployment (gpt-41, gpt-55) when backend = gateway
   role: enrichment
   mode: live               # live | replay (cache only)
@@ -29,7 +29,7 @@ text:
   bot_temperature: 0.6
   error_temperature: 0.8
   max_tries: 3
-  reasoning_effort: low    # gpt-oss: "Reasoning: low|medium|high" in the system prompt (empty: leave it out)
+  reasoning_effort: ""     # "Reasoning: low|medium|high" added to system prompts (vLLM gpt-oss already gets reasoning_effort=low)
   max_tokens: {customer: 800, bot: 1600, summary: 1000, judge: 1600}   # room for gpt-oss reasoning + the answer
   verify: true             # LLM quality gate on every generated response
   mask_customer_digits: true

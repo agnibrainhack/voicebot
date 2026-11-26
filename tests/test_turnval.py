@@ -5,7 +5,6 @@ The AOP data (turnval/data/*.json) is client material kept out of git: these tes
 from __future__ import annotations
 
 import json
-import random
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -138,7 +137,7 @@ def test_llm_renderer_prompts_with_a_fake_model(graphs, design):
 
 
 def test_tiny_training_run(tmp_path):
-    torch = pytest.importorskip("torch")
+    pytest.importorskip("torch")
     pytest.importorskip("peft")
     from turnval.generate import main as gen_main
     from turnval.train.trainer import main as train_main
@@ -163,3 +162,32 @@ def test_losses():
     assert float(pairwise(-s, y, g, 1.0)) > 5                        # and the reverse is punished
     z = torch.nn.functional.normalize(torch.tensor([[1.0, 0], [1.0, 0.01], [0, 1.0]]), dim=-1)
     assert float(supcon(z, torch.tensor([0, 0, 1]))) < float(supcon(z, torch.tensor([0, 1, 0])))
+
+
+def test_api_through_a_vllm_style_server(tmp_path):
+    """The notebook's calls over HTTP: config -> check the server -> pilot generation with the LLM renderer."""
+    from turnval import api
+    from turnval.mock_vllm import start
+    url = start()
+    cfg = api.config(backend="local", vllm_url=url, vllm_model="openai/gpt-oss-20b", out_dir=str(tmp_path),
+                     replicates=1, workers=2, cache_dir=None, **{"text.cache_dir": str(tmp_path / "cache")})
+    assert api.check_data(cfg)["replay_ok"]
+    assert api.check_llm(cfg)["ok"]
+    res = api.generate(cfg, limit=6, out_dir=str(tmp_path / "pilot"))
+    assert res["report"]["failed"] == 0 and res["report"]["rows"] > 0
+    assert Path(res["train"]).exists()
+    with pytest.raises(RuntimeError):
+        api.check_llm(api.config(backend="local", vllm_url=url, vllm_model="some/other-model"))
+
+
+def test_gpu_plan():
+    from turnval.train.hardware import plan
+    p = plan(1, "H100 80GB")
+    assert p["overrides"]["model.max_memory"] == {0: "70GiB"} and p["overrides"]["train.batch_rows"] >= 4
+    assert plan(2, "L40S")["overrides"]["data.max_length"] == 1536
+    with pytest.raises(ValueError):
+        plan(1, "A10G")                      # 24 GB cannot hold 42 GB of weights
+    with pytest.raises(ValueError):
+        plan(2, "V100 32GB")                 # no bf16
+    with pytest.raises(ValueError):
+        plan(1, "Mystery GPU")               # unknown without memory_gb

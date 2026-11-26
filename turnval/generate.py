@@ -193,28 +193,18 @@ def write_rows(rows: list[dict[str, Any]], path: Path) -> None:
         w.writerows(rows)
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="turnval.generate")
-    ap.add_argument("--config", default=str(ROOT / "turnval/config/default.yaml"))
-    ap.add_argument("--renderer", choices=["llm", "template"])
-    ap.add_argument("--limit", type=int, default=0, help="only the first N conversations (pilot)")
-    ap.add_argument("--out")
-    ap.add_argument("--no-split", action="store_true")
-    args = ap.parse_args(argv)
-    cfg = load_config(args.config)
-    if args.renderer:
-        cfg["text"]["renderer"] = args.renderer
-    if args.out:
-        cfg["output"]["dir"] = args.out
-    out = Path(cfg["output"]["dir"])
+def run(cfg: dict[str, Any], limit: int = 0, out_dir: str | Path | None = None, do_split: bool = True,
+        log=print) -> dict[str, Any]:
+    """The whole dataset step: design -> conversations -> rows -> (split). Returns the output paths and the report."""
+    out = Path(out_dir or cfg["output"]["dir"])
     out.mkdir(parents=True, exist_ok=True)
     gen = Generator(cfg)
-    design, rep = gen.factors.design(cfg["design"]["seed"], cfg["design"]["replicates"], cfg["design"]["extra_random"])
+    design, rep = gen.factors.design(cfg["design"]["seed"], cfg["design"]["replicates"], cfg["design"]["extra_random"],
+                                     log=log)
     write_csv(design, out / "design.csv")
     (out / "design.report.json").write_text(json.dumps({**rep, "coverage": gen.factors.coverage(design)}, indent=1))
-    if args.limit:
-        rng = random.Random(1)
-        design = rng.sample(design, min(args.limit, len(design)))
+    if limit:
+        design = random.Random(1).sample(design, min(limit, len(design)))
     t0 = time.time()
     convs, failures = [], []
     workers = int(cfg["text"].get("workers", 8)) if cfg["text"]["renderer"] == "llm" else 1
@@ -228,24 +218,46 @@ def main(argv: list[str] | None = None) -> int:
                 failures.append({"design_id": row["design_id"], "replicate": row.get("replicate"),
                                  "error": f"{type(e).__name__}: {e}", "trace": traceback.format_exc(limit=3)})
             if n % 25 == 0 or n == len(futs):
-                print(f"[generate] {n}/{len(futs)} conversations ({len(failures)} failed) {time.time() - t0:.0f}s")
+                log(f"[generate] {n}/{len(futs)} conversations ({len(failures)} failed) {time.time() - t0:.0f}s")
     convs.sort(key=lambda c: c["conv_id"])
     with open(out / "conversations.jsonl", "w") as fh:
         for c in convs:
             fh.write(json.dumps(c, default=str) + "\n")
     rows = [r for c in convs for r in rows_of(c, gen.factors.names)]
     rows += out_of_place(rows, int(cfg["simulation"].get("out_of_place_per_conversation", 1)), cfg["design"]["seed"])
+    if not rows:
+        raise RuntimeError(f"no rows were generated ({len(failures)} conversations failed; first: "
+                           f"{failures[0]['error'] if failures else '-'})")
     write_rows(rows, out / "rows.csv")
     report = {"conversations": len(convs), "failed": len(failures), "rows": len(rows),
               "positives": sum(r["label"] for r in rows), "negatives": sum(1 - r["label"] for r in rows),
               "rejected_by_quality_gate": sum(1 for r in rows if not int(r["accepted"])),
               "unknown_branch_conditions": sorted(gen.hrt.unknown_conditions), "failures": failures[:50],
-              "seconds": round(time.time() - t0, 1), "renderer": cfg["text"]["renderer"]}
+              "seconds": round(time.time() - t0, 1), "renderer": cfg["text"]["renderer"],
+              "backend": cfg["text"].get("backend")}
     (out / "generation_report.json").write_text(json.dumps(report, indent=1))
-    print(f"[generate] {len(convs)} conversations, {len(rows)} rows -> {out}")
-    if not args.no_split:
+    log(f"[generate] {len(convs)} conversations, {len(rows)} rows -> {out}")
+    result = {"out_dir": str(out), "rows": str(out / "rows.csv"), "conversations": str(out / "conversations.jsonl"),
+              "report": report}
+    if do_split:
         from .split import split_files
-        split_files(out / "rows.csv", out, cfg["split"], gen.factors.names)
+        result["split"] = split_files(out / "rows.csv", out, cfg["split"], gen.factors.names)
+        result.update({s: str(out / f"{s}.csv") for s in cfg["split"]["ratios"]})
+    return result
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="turnval.generate")
+    ap.add_argument("--config", default=str(ROOT / "turnval/config/default.yaml"))
+    ap.add_argument("--renderer", choices=["llm", "template"])
+    ap.add_argument("--limit", type=int, default=0, help="only the first N conversations (pilot)")
+    ap.add_argument("--out")
+    ap.add_argument("--no-split", action="store_true")
+    args = ap.parse_args(argv)
+    cfg = load_config(args.config)
+    if args.renderer:
+        cfg["text"]["renderer"] = args.renderer
+    run(cfg, args.limit, args.out, not args.no_split)
     return 0
 
 

@@ -33,6 +33,8 @@ def load_backbone(mcfg: dict[str, Any], texts: list[str] | None = None):
     from transformers import AutoModelForCausalLM, AutoTokenizer
     kw: dict[str, Any] = {"torch_dtype": getattr(torch, mcfg.get("dtype", "bfloat16")),
                           "device_map": mcfg.get("device_map", "auto")}
+    if mcfg.get("max_memory"):                          # per-GPU caps (train/hardware.plan); no CPU offload
+        kw["max_memory"] = {int(k) if str(k).isdigit() else k: v for k, v in mcfg["max_memory"].items()}
     if mcfg.get("dequantize_mxfp4", True) and "gpt-oss" in mcfg["backbone"]:
         from transformers import Mxfp4Config
         kw["quantization_config"] = Mxfp4Config(dequantize=True)
@@ -50,8 +52,9 @@ class TurnValidator(nn.Module):
         lc = mcfg.get("lora", {})
         kw = dict(r=lc.get("r", 16), lora_alpha=lc.get("alpha", 32), lora_dropout=lc.get("dropout", 0.05),
                   target_modules=lc.get("target_modules", ["q_proj", "k_proj", "v_proj", "o_proj"]), bias="none")
-        if lc.get("target_parameters"):
+        if lc.get("target_parameters"):                 # MoE experts (fused parameters): peft needs lora_dropout 0
             kw["target_parameters"] = lc["target_parameters"]
+            kw["lora_dropout"] = 0.0
         if mcfg.get("gradient_checkpointing") and hasattr(backbone, "gradient_checkpointing_enable"):
             backbone.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
             backbone.enable_input_require_grads()
@@ -66,14 +69,21 @@ class TurnValidator(nn.Module):
             enc = lambda w: tokenizer(w, add_special_tokens=False)["input_ids"][-1]
             self.yes_id, self.no_id = enc(" yes"), enc(" no")
 
+    def _decoder(self):
+        base = self.lm.get_base_model()
+        return base.get_decoder() if hasattr(base, "get_decoder") else base.model
+
     def forward(self, input_ids, attention_mask) -> dict[str, torch.Tensor]:
-        out = self.lm(input_ids=input_ids, attention_mask=attention_mask, output_hidden_states=True)
-        h = out.hidden_states[-1][:, -1, :]                      # left padded: the last position is the last token
-        h = h.to(self.head.weight.dtype)
+        # the decoder only (LoRA is inside it): no full-vocabulary logits for every position
+        pos = (attention_mask.long().cumsum(-1) - 1).clamp(min=0)    # left padding: positions start at the first token
+        out = self._decoder()(input_ids=input_ids, attention_mask=attention_mask, position_ids=pos, use_cache=False)
+        h_last = out.last_hidden_state[:, -1, :]                 # left padded: the last position is the last token
         if self.head_kind == "lm_token":
-            logits = out.logits[:, -1, :]
-            score = (logits[:, self.yes_id] - logits[:, self.no_id]).float()
-        else:
+            base = self.lm.get_base_model()
+            logits = base.lm_head(h_last.to(base.lm_head.weight.device))
+            score = (logits[:, self.yes_id] - logits[:, self.no_id]).float().to(self.head.weight.device)
+        h = h_last.to(self.head.weight.device, self.head.weight.dtype)   # the heads live on the first GPU
+        if self.head_kind != "lm_token":
             score = self.head(self.drop(h)).squeeze(-1).float()
         z = F.normalize(self.proj(h).float(), dim=-1)
         return {"score": score, "z": z}

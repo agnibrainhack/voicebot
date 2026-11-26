@@ -66,6 +66,7 @@ class Trainer:
         self.pos_weight = float((y == 0).sum() / max(1, (y == 1).sum())) if pw == "auto" else (float(pw) if pw else None)
         self.out = Path(_path(tc["out_dir"]))
         self.out.mkdir(parents=True, exist_ok=True)
+        (self.out / "train_config.json").write_text(json.dumps(cfg, indent=1, default=str))
         self.log = open(self.out / "train_log.jsonl", "a")
 
     # ------------------------------------------------------------------ scoring
@@ -190,6 +191,63 @@ class Trainer:
             summary[split] = rep["overall@best_f1"]
         (self.out / "summary.json").write_text(json.dumps(summary, indent=1, default=str))
         return summary
+
+
+class Predictor:
+    """A trained run (its folder) as a scorer: the backbone + LoRA adapter + heads + temperature."""
+
+    def __init__(self, run_dir: str | Path, texts_for_tiny: list[str] | None = None):
+        import torch
+        from peft import set_peft_model_state_dict
+        from safetensors.torch import load_file
+        from .model import TurnValidator, load_backbone
+        self.torch = torch
+        self.dir = Path(run_dir)
+        self.cfg = json.loads((self.dir / "train_config.json").read_text())
+        texts = texts_for_tiny
+        if self.cfg["model"]["backbone"] == "tiny-random" and texts is None:
+            from .data import load_rows
+            tr = load_rows(self.cfg["data"]["train"], self.cfg["data"].get("drop_rejected", True))
+            texts = (tr["summary"] + " " + tr["customer"] + " " + tr["response"]).tolist()
+        backbone, tok = load_backbone(self.cfg["model"], texts)
+        self.model = TurnValidator(backbone, tok, self.cfg["model"])
+        set_peft_model_state_dict(self.model.lm, load_file(str(self.dir / "adapter" / "adapter_model.safetensors")))
+        self.model.load_heads(str(self.dir / "adapter"))
+        self.device = self.model.lm.get_input_embeddings().weight.device
+        self.model.head.to(self.device); self.model.proj.to(self.device)
+        self.model.eval()
+        self.tok = tok
+        self.T = json.loads((self.dir / "calibration.json").read_text())["temperature"]
+        self.thresholds = json.loads((self.dir / "thresholds.json").read_text())
+
+    def score_frame(self, df, batch_rows: int = 8):
+        from .data import collate, encode
+        torch = self.torch
+        df = df.copy()
+        for c in ("summary", "customer", "response"):
+            df[c] = df[c].fillna("").astype(str)
+        if "group_id" not in df.columns:
+            df["group_id"] = [str(i) for i in range(len(df))]
+        lab = df["label"] if "label" in df.columns else None
+        df["label"] = 0 if lab is None else lab.astype(str).map(lambda v: int(v) if v in ("0", "1") else 0)
+        items = encode(df.reset_index(drop=True), self.tok, self.cfg["data"]["max_length"], "label")
+        s = np.zeros(len(items))
+        with torch.no_grad():
+            for i in range(0, len(items), batch_rows):
+                b = collate(items[i:i + batch_rows], self.tok.pad_token_id)
+                s[i:i + batch_rows] = self.model(b["input_ids"].to(self.device),
+                                                 b["attention_mask"].to(self.device))["score"].float().cpu().numpy()
+        if lab is not None:
+            df["label"] = lab.values
+        df["score"] = s
+        df["p"] = 1 / (1 + np.exp(-s / self.T))
+        for k, t in self.thresholds.items():
+            df[f"admissible@{k}"] = (df["p"] >= t).astype(int)
+        return df
+
+    def score_csv(self, path: str):
+        import pandas as pd
+        return self.score_frame(pd.read_csv(path, keep_default_na=False, dtype=str))
 
 
 def fit_temperature(scores: np.ndarray, y: np.ndarray) -> float:

@@ -31,7 +31,28 @@ The HRT-graph export has a known fault: 12 condition strings lose a quote. The l
 | 8. Training | `train/` | gpt-oss-20b (MXFP4 dequantised to bf16) with LoRA on attention (experts optional). Score head on the last token plus a projection. Loss = BCE + pairwise margin within each context group + supervised contrastive (classes: correct / each error family). Keeps the best checkpoint on val PR-AUC, fits a temperature on val, and sets thresholds on val. | Tiny-model run in tests |
 | 9. Evaluation | `evaluate.py`, `logs.py` | Overall metrics: accuracy, balanced accuracy, MCC, error and pass precision/recall/F1, ROC-AUC, PR-AUC, Brier, ECE. Pairwise accuracy per error family. Thresholds where flags or passes are right ≥ 95% of the time (with a Wilson interval). Per category: error family, operator, AOP, state, phase, variant, position, length, and every journey factor. `logs.py` turns real logs into rows to hand-label. | — |
 
-## Run
+## Run from Jupyter
+
+`turnval/notebooks/turnval_end_to_end.ipynb` runs every step as a section, through `turnval/api.py`:
+- data check;
+- text-model check;
+- design;
+- pilot;
+- full dataset;
+- split balance;
+- GPU plan;
+- training;
+- reports;
+- real logs.
+
+The first cell takes the inputs:
+- `BACKEND`, `VLLM_URL`, `VLLM_MODEL` (or `GATEWAY_MODEL` for the Microsoft gateway);
+- `NUM_GPUS` and `GPU_NAME` for training;
+- the output folders.
+
+`train/hardware.py` turns the GPU count and name into the training settings. It spreads the layers over the GPUs with per-GPU memory caps and no CPU offload, and sizes `max_length`, `batch_rows` and `grad_accum` to the memory left after the weights. It refuses GPUs that cannot hold the model or have no bf16 (V100, T4). Set `SMOKE_TEST = True` (or env `TURNVAL_SMOKE=1`) to run the whole notebook with a stand-in vLLM server and a tiny model, with no GPU or server.
+
+## Run from the shell
 
 ```bash
 # 0. data files in turnval/data/ ; a gpt-oss server for the text

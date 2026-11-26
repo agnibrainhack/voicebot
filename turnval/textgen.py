@@ -259,7 +259,7 @@ class LLMRenderer:
         self.errm = mk("tv_error", float(cfg.get("error_temperature", 0.8)), int(mt.get("bot", 1600)))
         self.summ = mk("tv_summary", 0.2, int(mt.get("summary", 1000)))
         self.judge = mk("tv_judge", 0.0, int(mt.get("judge", 1600)))
-        effort = cfg.get("reasoning_effort", "low")
+        effort = cfg.get("reasoning_effort", "")
         self.sys_suffix = f"\nReasoning: {effort}" if effort else ""
         self.max_tries = int(cfg.get("max_tries", 3))
         self.verify = bool(cfg.get("verify", False))

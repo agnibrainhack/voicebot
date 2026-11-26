@@ -21,7 +21,7 @@ model:
     alpha: 32
     dropout: 0.05
     target_modules: [q_proj, k_proj, v_proj, o_proj]
-    target_parameters: []        # e.g. [mlp.experts.gate_up_proj, mlp.experts.down_proj] to adapt the experts too
+    target_parameters: []        # e.g. [mlp.experts.gate_up_proj, mlp.experts.down_proj] to adapt the experts too (sets lora dropout 0)
 
 loss:
   bce: 1.0                       # every row: admissible (1) or not (0)
