@@ -1,41 +1,25 @@
-"""The LLM behind the test tools (the enrichment arm, the dual read, the adversary; the LLM judges, the policy judge,
-the case narration): the internal Microsoft (Azure OpenAI) model gateway, or a local model on vLLM, behind a replay cache.
+"""The text model for turnval: the internal Microsoft (Azure OpenAI) model gateway, or gpt-oss on vLLM, behind a
+replay cache. (Taken from the earlier case-generation project, which this branch no longer carries.)
 
-Which one is ``LLMSettings.backend``: ``"gateway"`` (default) or ``"local"`` (a model folder loaded in this process
-with vLLM, or an OpenAI-compatible vLLM server). It is chosen per **role**, separately:
-
-* ``enrichment``: the LLM arm that rewords the customer's turns (rephrase, dual read, adversary);
-* ``testing``: the two LLM judges, the policy judge of the speech check and the case narration.
-
-``use_backend(role, ...)`` sets a role's choice for this process and the processes it starts (environment
-``GMSJOURNEY_LLM_<ROLE>_BACKEND`` / ``_MODEL`` / ``_LOCAL_MODEL`` / ``_VLLM_URL``; without a role, the shared
-``GMSJOURNEY_LLM_BACKEND`` ... that both roles fall back to). The console's two settings and a campaign's
-``llm_backend`` / ``judges_backend`` do this. The bot under test chooses its own model separately.
+``LLMSettings.backend``: ``"gateway"`` (default) or ``"local"`` (an OpenAI-compatible vLLM server, or a model folder
+loaded in this process with vLLM; see local_llm.py).
 
 ``GatewayChat`` posts OpenAI-style chat completions to the gateway with ``requests``:
 
-* the bearer token is a short-lived ``gcloud`` credential (``LLMSettings.token_cmd``), refreshed on a
-  401/403; ``AEXP_ACCESS_TOKEN`` bypasses the CLI; the token is never stored, logged or reported;
+* the bearer token is a short-lived ``gcloud`` credential (``LLMSettings.token_cmd``), refreshed on a 401/403;
+  ``AEXP_ACCESS_TOKEN`` bypasses the CLI; the token is never stored, logged or reported;
 * ``x-aip-usecase-id`` comes from ``use_case_id`` (``AEXP_USE_CASE_ID`` overrides);
 * the deployment is ``model`` (``gpt-41`` for gpt-4.1, ``gpt-55`` for 5.5);
-* the endpoint is ``GMSJOURNEY_LLM_URL`` when set (the full chat-completions URL, ``{model}`` is filled
-  in), else ``{base_url}/models/{model}/chat/completions``;
-* TLS goes through the corporate CA bundle (``GMSJOURNEY_CA_BUNDLE``, else ``REQUESTS_CA_BUNDLE``, else
+* the endpoint is ``TURNVAL_LLM_URL`` when set (the full chat-completions URL, ``{model}`` is filled in), else
+  ``{base_url}/models/{model}/chat/completions``;
+* TLS goes through the corporate CA bundle (``TURNVAL_CA_BUNDLE``, else ``REQUESTS_CA_BUNDLE``, else
   ``/etc/ssl/certs/ca-certificates.crt``);
-* if the deployment rejects ``temperature``/``max_tokens`` or the system role (HTTP 400) the client adapts
-  once and records it;
-* every gateway call in the process goes through one **pacer** (``_Pacer``): at most
-  ``GMSJOURNEY_LLM_MAX_INFLIGHT`` calls at once (default 4). When the gateway throttles (HTTP 429) or strains (5xx,
-  a read timeout), every client pauses for its ``Retry-After`` (else an exponential, jittered wait) and the number
-  of calls at once is halved; each success raises it again, one step at a time, up to the maximum. So several
-  conversations at once, the critique and the judges share the gateway's capacity instead of racing for it;
-* a throttled or straining call is retried patiently, for up to ``retry_seconds`` (``GMSJOURNEY_LLM_RETRY_SECONDS``,
-  default 300) before it fails with ``LLMThrottled``; an unreachable endpoint still fails after ``max_retries``.
+* every gateway call in the process goes through one pacer: at most ``TURNVAL_LLM_MAX_INFLIGHT`` calls at once
+  (default 4), backing off on HTTP 429 / 5xx and retrying for up to ``TURNVAL_LLM_RETRY_SECONDS`` (default 300).
 
-``CachedLLM`` puts a content-addressed cache in front of it. Every response is stored under the SHA-256 of
-(prompt version, provider, model, temperature, messages, salt), so a campaign re-runs byte for byte without
-network access (``mode="replay"``); a miss in replay mode raises ``LLMUnavailable``. The cache holds model
-outputs only - prompts are hashed, not stored.
+``CachedLLM`` puts a content-addressed cache in front of it (``TURNVAL_CACHE``, default ``.cache/`` in the repo):
+every response is stored under the SHA-256 of (prompt version, provider, model, temperature, messages, salt), so a
+run repeats byte for byte without network access (``mode="replay"``). The cache holds model outputs only.
 """
 from __future__ import annotations
 
@@ -48,11 +32,15 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
-from . import progress as _progress
 from typing import Any
 
 
 PROMPT_VERSION = "llm-arm/1"
+CACHE = Path(os.environ.get("TURNVAL_CACHE", "") or Path(__file__).resolve().parent.parent / ".cache")
+
+
+def _llm_call(*_a, **_k) -> None:
+    """Progress hook (no-op)."""
 PROVIDER = "aexp"                          # the only transport (kept in the cache key)
 DEFAULT_MODEL = "gpt-41"
 DEFAULT_BASE_URL = "https://gaiapis.aexp.com/gcpapi/v1/microsoft"
@@ -64,10 +52,10 @@ ROLES = ("enrichment", "testing")
 def _env(role: str | None, key: str) -> str:
     """A role's setting from the environment, else the shared one."""
     if role:
-        v = os.environ.get(f"GMSJOURNEY_LLM_{role.upper()}_{key}", "").strip()
+        v = os.environ.get(f"TURNVAL_LLM_{role.upper()}_{key}", "").strip()
         if v:
             return v
-    return os.environ.get(f"GMSJOURNEY_LLM_{key}", "").strip()
+    return os.environ.get(f"TURNVAL_LLM_{key}", "").strip()
 
 
 def backend_env(role: str | None = None) -> dict[str, str]:
@@ -75,8 +63,8 @@ def backend_env(role: str | None = None) -> dict[str, str]:
     URL (each falling back to the shared setting, then to the bot's local-model variables)."""
     b = _env(role, "BACKEND").lower()
     return {"role": role or "", "backend": "local" if b == "local" else "gateway", "model": _env(role, "MODEL"),
-            "local_path": _env(role, "LOCAL_MODEL") or os.environ.get("GMSJOURNEY_SUT_LOCAL_MODEL", "").strip(),
-            "vllm_url": _env(role, "VLLM_URL") or os.environ.get("GMSJOURNEY_VLLM_URL", "").strip()}
+            "local_path": _env(role, "LOCAL_MODEL") or os.environ.get("TURNVAL_LOCAL_MODEL", "").strip(),
+            "vllm_url": _env(role, "VLLM_URL") or os.environ.get("TURNVAL_VLLM_URL", "").strip()}
 
 
 def use_backend(backend: str | None, local_path: str | None = None, vllm_url: str | None = None,
@@ -84,7 +72,7 @@ def use_backend(backend: str | None, local_path: str | None = None, vllm_url: st
     """Point a role's LLM (``role``: enrichment | testing; None: both, through the shared setting) at ``backend`` from
     now on, in this process and the processes it starts: "gateway" (with an optional deployment ``model``) or
     "local" with a model folder and/or a vLLM server URL. None leaves the environment as it is."""
-    pre = f"GMSJOURNEY_LLM_{role.upper()}_" if role else "GMSJOURNEY_LLM_"
+    pre = f"TURNVAL_LLM_{role.upper()}_" if role else "TURNVAL_LLM_"
     if backend:
         os.environ[pre + "BACKEND"] = "local" if backend == "local" else "gateway"
         for k, v in (("LOCAL_MODEL", local_path), ("VLLM_URL", vllm_url), ("MODEL", model)):
@@ -112,7 +100,7 @@ class _Pacer:
     max_tokens**, so a bot step (a 5-6k-token prompt) costs ten times a rewording call. The pacer keeps a bucket of
     tokens that refills at the quota's rate and lets a call through only when the bucket holds its estimated cost:
     calls are spaced so the gateway admits them, instead of being sent at once, refused (429) and retried. The quota
-    is ``GMSJOURNEY_LLM_TPM`` when set, else learnt from the deployment's own ``x-ratelimit-*`` headers (sent with
+    is ``TURNVAL_LLM_TPM`` when set, else learnt from the deployment's own ``x-ratelimit-*`` headers (sent with
     every Azure OpenAI reply), else unknown (no budget: only the cap in flight).
 
     The cap in flight is halved on a 429/5xx and raised one step per success (AIMD), and a 429 makes every client
@@ -127,7 +115,7 @@ class _Pacer:
         self.cv = threading.Condition()
         self.throttled = 0                   # how often the gateway pushed back (reported)
         self.tpm = tpm                       # tokens per minute (None: not known)
-        self.tpm_source = "GMSJOURNEY_LLM_TPM" if tpm else ""
+        self.tpm_source = "TURNVAL_LLM_TPM" if tpm else ""
         self.tokens = tpm or 0.0
         self.last = time.time()
         self.rpm: float | None = None
@@ -183,7 +171,7 @@ class _Pacer:
         with self.cv:
             if seen:
                 self.headers = seen
-            if lim and lim > 0 and self.tpm_source != "GMSJOURNEY_LLM_TPM":
+            if lim and lim > 0 and self.tpm_source != "TURNVAL_LLM_TPM":
                 if not self.tpm:
                     _log_line(f"[LLM] the deployment's quota: {int(lim)} tokens a minute"
                               + (f", {int(rpm)} requests" if rpm else "") + " (from its rate-limit headers)")
@@ -213,8 +201,8 @@ def _pacer(url: str) -> _Pacer:
     calling it: the bot under test, its critique, the Playground, the rewording and the judges on the same model."""
     with _SHARED_LOCK:
         if url not in _PACERS:
-            tpm = os.environ.get("GMSJOURNEY_LLM_TPM", "").strip()
-            _PACERS[url] = _Pacer(int(os.environ.get("GMSJOURNEY_LLM_MAX_INFLIGHT", "4") or 4),
+            tpm = os.environ.get("TURNVAL_LLM_TPM", "").strip()
+            _PACERS[url] = _Pacer(int(os.environ.get("TURNVAL_LLM_MAX_INFLIGHT", "4") or 4),
                                   float(tpm) if tpm else None)
         return _PACERS[url]
 
@@ -234,12 +222,12 @@ class LLMSettings:
     temperature: float = 0.7              # paraphrase diversity; reproducibility comes from the cache
     max_tokens: int = 220
     base_url: str = DEFAULT_BASE_URL
-    # the full chat-completions URL ("{model}" is filled in); env GMSJOURNEY_LLM_URL. Empty: from base_url
+    # the full chat-completions URL ("{model}" is filled in); env TURNVAL_LLM_URL. Empty: from base_url
     url: str = ""
     use_case_id: str = "825"              # the x-aip-usecase-id header; env AEXP_USE_CASE_ID
     token_cmd: str = "gcloud auth print-access-token"   # how the bearer token is obtained
     access_token_env: str = "AEXP_ACCESS_TOKEN"         # override for the CLI (tests, CI)
-    # CA bundle for the corporate TLS proxy; env GMSJOURNEY_CA_BUNDLE, then REQUESTS_CA_BUNDLE
+    # CA bundle for the corporate TLS proxy; env TURNVAL_CA_BUNDLE, then REQUESTS_CA_BUNDLE
     ca_bundle: str = "/etc/ssl/certs/ca-certificates.crt"
     # send temperature/max_tokens (standard OpenAI fields); AEXP_SEND_SAMPLING_PARAMS=0 sends model +
     # messages only. A deployment that rejects them is also detected and adapted to automatically.
@@ -248,15 +236,15 @@ class LLMSettings:
     connect_timeout: float = 10.0         # an unreachable endpoint fails in seconds, not minutes
     max_retries: int = 2                  # retries of an endpoint that cannot be reached
     # how long a throttled (429) or straining (5xx, read timeout) call keeps being retried before it fails;
-    # env GMSJOURNEY_LLM_RETRY_SECONDS
+    # env TURNVAL_LLM_RETRY_SECONDS
     retry_seconds: float = 300.0
     # ask for a JSON object reply (response_format json_object): the bot and its critique answer in JSON, and a
     # reply that is not JSON costs a whole second call; dropped automatically where a deployment rejects it
     json_mode: bool = False
     mode: str = "live"                    # live (call on a cache miss) | replay (cache only)
-    cache_dir: str | None = None          # default: <gmsjourney cache>/llm/<model>
+    cache_dir: str | None = None          # default: <TURNVAL_CACHE>/llm/<model>
     # print every live gateway response as it arrives (role, seed, seconds, reply text); cache hits are
-    # silent. Env GMSJOURNEY_LLM_LOG=1. log_max_chars truncates long replies (0 = print in full).
+    # silent. Env TURNVAL_LLM_LOG=1. log_max_chars truncates long replies (0 = print in full).
     log_responses: bool = False
     log_max_chars: int = 400
     # circuit breaker: after this many failed calls in a row (no success in between) the client stops
@@ -281,14 +269,14 @@ class LLMSettings:
             self.backend = "gateway"
             self.model = self.model or env["model"]
         self.model = self.model or DEFAULT_MODEL
-        self.base_url = os.environ.get("GMSJOURNEY_LLM_BASE_URL", "") or self.base_url or DEFAULT_BASE_URL
-        self.url = os.environ.get("GMSJOURNEY_LLM_URL", "") or self.url
+        self.base_url = os.environ.get("TURNVAL_LLM_BASE_URL", "") or self.base_url or DEFAULT_BASE_URL
+        self.url = os.environ.get("TURNVAL_LLM_URL", "") or self.url
         self.use_case_id = os.environ.get("AEXP_USE_CASE_ID", self.use_case_id)
-        self.ca_bundle = (os.environ.get("GMSJOURNEY_CA_BUNDLE") or os.environ.get("REQUESTS_CA_BUNDLE")
+        self.ca_bundle = (os.environ.get("TURNVAL_CA_BUNDLE") or os.environ.get("REQUESTS_CA_BUNDLE")
                           or self.ca_bundle)
         if os.environ.get("AEXP_SEND_SAMPLING_PARAMS", "").strip() in ("0", "false", "no"):
             self.send_sampling_params = False
-        if os.environ.get("GMSJOURNEY_LLM_LOG", "").strip() in ("1", "true", "yes"):
+        if os.environ.get("TURNVAL_LLM_LOG", "").strip() in ("1", "true", "yes"):
             self.log_responses = True
 
     # kept so cache keys and reports stay comparable with earlier runs
@@ -462,7 +450,7 @@ class GatewayChat:
         self._learn()
         pacer = _pacer(self._url())
         cost = estimate_tokens(self._payload(messages)["messages"], self.s.max_tokens)
-        window = float(os.environ.get("GMSJOURNEY_LLM_RETRY_SECONDS", "") or self.s.retry_seconds)
+        window = float(os.environ.get("TURNVAL_LLM_RETRY_SECONDS", "") or self.s.retry_seconds)
         deadline = None                                    # set at the first send: queueing for the quota is not giving up
         refreshed, adapted, unreachable, busy = False, 0, 0, 0
         while True:
@@ -544,7 +532,7 @@ def make_chat_model(s: LLMSettings):
     """The client for ``s.backend``: the gateway client (obtains the token now) or the local vLLM model (loaded on the
     first call, shared by every client of the same folder), or LLMUnavailable with the reason."""
     if s.backend == "local":
-        from .s06_bots.llm_bot import LocalChat, status
+        from .local_llm import LocalChat, status
         st = status(s.local_path, s.vllm_url)
         if not st["usable"]:
             raise LLMUnavailable(f"the local model cannot be used: {st['detail']}")
@@ -609,7 +597,6 @@ class CachedLLM:
     @property
     def dir(self) -> Path:
         """The cache directory for this model and role."""
-        from .s03_knowledge.build import CACHE
         base = Path(self.settings.cache_dir) if self.settings.cache_dir else CACHE / "llm"
         return base / (self.settings.model or "default").replace("/", "_") / self.tag
 
@@ -666,7 +653,7 @@ class CachedLLM:
             try:
                 text = json.loads(p.read_text())["text"]
                 self.stats.cache_hits += 1
-                _progress.llm_call(self.tag, "cached")
+                _llm_call(self.tag, "cached")
                 return text
             except (OSError, ValueError, KeyError):
                 pass
@@ -687,12 +674,12 @@ class CachedLLM:
             self.stats.errors += 1
             self.stats.last_error = f"{type(e).__name__}: {str(e)[:200]}"
             if isinstance(e, LLMThrottled):          # busy, not down: the pacer slows everyone; no breaker
-                _progress.llm_call(self.tag, "error", time.time() - t0)
+                _llm_call(self.tag, "error", time.time() - t0)
                 _log_line(f"[LLM {self.tag} gave up after the retry window · {salt}] {self.stats.last_error}")
                 raise
             with _SHARED_LOCK:
                 self._fails_in_row += 1
-            _progress.llm_call(self.tag, "error", time.time() - t0)
+            _llm_call(self.tag, "error", time.time() - t0)
             if self.settings.log_responses or self.stats.errors <= 3:      # failures always show at first
                 _log_line(f"[LLM {self.tag} FAILED · {salt} · {time.time() - t0:.1f}s] {self.stats.last_error}")
             lim = self.settings.max_consecutive_failures
@@ -714,7 +701,7 @@ class CachedLLM:
         usage = getattr(out, "usage_metadata", None) or {}
         self.stats.input_tokens += int(usage.get("input_tokens", 0) or 0)
         self.stats.output_tokens += int(usage.get("output_tokens", 0) or 0)
-        _progress.llm_call(self.tag, "live", time.time() - t0,
+        _llm_call(self.tag, "live", time.time() - t0,
                            int(usage.get("input_tokens", 0) or 0) + int(usage.get("output_tokens", 0) or 0))
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps({"text": text, "model": self.settings.model,

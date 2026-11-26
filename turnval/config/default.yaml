@@ -19,12 +19,12 @@ simulation:
 text:
   renderer: llm            # llm | template (template: no model, for dry runs)
   backend: local           # local = gpt-oss on vLLM (vllm_url or local_path); gateway = the Amex model gateway
-  vllm_url: ""             # e.g. http://localhost:8000/v1 ; env GMSJOURNEY_VLLM_URL is used when empty
+  vllm_url: ""             # e.g. http://localhost:8000/v1 ; env TURNVAL_VLLM_URL is used when empty
   local_path: ""           # with vllm_url: the served model name (e.g. openai/gpt-oss-20b); without: a model folder loaded in-process
   model: ""                # gateway deployment (gpt-41, gpt-55) when backend = gateway
   role: enrichment
   mode: live               # live | replay (cache only)
-  cache_dir: null          # default: the gmsjourney cache
+  cache_dir: null          # default: <repo>/.cache (env TURNVAL_CACHE)
   customer_temperature: 0.9
   bot_temperature: 0.6
   error_temperature: 0.8

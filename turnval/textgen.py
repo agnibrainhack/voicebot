@@ -1,7 +1,7 @@
 """Block 5 - the words: customer turns, correct and erroneous bot responses, step summaries.
 
 Two renderers with one interface:
-  LLMRenderer       gpt-oss on vLLM or the Amex gateway, through gmsjourney.llm (cache, pacer, circuit breaker).
+  LLMRenderer       gpt-oss on vLLM or the Amex gateway, through turnval.llm (cache, pacer, circuit breaker).
                     Every call asks for a JSON object; a reply that is not usable is retried with a new salt.
                     Optional quality gate (``verify: true``): an LLM judge checks a correct response against its
                     HRTs and an erroneous one for its intended defect; failures are regenerated (``max_tries``).
@@ -242,11 +242,11 @@ class TemplateRenderer:
 
 
 class LLMRenderer:
-    """Text from gpt-oss (vLLM) or the Amex gateway via gmsjourney.llm."""
+    """Text from gpt-oss (vLLM) or the Amex gateway via turnval.llm."""
     name = "llm"
 
     def __init__(self, cfg: dict[str, Any]):
-        from gmsjourney.llm import CachedLLM, LLMSettings
+        from .llm import CachedLLM, LLMSettings
         def mk(tag, temp, max_tokens):
             s = LLMSettings(backend=cfg.get("backend", ""), model=cfg.get("model", ""), vllm_url=cfg.get("vllm_url", ""),
                             local_path=cfg.get("local_path", ""), temperature=temp, max_tokens=max_tokens,

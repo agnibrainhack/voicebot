@@ -3,25 +3,18 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "gmsjourney"
-version = "0.4.0"
-description = "GMS-grounded journey testing for a charge-review voice bot (method of 'Beyond Ship and Pray'), on knowlytix + proofloop + forgeloop"
-requires-python = ">=3.12"
-# knowlytix-core ships CPython 3.12 wheels only and needs a runtime licence (KNOWLYTIX_LICENSE_KEY);
-# proofloop / forgeloop are Apache-2.0.
-dependencies = ["numpy>=1.24", "scipy>=1.10", "pandas>=1.5", "pyyaml>=6.0",
-                "knowlytix==1.5.0", "proofloop>=0.1.5", "forgeloop>=0.1.4"]
+name = "turnval"
+version = "0.1.0"
+description = "Turn-validator dataset generation (AOP flow + HRT graph) and contrastive LoRA training of gpt-oss-20b"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "pandas>=1.5", "pyyaml>=6.0", "scikit-learn>=1.2", "requests>=2.28"]
 
 [project.optional-dependencies]
-test = ["pytest"]
-# only to rebuild the policy graph from the PDF (python -m gmsjourney.s02_graph.triples build)
-pdf = ["pypdf>=4.0"]
-# the LLM enrichment arm (the Microsoft model gateway; gcloud token)
-llm = ["requests>=2.28", "tqdm>=4.60"]
+train = ["torch>=2.4", "transformers>=4.55", "peft>=0.17", "accelerate>=0.33", "safetensors", "tokenizers"]
+test = ["pytest", "nbclient", "nbformat", "ipykernel"]
 
 [tool.setuptools.packages.find]
-include = ["gmsjourney*"]
+include = ["turnval*"]
 
 [tool.setuptools.package-data]
-gmsjourney = ["policy/*/*.md", "policy/*/*.json", "policy/*/*.yaml", "s05_rewording/catalogs/official/*.yaml",
-              "s05_rewording/catalogs/official/*.md", "s10_console/*.html", "s09_reports/*.html"]
+turnval = ["config/*.yaml", "train/*.yaml", "notebooks/*.ipynb"]
